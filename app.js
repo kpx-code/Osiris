@@ -122,6 +122,7 @@ function changeTimeframe(interval) {
 }
 
 // --- MATRIX REKENKERN ---
+// --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
@@ -129,48 +130,56 @@ function applyUOTAMGrid(chartData) {
     const maxTimeSec = chartData[chartData.length - 1].time;
     const markers = [];
     
-    const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
-    const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
+    // 1. MACRO GRAFIEK LOGICA (1 DAG)
+    if (currentInterval === '1d') {
+        // GOUDEN STANDAARD: We meten in stappen van exact 56 dagen vanaf ANCHOR_TIME (1 juli 2026)
+        const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+        const MACRO_STEP_MS = 56 * ONE_DAY_MS; 
 
-    let candleSizeSec = 900; // 15m standaard
-    if (currentInterval === '30m') candleSizeSec = 1800;
-    if (currentInterval === '1h') candleSizeSec = 3600;
-    if (currentInterval === '1d') candleSizeSec = 86400; // 1 dag in seconden
+        // Bereken hoeveel stappen van 56 dagen we terug en vooruit moeten zoeken op basis van de ingeladen chart-data
+        const startStep = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / MACRO_STEP_MS) - 2;
+        const endStep = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / MACRO_STEP_MS) + 2;
 
-    for (let i = startSearchIndex; i <= endSearchIndex; i++) {
-        const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
-        const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
-        
-        const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
-        const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
-        
-        if (closestCandle) {
-            const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
-            const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
+        for (let s = startStep; s <= endStep; s++) {
+            // Bereken de exacte macro-dag (timestamp) voor deze cyclusstap
+            const macroTimeMs = ANCHOR_TIME + (s * MACRO_STEP_MS);
+            const macroTimeSec = Math.floor(macroTimeMs / 1000);
+
+            // Zoek de daggans die matcht met deze exacte datum
+            const closestCandle = chartData.find(c => c.time === macroTimeSec);
+
+            if (closestCandle) {
+                // Label de ankerdatum zelf als 'Centraal Anker', de rest als Macro Cyclus + of -
+                let labelText = `MACRO CYCLUS (56d x ${s})`;
+                if (s === 0) labelText = "UOTAM ANKER (1 JULI 2026)";
+
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'belowBar',
+                    color: '#ff3366',
+                    shape: 'verticalLine',
+                    text: labelText,
+                });
+            }
+        }
+    } 
+    // 2. INTRADAY SCALP LOGICA (15m, 30m, 1h)
+    else {
+        const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
+        const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
+        const candleSizeSec = currentInterval === '30m' ? 1800 : (currentInterval === '1h' ? 3600 : 900);
+
+        for (let i = startSearchIndex; i <= endSearchIndex; i++) {
+            const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
+            const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
             
-            // MACRO FILTERING: Op de daggrafiek tonen we alleen grote, betekenisvolle ankerpunten om tekst-ruis te voorkomen
-            if (currentInterval === '1d') {
-                // Toon op 1D alleen belangrijke hoofd-omslagen (bijvoorbeeld elke 24ste node) om overbevolking te voorkomen
-                if (i % 24 === 0 && !hasCoreNode) {
-                    markers.push({
-                        time: closestCandle.time,
-                        position: 'aboveBar',
-                        color: '#00ffcc',
-                        shape: 'arrowDown',
-                        text: `Macro Node ${i}`,
-                    });
-                }
-                if (i % 48 === 0 && !hasExpiration) {
-                    markers.push({
-                        time: closestCandle.time,
-                        position: 'belowBar',
-                        color: '#ff3366',
-                        shape: 'verticalLine',
-                        text: `MACRO EXPIRATIE`,
-                    });
-                }
-            } else {
-                // Dit is je originele, haarscherpe intraday scalp-logica (15m, 30m, 1h)
+            const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
+            const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
+            
+            if (closestCandle) {
+                const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
+                const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
+                
                 if (i % 3 === 0 && !hasCoreNode) {
                     let vortexValue = "";
                     const flowIndex = (i / 3) % 3; 
@@ -200,11 +209,11 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
+    // Netjes sorteren en plotten via de API
     markers.sort((a, b) => a.time - b.time);
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     updateInfoPanel();
 }
-
 // --- LIVE KLOK BEREKENING ---
 function updateInfoPanel() {
     const now = Date.now();
