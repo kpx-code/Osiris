@@ -30,10 +30,13 @@ chart.subscribeCrosshairMove(param => {
         const d = param.seriesData.get(candlestickSeries);
         ohlc.o = d.open.toFixed(2); ohlc.h = d.high.toFixed(2); ohlc.l = d.low.toFixed(2); ohlc.c = d.close.toFixed(2);
     }
-    document.getElementById('ohlc-open').innerText = ohlc.o;
-    document.getElementById('ohlc-high').innerText = ohlc.h;
-    document.getElementById('ohlc-low').innerText = ohlc.l;
-    document.getElementById('ohlc-close').innerText = ohlc.c;
+    const el = (id) => document.getElementById(id);
+    if(el('ohlc-open')) {
+        el('ohlc-open').innerText = ohlc.o;
+        el('ohlc-high').innerText = ohlc.h;
+        el('ohlc-low').innerText = ohlc.l;
+        el('ohlc-close').innerText = ohlc.c;
+    }
 });
 
 // --- HOOFDFUNCTIE: INITIALISATIE ---
@@ -59,9 +62,14 @@ async function initDashboard() {
     } catch (e) { console.error("Init fout:", e); }
 }
 
-// --- GRID ROUTER ---
+// --- GRID ROUTER (Met foutafhandeling voor markers) ---
 function refreshGrid() {
-    candlestickSeries.setMarkers([]); 
+    try {
+        if (typeof candlestickSeries.setMarkers === 'function') {
+            candlestickSeries.setMarkers([]);
+        }
+    } catch(e) { console.warn("Markers wissen mislukt, negeren."); }
+
     if (currentInterval === '1d') {
         applyMacroGrid(globalChartData);
     } else {
@@ -72,14 +80,12 @@ function refreshGrid() {
 // --- TIMEFRAME SWITCH ---
 window.changeTimeframe = function(interval) {
     currentInterval = interval;
-    
     document.querySelectorAll('.timeframe-selector button').forEach(btn => {
         const isActive = btn.id === `btn-${interval}`;
         btn.style.background = isActive ? '#00ffcc' : '#1f2233';
         btn.style.color = isActive ? '#131722' : '#fff';
         btn.style.fontWeight = isActive ? 'bold' : 'normal';
     });
-
     initDashboard();
 };
 
@@ -96,7 +102,7 @@ function applyMacroGrid(chartData) {
             markers.push({ time: c.time, position: 'belowBar', color: '#ff3366', shape: 'verticalLine', text: `NODE ${diff * 56}d` });
         }
     });
-    candlestickSeries.setMarkers(markers);
+    if (typeof candlestickSeries.setMarkers === 'function') candlestickSeries.setMarkers(markers);
 }
 
 function applyIntradayGrid(chartData) {
@@ -106,7 +112,7 @@ function applyIntradayGrid(chartData) {
         if (i % 3 === 0) markers.push({ time: c.time, position: 'aboveBar', color: '#00ffcc', shape: 'arrowDown', text: `Node ${i}` });
         if (i % 8 === 0) markers.push({ time: c.time, position: 'belowBar', color: '#ff3366', shape: 'verticalLine', text: `EXP` });
     });
-    candlestickSeries.setMarkers(markers);
+    if (typeof candlestickSeries.setMarkers === 'function') candlestickSeries.setMarkers(markers);
 }
 
 // --- CLOCK ENGINE ---
@@ -119,7 +125,6 @@ function startClockEngine() {
 
         const now = Date.now();
         const pad = (n) => String(n).padStart(2, '0');
-
         const getCountdown = (factor) => {
             const idx = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * factor)) * factor;
             const target = ANCHOR_TIME + (idx * T_PI_MS);
@@ -129,7 +134,6 @@ function startClockEngine() {
                 cd: `${pad(Math.floor(diff/3600000))}:${pad(Math.floor((diff%3600000)/60000))}:${pad(Math.floor((diff%60000)/1000))}`
             };
         };
-
         const core = getCountdown(3);
         const exp = getCountdown(8);
         cN.innerHTML = `${core.text}<br><span style="color:#00ffcc; font-family:monospace;">CD: ${core.cd}</span>`;
