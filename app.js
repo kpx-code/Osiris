@@ -136,22 +136,26 @@ function applyUOTAMGrid(chartData) {
         const ONE_DAY_MS = 24 * 60 * 60 * 1000;
         const MACRO_STEP_MS = 56 * ONE_DAY_MS; 
 
-        // Zet het anker wiskundig vast op exact middernacht (00:00:00 UTC) voor de daggrafiek match
+        // Harde UTC-datumafspraak voor daggrafieken
         const anchorMidnightMs = new Date('2026-07-01T00:00:00Z').getTime();
 
-        const startStep = Math.floor(((minTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) - 2;
-        const endStep = Math.ceil(((maxTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) + 2;
+        const startStep = Math.floor(((minTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) - 5;
+        const endStep = Math.ceil(((maxTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) + 5;
 
         for (let s = startStep; s <= endStep; s++) {
             const macroTimeMs = anchorMidnightMs + (s * MACRO_STEP_MS);
-            const macroTimeSec = Math.floor(macroTimeMs / 1000);
+            
+            // CONVERTEER COORDINAAT NAAR PUUR DATUMFORMAAT (YYYY-MM-DD)
+            const targetDateStr = new Date(macroTimeMs).toISOString().split('T')[0];
 
-            // Match de genormaliseerde dag-timestamp met de Binance dataset
-            const closestCandle = chartData.find(c => c.time === macroTimeSec);
+            // Zoek de kaars door de timestamp van de kaars om te zetten naar diezelfde datumstring
+            const closestCandle = chartData.find(c => {
+                const candleDateStr = new Date(c.time * 1000).toISOString().split('T')[0];
+                return candleDateStr === targetDateStr;
+            });
 
             if (closestCandle) {
                 let labelText = `MACRO NODE (${s * 56}d)`;
-                if (s < 0) labelText = `MACRO NODE (${s * 56}d)`;
                 if (s === 0) labelText = "UOTAM ANKER (1 JULI 2026)";
 
                 markers.push({
