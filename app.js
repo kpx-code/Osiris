@@ -28,7 +28,8 @@ const chart = LightweightCharts.createChart(chartContainer, {
 // Gecorrigeerde Versie 5 syntax: we gebruiken 'createCandlestickSeries' i.p.v 'addCandlestickSeries'
 
 
-const candlestickSeries = chart.createCandlestickSeries({
+// --- INITIALISEER DE CANDLESTICK SERIE (Versie 5+ Standaard) ---
+const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
     upColor: '#26a69a',
     downColor: '#ef5350',
     borderVisible: false,
