@@ -119,7 +119,9 @@ function applyUOTAMGrid(chartData) {
     
     // Sorteer alle signalen chronologisch en activeer ze op het scherm
     markers.sort((a, b) => a.time - b.time);
-    candlestickSeries.setMarkers(markers);
+    // candlestickSeries.setMarkers(markers);
+    // GOUDEN STANDAARD VERSIE 5 SYNTAX:
+    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     
     // Update de realtime klokken in het dashboard
     updateInfoPanel();
