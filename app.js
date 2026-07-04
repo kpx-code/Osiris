@@ -26,6 +26,12 @@ const chart = LightweightCharts.createChart(chartContainer, {
         timeVisible: true,
         secondsVisible: false,
     },
+    // GOUDEN STANDAARD UPGRADE: Dynamische Logaritmische Prijs-As support
+    rightPriceScale: {
+        mode: 1, // 1 = LightweightCharts.PriceScaleMode.Logarithmic
+        autoScale: true,
+        borderVisible: false,
+    },
 });
 
 const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
@@ -50,11 +56,9 @@ chart.subscribeCrosshairMove(param => {
         ohlcLow.innerText = data.low.toFixed(2);
         ohlcClose.innerText = data.close.toFixed(2);
         
-        // Kleur aanpassen op basis van bullish/bearish candle
         const color = data.close >= data.open ? '#26a69a' : '#ef5350';
         ohlcClose.style.color = color;
     } else {
-        // Reset waarden als muis buiten de grafiek staat
         ohlcOpen.innerText = '-';
         ohlcHigh.innerText = '-';
         ohlcLow.innerText = '-';
@@ -66,12 +70,11 @@ chart.subscribeCrosshairMove(param => {
 // --- HOOFDFUNCTIE: INITIALISATIE ---
 async function initDashboard() {
     try {
-        // 1. Haal historische data op op basis van het gekozen interval
         const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
         const rawData = await response.json();
         
         const chartData = rawData.map(d => ({
-            time: Math.floor(d[0] / 1000), // Vertaalt UTC timestamps direct naar correcte lokale browsertijd (CET)
+            time: Math.floor(d[0] / 1000), // Vertaalt direct naar lokale browsertijd (CET)
             open: parseFloat(d[1]),
             high: parseFloat(d[2]),
             low: parseFloat(d[3]),
@@ -79,11 +82,7 @@ async function initDashboard() {
         }));
         
         candlestickSeries.setData(chartData);
-
-        // 2. Bereken en plot de UOTAM Matrix Nodes
         applyUOTAMGrid(chartData);
-        
-        // 3. Start de Live WebSocket verbinding
         startLiveUpdates();
     } catch (error) {
         console.error("Fout bij het laden van de UOTAM Engine data:", error);
@@ -94,7 +93,13 @@ async function initDashboard() {
 function changeTimeframe(interval) {
     currentInterval = interval;
     
-    // Update knoppen styling
+    // Dynamische Schaal-wissel: Schakel Logaritme in voor 1d, zet terug op Normaal (0) voor intraday scalp
+    if (interval === '1d') {
+        chart.priceScale('right').applyOptions({ mode: 1 }); // Logarithmic
+    } else {
+        chart.priceScale('right').applyOptions({ mode: 0 }); // Normal / Linear
+    }
+    
     const intervals = ['15m', '30m', '1h', '1d'];
     intervals.forEach(int => {
         const btn = document.getElementById(`btn-${int}`);
@@ -113,7 +118,6 @@ function changeTimeframe(interval) {
         }
     });
 
-    // Herstart het dashboard met het nieuwe interval
     initDashboard();
 }
 
@@ -125,11 +129,9 @@ function applyUOTAMGrid(chartData) {
     const maxTimeSec = chartData[chartData.length - 1].time;
     const markers = [];
     
-    // Bereken het venster in indices
     const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
     const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
 
-    // Bepaal de omvang van 1 kaars in seconden op basis van het actieve interval
     let candleSizeSec = 900; // 15m standaard
     if (currentInterval === '30m') candleSizeSec = 1800;
     if (currentInterval === '1h') candleSizeSec = 3600;
@@ -139,49 +141,66 @@ function applyUOTAMGrid(chartData) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
-        // Rond de exacte wiskundige node-tijd af naar de dichtstbijzijnde kaars-starttijd
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
-        
-        // Zoek of deze kaars bestaat in de dataset
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            // STRIKTE DE-DUPLICATIE: Voorkom dat er op lagere timeframes waslijsten onder elkaar ontstaan
             const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
             const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
             
-            if (i % 3 === 0 && !hasCoreNode) {
-                let vortexValue = "";
-                const flowIndex = (i / 3) % 3; 
-                if (flowIndex === 0) vortexValue = "3 (Start)";
-                else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6 (Inversie)";
-                else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9 (Absorptie)";
+            // MACRO FILTERING: Op de daggrafiek tonen we alleen grote, betekenisvolle ankerpunten om tekst-ruis te voorkomen
+            if (currentInterval === '1d') {
+                // Toon op 1D alleen belangrijke hoofd-omslagen (bijvoorbeeld elke 24ste node) om overbevolking te voorkomen
+                if (i % 24 === 0 && !hasCoreNode) {
+                    markers.push({
+                        time: closestCandle.time,
+                        position: 'aboveBar',
+                        color: '#00ffcc',
+                        shape: 'arrowDown',
+                        text: `Macro Node ${i}`,
+                    });
+                }
+                if (i % 48 === 0 && !hasExpiration) {
+                    markers.push({
+                        time: closestCandle.time,
+                        position: 'belowBar',
+                        color: '#ff3366',
+                        shape: 'verticalLine',
+                        text: `MACRO EXPIRATIE`,
+                    });
+                }
+            } else {
+                // Dit is je originele, haarscherpe intraday scalp-logica (15m, 30m, 1h)
+                if (i % 3 === 0 && !hasCoreNode) {
+                    let vortexValue = "";
+                    const flowIndex = (i / 3) % 3; 
+                    if (flowIndex === 0) vortexValue = "3 (Start)";
+                    else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6 (Inversie)";
+                    else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9 (Absorptie)";
 
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'aboveBar',
-                    color: '#00ffcc',
-                    shape: 'arrowDown',
-                    text: `Node ${i} [Vortex ${vortexValue.charAt(0)}]`,
-                });
-            }
-            
-            if (i % 8 === 0 && !hasExpiration) {
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'belowBar',
-                    color: '#ff3366',
-                    shape: 'verticalLine',
-                    text: `EXPIRATIE (Node ${i})`,
-                });
+                    markers.push({
+                        time: closestCandle.time,
+                        position: 'aboveBar',
+                        color: '#00ffcc',
+                        shape: 'arrowDown',
+                        text: `Node ${i} [Vortex ${vortexValue.charAt(0)}]`,
+                    });
+                }
+                
+                if (i % 8 === 0 && !hasExpiration) {
+                    markers.push({
+                        time: closestCandle.time,
+                        position: 'belowBar',
+                        color: '#ff3366',
+                        shape: 'verticalLine',
+                        text: `EXPIRATIE (Node ${i})`,
+                    });
+                }
             }
         }
     }
     
-    // Altijd sorteren op tijd voor de Lightweight Charts bibliotheek
     markers.sort((a, b) => a.time - b.time);
-    
-    // Teken de unieke, opgeschoonde markers op de chart
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     updateInfoPanel();
 }
@@ -200,11 +219,11 @@ function updateInfoPanel() {
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
-    // Sluit de oude WebSocket als die nog open staat bij een timeframe-switch
     if (currentWs) {
         currentWs.close();
     }
 
+    // Binance gebruikt '1d' voor de daily kline stream
     currentWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${currentInterval}`);
     
     currentWs.onmessage = (event) => {
@@ -227,6 +246,5 @@ window.addEventListener('resize', () => {
     chart.resize(chartContainer.clientWidth, 600);
 });
 
-// Start het systeem op
 initDashboard();
 setInterval(updateInfoPanel, 60000);
