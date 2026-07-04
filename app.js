@@ -1,10 +1,8 @@
 // --- CONFIGURATIE ---
 const ANCHOR_TIME = new Date('2026-07-01T12:00:00Z').getTime();
-const T_PI_MINUTES = 188.6634;
-const T_PI_MS = T_PI_MINUTES * 60 * 1000;
+const T_PI_MS = 188.6634 * 60 * 1000;
 
 let currentInterval = '15m';
-let currentWs = null;
 let globalChartData = [];
 let countdownInterval = null;
 
@@ -14,27 +12,12 @@ const chart = LightweightCharts.createChart(chartContainer, {
     width: chartContainer.clientWidth,
     height: 600,
     layout: { background: { color: '#131722' }, textColor: '#d1d4dc' },
-    grid: { vertLines: { color: '#1f2233' }, horzLines: { color: '#1f2233' } },
 });
 
-const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-    upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
-});
-
-// --- MOUSE HOVER (OHLC) ---
-chart.subscribeCrosshairMove(param => {
-    if (param.time && param.seriesData.has(candlestickSeries)) {
-        const d = param.seriesData.get(candlestickSeries);
-        document.getElementById('ohlc-open').innerText = d.open.toFixed(2);
-        document.getElementById('ohlc-high').innerText = d.high.toFixed(2);
-        document.getElementById('ohlc-low').innerText = d.low.toFixed(2);
-        document.getElementById('ohlc-close').innerText = d.close.toFixed(2);
-    }
-});
+const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries);
 
 // --- HOOFDFUNCTIE ---
 async function initDashboard() {
-    if (currentWs) { currentWs.close(); currentWs = null; }
     try {
         const resp = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
         const data = await resp.json();
@@ -42,36 +25,44 @@ async function initDashboard() {
             time: Math.floor(d[0] / 1000),
             open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4])
         }));
+        
         candlestickSeries.setData(globalChartData);
-        refreshGrid();
-        startLiveUpdates();
+        
+        // Wacht kort om te zorgen dat de chart 'ready' is voor markers
+        setTimeout(refreshMarkers, 500); 
     } catch (e) { console.error("Init fout:", e); }
 }
 
-// --- GRID LOGICA (PriceLine is 100% v5 compatibel) ---
-function refreshGrid() {
-    // Verwijder oude lijnen
-    candlestickSeries.priceLines().forEach(line => candlestickSeries.removePriceLine(line));
-
+// --- MARKER LOGICA (Tekst opmaak zoals in afbeeldingen) ---
+function refreshMarkers() {
+    const markers = [];
+    
     globalChartData.forEach(c => {
-        const i = Math.round((c.time * 1000 - ANCHOR_TIME) / T_PI_MS);
-        // Teken verticale "node" lijnen
-        if (i % 3 === 0) {
-            candlestickSeries.createPriceLine({
-                price: c.close,
+        const nodeIdx = Math.round((c.time * 1000 - ANCHOR_TIME) / T_PI_MS);
+        
+        // Logica voor Vortex weergave
+        if (nodeIdx % 3 === 0) {
+            let vortex = (nodeIdx % 9 === 0) ? 9 : (nodeIdx % 6 === 0) ? 6 : 3;
+            markers.push({
+                time: c.time,
+                position: 'aboveBar',
                 color: '#00ffcc',
-                lineWidth: 1,
-                lineStyle: 1,
-                axisLabelVisible: false,
-                title: `Node ${i}`
+                shape: 'arrowDown',
+                text: `Node ${nodeIdx} [Vortex ${vortex}]`
             });
         }
     });
+
+    // Failsafe voor v5.2.0 build beperkingen
+    if (typeof candlestickSeries.setMarkers === 'function') {
+        candlestickSeries.setMarkers(markers);
+    } else {
+        console.error("Fout: Jouw versie van Lightweight Charts ondersteunt geen setMarkers.");
+    }
 }
 
-// --- CLOCK ENGINE ---
+// --- CLOCK & LIVE UPDATES ---
 function startClockEngine() {
-    if (countdownInterval) clearInterval(countdownInterval);
     countdownInterval = setInterval(() => {
         const cN = document.getElementById('next-core-node');
         const eN = document.getElementById('next-expiration');
@@ -86,17 +77,6 @@ function startClockEngine() {
         cN.innerHTML = `Core Node CD: ${getCD(3)}`;
         eN.innerHTML = `Expiratie CD: ${getCD(8)}`;
     }, 1000);
-}
-
-// --- LIVE DATA ---
-function startLiveUpdates() {
-    currentWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${currentInterval}`);
-    currentWs.onmessage = (e) => {
-        const m = JSON.parse(e.data).k;
-        candlestickSeries.update({
-            time: Math.floor(m.t/1000), open: parseFloat(m.o), high: parseFloat(m.h), low: parseFloat(m.l), close: parseFloat(m.c)
-        });
-    };
 }
 
 window.changeTimeframe = (int) => { currentInterval = int; initDashboard(); };
