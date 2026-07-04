@@ -26,9 +26,8 @@ const chart = LightweightCharts.createChart(chartContainer, {
         timeVisible: true,
         secondsVisible: false,
     },
-    // GOUDEN STANDAARD UPGRADE: Dynamische Logaritmische Prijs-As support
     rightPriceScale: {
-        mode: 1, // 1 = LightweightCharts.PriceScaleMode.Logarithmic
+        mode: 1, // Start in Logarithmic mode
         autoScale: true,
         borderVisible: false,
     },
@@ -74,7 +73,7 @@ async function initDashboard() {
         const rawData = await response.json();
         
         const chartData = rawData.map(d => ({
-            time: Math.floor(d[0] / 1000), // Vertaalt direct naar lokale browsertijd (CET)
+            time: Math.floor(d[0] / 1000), 
             open: parseFloat(d[1]),
             high: parseFloat(d[2]),
             low: parseFloat(d[3]),
@@ -93,11 +92,14 @@ async function initDashboard() {
 function changeTimeframe(interval) {
     currentInterval = interval;
     
-    // Dynamische Schaal-wissel: Schakel Logaritme in voor 1d, zet terug op Normaal (0) voor intraday scalp
+    // CRUCIALE FIX: Gooi de oude markers op de chart DIRECT leeg bij een wissel!
+    LightweightCharts.createSeriesMarkers(candlestickSeries, []);
+    
+    // Dynamische Schaal-wissel
     if (interval === '1d') {
         chart.priceScale('right').applyOptions({ mode: 1 }); // Logarithmic
     } else {
-        chart.priceScale('right').applyOptions({ mode: 0 }); // Normal / Linear
+        chart.priceScale('right').applyOptions({ mode: 0 }); // Linear
     }
     
     const intervals = ['15m', '30m', '1h', '1d'];
@@ -122,7 +124,6 @@ function changeTimeframe(interval) {
 }
 
 // --- MATRIX REKENKERN ---
-// --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
@@ -132,25 +133,22 @@ function applyUOTAMGrid(chartData) {
     
     // 1. MACRO GRAFIEK LOGICA (1 DAG)
     if (currentInterval === '1d') {
-        // GOUDEN STANDAARD: We meten in stappen van exact 56 dagen vanaf ANCHOR_TIME (1 juli 2026)
         const ONE_DAY_MS = 24 * 60 * 60 * 1000;
         const MACRO_STEP_MS = 56 * ONE_DAY_MS; 
 
-        // Bereken hoeveel stappen van 56 dagen we terug en vooruit moeten zoeken op basis van de ingeladen chart-data
         const startStep = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / MACRO_STEP_MS) - 2;
         const endStep = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / MACRO_STEP_MS) + 2;
 
         for (let s = startStep; s <= endStep; s++) {
-            // Bereken de exacte macro-dag (timestamp) voor deze cyclusstap
             const macroTimeMs = ANCHOR_TIME + (s * MACRO_STEP_MS);
             const macroTimeSec = Math.floor(macroTimeMs / 1000);
 
-            // Zoek de daggans die matcht met deze exacte datum
+            // Zoek de daggans die exact matcht met deze UTC-dagtimestamp
             const closestCandle = chartData.find(c => c.time === macroTimeSec);
 
             if (closestCandle) {
-                // Label de ankerdatum zelf als 'Centraal Anker', de rest als Macro Cyclus + of -
-                let labelText = `MACRO CYCLUS (56d x ${s})`;
+                let labelText = `MACRO CYCLUS (-${Math.abs(s) * 56}d)`;
+                if (s > 0) labelText = `MACRO CYCLUS (+${s * 56}d)`;
                 if (s === 0) labelText = "UOTAM ANKER (1 JULI 2026)";
 
                 markers.push({
@@ -209,11 +207,11 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    // Netjes sorteren en plotten via de API
     markers.sort((a, b) => a.time - b.time);
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     updateInfoPanel();
 }
+
 // --- LIVE KLOK BEREKENING ---
 function updateInfoPanel() {
     const now = Date.now();
@@ -232,7 +230,6 @@ function startLiveUpdates() {
         currentWs.close();
     }
 
-    // Binance gebruikt '1d' voor de daily kline stream
     currentWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${currentInterval}`);
     
     currentWs.onmessage = (event) => {
