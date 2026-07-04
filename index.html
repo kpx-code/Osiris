@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UOTAM Matrix - Live BTC Core Nodes</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+    <div id="dashboard">
+        <header>
+            <h1>UOTAM v7.7 Scalp Engine <span class="live-dot"></span></h1>
+            <p>Live Bitcoin Grid & Core Micro Nodes (3-6-9) / Expiraties</p>
+        </header>
+        <div id="chart-container"></div>
+        <div id="info-panel">
+            <div class="card">
+                <h3>Volgende Core Micro Node</h3>
+                <p id="next-core-node">Berekenen...</p>
+            </div>
+            <div class="card">
+                <h3>Volgende Cyclus Expiratie (8-Polair)</h3>
+                <p id="next-expiration">Berekenen...</p>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
