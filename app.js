@@ -116,7 +116,6 @@ function changeTimeframe(interval) {
 }
 
 // --- MATRIX REKENKERN ---
-// --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
@@ -184,7 +183,6 @@ function applyUOTAMGrid(chartData) {
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     updateInfoPanel();
 }
-
 // --- LIVE KLOK BEREKENING ---
 function updateInfoPanel() {
     const now = Date.now();
