@@ -6,6 +6,7 @@ const T_PI_MS = T_PI_MINUTES * 60 * 1000;
 let currentInterval = '15m'; // Standaard interval bij opstarten
 let currentWs = null;        // Onthoudt actieve WebSocket-verbinding
 let globalChartData = [];    // Buffer voor data
+let countdownInterval = null; // Interval-id voor de live countdownklok
 
 // --- INITIALISEER HET TRADINGVIEW CHART INTERFACE ---
 const chartContainer = document.getElementById('chart-container');
@@ -28,7 +29,7 @@ const chart = LightweightCharts.createChart(chartContainer, {
         secondsVisible: false,
     },
     rightPriceScale: {
-        mode: 1, // Start in Logarithmic mode
+        mode: 0, // Start in Lineair mode voor intraday 15m
         autoScale: true,
         borderVisible: false,
     },
@@ -88,12 +89,8 @@ async function initDashboard() {
         
         candlestickSeries.setData(globalChartData);
         
-        // Direct sturen naar de juiste, geïsoleerde grid-berekening
-        if (currentInterval === '1d') {
-            applyMacroGrid(globalChartData);
-        } else {
-            applyIntradayGrid(globalChartData);
-        }
+        // Update het Grid direct op basis van de interval
+        refreshGrid();
         
         startLiveUpdates();
     } catch (error) {
@@ -101,17 +98,26 @@ async function initDashboard() {
     }
 }
 
-// --- DYNAMISCH TIMEFRAME WISSELEN ---
-function changeTimeframe(interval) {
+// --- REFRESH GRID ROUTER ---
+function refreshGrid() {
+    if (currentInterval === '1d') {
+        applyMacroGrid(globalChartData);
+    } else {
+        applyIntradayGrid(globalChartData);
+    }
+}
+
+// --- DYNAMISCH TIMEFRAME WISSELEN (Nu volledig gekoppeld en klikbaar) ---
+window.changeTimeframe = function(interval) {
     currentInterval = interval;
     
-    // Forceer volledige opschoning van de markers in de chart-engine zelf
+    // Forceer reset van de markers
     candlestickSeries.setMarkers([]);
     
     if (interval === '1d') {
-        chart.priceScale('right').applyOptions({ mode: 1 }); // Logarithmic
+        chart.priceScale('right').applyOptions({ mode: 1 }); // Logarithmic voor Macro
     } else {
-        chart.priceScale('right').applyOptions({ mode: 0 }); // Linear
+        chart.priceScale('right').applyOptions({ mode: 0 }); // Linear voor Intraday
     }
     
     const intervals = ['15m', '30m', '1h', '1d'];
@@ -133,14 +139,11 @@ function changeTimeframe(interval) {
     });
 
     initDashboard();
-}
+};
 
 // --- PURE MACRO BEREKENING (ALLEEN VOOR 1D) ---
 function applyMacroGrid(chartData) {
     if (chartData.length === 0) return;
-    
-    // Forceer leegmaken chart-geheugen
-    candlestickSeries.setMarkers([]);
     
     const minTimeSec = chartData[0].time;
     const maxTimeSec = chartData[chartData.length - 1].time;
@@ -178,15 +181,11 @@ function applyMacroGrid(chartData) {
 
     markers.sort((a, b) => a.time - b.time);
     candlestickSeries.setMarkers(markers);
-    updateInfoPanel();
 }
 
 // --- PURE INTRADAY BEREKENING (15m, 30m, 1h) ---
 function applyIntradayGrid(chartData) {
     if (chartData.length === 0) return;
-    
-    // Forceer leegmaken chart-geheugen
-    candlestickSeries.setMarkers([]);
     
     const minTimeSec = chartData[0].time;
     const maxTimeSec = chartData[chartData.length - 1].time;
@@ -194,7 +193,10 @@ function applyIntradayGrid(chartData) {
     
     const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
     const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
-    const candleSizeSec = currentInterval === '30m' ? 1800 : (currentInterval === '1h' ? 3600 : 900);
+    
+    let candleSizeSec = 900;
+    if (currentInterval === '30m') candleSizeSec = 1800;
+    if (currentInterval === '1h') candleSizeSec = 3600;
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
@@ -237,19 +239,45 @@ function applyIntradayGrid(chartData) {
     
     markers.sort((a, b) => a.time - b.time);
     candlestickSeries.setMarkers(markers);
-    updateInfoPanel();
 }
 
-// --- LIVE KLOK BEREKENING ---
-function updateInfoPanel() {
-    const now = Date.now();
-    const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
-    const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
-    document.getElementById('next-core-node').innerText = `${new Date(nextCoreTime).toLocaleTimeString('nl-NL')} (Node ${currentCoreIndex})`;
-    
-    const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
-    const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
-    document.getElementById('next-expiration').innerText = `${new Date(nextExpTime).toLocaleString('nl-NL')} (Node ${currentExpIndex})`;
+// --- LIVE INFO PANEL MET SECONDEN-COUNTDOWN ---
+function startClockEngine() {
+    if (countdownInterval) clearInterval(countdownInterval);
+
+    countdownInterval = setInterval(() => {
+        const now = Date.now();
+
+        // 1. BEREKEN VOLGENDE CORE NODE (Factor 3)
+        const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
+        const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
+        
+        // Countdown wiskunde voor Core Node
+        const diffCore = nextCoreTime - now;
+        const hoursCore = Math.floor(diffCore / (1000 * 60 * 60));
+        const minutesCore = Math.floor((diffCore % (1000 * 60 * 60)) / (1000 * 60));
+        const secondsCore = Math.floor((diffCore % (1000 * 60)) / 1000);
+        
+        const pad = (num) => String(num).padStart(2, '0');
+        
+        document.getElementById('next-core-node').innerHTML = 
+            `${new Date(nextCoreTime).toLocaleTimeString('nl-NL')} (Node ${currentCoreIndex}) <br>` +
+            `<span style="color: #00ffcc; font-weight: bold; font-family: monospace;">COUNTDOWN: ${pad(hoursCore)}:${pad(minutesCore)}:${pad(secondsCore)}</span>`;
+        
+        // 2. BEREKEN VOLGENDE EXPIRATIE NODE (Factor 8)
+        const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
+        const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
+        
+        const diffExp = nextExpTime - now;
+        const hoursExp = Math.floor(diffExp / (1000 * 60 * 60));
+        const minutesExp = Math.floor((diffExp % (1000 * 60 * 60)) / (1000 * 60));
+        const secondsExp = Math.floor((diffExp % (1000 * 60)) / 1000);
+
+        document.getElementById('next-expiration').innerHTML = 
+            `${new Date(nextExpTime).toLocaleString('nl-NL')} (Node ${currentExpIndex}) <br>` +
+            `<span style="color: #ff3366; font-weight: bold; font-family: monospace;">COUNTDOWN: ${pad(hoursExp)}:${pad(minutesExp)}:${pad(secondsExp)}</span>`;
+
+    }, 1000); // Knalt elke seconde live op je scherm
 }
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
@@ -282,12 +310,7 @@ function startLiveUpdates() {
             globalChartData.push(updatedCandle);
         }
         
-        // Strikte live-routing op basis van interval om lekken uit te sluiten
-        if (currentInterval === '1d') {
-            applyMacroGrid(globalChartData);
-        } else {
-            applyIntradayGrid(globalChartData);
-        }
+        refreshGrid();
     };
     
     currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
@@ -298,4 +321,4 @@ window.addEventListener('resize', () => {
 });
 
 initDashboard();
-setInterval(updateInfoPanel, 60000);
+startClockEngine();
