@@ -137,17 +137,19 @@ function applyUOTAMGrid(chartData) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
-        // GOUDEN STANDAARD: Rond de exacte wiskundige node-tijd af naar de dichtstbijzijnde kaars-starttijd
+        // Rond de exacte wiskundige node-tijd af naar de dichtstbijzijnde kaars-starttijd
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
         
-        // Zoek of deze kaars daadwerkelijk bestaat in onze ingeladen dataset
+        // Zoek of deze kaars bestaat
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            // Voorkom dubbele markers op exact dezelfde kaars (pakt de eerste logische node)
-            const nodeAlreadyMapped = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
+            // STRIKTE DE-DUPLICATIE: Check of deze SPECIFIEKE timestamp al gebruikt is in de markers array
+            const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
+            const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
             
-            if (i % 3 === 0 && !nodeAlreadyMapped) {
+            // Teken de Core Node alleen als die minuut nog leeg is aan de bovenkant
+            if (i % 3 === 0 && !hasCoreNode) {
                 let vortexValue = "";
                 const flowIndex = (i / 3) % 3; 
                 if (flowIndex === 0) vortexValue = "3 (Start)";
@@ -163,8 +165,8 @@ function applyUOTAMGrid(chartData) {
                 });
             }
             
-            const expAlreadyMapped = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
-            if (i % 8 === 0 && !expAlreadyMapped) {
+            // Teken de Expiratie alleen als die minuut nog leeg is aan de onderkant
+            if (i % 8 === 0 && !hasExpiration) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'belowBar',
@@ -176,10 +178,10 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    // Altijd sorteren op tijd voor Lightweight Charts
+    // Sorteren voor de Lightweight Charts API
     markers.sort((a, b) => a.time - b.time);
     
-    // Push ze naar de v5 API
+    // Schrijf de unieke markers naar de grafiek
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     updateInfoPanel();
 }
