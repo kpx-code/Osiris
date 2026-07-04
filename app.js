@@ -25,8 +25,8 @@ const chart = LightweightCharts.createChart(chartContainer, {
     },
 });
 
-// Candlestick instellingen (Groen/Rood kleurenschema)
-const candlestickSeries = chart.addCandlestickSeries({
+// Gecorrigeerde Versie 5 syntax: we gebruiken 'createCandlestickSeries' i.p.v 'addCandlestickSeries'
+const candlestickSeries = chart.createCandlestickSeries({
     upColor: '#26a69a',
     downColor: '#ef5350',
     borderVisible: false,
