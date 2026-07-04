@@ -116,30 +116,39 @@ function changeTimeframe(interval) {
 }
 
 // --- MATRIX REKENKERN ---
+// --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
-    const minTimeMs = chartData[0].time * 1000;
-    const maxTimeMs = chartData[chartData.length - 1].time * 1000;
+    const minTimeSec = chartData[0].time;
+    const maxTimeSec = chartData[chartData.length - 1].time;
     const markers = [];
     
-    const startSearchIndex = Math.floor((minTimeMs - ANCHOR_TIME) / T_PI_MS) - 5;
-    const endSearchIndex = Math.ceil((maxTimeMs - ANCHOR_TIME) / T_PI_MS) + 32;
+    // Bereken het venster in indices
+    const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
+    const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
 
-    // Bepaal de tolerantie (marge) op basis van het gekozen interval (in seconden)
-    let toleranceSec = 450; // Standaard voor 15m (7.5 min)
-    if (currentInterval === '1m') toleranceSec = 30;
-    if (currentInterval === '30m') toleranceSec = 900;
-    if (currentInterval === '1h') toleranceSec = 1800;
+    // Bepaal de omvang van 1 kaars in seconden op basis van het actieve interval
+    let candleSizeSec = 900; // 15m standaard
+    if (currentInterval === '1m') candleSizeSec = 60;
+    if (currentInterval === '30m') candleSizeSec = 1800;
+    if (currentInterval === '1h') candleSizeSec = 3600;
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
-        const closestCandle = chartData.find(c => Math.abs(c.time - nodeTimeSec) <= toleranceSec);
+        // GOUDEN STANDAARD: Rond de exacte wiskundige node-tijd af naar de dichtstbijzijnde kaars-starttijd
+        const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
+        
+        // Zoek of deze kaars daadwerkelijk bestaat in onze ingeladen dataset
+        const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            if (i % 3 === 0) {
+            // Voorkom dubbele markers op exact dezelfde kaars (pakt de eerste logische node)
+            const nodeAlreadyMapped = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
+            
+            if (i % 3 === 0 && !nodeAlreadyMapped) {
                 let vortexValue = "";
                 const flowIndex = (i / 3) % 3; 
                 if (flowIndex === 0) vortexValue = "3 (Start)";
@@ -155,7 +164,8 @@ function applyUOTAMGrid(chartData) {
                 });
             }
             
-            if (i % 8 === 0) {
+            const expAlreadyMapped = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
+            if (i % 8 === 0 && !expAlreadyMapped) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'belowBar',
@@ -167,7 +177,10 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
+    // Altijd sorteren op tijd voor Lightweight Charts
     markers.sort((a, b) => a.time - b.time);
+    
+    // Push ze naar de v5 API
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     updateInfoPanel();
 }
