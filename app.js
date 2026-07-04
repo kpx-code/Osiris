@@ -5,6 +5,7 @@ const T_PI_MS = T_PI_MINUTES * 60 * 1000;
 
 let currentInterval = '15m'; // Standaard interval bij opstarten
 let currentWs = null;        // Onthoudt actieve WebSocket-verbinding
+let globalChartData = [];    // Buffer voor data
 
 // --- INITIALISEER HET TRADINGVIEW CHART INTERFACE ---
 const chartContainer = document.getElementById('chart-container');
@@ -66,11 +67,14 @@ chart.subscribeCrosshairMove(param => {
     }
 });
 
-// --- GEGEVENS OPHALEN EN CACHEN ---
-let globalChartData = []; // Buffer om data vast te houden voor WebSocket updates
-
+// --- HOOFDFUNCTIE: INITIALISATIE ---
 async function initDashboard() {
     try {
+        if (currentWs) {
+            currentWs.close();
+            currentWs = null;
+        }
+
         const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
         const rawData = await response.json();
         
@@ -83,7 +87,14 @@ async function initDashboard() {
         }));
         
         candlestickSeries.setData(globalChartData);
-        applyUOTAMGrid(globalChartData);
+        
+        // Direct sturen naar de juiste, geïsoleerde grid-berekening
+        if (currentInterval === '1d') {
+            applyMacroGrid(globalChartData);
+        } else {
+            applyIntradayGrid(globalChartData);
+        }
+        
         startLiveUpdates();
     } catch (error) {
         console.error("Fout bij het laden van de UOTAM Engine data:", error);
@@ -94,10 +105,9 @@ async function initDashboard() {
 function changeTimeframe(interval) {
     currentInterval = interval;
     
-    // Veeg de oude markers direct rigoureus leeg bij een wissel
-    LightweightCharts.createSeriesMarkers(candlestickSeries, []);
+    // Forceer volledige opschoning van de markers in de chart-engine zelf
+    candlestickSeries.setMarkers([]);
     
-    // Dynamische Schaal-wissel
     if (interval === '1d') {
         chart.priceScale('right').applyOptions({ mode: 1 }); // Logarithmic
     } else {
@@ -125,54 +135,63 @@ function changeTimeframe(interval) {
     initDashboard();
 }
 
-// --- MATRIX REKENKERN ---
-function applyUOTAMGrid(chartData) {
+// --- PURE MACRO BEREKENING (ALLEEN VOOR 1D) ---
+function applyMacroGrid(chartData) {
     if (chartData.length === 0) return;
+    
+    // Forceer leegmaken chart-geheugen
+    candlestickSeries.setMarkers([]);
     
     const minTimeSec = chartData[0].time;
     const maxTimeSec = chartData[chartData.length - 1].time;
     const markers = [];
     
-    // 1. HARD CORRIGEERBARE MACRO LOGICA (1 DAG)
-    if (currentInterval === '1d') {
-        const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-        const MACRO_STEP_MS = 56 * ONE_DAY_MS; 
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const MACRO_STEP_MS = 56 * ONE_DAY_MS; 
+    const anchorMidnightMs = new Date('2026-07-01T00:00:00Z').getTime();
 
-        const anchorMidnightMs = new Date('2026-07-01T00:00:00Z').getTime();
+    const startStep = Math.floor(((minTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) - 5;
+    const endStep = Math.ceil(((maxTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) + 5;
 
-        const startStep = Math.floor(((minTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) - 5;
-        const endStep = Math.ceil(((maxTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) + 5;
+    for (let s = startStep; s <= endStep; s++) {
+        const macroTimeMs = anchorMidnightMs + (s * MACRO_STEP_MS);
+        const targetDateStr = new Date(macroTimeMs).toISOString().split('T')[0];
 
-        for (let s = startStep; s <= endStep; s++) {
-            const macroTimeMs = anchorMidnightMs + (s * MACRO_STEP_MS);
-            const targetDateStr = new Date(macroTimeMs).toISOString().split('T')[0];
+        const closestCandle = chartData.find(c => {
+            const candleDateStr = new Date(c.time * 1000).toISOString().split('T')[0];
+            return candleDateStr === targetDateStr;
+        });
 
-            const closestCandle = chartData.find(c => {
-                const candleDateStr = new Date(c.time * 1000).toISOString().split('T')[0];
-                return candleDateStr === targetDateStr;
+        if (closestCandle) {
+            let labelText = `MACRO NODE (${s * 56}d)`;
+            if (s === 0) labelText = "UOTAM ANKER (1 JULI 2026)";
+
+            markers.push({
+                time: closestCandle.time,
+                position: 'belowBar',
+                color: '#ff3366',
+                shape: 'verticalLine',
+                text: labelText,
             });
-
-            if (closestCandle) {
-                let labelText = `MACRO NODE (${s * 56}d)`;
-                if (s === 0) labelText = "UOTAM ANKER (1 JULI 2026)";
-
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'belowBar',
-                    color: '#ff3366',
-                    shape: 'verticalLine',
-                    text: labelText,
-                });
-            }
         }
+    }
 
-        markers.sort((a, b) => a.time - b.time);
-        LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
-        updateInfoPanel();
-        return; 
-    } 
+    markers.sort((a, b) => a.time - b.time);
+    candlestickSeries.setMarkers(markers);
+    updateInfoPanel();
+}
+
+// --- PURE INTRADAY BEREKENING (15m, 30m, 1h) ---
+function applyIntradayGrid(chartData) {
+    if (chartData.length === 0) return;
     
-    // 2. INTRADAY SCALP LOGICA (15m, 30m, 1h)
+    // Forceer leegmaken chart-geheugen
+    candlestickSeries.setMarkers([]);
+    
+    const minTimeSec = chartData[0].time;
+    const maxTimeSec = chartData[chartData.length - 1].time;
+    const markers = [];
+    
     const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
     const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
     const candleSizeSec = currentInterval === '30m' ? 1800 : (currentInterval === '1h' ? 3600 : 900);
@@ -195,29 +214,29 @@ function applyUOTAMGrid(chartData) {
                 else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6 (Inversie)";
                 else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9 (Absorptie)";
 
-                    markers.push({
-                        time: closestCandle.time,
-                        position: 'aboveBar',
-                        color: '#00ffcc',
-                        shape: 'arrowDown',
-                        text: `Node ${i} [Vortex ${vortexValue.charAt(0)}]`,
-                    });
-                }
-                
-                if (i % 8 === 0 && !hasExpiration) {
-                    markers.push({
-                        time: closestCandle.time,
-                        position: 'belowBar',
-                        color: '#ff3366',
-                        shape: 'verticalLine',
-                        text: `EXPIRATIE (Node ${i})`,
-                    });
-                }
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'aboveBar',
+                    color: '#00ffcc',
+                    shape: 'arrowDown',
+                    text: `Node ${i} [Vortex ${vortexValue.charAt(0)}]`,
+                });
+            }
+            
+            if (i % 8 === 0 && !hasExpiration) {
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'belowBar',
+                    color: '#ff3366',
+                    shape: 'verticalLine',
+                    text: `EXPIRATIE (Node ${i})`,
+                });
             }
         }
+    }
     
     markers.sort((a, b) => a.time - b.time);
-    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
+    candlestickSeries.setMarkers(markers);
     updateInfoPanel();
 }
 
@@ -256,7 +275,6 @@ function startLiveUpdates() {
         
         candlestickSeries.update(updatedCandle);
         
-        // Werk de lokale buffer bij zodat markers correct herberekenen zonder intraday-lekken
         const existingIndex = globalChartData.findIndex(c => c.time === candleTimeSec);
         if (existingIndex !== -1) {
             globalChartData[existingIndex] = updatedCandle;
@@ -264,8 +282,12 @@ function startLiveUpdates() {
             globalChartData.push(updatedCandle);
         }
         
-        // Trigger direct de grid-berekening met behoud van de actieve interval-restricties
-        applyUOTAMGrid(globalChartData);
+        // Strikte live-routing op basis van interval om lekken uit te sluiten
+        if (currentInterval === '1d') {
+            applyMacroGrid(globalChartData);
+        } else {
+            applyIntradayGrid(globalChartData);
+        }
     };
     
     currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
