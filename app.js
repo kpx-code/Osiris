@@ -66,13 +66,15 @@ chart.subscribeCrosshairMove(param => {
     }
 });
 
-// --- HOOFDFUNCTIE: INITIALISATIE ---
+// --- GEGEVENS OPHALEN EN CACHEN ---
+let globalChartData = []; // Buffer om data vast te houden voor WebSocket updates
+
 async function initDashboard() {
     try {
         const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
         const rawData = await response.json();
         
-        const chartData = rawData.map(d => ({
+        globalChartData = rawData.map(d => ({
             time: Math.floor(d[0] / 1000), 
             open: parseFloat(d[1]),
             high: parseFloat(d[2]),
@@ -80,8 +82,8 @@ async function initDashboard() {
             close: parseFloat(d[4])
         }));
         
-        candlestickSeries.setData(chartData);
-        applyUOTAMGrid(chartData);
+        candlestickSeries.setData(globalChartData);
+        applyUOTAMGrid(globalChartData);
         startLiveUpdates();
     } catch (error) {
         console.error("Fout bij het laden van de UOTAM Engine data:", error);
@@ -136,7 +138,6 @@ function applyUOTAMGrid(chartData) {
         const ONE_DAY_MS = 24 * 60 * 60 * 1000;
         const MACRO_STEP_MS = 56 * ONE_DAY_MS; 
 
-        // Harde ankerdatumafspraak gecorrigeerd op UTC middernacht
         const anchorMidnightMs = new Date('2026-07-01T00:00:00Z').getTime();
 
         const startStep = Math.floor(((minTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) - 5;
@@ -146,7 +147,6 @@ function applyUOTAMGrid(chartData) {
             const macroTimeMs = anchorMidnightMs + (s * MACRO_STEP_MS);
             const targetDateStr = new Date(macroTimeMs).toISOString().split('T')[0];
 
-            // Zoek de dagkaars op basis van de datumstring
             const closestCandle = chartData.find(c => {
                 const candleDateStr = new Date(c.time * 1000).toISOString().split('T')[0];
                 return candleDateStr === targetDateStr;
@@ -166,14 +166,13 @@ function applyUOTAMGrid(chartData) {
             }
         }
 
-        // STRIKTE ISOLATIE: Sorteer, teken de macro-markers en STOP direct! Ga niet door naar intraday.
         markers.sort((a, b) => a.time - b.time);
         LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
         updateInfoPanel();
         return; 
     } 
     
-    // 2. INTRADAY SCALP LOGICA (15m, 30m, 1h) - Wordt NOOIT bereikt als interval '1d' is
+    // 2. INTRADAY SCALP LOGICA (15m, 30m, 1h)
     const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
     const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
     const candleSizeSec = currentInterval === '30m' ? 1800 : (currentInterval === '1h' ? 3600 : 900);
@@ -196,26 +195,26 @@ function applyUOTAMGrid(chartData) {
                 else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6 (Inversie)";
                 else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9 (Absorptie)";
 
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'aboveBar',
-                    color: '#00ffcc',
-                    shape: 'arrowDown',
-                    text: `Node ${i} [Vortex ${vortexValue.charAt(0)}]`,
-                });
-            }
-            
-            if (i % 8 === 0 && !hasExpiration) {
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'belowBar',
-                    color: '#ff3366',
-                    shape: 'verticalLine',
-                    text: `EXPIRATIE (Node ${i})`,
-                });
+                    markers.push({
+                        time: closestCandle.time,
+                        position: 'aboveBar',
+                        color: '#00ffcc',
+                        shape: 'arrowDown',
+                        text: `Node ${i} [Vortex ${vortexValue.charAt(0)}]`,
+                    });
+                }
+                
+                if (i % 8 === 0 && !hasExpiration) {
+                    markers.push({
+                        time: closestCandle.time,
+                        position: 'belowBar',
+                        color: '#ff3366',
+                        shape: 'verticalLine',
+                        text: `EXPIRATIE (Node ${i})`,
+                    });
+                }
             }
         }
-    }
     
     markers.sort((a, b) => a.time - b.time);
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
@@ -245,19 +244,28 @@ function startLiveUpdates() {
     currentWs.onmessage = (event) => {
         const message = JSON.parse(event.data);
         const candle = message.k;
+        const candleTimeSec = candle.t / 1000;
         
-        candlestickSeries.update({
-            time: candle.t / 1000,
+        const updatedCandle = {
+            time: candleTimeSec,
             open: parseFloat(candle.o),
             high: parseFloat(candle.h),
             low: parseFloat(candle.l),
             close: parseFloat(candle.c),
-        });
+        };
         
-        // Zorg ervoor dat live updates de grid-markers op 1D niet breken met intraday data
-        if (candle.x && currentInterval === '1d') {
-            initDashboard();
+        candlestickSeries.update(updatedCandle);
+        
+        // Werk de lokale buffer bij zodat markers correct herberekenen zonder intraday-lekken
+        const existingIndex = globalChartData.findIndex(c => c.time === candleTimeSec);
+        if (existingIndex !== -1) {
+            globalChartData[existingIndex] = updatedCandle;
+        } else {
+            globalChartData.push(updatedCandle);
         }
+        
+        // Trigger direct de grid-berekening met behoud van de actieve interval-restricties
+        applyUOTAMGrid(globalChartData);
     };
     
     currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
