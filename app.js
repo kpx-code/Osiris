@@ -136,7 +136,7 @@ function applyUOTAMGrid(chartData) {
         const ONE_DAY_MS = 24 * 60 * 60 * 1000;
         const MACRO_STEP_MS = 56 * ONE_DAY_MS; 
 
-        // Harde UTC-datumafspraak voor daggrafieken
+        // FIX: Eerst declareren, dan pas gebruiken in de stappen-berekening!
         const anchorMidnightMs = new Date('2026-07-01T00:00:00Z').getTime();
 
         const startStep = Math.floor(((minTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) - 5;
