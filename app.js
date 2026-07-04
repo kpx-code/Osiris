@@ -36,7 +36,7 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
     wickDownColor: '#ef5350',
 });
 
-// --- NIEUW: MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
+// --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
 chart.subscribeCrosshairMove(param => {
     const ohlcOpen = document.getElementById('ohlc-open');
     const ohlcHigh = document.getElementById('ohlc-high');
@@ -71,7 +71,7 @@ async function initDashboard() {
         const rawData = await response.json();
         
         const chartData = rawData.map(d => ({
-            time: Math.floor(d[0] / 1000), // Dit is pure UTC van Binance, de browser vertaalt dit naar CET op de tijdas
+            time: Math.floor(d[0] / 1000), // Vertaalt UTC timestamps direct naar correcte lokale browsertijd (CET)
             open: parseFloat(d[1]),
             high: parseFloat(d[2]),
             low: parseFloat(d[3]),
@@ -95,19 +95,21 @@ function changeTimeframe(interval) {
     currentInterval = interval;
     
     // Update knoppen styling
-    const intervals = ['1m', '15m', '30m', '1h'];
+    const intervals = ['15m', '30m', '1h', '1d'];
     intervals.forEach(int => {
         const btn = document.getElementById(`btn-${int}`);
-        if (int === interval) {
-            btn.style.background = '#00ffcc';
-            btn.style.color = '#131722';
-            btn.style.border = '1px solid #00ffcc';
-            btn.style.fontWeight = 'bold';
-        } else {
-            btn.style.background = '#1f2233';
-            btn.style.color = '#fff';
-            btn.style.border = '1px solid #333';
-            btn.style.fontWeight = 'normal';
+        if (btn) {
+            if (int === interval) {
+                btn.style.background = '#00ffcc';
+                btn.style.color = '#131722';
+                btn.style.border = '1px solid #00ffcc';
+                btn.style.fontWeight = 'bold';
+            } else {
+                btn.style.background = '#1f2233';
+                btn.style.color = '#fff';
+                btn.style.border = '1px solid #333';
+                btn.style.fontWeight = 'normal';
+            }
         }
     });
 
@@ -129,9 +131,9 @@ function applyUOTAMGrid(chartData) {
 
     // Bepaal de omvang van 1 kaars in seconden op basis van het actieve interval
     let candleSizeSec = 900; // 15m standaard
-    if (currentInterval === '1m') candleSizeSec = 60;
     if (currentInterval === '30m') candleSizeSec = 1800;
     if (currentInterval === '1h') candleSizeSec = 3600;
+    if (currentInterval === '1d') candleSizeSec = 86400; // 1 dag in seconden
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
@@ -140,15 +142,14 @@ function applyUOTAMGrid(chartData) {
         // Rond de exacte wiskundige node-tijd af naar de dichtstbijzijnde kaars-starttijd
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
         
-        // Zoek of deze kaars bestaat
+        // Zoek of deze kaars bestaat in de dataset
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            // STRIKTE DE-DUPLICATIE: Check of deze SPECIFIEKE timestamp al gebruikt is in de markers array
+            // STRIKTE DE-DUPLICATIE: Voorkom dat er op lagere timeframes waslijsten onder elkaar ontstaan
             const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
             const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
             
-            // Teken de Core Node alleen als die minuut nog leeg is aan de bovenkant
             if (i % 3 === 0 && !hasCoreNode) {
                 let vortexValue = "";
                 const flowIndex = (i / 3) % 3; 
@@ -165,7 +166,6 @@ function applyUOTAMGrid(chartData) {
                 });
             }
             
-            // Teken de Expiratie alleen als die minuut nog leeg is aan de onderkant
             if (i % 8 === 0 && !hasExpiration) {
                 markers.push({
                     time: closestCandle.time,
@@ -178,13 +178,14 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    // Sorteren voor de Lightweight Charts API
+    // Altijd sorteren op tijd voor de Lightweight Charts bibliotheek
     markers.sort((a, b) => a.time - b.time);
     
-    // Schrijf de unieke markers naar de grafiek
+    // Teken de unieke, opgeschoonde markers op de chart
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     updateInfoPanel();
 }
+
 // --- LIVE KLOK BEREKENING ---
 function updateInfoPanel() {
     const now = Date.now();
@@ -199,7 +200,7 @@ function updateInfoPanel() {
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
-    // Sluit de oude WebSocket als die nog open staat (cruciaal bij schakelen!)
+    // Sluit de oude WebSocket als die nog open staat bij een timeframe-switch
     if (currentWs) {
         currentWs.close();
     }
@@ -226,5 +227,6 @@ window.addEventListener('resize', () => {
     chart.resize(chartContainer.clientWidth, 600);
 });
 
+// Start het systeem op
 initDashboard();
 setInterval(updateInfoPanel, 60000);
