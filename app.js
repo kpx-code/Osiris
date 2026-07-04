@@ -92,7 +92,7 @@ async function initDashboard() {
 function changeTimeframe(interval) {
     currentInterval = interval;
     
-    // CRUCIALE FIX: Gooi de oude markers op de chart DIRECT leeg bij een wissel!
+    // Veeg de oude markers direct leeg bij een wissel
     LightweightCharts.createSeriesMarkers(candlestickSeries, []);
     
     // Dynamische Schaal-wissel
@@ -136,19 +136,22 @@ function applyUOTAMGrid(chartData) {
         const ONE_DAY_MS = 24 * 60 * 60 * 1000;
         const MACRO_STEP_MS = 56 * ONE_DAY_MS; 
 
-        const startStep = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / MACRO_STEP_MS) - 2;
-        const endStep = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / MACRO_STEP_MS) + 2;
+        // Zet het anker wiskundig vast op exact middernacht (00:00:00 UTC) voor de daggrafiek match
+        const anchorMidnightMs = new Date('2026-07-01T00:00:00Z').getTime();
+
+        const startStep = Math.floor(((minTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) - 2;
+        const endStep = Math.ceil(((maxTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) + 2;
 
         for (let s = startStep; s <= endStep; s++) {
-            const macroTimeMs = ANCHOR_TIME + (s * MACRO_STEP_MS);
+            const macroTimeMs = anchorMidnightMs + (s * MACRO_STEP_MS);
             const macroTimeSec = Math.floor(macroTimeMs / 1000);
 
-            // Zoek de daggans die exact matcht met deze UTC-dagtimestamp
+            // Match de genormaliseerde dag-timestamp met de Binance dataset
             const closestCandle = chartData.find(c => c.time === macroTimeSec);
 
             if (closestCandle) {
-                let labelText = `MACRO CYCLUS (-${Math.abs(s) * 56}d)`;
-                if (s > 0) labelText = `MACRO CYCLUS (+${s * 56}d)`;
+                let labelText = `MACRO NODE (${s * 56}d)`;
+                if (s < 0) labelText = `MACRO NODE (${s * 56}d)`;
                 if (s === 0) labelText = "UOTAM ANKER (1 JULI 2026)";
 
                 markers.push({
