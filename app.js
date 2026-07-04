@@ -92,7 +92,7 @@ async function initDashboard() {
 function changeTimeframe(interval) {
     currentInterval = interval;
     
-    // Veeg de oude markers direct leeg bij een wissel
+    // Veeg de oude markers direct rigoureus leeg bij een wissel
     LightweightCharts.createSeriesMarkers(candlestickSeries, []);
     
     // Dynamische Schaal-wissel
@@ -131,12 +131,12 @@ function applyUOTAMGrid(chartData) {
     const maxTimeSec = chartData[chartData.length - 1].time;
     const markers = [];
     
-    // 1. MACRO GRAFIEK LOGICA (1 DAG)
+    // 1. HARD CORRIGEERBARE MACRO LOGICA (1 DAG)
     if (currentInterval === '1d') {
         const ONE_DAY_MS = 24 * 60 * 60 * 1000;
         const MACRO_STEP_MS = 56 * ONE_DAY_MS; 
 
-        // FIX: Eerst declareren, dan pas gebruiken in de stappen-berekening!
+        // Harde ankerdatumafspraak gecorrigeerd op UTC middernacht
         const anchorMidnightMs = new Date('2026-07-01T00:00:00Z').getTime();
 
         const startStep = Math.floor(((minTimeSec * 1000) - anchorMidnightMs) / MACRO_STEP_MS) - 5;
@@ -144,11 +144,9 @@ function applyUOTAMGrid(chartData) {
 
         for (let s = startStep; s <= endStep; s++) {
             const macroTimeMs = anchorMidnightMs + (s * MACRO_STEP_MS);
-            
-            // CONVERTEER COORDINAAT NAAR PUUR DATUMFORMAAT (YYYY-MM-DD)
             const targetDateStr = new Date(macroTimeMs).toISOString().split('T')[0];
 
-            // Zoek de kaars door de timestamp van de kaars om te zetten naar diezelfde datumstring
+            // Zoek de dagkaars op basis van de datumstring
             const closestCandle = chartData.find(c => {
                 const candleDateStr = new Date(c.time * 1000).toISOString().split('T')[0];
                 return candleDateStr === targetDateStr;
@@ -167,49 +165,54 @@ function applyUOTAMGrid(chartData) {
                 });
             }
         }
+
+        // STRIKTE ISOLATIE: Sorteer, teken de macro-markers en STOP direct! Ga niet door naar intraday.
+        markers.sort((a, b) => a.time - b.time);
+        LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
+        updateInfoPanel();
+        return; 
     } 
-    // 2. INTRADAY SCALP LOGICA (15m, 30m, 1h)
-    else {
-        const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
-        const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
-        const candleSizeSec = currentInterval === '30m' ? 1800 : (currentInterval === '1h' ? 3600 : 900);
+    
+    // 2. INTRADAY SCALP LOGICA (15m, 30m, 1h) - Wordt NOOIT bereikt als interval '1d' is
+    const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
+    const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
+    const candleSizeSec = currentInterval === '30m' ? 1800 : (currentInterval === '1h' ? 3600 : 900);
 
-        for (let i = startSearchIndex; i <= endSearchIndex; i++) {
-            const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
-            const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
+    for (let i = startSearchIndex; i <= endSearchIndex; i++) {
+        const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
+        const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
+        
+        const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
+        const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
+        
+        if (closestCandle) {
+            const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
+            const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
             
-            const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
-            const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
-            
-            if (closestCandle) {
-                const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
-                const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
-                
-                if (i % 3 === 0 && !hasCoreNode) {
-                    let vortexValue = "";
-                    const flowIndex = (i / 3) % 3; 
-                    if (flowIndex === 0) vortexValue = "3 (Start)";
-                    else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6 (Inversie)";
-                    else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9 (Absorptie)";
+            if (i % 3 === 0 && !hasCoreNode) {
+                let vortexValue = "";
+                const flowIndex = (i / 3) % 3; 
+                if (flowIndex === 0) vortexValue = "3 (Start)";
+                else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6 (Inversie)";
+                else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9 (Absorptie)";
 
-                    markers.push({
-                        time: closestCandle.time,
-                        position: 'aboveBar',
-                        color: '#00ffcc',
-                        shape: 'arrowDown',
-                        text: `Node ${i} [Vortex ${vortexValue.charAt(0)}]`,
-                    });
-                }
-                
-                if (i % 8 === 0 && !hasExpiration) {
-                    markers.push({
-                        time: closestCandle.time,
-                        position: 'belowBar',
-                        color: '#ff3366',
-                        shape: 'verticalLine',
-                        text: `EXPIRATIE (Node ${i})`,
-                    });
-                }
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'aboveBar',
+                    color: '#00ffcc',
+                    shape: 'arrowDown',
+                    text: `Node ${i} [Vortex ${vortexValue.charAt(0)}]`,
+                });
+            }
+            
+            if (i % 8 === 0 && !hasExpiration) {
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'belowBar',
+                    color: '#ff3366',
+                    shape: 'verticalLine',
+                    text: `EXPIRATIE (Node ${i})`,
+                });
             }
         }
     }
@@ -250,6 +253,11 @@ function startLiveUpdates() {
             low: parseFloat(candle.l),
             close: parseFloat(candle.c),
         });
+        
+        // Zorg ervoor dat live updates de grid-markers op 1D niet breken met intraday data
+        if (candle.x && currentInterval === '1d') {
+            initDashboard();
+        }
     };
     
     currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
