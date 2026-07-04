@@ -246,13 +246,18 @@ function startClockEngine() {
     if (countdownInterval) clearInterval(countdownInterval);
 
     countdownInterval = setInterval(() => {
+        // Controleer of de elementen bestaan in de DOM
+        const coreNodeEl = document.getElementById('next-core-node');
+        const expNodeEl = document.getElementById('next-expiration');
+        
+        if (!coreNodeEl || !expNodeEl) return; // Wacht tot HTML geladen is
+
         const now = Date.now();
 
-        // 1. BEREKEN VOLGENDE CORE NODE (Factor 3)
+        // 1. Core Node (Factor 3)
         const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
         const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
         
-        // Countdown wiskunde voor Core Node
         const diffCore = nextCoreTime - now;
         const hoursCore = Math.floor(diffCore / (1000 * 60 * 60));
         const minutesCore = Math.floor((diffCore % (1000 * 60 * 60)) / (1000 * 60));
@@ -260,11 +265,11 @@ function startClockEngine() {
         
         const pad = (num) => String(num).padStart(2, '0');
         
-        document.getElementById('next-core-node').innerHTML = 
+        coreNodeEl.innerHTML = 
             `${new Date(nextCoreTime).toLocaleTimeString('nl-NL')} (Node ${currentCoreIndex}) <br>` +
             `<span style="color: #00ffcc; font-weight: bold; font-family: monospace;">COUNTDOWN: ${pad(hoursCore)}:${pad(minutesCore)}:${pad(secondsCore)}</span>`;
         
-        // 2. BEREKEN VOLGENDE EXPIRATIE NODE (Factor 8)
+        // 2. Expiratie Node (Factor 8)
         const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
         const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
         
@@ -273,52 +278,9 @@ function startClockEngine() {
         const minutesExp = Math.floor((diffExp % (1000 * 60 * 60)) / (1000 * 60));
         const secondsExp = Math.floor((diffExp % (1000 * 60)) / 1000);
 
-        document.getElementById('next-expiration').innerHTML = 
+        expNodeEl.innerHTML = 
             `${new Date(nextExpTime).toLocaleString('nl-NL')} (Node ${currentExpIndex}) <br>` +
             `<span style="color: #ff3366; font-weight: bold; font-family: monospace;">COUNTDOWN: ${pad(hoursExp)}:${pad(minutesExp)}:${pad(secondsExp)}</span>`;
 
-    }, 1000); // Knalt elke seconde live op je scherm
+    }, 1000);
 }
-
-// --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
-function startLiveUpdates() {
-    if (currentWs) {
-        currentWs.close();
-    }
-
-    currentWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${currentInterval}`);
-    
-    currentWs.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        const candle = message.k;
-        const candleTimeSec = candle.t / 1000;
-        
-        const updatedCandle = {
-            time: candleTimeSec,
-            open: parseFloat(candle.o),
-            high: parseFloat(candle.h),
-            low: parseFloat(candle.l),
-            close: parseFloat(candle.c),
-        };
-        
-        candlestickSeries.update(updatedCandle);
-        
-        const existingIndex = globalChartData.findIndex(c => c.time === candleTimeSec);
-        if (existingIndex !== -1) {
-            globalChartData[existingIndex] = updatedCandle;
-        } else {
-            globalChartData.push(updatedCandle);
-        }
-        
-        refreshGrid();
-    };
-    
-    currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
-}
-
-window.addEventListener('resize', () => {
-    chart.resize(chartContainer.clientWidth, 600);
-});
-
-initDashboard();
-startClockEngine();
