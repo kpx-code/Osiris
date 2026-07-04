@@ -17,16 +17,31 @@
         <a href="about.html" style="color: #00ffcc; text-decoration: none; font-weight: bold;">About & Disclaimer →</a>
     </nav>
     </header>
-        <div id="chart-container"></div>
-        <div id="info-panel">
-            <div class="card">
-                <h3>Volgende Core Micro Node</h3>
-                <p id="next-core-node">Berekenen...</p>
-            </div>
-            <div class="card">
-                <h3>Volgende Cyclus Expiratie (8-Polair)</h3>
-                <p id="next-expiration">Berekenen...</p>
-            </div>
+        <div class="timeframe-selector" style="margin: 20px 0; display: flex; gap: 10px;">
+        <button onclick="changeTimeframe('1m')" id="btn-1m" style="padding: 8px 16px; background: #1f2233; color: #fff; border: 1px solid #333; cursor: pointer; border-radius: 4px;">1m</button>
+        <button onclick="changeTimeframe('15m')" id="btn-15m" style="padding: 8px 16px; background: #00ffcc; color: #131722; border: 1px solid #00ffcc; cursor: pointer; border-radius: 4px; font-weight: bold;">15m</button>
+        <button onclick="changeTimeframe('30m')" id="btn-30m" style="padding: 8px 16px; background: #1f2233; color: #fff; border: 1px solid #333; cursor: pointer; border-radius: 4px;">30m</button>
+        <button onclick="changeTimeframe('1h')" id="btn-1h" style="padding: 8px 16px; background: #1f2233; color: #fff; border: 1px solid #333; cursor: pointer; border-radius: 4px;">1h</button>
+    </div>
+
+    <div id="ohlc-overlay" style="margin-bottom: 10px; padding: 10px; background: #131722; border: 1px solid #1f2233; border-radius: 4px; color: #d1d4dc; font-family: monospace; font-size: 14px;">
+        <span style="color: #00ffcc; font-weight: bold;">BTC/USDT</span> | 
+        O: <span id="ohlc-open">-</span> | 
+        H: <span id="ohlc-high">-</span> | 
+        L: <span id="ohlc-low">-</span> | 
+        C: <span id="ohlc-close">-</span>
+    </div>
+
+    <div id="chart-container"></div>
+
+    <div id="info-panel" style="margin-top: 20px;">
+        <div class="card">
+            <h3>Volgende Core Micro Node</h3>
+            <p id="next-core-node">Berekenen...</p>
+        </div>
+        <div class="card">
+            <h3>Volgende Cyclus Expiratie (8-Polair)</h3>
+            <p id="next-expiration">Berekenen...</p>
         </div>
     </div>
     <script src="/Osiris/app.js"></script>
