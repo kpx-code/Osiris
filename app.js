@@ -239,26 +239,38 @@ function updateHistoryList(rawData) {
     const listEl = document.getElementById('history-list');
     if (!listEl) return;
     
-    // We filteren de laatste 288 candles (3 dagen x 96 candles per dag)
+    // We nemen de laatste 288 candles (3 dagen) en draaien ze om voor chronologische volgorde
     const recent = rawData.slice(-288).reverse();
     
     listEl.innerHTML = `
-        <table style="width: 100%; font-family: monospace; font-size: 0.85em; border-collapse: collapse;">
-            <tr style="border-bottom: 2px solid #333;">
-                <th>Tijd</th><th>O</th><th>H</th><th>L</th><th>C</th><th>Vol</th>
-            </tr>
-            ${recent.map(d => `
-                <tr style="border-bottom: 1px solid #222;">
-                    <td>${new Date(d[0]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
-                    <td>${parseFloat(d[1]).toFixed(0)}</td>
-                    <td>${parseFloat(d[2]).toFixed(0)}</td>
-                    <td>${parseFloat(d[3]).toFixed(0)}</td>
-                    <td style="color: ${parseFloat(d[4]) >= parseFloat(d[1]) ? '#26a69a' : '#ef5350'}">
-                        ${parseFloat(d[4]).toFixed(0)}
-                    </td>
-                    <td>${parseFloat(d[5]).toFixed(1)}</td>
+        <table style="width: 100%; font-family: monospace; font-size: 0.85em; border-collapse: collapse; color: #d1d4dc;">
+            <thead>
+                <tr style="border-bottom: 2px solid #333; text-align: left;">
+                    <th style="padding: 5px;">Datum/Tijd</th>
+                    <th>O</th><th>H</th><th>L</th><th>C</th><th>Vol</th>
                 </tr>
-            `).join('')}
+            </thead>
+            <tbody>
+                ${recent.map(d => {
+                    const date = new Date(d[0]);
+                    const dateStr = date.toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit' });
+                    const timeStr = date.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+                    const isBullish = parseFloat(d[4]) >= parseFloat(d[1]);
+                    
+                    return `
+                        <tr style="border-bottom: 1px solid #222;">
+                            <td style="padding: 5px; color: #888;">${dateStr} ${timeStr}</td>
+                            <td>${parseFloat(d[1]).toFixed(0)}</td>
+                            <td>${parseFloat(d[2]).toFixed(0)}</td>
+                            <td>${parseFloat(d[3]).toFixed(0)}</td>
+                            <td style="color: ${isBullish ? '#26a69a' : '#ef5350'}; font-weight: bold;">
+                                ${parseFloat(d[4]).toFixed(0)}
+                            </td>
+                            <td>${parseFloat(d[5]).toFixed(1)}</td>
+                        </tr>
+                    `;
+                }).join('')}
+            </tbody>
         </table>
     `;
 }
