@@ -108,11 +108,25 @@ function changeTimeframe(interval) {
     initDashboard();
 }
 
+// --- LIVE KLOK BEREKENING (Zorg dat deze BOVEN de aanroep staat) ---
+function updateInfoPanel() {
+    const now = Date.now();
+    const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
+    const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
+    const coreEl = document.getElementById('next-core-node');
+    if (coreEl) coreEl.innerText = new Date(nextCoreTime).toISOString().substring(11, 16) + " UTC (Node " + currentCoreIndex + ")";
+    
+    const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
+    const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
+    const expEl = document.getElementById('next-expiration');
+    if (expEl) expEl.innerText = new Date(nextExpTime).toISOString().substring(11, 16) + " UTC (Node " + currentExpIndex + ")";
+}
+
 // --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
-    // Zorg ervoor dat oude markers worden verwijderd voordat we nieuwe plaatsen
+    // Wis eerst alle oude markers
     candlestickSeries.setMarkers([]); 
     
     const minTimeSec = chartData[0].time;
@@ -129,8 +143,6 @@ function applyUOTAMGrid(chartData) {
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
-
-        // UTC tijdnotatie in HH:mm formaat
         const dateStr = new Date(nodeTimeMs).toISOString().substring(11, 16) + " UTC";
         
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
@@ -141,12 +153,7 @@ function applyUOTAMGrid(chartData) {
             const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
             
             if (i % 3 === 0 && !hasCoreNode) {
-                let vortexValue = "";
-                const flowIndex = (i / 3) % 3; 
-                if (flowIndex === 0) vortexValue = "3";
-                else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6";
-                else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9";
-
+                let vortexValue = ((i / 3) % 3 === 0) ? "3" : (((i / 3) % 3 === 1) ? "6" : "9");
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
@@ -155,7 +162,6 @@ function applyUOTAMGrid(chartData) {
                     text: `Node ${i} [Vortex ${vortexValue}] | ${dateStr}`,
                 });
             }
-            
             if (i % 8 === 0 && !hasExpiration) {
                 markers.push({
                     time: closestCandle.time,
@@ -168,11 +174,14 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    // Sorteren en toevoegen aan de chart
     markers.sort((a, b) => a.time - b.time);
+    // Gebruik de universele manier voor markers
     candlestickSeries.setMarkers(markers);
     
-    updateInfoPanel();
+    // Zorg dat deze functie pas wordt aangeroepen als hij bestaat
+    if (typeof updateInfoPanel === 'function') {
+        updateInfoPanel();
+    }
 }
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
