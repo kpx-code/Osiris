@@ -31,16 +31,24 @@
 
     <div id="chart-container"></div>
 
-    <div id="info-panel" style="margin-top: 20px;">
-        <div class="card">
-            <h3>Volgende Core Micro Node</h3>
-            <p id="next-core-node">Berekenen...</p>
-        </div>
-        <div class="card">
-            <h3>Volgende Cyclus Expiratie (8-Polair)</h3>
-            <p id="next-expiration">Berekenen...</p>
-        </div>
+    <div id="info-panel" style="margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
+        <h3 style="font-size: 0.9em; color: #ffffff;">RESET [Vortex 9]</h3>
+        <p id="next-reset" style="font-family: monospace; font-size: 1.1em; color: #ffffff;">Berekenen...</p>
     </div>
+    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
+        <h3 style="font-size: 0.9em; color: #ffff00;">VOLA [Node 1]</h3>
+        <p id="next-vola" style="font-family: monospace; font-size: 1.1em; color: #ffff00;">Berekenen...</p>
+    </div>
+    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
+        <h3 style="font-size: 0.9em; color: #00ffcc;">CORE [Vortex 3/6]</h3>
+        <p id="next-core" style="font-family: monospace; font-size: 1.1em; color: #00ffcc;">Berekenen...</p>
+    </div>
+    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
+        <h3 style="font-size: 0.9em; color: #888888;">OSC [Node 2/4/5/7]</h3>
+        <p id="next-osc" style="font-family: monospace; font-size: 1.1em; color: #888888;">Berekenen...</p>
+    </div>
+</div>
     <script src="/Osiris/app.js"></script>
 </body>
 </html>
