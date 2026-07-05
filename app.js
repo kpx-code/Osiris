@@ -135,57 +135,6 @@ function calculateVFM(currentPrice, currentVolume, historyData) {
     return er * db;
 }
 
-// --- Integratie in je WebSocket (Live Update) ---
-currentWs.onmessage = (event) => {
-    const message = JSON.parse(event.data);
-    const candle = message.k;
-    
-    // 1. Live data ophalen
-    const livePrice = parseFloat(candle.c);
-    const liveVol = parseFloat(candle.v);
-
-    // Update de grafiek zelf
-    candlestickSeries.update({
-        time: candle.t / 1000,
-        open: parseFloat(candle.o),
-        high: parseFloat(candle.h),
-        low: parseFloat(candle.l),
-        close: parseFloat(candle.c),
-    });
-
-    // 2. CHAOS BEREKENING
-    // Controleer of er genoeg historische data is (288 is 3 dagen bij 15m candles)
-    if (rawData && rawData.length >= 288) {
-        const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]); 
-        const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
-        
-        const chaosEl = document.getElementById('chaos-display');
-        if (chaosEl) {
-            chaosEl.innerText = `${chaos.toFixed(2)}%`;
-            // Kleurlogica conform TSD: >15% rood (waarschuwing), >8% oranje (actief), daaronder groen (stabiel)
-            chaosEl.style.color = chaos > 15 ? "#ef5350" : (chaos > 8 ? "#ff9900" : "#00ffcc");
-        }
-    }
-
-    // 3. VFM BEREKENING
-    if (rawData && rawData.length >= 20) {
-        const vfm = calculateVFM(livePrice, liveVol, rawData);
-        
-        const vfmEl = document.getElementById('vfm-display');
-        if (vfmEl) {
-            vfmEl.innerText = vfm.toFixed(2);
-            // Kleurlogica conform UOTAM v7.7 Engine specificaties
-            vfmEl.style.color = Math.abs(vfm) > 1.2 ? "#00ffcc" : "#888888";
-        }
-    }
-    
-    // 4. Live Volume update (zoals eerder besproken)
-    const volEl = document.getElementById('live-volume');
-    if (volEl) {
-        volEl.innerText = liveVol.toFixed(4);
-        volEl.style.color = "#00ffcc";
-    }
-};
 
 function calculateVFM(currentPrice, currentVolume, historyData) {
     // Pak laatste 20 volumes voor SMA20
@@ -374,35 +323,65 @@ function updateHistoryList(rawData) {
 }
 
 // --- 2. WebSocket aanpassen voor Live Volume ---
+// --- 2. WebSocket aanpassen voor Live Volume ---
 function startLiveUpdates() {
-    // 1. Veilig sluiten van de oude verbinding
     if (currentWs) {
-        currentWs.onmessage = null; // Cleanup
-        currentWs.onerror = null;
         currentWs.close();
         currentWs = null;
     }
 
-    // 2. Initialiseer de nieuwe verbinding
     const baseUrl = "wss://fstream.binance.com/market"; 
     currentWs = new WebSocket(`${baseUrl}/ws/btcusdt@kline_15m`);
     
-    // 3. Wacht tot de verbinding open is voordat we de onmessage toekennen
-    currentWs.onopen = () => {
-        console.log("UOTAM Stream verbonden.");
-    };
+    currentWs.onopen = () => console.log("UOTAM Stream verbonden.");
 
+    // DE LOGICA STAAT NU HIER, WAAR HET VEILIG IS
     currentWs.onmessage = (event) => {
         const message = JSON.parse(event.data);
         const candle = message.k;
         
-        // ... rest van je logica ...
-        // (Zoals je hierboven in de vorige stap hebt opgebouwd)
+        const livePrice = parseFloat(candle.c);
+        const liveVol = parseFloat(candle.v);
+
+        // Update grafiek
+        candlestickSeries.update({
+            time: candle.t / 1000,
+            open: parseFloat(candle.o),
+            high: parseFloat(candle.h),
+            low: parseFloat(candle.l),
+            close: parseFloat(candle.c),
+        });
+
+        // CHAOS BEREKENING
+        if (rawData && rawData.length >= 288) {
+            const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]); 
+            const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+            const chaosEl = document.getElementById('chaos-display');
+            if (chaosEl) {
+                chaosEl.innerText = `${chaos.toFixed(2)}%`;
+                chaosEl.style.color = chaos > 15 ? "#ef5350" : (chaos > 8 ? "#ff9900" : "#00ffcc");
+            }
+        }
+
+        // VFM BEREKENING
+        if (rawData && rawData.length >= 20) {
+            const vfm = calculateVFM(livePrice, liveVol, rawData);
+            const vfmEl = document.getElementById('vfm-display');
+            if (vfmEl) {
+                vfmEl.innerText = vfm.toFixed(2);
+                vfmEl.style.color = Math.abs(vfm) > 1.2 ? "#00ffcc" : "#888888";
+            }
+        }
+        
+        // Live Volume
+        const volEl = document.getElementById('live-volume');
+        if (volEl) {
+            volEl.innerText = liveVol.toFixed(4);
+            volEl.style.color = "#00ffcc";
+        }
     };
     
-    currentWs.onerror = (err) => {
-        console.error("UOTAM Stream Error:", err);
-    };
+    currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
 }
 
 window.addEventListener('resize', () => {
