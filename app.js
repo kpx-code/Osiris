@@ -338,63 +338,51 @@ function startLiveUpdates() {
     // DE LOGICA STAAT NU HIER, WAAR HET VEILIG IS
     // --- DEZE FUNCTIE VERVANGT JE HUIDIGE ONMESSAGE BLOK ---
 currentWs.onmessage = (event) => {
-    const message = JSON.parse(event.data);
-    const candle = message.k;
-    
-    // 1. Data voorbereiden
-    const livePrice = parseFloat(candle.c);
-    const liveVol = parseFloat(candle.v);
-    const currentCandle = rawData[rawData.length - 1];
-    const high = parseFloat(currentCandle[2]);
-    const low = parseFloat(currentCandle[3]);
+    try {
+        const message = JSON.parse(event.data);
+        const candle = message.k;
+        const livePrice = parseFloat(candle.c);
+        const liveVol = parseFloat(candle.v);
 
-    // 2. Berekeningen (UOTAM Engine)
-    const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
-    const er = liveVol / sma20Volume;
-    const db = (2 * livePrice - (high + low)) / (high - low);
-    const vfm = er * db;
-    
-    const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]); 
-    const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+        // Update Grafiek
+        candlestickSeries.update({
+            time: candle.t / 1000,
+            open: parseFloat(candle.o),
+            high: parseFloat(candle.h),
+            low: parseFloat(candle.l),
+            close: livePrice,
+        });
 
-    // 3. Interpretatie logica
-    const getInterpretation = (val, type) => {
-        if (type === 'vfm') {
-            if (Math.abs(val) > 1.5) return "Extreme | Sterk";
-            if (Math.abs(val) > 0.5) return "Significant | Tradable";
-            return "Low-energy | Consolidatie";
+        // Berekeningen (UOTAM Engine)
+        if (rawData.length > 20) {
+            const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
+            const er = liveVol / sma20Volume;
+            const high = parseFloat(candle.h); // Gebruik live high/low voor betere DB
+            const low = parseFloat(candle.l);
+            const db = (2 * livePrice - (high + low)) / (high - low);
+            const vfm = er * db;
+            const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
+            const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+
+            // UI UPDATES - Met check of element bestaat
+            const update = (id, val, status, isPerc = false) => {
+                const pEl = document.getElementById(id + '-display');
+                const sEl = document.getElementById(id + '-status');
+                if (pEl) pEl.innerText = isPerc ? val.toFixed(2) + '%' : val.toFixed(3);
+                if (sEl) {
+                    sEl.innerText = status;
+                    sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350";
+                }
+            };
+
+            update('vfm', vfm, Math.abs(vfm) > 1.5 ? "Extreme" : "Significant");
+            update('er', er, er > 1.2 ? "High Energy" : "Low Energy");
+            update('db', db, db > 0 ? "Bullish Bias" : "Bearish Bias");
+            update('chaos', chaos, chaos > 15 ? "Extreme Chaos" : "Stabiel", true);
         }
-        if (type === 'chaos') {
-            if (val > 15) return "Extreme Chaos | Oppassen";
-            if (val > 8) return "Actieve Chaos | Filteren";
-            return "Stabiel | Geen actie";
-        }
-        return "";
-    };
-
-    // 4. Update de UI via een array (zoals je vroeg)
-    const metrics = [
-        { id: 'vfm', val: vfm, status: getInterpretation(vfm, 'vfm') },
-        { id: 'er', val: er, status: er > 1.2 ? "High Energy" : "Low Energy" },
-        { id: 'db', val: db, status: db > 0 ? "Bullish Bias" : "Bearish Bias" },
-        { id: 'chaos', val: chaos, status: getInterpretation(chaos, 'chaos') }
-    ];
-
-    metrics.forEach(m => {
-        const pEl = document.getElementById(`${m.id}-display`);
-        const sEl = document.getElementById(`${m.id}-status`);
-        if(pEl) pEl.innerText = m.val.toFixed(3);
-        if(sEl) {
-            sEl.innerText = m.status;
-            // Kleur logica: Bullish/gunstig = groen, Bearish/waarschuwing = rood
-            sEl.style.color = (m.id === 'db' && m.val < 0) ? "#ef5350" : "#00ffcc";
-        }
-    });
-
-    // Update ook de grafiek en live volume
-    candlestickSeries.update({ time: candle.t / 1000, open: parseFloat(candle.o), high: parseFloat(candle.h), low: parseFloat(candle.l), close: livePrice });
-    const volEl = document.getElementById('live-volume');
-    if (volEl) volEl.innerText = liveVol.toFixed(4);
+    } catch (e) {
+        console.error("WebSocket Fout:", e);
+    }
     };
     
     currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
