@@ -401,6 +401,7 @@ function startLiveUpdates() {
         console.error("UOTAM Engine Fout:", err);
     }
 };
+}
 
 
 window.addEventListener('resize', () => {
@@ -409,4 +410,4 @@ window.addEventListener('resize', () => {
 
 initDashboard();
 setInterval(updateInfoPanel, 1000);
-}
+
