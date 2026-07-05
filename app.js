@@ -189,7 +189,7 @@ function applyUOTAMGrid(chartData) {
     }
     
     // 2. TEKEN DE NIEUWE MARKERS
-    // Hierdoor worden de oude markers vervangen door deze nieuwe, unieke set
+    // Hierdoor worden de oude markers vervangen door deze nieuwe, unieke set, werkt dit?
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     
     if (typeof updateInfoPanel === 'function') {
