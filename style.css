@@ -78,3 +78,17 @@ h1 {
     background: #131722;
     border: 1px solid #333;
 }
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 20px;
+}
+.cardmetrics {
+    background: #1f2233;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    color: #d1d4dc;
+}
