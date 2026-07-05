@@ -394,7 +394,8 @@ function startLiveUpdates() {
             if (bar) {
                 // DB is -1 tot 1. We converteren dit naar 0-100% voor de gradient.
                 const buyPercent = ((db + 1) / 2) * 100;
-                bar.style.background = `linear-gradient(to right, #ef5350 ${buyPercent}%, #00ffcc ${buyPercent}%)`;
+                // Wissel de kleuren om in de gradient:
+                bar.style.background = `linear-gradient(to right, #00ffcc ${buyPercent}%, #ef5350 ${buyPercent}%)`;
             }
         }
     } catch (err) {
