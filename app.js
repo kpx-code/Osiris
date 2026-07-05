@@ -65,19 +65,10 @@ chart.subscribeCrosshairMove(param => {
 function changeTimeframe(interval) {
     currentInterval = interval;
     
-    // --- DE OPLOSSING VOOR DE FOUT ---
-    // Gebruik de centrale functie om markers te legen in plaats van de serie-methode direct
-    // LightweightCharts heeft vaak alleen 'setMarkers' op de serie, 
-    // als dat faalt, gebruiken we een lege array in de setter.
-    if (typeof candlestickSeries.setMarkers === 'function') {
-        candlestickSeries.setMarkers([]);
-    } else {
-        // Fallback: Als setMarkers niet bestaat, gebruik de globale methode
-        // Dit is wat we in applyUOTAMGrid ook gebruiken
-        LightweightCharts.createSeriesMarkers(candlestickSeries, []);
-    }
+    // Wis de markers expliciet via de bibliotheek-namespace om crashes te voorkomen
+    LightweightCharts.createSeriesMarkers(candlestickSeries, []);
     
-    // Update de UI knoppen...
+    // Update de UI knoppen
     const intervals = ['15m', '30m', '1h'];
     intervals.forEach(int => {
         const btn = document.getElementById(`btn-${int}`);
@@ -88,7 +79,40 @@ function changeTimeframe(interval) {
         }
     });
 
+    // Start de herlaad-cyclus
     initDashboard();
+}
+
+// --- HOOFDFUNCTIE: INITIALISATIE ---
+async function initDashboard() {
+    try {
+        // 1. Zorg voor een schone lei: Wis markers direct bij start
+        LightweightCharts.createSeriesMarkers(candlestickSeries, []);
+        
+        // 2. Fetch de data
+        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
+        const rawData = await response.json();
+        
+        const chartData = rawData.map(d => ({
+            time: Math.floor(d[0] / 1000),
+            open: parseFloat(d[1]),
+            high: parseFloat(d[2]),
+            low: parseFloat(d[3]),
+            close: parseFloat(d[4])
+        }));
+        
+        // 3. Update de serie
+        candlestickSeries.setData(chartData);
+        
+        // 4. Teken het grid
+        applyUOTAMGrid(chartData);
+        
+        // 5. Herstart de live stream
+        startLiveUpdates();
+        
+    } catch (error) {
+        console.error("Fout bij het laden van de UOTAM Engine data:", error);
+    }
 }
 
 // --- LIVE KLOK BEREKENING (Zorg dat deze BOVEN de aanroep staat) ---
