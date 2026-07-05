@@ -117,7 +117,6 @@ async function initDashboard() {
 function updateInfoPanel() {
     const now = Date.now();
     
-    // Hulpfuncties
     const formatDateTime = (ms) => {
         const d = new Date(ms);
         return `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
@@ -126,52 +125,39 @@ function updateInfoPanel() {
     const formatCountdown = (ms) => {
         const diff = ms - now;
         if (diff <= 0) return "00:00:00";
-        
-        const seconds = Math.floor((diff / 1000) % 60);
-        const minutes = Math.floor((diff / 1000 / 60) % 60);
-        const hours = Math.floor(diff / (1000 * 60 * 60));
-        
+        const totalSeconds = Math.floor(diff / 1000);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     };
 
-    // Bereken huidige relatieve positie
+    // Bereken huidige absolute node
     const currentAbsoluteNode = Math.floor((now - ANCHOR_TIME) / T_PI_MS);
     
-    // Zoekfunctie voor volgende node van een specifiek type
-    const getNextNodeTime = (targetRelativeIndex) => {
-        let candidate = currentAbsoluteNode;
-        // Blijf zoeken tot we de juiste relatieve index vinden
-        while (((candidate % 8) + 8) % 8 !== targetRelativeIndex) {
-            candidate++;
-        }
-        return ANCHOR_TIME + (candidate * T_PI_MS);
-    };
-
-    // Data voor de 4 types
     const nodes = [
-        { id: 'next-reset', label: 'RESET [Vortex 9]', target: 0 },
-        { id: 'next-vola',  label: 'VOLA [Node 1]',   target: 1 },
-        { id: 'next-core',  label: 'CORE [Vortex 3/6]', targets: [3, 6] }, // Speciaal geval
-        { id: 'next-osc',   label: 'OSC [Node 2/4/5/7]', targets: [2, 4, 5, 7] }
+        { id: 'next-reset', targets: [0] },
+        { id: 'next-vola',  targets: [1] },
+        { id: 'next-core',  targets: [3, 6] },
+        { id: 'next-osc',   targets: [2, 4, 5, 7] }
     ];
 
     nodes.forEach(n => {
         const el = document.getElementById(n.id);
         if (!el) return;
 
-        let targetTime;
-        if (n.targets) {
-            // Zoek de eerstvolgende van een set targets
-            let candidate = currentAbsoluteNode;
-            while (!n.targets.includes(((candidate % 8) + 8) % 8)) {
-                candidate++;
-            }
-            targetTime = ANCHOR_TIME + (candidate * T_PI_MS);
-        } else {
-            targetTime = getNextNodeTime(n.target);
+        // Start zoeken bij de huidige node + 1 om altijd in de toekomst te kijken
+        let candidate = currentAbsoluteNode + 1;
+        
+        // Loop totdat we een node vinden die in de target-lijst staat
+        // We begrenzen dit op +20 nodes vooruit om oneindige loops te voorkomen
+        let maxSearch = currentAbsoluteNode + 20; 
+        while (!n.targets.includes(((candidate % 8) + 8) % 8) && candidate < maxSearch) {
+            candidate++;
         }
-
-        el.innerText = `${n.label} | ${formatDateTime(targetTime)} | ${formatCountdown(targetTime)}`;
+        
+        const targetTime = ANCHOR_TIME + (candidate * T_PI_MS);
+        el.innerText = `${formatDateTime(targetTime)} (${formatCountdown(targetTime)})`;
     });
 }
 
