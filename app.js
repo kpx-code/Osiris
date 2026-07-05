@@ -194,7 +194,7 @@ function applyUOTAMGrid(chartData) {
         updateInfoPanel();
     }
 }
-// --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
+
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
     // 1. Zorg voor een volledige afsluiting van de vorige instantie
