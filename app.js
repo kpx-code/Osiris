@@ -3,230 +3,128 @@ const ANCHOR_TIME = new Date('2026-07-01T12:00:00Z').getTime();
 const T_PI_MINUTES = 188.6634;
 const T_PI_MS = T_PI_MINUTES * 60 * 1000;
 
-let currentInterval = '15m'; // Standaard interval bij opstarten
-let currentWs = null;        // Onthoudt actieve WebSocket-verbinding
+let currentInterval = '15m';
+let currentWs = null;
 
-// --- INITIALISEER HET TRADINGVIEW CHART INTERFACE ---
+// --- INITIALISEER CHART ---
 const chartContainer = document.getElementById('chart-container');
 const chart = LightweightCharts.createChart(chartContainer, {
-    width: chartContainer.clientWidth,
-    height: 600,
-    layout: {
-        background: { color: '#131722' },
-        textColor: '#d1d4dc',
-    },
-    grid: {
-        vertLines: { color: '#1f2233' },
-        horzLines: { color: '#1f2233' },
-    },
-    crosshair: {
-        mode: LightweightCharts.CrosshairMode.Normal,
-    },
-    timeScale: {
-        timeVisible: true,
-        secondsVisible: false,
-    },
+    width: chartContainer.clientWidth, height: 600,
+    layout: { background: { color: '#131722' }, textColor: '#d1d4dc' },
+    grid: { vertLines: { color: '#1f2233' }, horzLines: { color: '#1f2233' } },
+    timeScale: { timeVisible: true, secondsVisible: false },
 });
 
 const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
-    upColor: '#26a69a',
-    downColor: '#ef5350',
-    borderVisible: false,
-    wickUpColor: '#26a69a',
-    wickDownColor: '#ef5350',
+    upColor: '#26a69a', downColor: '#ef5350', borderVisible: false,
+    wickUpColor: '#26a69a', wickDownColor: '#ef5350',
 });
 
-// --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
+// --- OHLC MOUSE HOVER ---
 chart.subscribeCrosshairMove(param => {
-    const ohlcOpen = document.getElementById('ohlc-open');
-    const ohlcHigh = document.getElementById('ohlc-high');
-    const ohlcLow = document.getElementById('ohlc-low');
-    const ohlcClose = document.getElementById('ohlc-close');
-
+    const ohlc = { o: document.getElementById('ohlc-open'), h: document.getElementById('ohlc-high'), l: document.getElementById('ohlc-low'), c: document.getElementById('ohlc-close') };
     if (param.time && param.seriesData.has(candlestickSeries)) {
         const data = param.seriesData.get(candlestickSeries);
-        ohlcOpen.innerText = data.open.toFixed(2);
-        ohlcHigh.innerText = data.high.toFixed(2);
-        ohlcLow.innerText = data.low.toFixed(2);
-        ohlcClose.innerText = data.close.toFixed(2);
-        
-        // Kleur aanpassen op basis van bullish/bearish candle
-        const color = data.close >= data.open ? '#26a69a' : '#ef5350';
-        ohlcClose.style.color = color;
+        ohlc.o.innerText = data.open.toFixed(2); ohlc.h.innerText = data.high.toFixed(2);
+        ohlc.l.innerText = data.low.toFixed(2); ohlc.c.innerText = data.close.toFixed(2);
+        ohlc.c.style.color = data.close >= data.open ? '#26a69a' : '#ef5350';
     } else {
-        // Reset waarden als muis buiten de grafiek staat
-        ohlcOpen.innerText = '-';
-        ohlcHigh.innerText = '-';
-        ohlcLow.innerText = '-';
-        ohlcClose.innerText = '-';
-        ohlcClose.style.color = '#d1d4dc';
+        Object.values(ohlc).forEach(el => el.innerText = '-');
+        ohlc.c.style.color = '#d1d4dc';
     }
 });
 
-// --- HOOFDFUNCTIE: INITIALISATIE ---
+// --- HOOFDFUNCTIE ---
 async function initDashboard() {
     try {
-        // 1. Haal historische data op op basis van het gekozen interval
         const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
         const rawData = await response.json();
-        
         const chartData = rawData.map(d => ({
-            time: Math.floor(d[0] / 1000), // Vertaalt UTC timestamps direct naar correcte lokale browsertijd (CET)
-            open: parseFloat(d[1]),
-            high: parseFloat(d[2]),
-            low: parseFloat(d[3]),
-            close: parseFloat(d[4])
+            time: Math.floor(d[0] / 1000),
+            open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4])
         }));
-        
         candlestickSeries.setData(chartData);
-
-        // 2. Bereken en plot de UOTAM Matrix Nodes
         applyUOTAMGrid(chartData);
-        
-        // 3. Start de Live WebSocket verbinding
         startLiveUpdates();
-    } catch (error) {
-        console.error("Fout bij het laden van de UOTAM Engine data:", error);
-    }
+    } catch (error) { console.error("Fout:", error); }
 }
 
-// --- DYNAMISCH TIMEFRAME WISSELEN ---
+// --- TIMEFRAME WISSELEN (1d verwijderd) ---
 function changeTimeframe(interval) {
     currentInterval = interval;
-    
-    // Update knoppen styling
-    const intervals = ['15m', '30m', '1h', '1d'];
+    const intervals = ['15m', '30m', '1h'];
     intervals.forEach(int => {
         const btn = document.getElementById(`btn-${int}`);
         if (btn) {
-            if (int === interval) {
-                btn.style.background = '#00ffcc';
-                btn.style.color = '#131722';
-                btn.style.border = '1px solid #00ffcc';
-                btn.style.fontWeight = 'bold';
-            } else {
-                btn.style.background = '#1f2233';
-                btn.style.color = '#fff';
-                btn.style.border = '1px solid #333';
-                btn.style.fontWeight = 'normal';
-            }
+            btn.style.background = (int === interval) ? '#00ffcc' : '#1f2233';
+            btn.style.color = (int === interval) ? '#131722' : '#fff';
+            btn.style.border = (int === interval) ? '1px solid #00ffcc' : '1px solid #333';
         }
     });
-
-    // Herstart het dashboard met het nieuwe interval
     initDashboard();
 }
 
 // --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
-    
-    const minTimeSec = chartData[0].time;
-    const maxTimeSec = chartData[chartData.length - 1].time;
     const markers = [];
-    
-    // Bereken het venster in indices
-    const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
-    const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
+    const candleSizeSec = (currentInterval === '30m') ? 1800 : (currentInterval === '1h') ? 3600 : (currentInterval === '1d') ? 86400 : 900;
 
-    // Bepaal de omvang van 1 kaars in seconden op basis van het actieve interval
-    let candleSizeSec = 900; // 15m standaard
-    if (currentInterval === '30m') candleSizeSec = 1800;
-    if (currentInterval === '1h') candleSizeSec = 3600;
-    if (currentInterval === '1d') candleSizeSec = 86400; // 1 dag in seconden
+    chartData.forEach(c => {
+        const i = Math.round(((c.time * 1000) - ANCHOR_TIME) / T_PI_MS);
+        const dateStr = new Date(c.time * 1000).toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-    for (let i = startSearchIndex; i <= endSearchIndex; i++) {
-        const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
-        const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
-        
-        // Rond de exacte wiskundige node-tijd af naar de dichtstbijzijnde kaars-starttijd
-        const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
-        
-        // Zoek of deze kaars bestaat in de dataset
-        const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
-        
-        if (closestCandle) {
-            // STRIKTE DE-DUPLICATIE: Voorkom dat er op lagere timeframes waslijsten onder elkaar ontstaan
-            const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
-            const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
-            
-            if (i % 3 === 0 && !hasCoreNode) {
-                let vortexValue = "";
-                const flowIndex = (i / 3) % 3; 
-                if (flowIndex === 0) vortexValue = "3 (Start)";
-                else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6 (Inversie)";
-                else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9 (Absorptie)";
+        // LOGICA: 1d = 56-dagen node, overig = 3 & 8 cyclus
+        const isTargetNode = (currentInterval === '1d') ? (i % 56 === 0) : (i % 3 === 0);
+        const isExpiration = (currentInterval !== '1d') && (i % 8 === 0);
 
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'aboveBar',
-                    color: '#00ffcc',
-                    shape: 'arrowDown',
-                    text: `Node ${i} [Vortex ${vortexValue.charAt(0)}]`,
-                });
-            }
-            
-            if (i % 8 === 0 && !hasExpiration) {
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'belowBar',
-                    color: '#ff3366',
-                    shape: 'verticalLine',
-                    text: `EXPIRATIE (Node ${i})`,
-                });
-            }
+        if (isTargetNode) {
+            let vortex = (i % 9 === 0) ? "9" : (i % 6 === 0) ? "6" : "3";
+            markers.push({
+                time: c.time, position: 'aboveBar', color: '#00ffcc', shape: 'arrowDown',
+                text: `Node ${i} [Vortex ${vortex}] | ${dateStr}`
+            });
         }
-    }
-    
-    // Altijd sorteren op tijd voor de Lightweight Charts bibliotheek
-    markers.sort((a, b) => a.time - b.time);
-    
-    // Teken de unieke, opgeschoonde markers op de chart
-    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
-    updateInfoPanel();
+        if (isExpiration) {
+            markers.push({
+                time: c.time, position: 'belowBar', color: '#ff3366', shape: 'verticalLine',
+                text: `EXPIRATIE Node ${i} | ${dateStr}`
+            });
+        }
+    });
+
+    // Unieke markers filteren op tijd + positie
+    const uniqueMarkers = markers.filter((v, i, a) => a.findIndex(t => (t.time === v.time && t.position === v.position)) === i);
+    candlestickSeries.setMarkers(uniqueMarkers);
 }
 
-// --- LIVE KLOK BEREKENING ---
+// --- LIVE INFO & COUNTDOWN ---
 function updateInfoPanel() {
     const now = Date.now();
-    const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
-    const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
-    document.getElementById('next-core-node').innerText = `${new Date(nextCoreTime).toLocaleTimeString('nl-NL')} (Node ${currentCoreIndex})`;
+    const pad = (n) => String(n).padStart(2, '0');
     
-    const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
-    const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
-    document.getElementById('next-expiration').innerText = `${new Date(nextExpTime).toLocaleString('nl-NL')} (Node ${currentExpIndex})`;
+    // Core Node Countdown
+    const nextCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
+    const diff = (ANCHOR_TIME + (nextCoreIndex * T_PI_MS)) - now;
+    const el = document.getElementById('next-core-node');
+    if (el) el.innerText = `Node ${nextCoreIndex} in: ${Math.floor(diff/3600000)}u ${pad(Math.floor((diff%3600000)/60000))}m ${pad(Math.floor((diff%60000)/1000))}s`;
+    
+    // Expiratie
+    const expIdx = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
+    const expEl = document.getElementById('next-expiration');
+    if (expEl) expEl.innerText = `Exp Node ${expIdx}: ${new Date(ANCHOR_TIME + (expIdx * T_PI_MS)).toLocaleTimeString('nl-NL')}`;
 }
 
-// --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
+// --- WEBSOCKET ---
 function startLiveUpdates() {
-    // Sluit de oude WebSocket als die nog open staat bij een timeframe-switch
-    if (currentWs) {
-        currentWs.close();
-    }
-
+    if (currentWs) currentWs.close();
     currentWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${currentInterval}`);
-    
-    currentWs.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        const candle = message.k;
-        
-        candlestickSeries.update({
-            time: candle.t / 1000,
-            open: parseFloat(candle.o),
-            high: parseFloat(candle.h),
-            low: parseFloat(candle.l),
-            close: parseFloat(candle.c),
-        });
+    currentWs.onmessage = (e) => {
+        const m = JSON.parse(e.data).k;
+        candlestickSeries.update({ time: m.t / 1000, open: parseFloat(m.o), high: parseFloat(m.h), low: parseFloat(m.l), close: parseFloat(m.c) });
     };
-    
-    currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
 }
 
-window.addEventListener('resize', () => {
-    chart.resize(chartContainer.clientWidth, 600);
-});
-
-// Start het systeem op
+window.addEventListener('resize', () => chart.resize(chartContainer.clientWidth, 600));
 initDashboard();
-setInterval(updateInfoPanel, 60000);
+setInterval(updateInfoPanel, 1000);
