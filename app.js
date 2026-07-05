@@ -153,13 +153,12 @@ function updateInfoPanel() {
     }
 }
 
-// --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
     LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
-    const markers = []; // Deze variabele hoort hier thuis
+    const markers = [];
     const minTimeSec = chartData[0].time;
     const maxTimeSec = chartData[chartData.length - 1].time;
     
@@ -169,68 +168,68 @@ function applyUOTAMGrid(chartData) {
     let candleSizeSec = 900; 
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
+        // Bereken de index binnen de huidige 8-node cyclus
+        let relativeIndex = i % 8;
+        if (relativeIndex < 0) relativeIndex += 8; // Zorg dat het altijd positief is
+
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
         const d = new Date(nodeTimeMs);
-        const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+        const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
         
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            // Logica voor CORE nodes
-            if (i % 3 === 0) {
-                let vortexValue = ((i / 3) % 3 === 0) ? "3" : (((i / 3) % 3 === 1) ? "6" : "9");
+            // LOGICA: Rolling Anchor (elke 8e node is een nieuwe 0)
+            
+            // 1. Nieuwe Node 0 (De reset)
+            if (relativeIndex === 0) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
-                    color: '#00ffcc',
-                    shape: 'arrowDown',
-                    text: `CORE Node ${i} [Vortex ${vortexValue}] | ${dateStr}`,
+                    color: '#ffffff',
+                    shape: 'circle',
+                    text: `RESET [Node ${i}]`,
                 });
-            } 
-            // Logica voor Volatiliteits-trigger
-            else if (i === 1) {
+            }
+            // 2. Vola Trigger (Direct na reset)
+            else if (relativeIndex === 1) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#ffff00',
                     shape: 'circle',
-                    text: `VOLA TRIGGER (Node ${i}) | ${dateStr}`,
+                    text: `VOLA [Node ${i}]`,
                 });
             }
-            // Logica voor Oscillators
+            // 3. Core Nodes (3 en 6)
+            else if (relativeIndex === 3 || relativeIndex === 6) {
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'aboveBar',
+                    color: '#00ffcc',
+                    shape: 'arrowDown',
+                    text: `CORE [Node ${i}]`,
+                });
+            }
+            // 4. Oscillators (De rest)
             else {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#888888',
                     shape: 'square',
-                    text: `π-Oscillator (Node ${i}) | ${dateStr}`,
-                });
-            }
-
-            // Expiratie toevoegen aan de set
-            if (i % 8 === 0 && i !== 0) {
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'belowBar',
-                    color: '#ff3366',
-                    shape: 'verticalLine',
-                    text: `EXPIRATIE (Node ${i}) | ${dateStr}`,
+                    text: `Osc [Node ${i}]`,
                 });
             }
         }
     }
     
-    // Nu zijn we nog steeds BINNEN de functie, dus 'markers' is hier bekend:
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
-    
-    if (typeof updateInfoPanel === 'function') {
-        updateInfoPanel();
-    }
-} // <--- DEZE SLUITENDE ACCOLADE IS CRUCIAAL
+    if (typeof updateInfoPanel === 'function') updateInfoPanel();
+}
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
