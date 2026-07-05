@@ -112,6 +112,9 @@ function changeTimeframe(interval) {
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
+    // Zorg ervoor dat oude markers worden verwijderd voordat we nieuwe plaatsen
+    candlestickSeries.setMarkers([]); 
+    
     const minTimeSec = chartData[0].time;
     const maxTimeSec = chartData[chartData.length - 1].time;
     const markers = [];
@@ -127,7 +130,7 @@ function applyUOTAMGrid(chartData) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
 
-        // Gebruik de UTC string voor je markers
+        // UTC tijdnotatie in HH:mm formaat
         const dateStr = new Date(nodeTimeMs).toISOString().substring(11, 16) + " UTC";
         
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
@@ -165,29 +168,11 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
+    // Sorteren en toevoegen aan de chart
     markers.sort((a, b) => a.time - b.time);
-    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
+    candlestickSeries.setMarkers(markers);
+    
     updateInfoPanel();
-}
-// --- LIVE KLOK BEREKENING ---
-function updateInfoPanel() {
-    const now = Date.now();
-    
-    // Core Node Berekening
-    const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
-    const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
-    const coreEl = document.getElementById('next-core-node');
-    if (coreEl) {
-        coreEl.innerText = new Date(nextCoreTime).toISOString().substring(11, 16) + " UTC (Node " + currentCoreIndex + ")";
-    }
-    
-    // Expiratie Berekening
-    const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
-    const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
-    const expEl = document.getElementById('next-expiration');
-    if (expEl) {
-        expEl.innerText = new Date(nextExpTime).toISOString().substring(11, 16) + " UTC (Node " + currentExpIndex + ")";
-    }
 }
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
