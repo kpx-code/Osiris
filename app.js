@@ -338,75 +338,69 @@ function startLiveUpdates() {
     currentWs.onopen = () => console.log("UOTAM Engine verbonden met Binance.");
 
     currentWs.onmessage = (event) => {
-        try {
-            const message = JSON.parse(event.data);
-            const candle = message.k;
+    try {
+        const message = JSON.parse(event.data);
+        const candle = message.k;
+        if (!candle) return;
+
+        const livePrice = parseFloat(candle.c);
+        const liveVol = parseFloat(candle.v);
+        const high = parseFloat(candle.h);
+        const low = parseFloat(candle.l);
+
+        // 1. Update de grafiek
+        candlestickSeries.update({
+            time: candle.t / 1000,
+            open: parseFloat(candle.o),
+            high: high,
+            low: low,
+            close: livePrice,
+        });
+
+        // 2. UOTAM Engine Berekeningen
+        if (rawData && rawData.length >= 20) {
+            const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
+            const er = liveVol / sma20Volume;
+            const db = (2 * livePrice - (high + low)) / (high - low);
+            const vfm = er * db;
             
-            // Controleer of de data geldig is
-            if (!candle) return;
-
-            const livePrice = parseFloat(candle.c);
-            const liveVol = parseFloat(candle.v);
-
-            // 2. Update de grafiek-serie (LightweightCharts)
-            candlestickSeries.update({
-                time: candle.t / 1000,
-                open: parseFloat(candle.o),
-                high: parseFloat(candle.h),
-                low: parseFloat(candle.l),
-                close: livePrice,
-            });
-
-            // 3. UOTAM Engine Berekeningen
-            // Alleen uitvoeren als we voldoende historische data hebben (min. 20 candles)
-            if (rawData && rawData.length >= 20) {
-                const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
-                
-                // Energy Ratio (ER)
-                const er = liveVol / sma20Volume;
-                
-                // Delta Balance (DB)
-                const high = parseFloat(candle.h);
-                const low = parseFloat(candle.l);
-                const db = (2 * livePrice - (high + low)) / (high - low);
-                
-                // Volume Force Momentum (VFM)
-                const vfm = er * db;
-                
-                // Chaos Index (vergelijking met 3 dagen terug / 288 candles)
-                let chaos = 0;
-                if (rawData.length >= 288) {
-                    const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
-                    chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
-                }
-
-                // 4. UI Updates (Fout-tolerant)
-                const updateDisplay = (id, val, format, status) => {
-                    const pEl = document.getElementById(`${id}-display`);
-                    const sEl = document.getElementById(`${id}-status`);
-                    if (pEl) pEl.innerText = format(val);
-                    if (sEl) {
-                        sEl.innerText = status;
-                        sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350";
-                    }
-                };
-
-                updateDisplay('vfm', vfm, (v) => v.toFixed(3), Math.abs(vfm) > 1.5 ? "EXTREME" : "SIGNIFICANT");
-                updateDisplay('er', er, (v) => v.toFixed(2), er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
-                updateDisplay('db', db, (v) => v.toFixed(2), db > 0 ? "BULLISH" : "BEARISH");
-                updateDisplay('chaos', chaos, (v) => v.toFixed(1) + '%', chaos > 15 ? "EXTREME" : "STABIEL");
-                
-                // Live Volume
-                const volEl = document.getElementById('live-volume');
-                if (volEl) volEl.innerText = liveVol.toFixed(3);
+            let chaos = 0;
+            if (rawData.length >= 288) {
+                const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
+                chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
             }
-        } catch (err) {
-            console.error("Fout in UOTAM Engine WebSocket:", err);
+
+            // 3. UI Updates
+            const updateDisplay = (id, val, format, status) => {
+                const pEl = document.getElementById(`${id}-display`);
+                const sEl = document.getElementById(`${id}-status`);
+                if (pEl) pEl.innerText = format(val);
+                if (sEl) {
+                    sEl.innerText = status;
+                    sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350";
+                }
+            };
+
+            updateDisplay('vfm', vfm, (v) => v.toFixed(3), Math.abs(vfm) > 1.5 ? "EXTREME" : "SIGNIFICANT");
+            updateDisplay('er', er, (v) => v.toFixed(2), er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
+            updateDisplay('db', db, (v) => v.toFixed(2), db > 0 ? "BULLISH" : "BEARISH");
+            updateDisplay('chaos', chaos, (v) => v.toFixed(1) + '%', chaos > 15 ? "EXTREME" : "STABIEL");
+            
+            const volEl = document.getElementById('live-volume');
+            if (volEl) volEl.innerText = liveVol.toFixed(4);
+
+            // 4. Sentiment Bar (Market Pressure)
+            const bar = document.getElementById('sentiment-bar');
+            if (bar) {
+                // DB is -1 tot 1. We converteren dit naar 0-100% voor de gradient.
+                const buyPercent = ((db + 1) / 2) * 100;
+                bar.style.background = `linear-gradient(to right, #ef5350 ${buyPercent}%, #00ffcc ${buyPercent}%)`;
+            }
         }
-    };
-    
-    currentWs.onerror = (err) => console.error("WebSocket Verbindingsfout:", err);
-}
+    } catch (err) {
+        console.error("UOTAM Engine Fout:", err);
+    }
+};
 
 window.addEventListener('resize', () => {
     chart.resize(chartContainer.clientWidth, 600);
