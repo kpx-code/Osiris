@@ -135,44 +135,35 @@ function updateInfoPanel() {
         expEl.innerText = `${formatDate(nextExpTime)} (Node ${currentExpIndex})`;
     }
 }
-// --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
-    // Reset markers via de globale LightweightCharts methode
+    // 1. Zorg voor een schone lei: Wis alle bestaande markers
     LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
+    const markers = [];
     const minTimeSec = chartData[0].time;
     const maxTimeSec = chartData[chartData.length - 1].time;
-    const markers = [];
     
     const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
     const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
 
-    let candleSizeSec = 900; 
-    if (currentInterval === '30m') candleSizeSec = 1800;
-    if (currentInterval === '1h') candleSizeSec = 3600;
+    let candleSizeSec = (currentInterval === '30m') ? 1800 : (currentInterval === '1h') ? 3600 : 900;
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
-        // --- STRIKTE DATUM OPBOUW ---
+        // Formatteer datum: DD-MM HH:mm UTC
         const d = new Date(nodeTimeMs);
-        const day = String(d.getUTCDate()).padStart(2, '0');
-        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-        const hours = String(d.getUTCHours()).padStart(2, '0');
-        const minutes = String(d.getUTCMinutes()).padStart(2, '0');
-        const dateStr = `${day}-${month} ${hours}:${minutes} UTC`;
+        const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
         
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
-            const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
-            
-            if (i % 3 === 0 && !hasCoreNode) {
+            // Node marker toevoegen
+            if (i % 3 === 0) {
                 let vortexValue = ((i / 3) % 3 === 0) ? "3" : (((i / 3) % 3 === 1) ? "6" : "9");
                 markers.push({
                     time: closestCandle.time,
@@ -182,7 +173,8 @@ function applyUOTAMGrid(chartData) {
                     text: `Node ${i} [Vortex ${vortexValue}] | ${dateStr}`,
                 });
             }
-            if (i % 8 === 0 && !hasExpiration) {
+            // Expiratie marker toevoegen
+            if (i % 8 === 0) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'belowBar',
@@ -194,7 +186,7 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    markers.sort((a, b) => a.time - b.time);
+    // Voeg de unieke markers toe
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     
     if (typeof updateInfoPanel === 'function') {
