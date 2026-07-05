@@ -398,7 +398,7 @@ function startLiveUpdates() {
                 
                 // Live Volume
                 const volEl = document.getElementById('live-volume');
-                if (volEl) volEl.innerText = liveVol.toFixed(6);
+                if (volEl) volEl.innerText = liveVol.toFixed(3);
             }
         } catch (err) {
             console.error("Fout in UOTAM Engine WebSocket:", err);
