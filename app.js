@@ -8,7 +8,7 @@ let currentInterval = '15m'; // Standaard interval bij opstarten
 let currentWs = null; // Dit is cruciaal Onthoudt actieve WebSocket-verbinding
 let rawData = [];
 
-// - INITIALISEER HET TRADINGVIEW CHART INTERFACE -
+// - INITIALISEER HET TRADINGVIEW CHART INTERFACE --
 const chartContainer = document.getElementById('chart-container');
 const chart = LightweightCharts.createChart(chartContainer, {
     width: chartContainer.clientWidth,
