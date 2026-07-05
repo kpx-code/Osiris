@@ -152,12 +152,11 @@ function updateInfoPanel() {
         expEl.innerText = `${formatDateTime(nextExpTime)} | Node ${currentExpIndex} | ${formatCountdown(nextExpTime)}`;
     }
 }
+
 // --- MATRIX REKENKERN (VERVANG JE HUIDIGE FUNCTIE HIERDOOR) ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
-    // 1. ZORG VOOR EEN SCHONE LEI
-    // Door een lege array te sturen, wis je alle bestaande markers op de serie
     LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
     const markers = [];
@@ -167,14 +166,12 @@ function applyUOTAMGrid(chartData) {
     const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
     const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
 
-    // Zoek deze regel in applyUOTAMGrid en vervang door:
-    let candleSizeSec = 900; // 900 seconden = 15 minuten
+    let candleSizeSec = 900; 
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
-        // Formatteer datum: DD-MM HH:mm UTC
         const d = new Date(nodeTimeMs);
         const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
         
@@ -182,7 +179,7 @@ function applyUOTAMGrid(chartData) {
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            // Node marker toevoegen
+            // 1. CORE NODES (Node 0, 3, 6, 9, 12, etc.)
             if (i % 3 === 0) {
                 let vortexValue = ((i / 3) % 3 === 0) ? "3" : (((i / 3) % 3 === 1) ? "6" : "9");
                 markers.push({
@@ -190,11 +187,32 @@ function applyUOTAMGrid(chartData) {
                     position: 'aboveBar',
                     color: '#00ffcc',
                     shape: 'arrowDown',
-                    text: `Node ${i} [Vortex ${vortexValue}] | ${dateStr}`,
+                    text: `CORE Node ${i} [Vortex ${vortexValue}] | ${dateStr}`,
+                });
+            } 
+            // 2. VOLATILITEITS-TRIGGER (Direct na start: Node 1)
+            else if (i === 1) {
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'aboveBar',
+                    color: '#ffff00',
+                    shape: 'circle',
+                    text: `VOLA TRIGGER (Node ${i}) | ${dateStr}`,
                 });
             }
-            // Expiratie marker toevoegen
-            if (i % 8 === 0) {
+            // 3. SECUNDAIRE PI-OSCILLATORS (Alle andere indexen: 2, 4, 5, 7, etc.)
+            else {
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'aboveBar',
+                    color: '#888888',
+                    shape: 'square',
+                    text: `π-Oscillator (Node ${i}) | ${dateStr}`,
+                });
+            }
+
+            // 4. EXPIRATIE (Elke 8e index)
+            if (i % 8 === 0 && i !== 0) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'belowBar',
@@ -205,6 +223,10 @@ function applyUOTAMGrid(chartData) {
             }
         }
     }
+    
+    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
+    if (typeof updateInfoPanel === 'function') updateInfoPanel();
+}
     
     // 2. TEKEN DE NIEUWE MARKERS
     // Hierdoor worden de oude markers vervangen door deze nieuwe, unieke set, werkt dit?
