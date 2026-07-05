@@ -402,9 +402,11 @@ function startLiveUpdates() {
     }
 };
 
+
 window.addEventListener('resize', () => {
     chart.resize(chartContainer.clientWidth, 600);
 });
 
 initDashboard();
 setInterval(updateInfoPanel, 1000);
+}
