@@ -50,9 +50,11 @@ chart.subscribeCrosshairMove(param => {
         ohlcLow.innerText = data.low.toFixed(2);
         ohlcClose.innerText = data.close.toFixed(2);
         
+        // Kleur aanpassen op basis van bullish/bearish candle
         const color = data.close >= data.open ? '#26a69a' : '#ef5350';
         ohlcClose.style.color = color;
     } else {
+        // Reset waarden als muis buiten de grafiek staat
         ohlcOpen.innerText = '-';
         ohlcHigh.innerText = '-';
         ohlcLow.innerText = '-';
@@ -64,11 +66,12 @@ chart.subscribeCrosshairMove(param => {
 // --- HOOFDFUNCTIE: INITIALISATIE ---
 async function initDashboard() {
     try {
+        // 1. Haal historische data op op basis van het gekozen interval
         const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
         const rawData = await response.json();
         
         const chartData = rawData.map(d => ({
-            time: Math.floor(d[0] / 1000),
+            time: Math.floor(d[0] / 1000), // Vertaalt UTC timestamps direct naar correcte lokale browsertijd (CET)
             open: parseFloat(d[1]),
             high: parseFloat(d[2]),
             low: parseFloat(d[3]),
@@ -76,7 +79,11 @@ async function initDashboard() {
         }));
         
         candlestickSeries.setData(chartData);
+
+        // 2. Bereken en plot de UOTAM Matrix Nodes
         applyUOTAMGrid(chartData);
+        
+        // 3. Start de Live WebSocket verbinding
         startLiveUpdates();
     } catch (error) {
         console.error("Fout bij het laden van de UOTAM Engine data:", error);
@@ -87,8 +94,8 @@ async function initDashboard() {
 function changeTimeframe(interval) {
     currentInterval = interval;
     
-    // Bijgewerkt: '1d' verwijderd uit de lijst
-    const intervals = ['15m', '30m', '1h'];
+    // Update knoppen styling
+    const intervals = ['15m', '30m', '1h', '1d'];
     intervals.forEach(int => {
         const btn = document.getElementById(`btn-${int}`);
         if (btn) {
@@ -105,6 +112,8 @@ function changeTimeframe(interval) {
             }
         }
     });
+
+    // Herstart het dashboard met het nieuwe interval
     initDashboard();
 }
 
@@ -116,18 +125,28 @@ function applyUOTAMGrid(chartData) {
     const maxTimeSec = chartData[chartData.length - 1].time;
     const markers = [];
     
+    // Bereken het venster in indices
     const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
     const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
 
-    let candleSizeSec = (currentInterval === '30m') ? 1800 : (currentInterval === '1h') ? 3600 : 900;
+    // Bepaal de omvang van 1 kaars in seconden op basis van het actieve interval
+    let candleSizeSec = 900; // 15m standaard
+    if (currentInterval === '30m') candleSizeSec = 1800;
+    if (currentInterval === '1h') candleSizeSec = 3600;
+    if (currentInterval === '1d') candleSizeSec = 86400; // 1 dag in seconden
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
+        
+        // Rond de exacte wiskundige node-tijd af naar de dichtstbijzijnde kaars-starttijd
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
+        
+        // Zoek of deze kaars bestaat in de dataset
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
+            // STRIKTE DE-DUPLICATIE: Voorkom dat er op lagere timeframes waslijsten onder elkaar ontstaan
             const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
             const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
             
@@ -159,41 +178,32 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
+    // Altijd sorteren op tijd voor de Lightweight Charts bibliotheek
     markers.sort((a, b) => a.time - b.time);
-    candlestickSeries.setMarkers(markers);
+    
+    // Teken de unieke, opgeschoonde markers op de chart
+    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     updateInfoPanel();
 }
 
-// --- LIVE COUNTDOWN & INFO PANEL ---
+// --- LIVE KLOK BEREKENING ---
 function updateInfoPanel() {
     const now = Date.now();
+    const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
+    const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
+    document.getElementById('next-core-node').innerText = `${new Date(nextCoreTime).toLocaleTimeString('nl-NL')} (Node ${currentCoreIndex})`;
     
-    // Countdown naar volgende Core Node (elke 3e node)
-    const nextCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
-    const nextCoreTime = ANCHOR_TIME + (nextCoreIndex * T_PI_MS);
-    const diff = nextCoreTime - now;
-    
-    const h = Math.floor(diff / 3600000);
-    const m = Math.floor((diff % 3600000) / 60000);
-    const s = Math.floor((diff % 60000) / 1000);
-    
-    const countdownText = `${h}u ${m}m ${s}s`;
-    
-    if(document.getElementById('next-core-node')) {
-        document.getElementById('next-core-node').innerText = `Node ${nextCoreIndex} in: ${countdownText}`;
-    }
-    
-    // Volgende Macro Expiratie
     const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
     const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
-    if(document.getElementById('next-expiration')) {
-        document.getElementById('next-expiration').innerText = `Exp: ${new Date(nextExpTime).toLocaleString('nl-NL')} (Node ${currentExpIndex})`;
-    }
+    document.getElementById('next-expiration').innerText = `${new Date(nextExpTime).toLocaleString('nl-NL')} (Node ${currentExpIndex})`;
 }
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
-    if (currentWs) currentWs.close();
+    // Sluit de oude WebSocket als die nog open staat bij een timeframe-switch
+    if (currentWs) {
+        currentWs.close();
+    }
 
     currentWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${currentInterval}`);
     
@@ -209,6 +219,7 @@ function startLiveUpdates() {
             close: parseFloat(candle.c),
         });
     };
+    
     currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
 }
 
@@ -216,7 +227,6 @@ window.addEventListener('resize', () => {
     chart.resize(chartContainer.clientWidth, 600);
 });
 
-// Start de applicatie
+// Start het systeem op
 initDashboard();
-// Zorg dat de countdown elke seconde ververst
-setInterval(updateInfoPanel, 1000);
+setInterval(updateInfoPanel, 60000);
