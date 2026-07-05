@@ -181,19 +181,21 @@ function applyUOTAMGrid(chartData) {
 }
 
 // --- LIVE KLOK BEREKENING ---
+// --- LIVE KLOK BEREKENING ---
 function updateInfoPanel() {
     const now = Date.now();
+    
+    // Core Node
     const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
     const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
-    // Update deze regel in updateInfoPanel naar UTC:
     document.getElementById('next-core-node').innerText = 
-    new Date(nextCoreTime).toISOString().substring(11, 16) + " UTC (Node " + currentCoreIndex + ")";
+        new Date(nextCoreTime).toISOString().substring(11, 16) + " UTC (Node " + currentCoreIndex + ")";
     
+    // Expiratie
     const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
     const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
-    // Update deze regel in updateInfoPanel naar UTC:
-    document.getElementById('next-core-node').innerText = 
-    new Date(nextCoreTime).toISOString().substring(11, 16) + " UTC (Node " + currentCoreIndex + ")";
+    document.getElementById('next-expiration').innerText = 
+        new Date(nextExpTime).toISOString().substring(11, 16) + " UTC (Node " + currentExpIndex + ")";
 }
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
