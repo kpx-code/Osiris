@@ -5,11 +5,12 @@ const T_PI_MS = 188.6634 * 60 * 1000;
 let currentInterval = '15m';
 let globalChartData = [];
 
-// --- CHART INITIALISATIE ---
+// --- INITIALISATIE ---
 const chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
     width: document.getElementById('chart-container').clientWidth,
     height: 600,
     layout: { background: { color: '#131722' }, textColor: '#d1d4dc' },
+    grid: { vertLines: { color: '#1f2233' }, horzLines: { color: '#1f2233' } },
 });
 
 const series = chart.addSeries(LightweightCharts.CandlestickSeries);
@@ -23,29 +24,31 @@ async function initDashboard() {
             time: Math.floor(d[0] / 1000),
             open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4])
         }));
-        
         series.setData(globalChartData);
-        drawMarkers();
+        drawNodes();
     } catch (e) { console.error("Init fout:", e); }
 }
 
-// --- MARKERS TEKENEN (Dit werkt nu omdat je de volledige build hebt) ---
-function drawMarkers() {
-    const markers = [];
+// --- NODES TEKENEN (Gebruikt PriceLine ipv Markers) ---
+function drawNodes() {
+    // Verwijder oude lijnen
+    series.priceLines().forEach(line => series.removePriceLine(line));
+
     globalChartData.forEach(c => {
         const i = Math.round((c.time * 1000 - ANCHOR_TIME) / T_PI_MS);
         if (i % 3 === 0) {
             let vortex = (i % 9 === 0) ? 9 : (i % 6 === 0) ? 6 : 3;
-            markers.push({
-                time: c.time,
-                position: 'aboveBar',
+            // We gebruiken PriceLine omdat dit in elke build van Lightweight Charts zit
+            series.createPriceLine({
+                price: c.close,
                 color: '#00ffcc',
-                shape: 'arrowDown',
-                text: `Node ${i} [Vortex ${vortex}]`
+                lineWidth: 1,
+                lineStyle: 1,
+                axisLabelVisible: true,
+                title: `Node ${i} [Vortex ${vortex}]`
             });
         }
     });
-    series.setMarkers(markers);
 }
 
 // --- CLOCK ENGINE ---
