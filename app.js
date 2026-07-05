@@ -65,21 +65,18 @@ chart.subscribeCrosshairMove(param => {
 function changeTimeframe(interval) {
     currentInterval = interval;
     
-    // Wis de markers expliciet via de bibliotheek-namespace om crashes te voorkomen
+    // Wis de markers
     LightweightCharts.createSeriesMarkers(candlestickSeries, []);
     
-    // Update de UI knoppen
-    const intervals = ['15m', '30m', '1h'];
-    intervals.forEach(int => {
-        const btn = document.getElementById(`btn-${int}`);
-        if (btn) {
-            btn.style.background = (int === interval) ? '#00ffcc' : '#1f2233';
-            btn.style.color = (int === interval) ? '#131722' : '#fff';
-            btn.style.fontWeight = (int === interval) ? 'bold' : 'normal';
-        }
-    });
+    // Update alleen de 15m knop (of verwijder de loop als je geen actieve status nodig hebt)
+    const btn = document.getElementById('btn-15m');
+    if (btn) {
+        btn.style.background = '#00ffcc';
+        btn.style.color = '#131722';
+        btn.style.fontWeight = 'bold';
+    }
 
-    // Start de herlaad-cyclus
+    // Herlaad de data
     initDashboard();
 }
 
@@ -157,7 +154,8 @@ function applyUOTAMGrid(chartData) {
     const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
     const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
 
-    let candleSizeSec = (currentInterval === '30m') ? 1800 : (currentInterval === '1h') ? 3600 : 900;
+    // Zoek deze regel in applyUOTAMGrid en vervang door:
+    let candleSizeSec = 900; // 900 seconden = 15 minuten
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
