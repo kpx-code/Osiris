@@ -87,24 +87,23 @@ async function initDashboard() {
 function changeTimeframe(interval) {
     currentInterval = interval;
     
+    // 1. Wis de markers direct bij de wissel (VOORDAT we nieuwe data laden)
+    if (typeof LightweightCharts !== 'undefined') {
+        LightweightCharts.createSeriesMarkers(candlestickSeries, []);
+    }
+
+    // 2. Update de UI knoppen
     const intervals = ['15m', '30m', '1h'];
     intervals.forEach(int => {
         const btn = document.getElementById(`btn-${int}`);
         if (btn) {
-            if (int === interval) {
-                btn.style.background = '#00ffcc';
-                btn.style.color = '#131722';
-                btn.style.border = '1px solid #00ffcc';
-                btn.style.fontWeight = 'bold';
-            } else {
-                btn.style.background = '#1f2233';
-                btn.style.color = '#fff';
-                btn.style.border = '1px solid #333';
-                btn.style.fontWeight = 'normal';
-            }
+            btn.style.background = (int === interval) ? '#00ffcc' : '#1f2233';
+            btn.style.color = (int === interval) ? '#131722' : '#fff';
+            btn.style.fontWeight = (int === interval) ? 'bold' : 'normal';
         }
     });
 
+    // 3. Laad de nieuwe data
     initDashboard();
 }
 
