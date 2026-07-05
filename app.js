@@ -139,7 +139,7 @@ function updateInfoPanel() {
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
-    // JUISTE MANIER: Gebruik de globale bibliotheek functie om te resetten
+    // Reset markers via de globale LightweightCharts methode
     LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
     const minTimeSec = chartData[0].time;
@@ -156,11 +156,14 @@ function applyUOTAMGrid(chartData) {
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
-        // --- Vervang je huidige dateStr regel door deze ---
-// Hiermee krijg je: 05-07 13:31 UTC (bijvoorbeeld)
-        const dateStr = new Date(nodeTimeMs).toISOString().substring(8, 10) + "-" + 
-                        new Date(nodeTimeMs).toISOString().substring(5, 7) + " " + 
-                        new Date(nodeTimeMs).toISOString().substring(11, 16) + " UTC";
+        
+        // --- STRIKTE DATUM OPBOUW ---
+        const d = new Date(nodeTimeMs);
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const hours = String(d.getUTCHours()).padStart(2, '0');
+        const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+        const dateStr = `${day}-${month} ${hours}:${minutes} UTC`;
         
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
@@ -192,8 +195,6 @@ function applyUOTAMGrid(chartData) {
     }
     
     markers.sort((a, b) => a.time - b.time);
-    
-    // JUISTE MANIER: Gebruik de globale bibliotheek functie om toe te voegen
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     
     if (typeof updateInfoPanel === 'function') {
