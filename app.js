@@ -1,7 +1,10 @@
 // --- UOTAM CONFIGURATIE EN PARAMETERS ---
-const ANCHOR_TIME = new Date('2026-07-01T12:00:00Z').getTime(); // Unix ms (UTC Ankerpunt)
+const ANCHOR_TIME = new Date('2026-07-01T12:00:00Z').getTime(); 
 const T_PI_MINUTES = 188.6634;
 const T_PI_MS = T_PI_MINUTES * 60 * 1000;
+
+let currentInterval = '15m'; // Standaard interval bij opstarten
+let currentWs = null;        // Onthoudt actieve WebSocket-verbinding
 
 // --- INITIALISEER HET TRADINGVIEW CHART INTERFACE ---
 const chartContainer = document.getElementById('chart-container');
@@ -25,8 +28,7 @@ const chart = LightweightCharts.createChart(chartContainer, {
     },
 });
 
-// Gecorrigeerde Versie 5 syntax: we gebruiken 'createCandlestickSeries' i.p.v 'addCandlestickSeries'
-const candlestickSeries = chart.createCandlestickSeries({
+const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
     upColor: '#26a69a',
     downColor: '#ef5350',
     borderVisible: false,
@@ -34,15 +36,42 @@ const candlestickSeries = chart.createCandlestickSeries({
     wickDownColor: '#ef5350',
 });
 
+// --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
+chart.subscribeCrosshairMove(param => {
+    const ohlcOpen = document.getElementById('ohlc-open');
+    const ohlcHigh = document.getElementById('ohlc-high');
+    const ohlcLow = document.getElementById('ohlc-low');
+    const ohlcClose = document.getElementById('ohlc-close');
+
+    if (param.time && param.seriesData.has(candlestickSeries)) {
+        const data = param.seriesData.get(candlestickSeries);
+        ohlcOpen.innerText = data.open.toFixed(2);
+        ohlcHigh.innerText = data.high.toFixed(2);
+        ohlcLow.innerText = data.low.toFixed(2);
+        ohlcClose.innerText = data.close.toFixed(2);
+        
+        // Kleur aanpassen op basis van bullish/bearish candle
+        const color = data.close >= data.open ? '#26a69a' : '#ef5350';
+        ohlcClose.style.color = color;
+    } else {
+        // Reset waarden als muis buiten de grafiek staat
+        ohlcOpen.innerText = '-';
+        ohlcHigh.innerText = '-';
+        ohlcLow.innerText = '-';
+        ohlcClose.innerText = '-';
+        ohlcClose.style.color = '#d1d4dc';
+    }
+});
+
 // --- HOOFDFUNCTIE: INITIALISATIE ---
 async function initDashboard() {
     try {
-        // 1. Haal historische BTC kaarsen op van de gratis openbare Binance API (15m interval)
-        const response = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=1000');
+        // 1. Haal historische data op op basis van het gekozen interval
+        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
         const rawData = await response.json();
         
         const chartData = rawData.map(d => ({
-            time: Math.floor(d[0] / 1000), // Omzetten van Unix ms naar Unix seconden voor de chart
+            time: Math.floor(d[0] / 1000), // Vertaalt UTC timestamps direct naar correcte lokale browsertijd (CET)
             open: parseFloat(d[1]),
             high: parseFloat(d[2]),
             low: parseFloat(d[3]),
@@ -51,43 +80,79 @@ async function initDashboard() {
         
         candlestickSeries.setData(chartData);
 
-        // 2. Bereken en plot de UOTAM Matrix Nodes over de geladen kaarsen heen
+        // 2. Bereken en plot de UOTAM Matrix Nodes
         applyUOTAMGrid(chartData);
         
-        // 3. Start de Live WebSocket verbinding voor realtime updates
+        // 3. Start de Live WebSocket verbinding
         startLiveUpdates();
     } catch (error) {
         console.error("Fout bij het laden van de UOTAM Engine data:", error);
     }
 }
 
-// --- MATRIX REKENKERN: NODES BEREKENEN EN PROJECTEREN ---
+// --- DYNAMISCH TIMEFRAME WISSELEN ---
+function changeTimeframe(interval) {
+    currentInterval = interval;
+    
+    // Update knoppen styling
+    const intervals = ['15m', '30m', '1h', '1d'];
+    intervals.forEach(int => {
+        const btn = document.getElementById(`btn-${int}`);
+        if (btn) {
+            if (int === interval) {
+                btn.style.background = '#00ffcc';
+                btn.style.color = '#131722';
+                btn.style.border = '1px solid #00ffcc';
+                btn.style.fontWeight = 'bold';
+            } else {
+                btn.style.background = '#1f2233';
+                btn.style.color = '#fff';
+                btn.style.border = '1px solid #333';
+                btn.style.fontWeight = 'normal';
+            }
+        }
+    });
+
+    // Herstart het dashboard met het nieuwe interval
+    initDashboard();
+}
+
+// --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
-    const minTimeMs = chartData[0].time * 1000;
-    const maxTimeMs = chartData[chartData.length - 1].time * 1000;
-    
+    const minTimeSec = chartData[0].time;
+    const maxTimeSec = chartData[chartData.length - 1].time;
     const markers = [];
     
-    // Bereken welke wiskundige nodes binnen het tijdvenster van de geladen grafiek vallen
-    const startSearchIndex = Math.floor((minTimeMs - ANCHOR_TIME) / T_PI_MS) - 5;
-    const endSearchIndex = Math.ceil((maxTimeMs - ANCHOR_TIME) / T_PI_MS) + 32;
+    // Bereken het venster in indices
+    const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
+    const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
+
+    // Bepaal de omvang van 1 kaars in seconden op basis van het actieve interval
+    let candleSizeSec = 900; // 15m standaard
+    if (currentInterval === '30m') candleSizeSec = 1800;
+    if (currentInterval === '1h') candleSizeSec = 3600;
+    if (currentInterval === '1d') candleSizeSec = 86400; // 1 dag in seconden
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
-        // Koppel het wiskundige tijdstip aan de dichtstbijzijnde 15-minuten candle (marge van 7.5 min)
-        const closestCandle = chartData.find(c => Math.abs(c.time - nodeTimeSec) <= 450);
+        // Rond de exacte wiskundige node-tijd af naar de dichtstbijzijnde kaars-starttijd
+        const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
+        
+        // Zoek of deze kaars bestaat in de dataset
+        const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            // --- FILTER 1: CORE MICRO NODES (3-6-9 Cadans) ---
-            if (i % 3 === 0) {
+            // STRIKTE DE-DUPLICATIE: Voorkom dat er op lagere timeframes waslijsten onder elkaar ontstaan
+            const hasCoreNode = markers.some(m => m.time === closestCandle.time && m.position === 'aboveBar');
+            const hasExpiration = markers.some(m => m.time === closestCandle.time && m.position === 'belowBar');
+            
+            if (i % 3 === 0 && !hasCoreNode) {
                 let vortexValue = "";
                 const flowIndex = (i / 3) % 3; 
-                
-                // Chronologische golf-stroom herleiden
                 if (flowIndex === 0) vortexValue = "3 (Start)";
                 else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6 (Inversie)";
                 else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9 (Absorptie)";
@@ -101,8 +166,7 @@ function applyUOTAMGrid(chartData) {
                 });
             }
             
-            // --- FILTER 2: MACRO CYCLUS EXPIRATIE (Elke 8e Node) ---
-            if (i % 8 === 0) {
+            if (i % 8 === 0 && !hasExpiration) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'belowBar',
@@ -114,39 +178,39 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    // Sorteer alle signalen chronologisch en activeer ze op het scherm
+    // Altijd sorteren op tijd voor de Lightweight Charts bibliotheek
     markers.sort((a, b) => a.time - b.time);
-    candlestickSeries.setMarkers(markers);
     
-    // Update de realtime klokken in het dashboard
+    // Teken de unieke, opgeschoonde markers op de chart
+    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     updateInfoPanel();
 }
 
-// --- LIVE KLOK BEREKENING (INFOPANEEL) ---
+// --- LIVE KLOK BEREKENING ---
 function updateInfoPanel() {
     const now = Date.now();
-    
-    // Volgende Core Node berekenen
     const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
     const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
     document.getElementById('next-core-node').innerText = `${new Date(nextCoreTime).toLocaleTimeString('nl-NL')} (Node ${currentCoreIndex})`;
     
-    // Volgende Macro Expiratie (8-Polair) berekenen
     const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
     const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
     document.getElementById('next-expiration').innerText = `${new Date(nextExpTime).toLocaleString('nl-NL')} (Node ${currentExpIndex})`;
 }
 
-// --- REALTIME CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
+// --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
-    // Gebruik WSS (Secure WebSocket) - verplicht voor GitHub Pages
-    const ws = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@kline_15m');
+    // Sluit de oude WebSocket als die nog open staat bij een timeframe-switch
+    if (currentWs) {
+        currentWs.close();
+    }
+
+    currentWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${currentInterval}`);
     
-    ws.onmessage = (event) => {
+    currentWs.onmessage = (event) => {
         const message = JSON.parse(event.data);
         const candle = message.k;
         
-        // Update de actuele kaars live op de openstaande TradingView chart
         candlestickSeries.update({
             time: candle.t / 1000,
             open: parseFloat(candle.o),
@@ -156,14 +220,13 @@ function startLiveUpdates() {
         });
     };
     
-    ws.onerror = (err) => console.error("UOTAM Stream Error:", err);
+    currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
 }
 
-// Responsive design: schaal grafiek mee als het browservenster verandert
 window.addEventListener('resize', () => {
     chart.resize(chartContainer.clientWidth, 600);
 });
 
-// Start de applicatie bij het laden van de pagina
+// Start het systeem op
 initDashboard();
-setInterval(updateInfoPanel, 60000); // Herbereken countdown data elke 60 seconden
+setInterval(updateInfoPanel, 60000);
