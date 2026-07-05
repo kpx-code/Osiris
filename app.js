@@ -122,10 +122,11 @@ function updateInfoPanel() {
     if (expEl) expEl.innerText = new Date(nextExpTime).toISOString().substring(11, 16) + " UTC (Node " + currentExpIndex + ")";
 }
 
+// --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
-    // Gebruik de universele methode
+    // JUISTE MANIER: Gebruik de globale bibliotheek functie om te resetten
     LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
     const minTimeSec = chartData[0].time;
@@ -174,14 +175,14 @@ function applyUOTAMGrid(chartData) {
     }
     
     markers.sort((a, b) => a.time - b.time);
-    // Gebruik hier ook de universele methode
+    
+    // JUISTE MANIER: Gebruik de globale bibliotheek functie om toe te voegen
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     
     if (typeof updateInfoPanel === 'function') {
         updateInfoPanel();
     }
 }
-
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
     if (currentWs) {
