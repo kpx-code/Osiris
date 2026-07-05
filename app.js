@@ -260,10 +260,15 @@ function updateHistoryList(rawData) {
 // --- 2. WebSocket aanpassen voor Live Volume ---
 function startLiveUpdates() {
     if (currentWs) {
+        currentWs.onmessage = null;
+        currentWs.onerror = null;
         currentWs.close();
+        currentWs = null;
     }
 
-    currentWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${currentInterval}`);
+    // AANGEPAST: Nieuwe URL structuur voor marktdata
+    const baseUrl = "wss://fstream.binance.com/market"; 
+    currentWs = new WebSocket(`${baseUrl}/ws/btcusdt@kline_${currentInterval}`);
     
     currentWs.onmessage = (event) => {
         const message = JSON.parse(event.data);
@@ -278,12 +283,16 @@ function startLiveUpdates() {
             close: parseFloat(candle.c),
         });
 
-        // Update Live Volume in je nieuwe kaart
+        // Update Live Volume
         const volEl = document.getElementById('live-volume');
         if (volEl) {
-            volEl.innerText = parseFloat(candle.v).toFixed(4);
+            const vol = parseFloat(candle.v);
+            volEl.innerText = !isNaN(vol) ? vol.toFixed(4) : "Geen data";
+            volEl.style.color = "#00ffcc";
         }
     };
+    
+    currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
 }
 
 window.addEventListener('resize', () => {
