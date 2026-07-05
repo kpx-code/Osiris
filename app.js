@@ -174,34 +174,37 @@ function applyUOTAMGrid(chartData) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
+        // Universeel label voor elke node
         const d = new Date(nodeTimeMs);
         const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
         const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
-        const label = `${dateStr} ${timeStr}`;
+        const timeLabel = `${dateStr} ${timeStr}`;
         
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
+            // 1. RESET / VORTEX 9
             if (relativeIndex === 0) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#ffffff',
                     shape: 'circle',
-                    text: `RESET Node ${i} | ${label}`,
+                    text: `RESET [Vortex 9] Node ${i} | ${timeLabel}`,
                 });
             }
+            // 2. VOLA TRIGGER
             else if (relativeIndex === 1) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#ffff00',
                     shape: 'circle',
-                    text: `VOLA Node ${i} | ${label}`,
+                    text: `VOLA Node ${i} | ${timeLabel}`,
                 });
             }
-            // CORE NODE LOGICA MET VORTEX AANDUIDING
+            // 3. CORE NODES (Vortex 3 en 6)
             else if (relativeIndex === 3 || relativeIndex === 6) {
                 let vortexValue = (relativeIndex === 3) ? "3" : "6";
                 markers.push({
@@ -209,16 +212,17 @@ function applyUOTAMGrid(chartData) {
                     position: 'aboveBar',
                     color: '#00ffcc',
                     shape: 'arrowDown',
-                    text: `CORE Node ${i} [Vortex ${vortexValue}] | ${label}`,
+                    text: `CORE [Vortex ${vortexValue}] Node ${i} | ${timeLabel}`,
                 });
             }
+            // 4. OVERIGE NODES (Oscillatoren)
             else {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#888888',
                     shape: 'square',
-                    text: `Osc Node ${i} | ${label}`,
+                    text: `Node ${i} | ${timeLabel}`,
                 });
             }
         }
