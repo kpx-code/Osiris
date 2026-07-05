@@ -168,60 +168,60 @@ function applyUOTAMGrid(chartData) {
     let candleSizeSec = 900; 
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
-        // Bereken de index binnen de huidige 8-node cyclus
         let relativeIndex = i % 8;
-        if (relativeIndex < 0) relativeIndex += 8; // Zorg dat het altijd positief is
+        if (relativeIndex < 0) relativeIndex += 8;
 
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
+        // Datum en tijd formatteren
         const d = new Date(nodeTimeMs);
-        const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+        const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+        const label = `${dateStr} ${timeStr}`;
         
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            // LOGICA: Rolling Anchor (elke 8e node is een nieuwe 0)
-            
-            // 1. Nieuwe Node 0 (De reset)
+            // 1. RESET
             if (relativeIndex === 0) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#ffffff',
                     shape: 'circle',
-                    text: `RESET [Node ${i}]`,
+                    text: `RESET Node ${i} | ${label}`,
                 });
             }
-            // 2. Vola Trigger (Direct na reset)
+            // 2. VOLA TRIGGER
             else if (relativeIndex === 1) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#ffff00',
                     shape: 'circle',
-                    text: `VOLA [Node ${i}]`,
+                    text: `VOLA Node ${i} | ${label}`,
                 });
             }
-            // 3. Core Nodes (3 en 6)
+            // 3. CORE NODES (3 en 6)
             else if (relativeIndex === 3 || relativeIndex === 6) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#00ffcc',
                     shape: 'arrowDown',
-                    text: `CORE [Node ${i}]`,
+                    text: `CORE Node ${i} | ${label}`,
                 });
             }
-            // 4. Oscillators (De rest)
+            // 4. OSCILLATORS
             else {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#888888',
                     shape: 'square',
-                    text: `Osc [Node ${i}]`,
+                    text: `Osc Node ${i} | ${label}`,
                 });
             }
         }
@@ -230,7 +230,6 @@ function applyUOTAMGrid(chartData) {
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
 }
-
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
     // 1. Zorg voor een volledige afsluiting van de vorige instantie
