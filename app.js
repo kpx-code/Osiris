@@ -154,12 +154,13 @@ function updateInfoPanel() {
 }
 
 // --- MATRIX REKENKERN (VERVANG JE HUIDIGE FUNCTIE HIERDOOR) ---
+// --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
     LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
-    const markers = [];
+    const markers = []; // Deze variabele hoort hier thuis
     const minTimeSec = chartData[0].time;
     const maxTimeSec = chartData[chartData.length - 1].time;
     
@@ -179,7 +180,7 @@ function applyUOTAMGrid(chartData) {
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            // 1. CORE NODES (Node 0, 3, 6, 9, 12, etc.)
+            // Logica voor CORE nodes
             if (i % 3 === 0) {
                 let vortexValue = ((i / 3) % 3 === 0) ? "3" : (((i / 3) % 3 === 1) ? "6" : "9");
                 markers.push({
@@ -190,7 +191,7 @@ function applyUOTAMGrid(chartData) {
                     text: `CORE Node ${i} [Vortex ${vortexValue}] | ${dateStr}`,
                 });
             } 
-            // 2. VOLATILITEITS-TRIGGER (Direct na start: Node 1)
+            // Logica voor Volatiliteits-trigger
             else if (i === 1) {
                 markers.push({
                     time: closestCandle.time,
@@ -200,7 +201,7 @@ function applyUOTAMGrid(chartData) {
                     text: `VOLA TRIGGER (Node ${i}) | ${dateStr}`,
                 });
             }
-            // 3. SECUNDAIRE PI-OSCILLATORS (Alle andere indexen: 2, 4, 5, 7, etc.)
+            // Logica voor Oscillators
             else {
                 markers.push({
                     time: closestCandle.time,
@@ -211,7 +212,7 @@ function applyUOTAMGrid(chartData) {
                 });
             }
 
-            // 4. EXPIRATIE (Elke 8e index)
+            // Expiratie toevoegen aan de set
             if (i % 8 === 0 && i !== 0) {
                 markers.push({
                     time: closestCandle.time,
@@ -224,18 +225,13 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
-    if (typeof updateInfoPanel === 'function') updateInfoPanel();
-}
-    
-    // 2. TEKEN DE NIEUWE MARKERS
-    // Hierdoor worden de oude markers vervangen door deze nieuwe, unieke set, werkt dit?
+    // Nu zijn we nog steeds BINNEN de functie, dus 'markers' is hier bekend:
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     
     if (typeof updateInfoPanel === 'function') {
         updateInfoPanel();
     }
-
+} // <--- DEZE SLUITENDE ACCOLADE IS CRUCIAAL
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
