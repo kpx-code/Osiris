@@ -83,12 +83,14 @@ function changeTimeframe(interval) {
 // --- HOOFDFUNCTIE: INITIALISATIE ---
 async function initDashboard() {
     try {
-        // 1. Zorg voor een schone lei: Wis markers direct bij start
         LightweightCharts.createSeriesMarkers(candlestickSeries, []);
         
-        // 2. Fetch de data
+        // Fetch de data
         const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
         const rawData = await response.json();
+        
+        // HIER IS DE FIX: Roep de update functie aan met de opgehaalde data
+        updateHistoryList(rawData); 
         
         const chartData = rawData.map(d => ({
             time: Math.floor(d[0] / 1000),
@@ -98,13 +100,8 @@ async function initDashboard() {
             close: parseFloat(d[4])
         }));
         
-        // 3. Update de serie
         candlestickSeries.setData(chartData);
-        
-        // 4. Teken het grid
         applyUOTAMGrid(chartData);
-        
-        // 5. Herstart de live stream
         startLiveUpdates();
         
     } catch (error) {
