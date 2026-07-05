@@ -122,12 +122,11 @@ function updateInfoPanel() {
     if (expEl) expEl.innerText = new Date(nextExpTime).toISOString().substring(11, 16) + " UTC (Node " + currentExpIndex + ")";
 }
 
-// --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
-    // Wis eerst alle oude markers
-    candlestickSeries.setMarkers([]); 
+    // Gebruik de universele methode
+    LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
     const minTimeSec = chartData[0].time;
     const maxTimeSec = chartData[chartData.length - 1].time;
@@ -175,10 +174,9 @@ function applyUOTAMGrid(chartData) {
     }
     
     markers.sort((a, b) => a.time - b.time);
-    // Gebruik de universele manier voor markers
-    candlestickSeries.setMarkers(markers);
+    // Gebruik hier ook de universele methode
+    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     
-    // Zorg dat deze functie pas wordt aangeroepen als hij bestaat
     if (typeof updateInfoPanel === 'function') {
         updateInfoPanel();
     }
