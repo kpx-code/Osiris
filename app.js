@@ -398,7 +398,8 @@ function startLiveUpdates() {
                 
                 // Rood (#ef5350) moet links zijn (tot aan buyPercent)
                 // Groen (#00ffcc) moet rechts zijn (vanaf buyPercent)
-                bar.style.background = `linear-gradient(to right, #ef5350 ${buyPercent}%, #00ffcc ${buyPercent}%)`;
+                // Wissel de kleuren om in de gradient:
+                bar.style.background = `linear-gradient(to right, #00ffcc ${buyPercent}%, #ef5350 ${buyPercent}%)`;
             }
         }
     } catch (err) {
