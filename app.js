@@ -81,13 +81,19 @@ function changeTimeframe(interval) {
 }
 
 // --- HOOFDFUNCTIE: INITIALISATIE ---
+// 1. Globale variabele voor data-toegang in WebSocket en VFM
+let rawData = []; 
+
 async function initDashboard() {
     try {
-        // We vragen nu 300 candles op om de 3 dagen dekking te garanderen
-        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=300`);
-        const rawData = await response.json();
+        LightweightCharts.createSeriesMarkers(candlestickSeries, []);
         
-        updateHistoryList(rawData); // Update de tabel met de volledige data
+        // 2. Fetch 672 candles (exact 7 dagen bij 15m interval)
+        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=672`);
+        rawData = await response.json(); // Data opslaan in de globale variabele
+        
+        // 3. Update de historie lijst
+        updateHistoryList(rawData);
         
         const chartData = rawData.map(d => ({
             time: Math.floor(d[0] / 1000),
@@ -104,6 +110,97 @@ async function initDashboard() {
     } catch (error) {
         console.error("Fout bij het laden van de data:", error);
     }
+}
+
+// --- VFM Module: Berekening van het Momentum ---
+function calculateVFM(currentPrice, currentVolume, historyData) {
+    // 1. SMA20 (Volume)
+    // Neem de laatste 20 candles uit de historie
+    const last20Volumes = historyData.slice(-20).map(d => parseFloat(d[5])); // d[5] is volume
+    const sma20Volume = last20Volumes.reduce((a, b) => a + b, 0) / 20;
+
+    // 2. Energy Ratio (ER)
+    const er = currentVolume / sma20Volume;
+
+    // 3. Delta Balance (DB)
+    // Formule: (2 * Close - (High + Low)) / (High - Low)
+    // We gebruiken de huidige candle (laatste uit historyData) als referentie
+    const currentCandle = historyData[historyData.length - 1];
+    const high = parseFloat(currentCandle[2]);
+    const low = parseFloat(currentCandle[3]);
+    const db = (2 * currentPrice - (high + low)) / (high - low);
+
+    // 4. VFM
+    return er * db;
+}
+
+// --- Integratie in je WebSocket (Live Update) ---
+currentWs.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    const candle = message.k;
+    
+    // 1. Live data ophalen
+    const livePrice = parseFloat(candle.c);
+    const liveVol = parseFloat(candle.v);
+
+    // Update de grafiek zelf
+    candlestickSeries.update({
+        time: candle.t / 1000,
+        open: parseFloat(candle.o),
+        high: parseFloat(candle.h),
+        low: parseFloat(candle.l),
+        close: parseFloat(candle.c),
+    });
+
+    // 2. CHAOS BEREKENING
+    // Controleer of er genoeg historische data is (288 is 3 dagen bij 15m candles)
+    if (rawData && rawData.length >= 288) {
+        const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]); 
+        const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+        
+        const chaosEl = document.getElementById('chaos-display');
+        if (chaosEl) {
+            chaosEl.innerText = `${chaos.toFixed(2)}%`;
+            // Kleurlogica conform TSD: >15% rood (waarschuwing), >8% oranje (actief), daaronder groen (stabiel)
+            chaosEl.style.color = chaos > 15 ? "#ef5350" : (chaos > 8 ? "#ff9900" : "#00ffcc");
+        }
+    }
+
+    // 3. VFM BEREKENING
+    if (rawData && rawData.length >= 20) {
+        const vfm = calculateVFM(livePrice, liveVol, rawData);
+        
+        const vfmEl = document.getElementById('vfm-display');
+        if (vfmEl) {
+            vfmEl.innerText = vfm.toFixed(2);
+            // Kleurlogica conform UOTAM v7.7 Engine specificaties
+            vfmEl.style.color = Math.abs(vfm) > 1.2 ? "#00ffcc" : "#888888";
+        }
+    }
+    
+    // 4. Live Volume update (zoals eerder besproken)
+    const volEl = document.getElementById('live-volume');
+    if (volEl) {
+        volEl.innerText = liveVol.toFixed(4);
+        volEl.style.color = "#00ffcc";
+    }
+};
+
+function calculateVFM(currentPrice, currentVolume, historyData) {
+    // Pak laatste 20 volumes voor SMA20
+    const last20Volumes = historyData.slice(-20).map(d => parseFloat(d[5]));
+    const sma20Volume = last20Volumes.reduce((a, b) => a + b, 0) / 20;
+
+    // Energy Ratio
+    const er = currentVolume / sma20Volume;
+
+    // Delta Balance
+    const currentCandle = historyData[historyData.length - 1];
+    const high = parseFloat(currentCandle[2]);
+    const low = parseFloat(currentCandle[3]);
+    const db = (2 * currentPrice - (high + low)) / (high - low);
+
+    return er * db;
 }
 
 // --- LIVE KLOK BEREKENING (Zorg dat deze BOVEN de aanroep staat) ---
