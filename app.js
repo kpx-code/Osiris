@@ -124,21 +124,11 @@ function applyUOTAMGrid(chartData) {
     if (currentInterval === '1h') candleSizeSec = 3600;
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
-        // De exacte tijd van de node
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
 
-        // --- HIER PLAATS JE DE UTC AANPASSING ---
-        // .toISOString() geeft altijd UTC tijd, we pakken de uren en minuten (11-16)
+        // Gebruik de UTC string voor je markers
         const dateStr = new Date(nodeTimeMs).toISOString().substring(11, 16) + " UTC";
-        
-        const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
-        const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
-        
-        // Formatteer datum en tijd voor in de marker tekst
-        const dateStr = new Date(nodeTimeMs).toLocaleString('nl-NL', { 
-            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' 
-        });
         
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
@@ -179,7 +169,6 @@ function applyUOTAMGrid(chartData) {
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     updateInfoPanel();
 }
-
 // --- LIVE KLOK BEREKENING ---
 // --- LIVE KLOK BEREKENING ---
 function updateInfoPanel() {
