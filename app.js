@@ -87,11 +87,10 @@ async function initDashboard() {
 function changeTimeframe(interval) {
     currentInterval = interval;
     
-    // 1. Wis de markers direct bij de wissel (VOORDAT we nieuwe data laden)
-    if (typeof LightweightCharts !== 'undefined') {
-        LightweightCharts.createSeriesMarkers(candlestickSeries, []);
-    }
-
+    // 1. Forceer een volledige reset van de markers op de serie
+    // Dit zorgt ervoor dat het geheugen van de grafiek leeg is voor nieuwe data
+    candlestickSeries.setMarkers([]); 
+    
     // 2. Update de UI knoppen
     const intervals = ['15m', '30m', '1h'];
     intervals.forEach(int => {
@@ -103,7 +102,7 @@ function changeTimeframe(interval) {
         }
     });
 
-    // 3. Laad de nieuwe data
+    // 3. Laad de nieuwe data en start de berekening opnieuw
     initDashboard();
 }
 
@@ -196,17 +195,24 @@ function applyUOTAMGrid(chartData) {
     }
 }
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
+// --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
+    // 1. Zorg voor een volledige afsluiting van de vorige instantie
     if (currentWs) {
-        currentWs.close();
+        currentWs.onmessage = null; // ESSENTIEEL: verwijder de handler
+        currentWs.onerror = null;   // Verwijder ook de error handler
+        currentWs.close();          // Sluit de verbinding
+        currentWs = null;           // Maak de referentie leeg
     }
 
+    // 2. Start de nieuwe verbinding
     currentWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${currentInterval}`);
     
     currentWs.onmessage = (event) => {
         const message = JSON.parse(event.data);
         const candle = message.k;
         
+        // Update de candlestick-serie
         candlestickSeries.update({
             time: candle.t / 1000,
             open: parseFloat(candle.o),
