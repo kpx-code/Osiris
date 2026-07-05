@@ -117,26 +117,39 @@ async function initDashboard() {
 function updateInfoPanel() {
     const now = Date.now();
     
-    // Hulpfunctie om de datum-string consistent te maken
-    const formatDate = (ms) => {
-        const iso = new Date(ms).toISOString();
-        return iso.substring(8, 10) + "-" + iso.substring(5, 7) + " " + iso.substring(11, 16) + " UTC";
+    // Hulpfunctie voor datum en tijd
+    const formatDateTime = (ms) => {
+        const d = new Date(ms);
+        const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+        const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+        return `${dateStr} ${timeStr}`;
     };
 
-    // Core Node
+    // Hulpfunctie voor countdown
+    const formatCountdown = (ms) => {
+        const diff = ms - now;
+        if (diff <= 0) return "NU";
+        const minutes = Math.floor((diff / 1000 / 60) % 60);
+        const seconds = Math.floor((diff / 1000) % 60);
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    };
+
+    // Berekeningen
     const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
     const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
-    const coreEl = document.getElementById('next-core-node');
-    if (coreEl) {
-        coreEl.innerText = `${formatDate(nextCoreTime)} (Node ${currentCoreIndex})`;
-    }
     
-    // Expiratie
     const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
     const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
+
+    // Update HTML
+    const coreEl = document.getElementById('next-core-node');
+    if (coreEl) {
+        coreEl.innerText = `${formatDateTime(nextCoreTime)} | Node ${currentCoreIndex} | ${formatCountdown(nextCoreTime)}`;
+    }
+    
     const expEl = document.getElementById('next-expiration');
     if (expEl) {
-        expEl.innerText = `${formatDate(nextExpTime)} (Node ${currentExpIndex})`;
+        expEl.innerText = `${formatDateTime(nextExpTime)} | Node ${currentExpIndex} | ${formatCountdown(nextExpTime)}`;
     }
 }
 // --- MATRIX REKENKERN (VERVANG JE HUIDIGE FUNCTIE HIERDOOR) ---
@@ -237,4 +250,4 @@ window.addEventListener('resize', () => {
 });
 
 initDashboard();
-setInterval(updateInfoPanel, 60000);
+setInterval(updateInfoPanel, 1000);
