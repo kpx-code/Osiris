@@ -117,40 +117,60 @@ async function initDashboard() {
 function updateInfoPanel() {
     const now = Date.now();
     
-    // Hulpfunctie voor datum en tijd
+    // Hulpfuncties
     const formatDateTime = (ms) => {
         const d = new Date(ms);
-        const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-        const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
-        return `${dateStr} ${timeStr}`;
+        return `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
     };
 
-    // Hulpfunctie voor countdown
     const formatCountdown = (ms) => {
         const diff = ms - now;
         if (diff <= 0) return "NU";
-        const minutes = Math.floor((diff / 1000 / 60) % 60);
-        const seconds = Math.floor((diff / 1000) % 60);
-        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        const totalMinutes = Math.floor(diff / 1000 / 60);
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     };
 
-    // Berekeningen
-    const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
-    const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
+    // Bereken huidige relatieve positie
+    const currentAbsoluteNode = Math.floor((now - ANCHOR_TIME) / T_PI_MS);
     
-    const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
-    const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
+    // Zoekfunctie voor volgende node van een specifiek type
+    const getNextNodeTime = (targetRelativeIndex) => {
+        let candidate = currentAbsoluteNode;
+        // Blijf zoeken tot we de juiste relatieve index vinden
+        while (((candidate % 8) + 8) % 8 !== targetRelativeIndex) {
+            candidate++;
+        }
+        return ANCHOR_TIME + (candidate * T_PI_MS);
+    };
 
-    // Update HTML
-    const coreEl = document.getElementById('next-core-node');
-    if (coreEl) {
-        coreEl.innerText = `${formatDateTime(nextCoreTime)} | Node ${currentCoreIndex} | ${formatCountdown(nextCoreTime)}`;
-    }
-    
-    const expEl = document.getElementById('next-expiration');
-    if (expEl) {
-        expEl.innerText = `${formatDateTime(nextExpTime)} | Node ${currentExpIndex} | ${formatCountdown(nextExpTime)}`;
-    }
+    // Data voor de 4 types
+    const nodes = [
+        { id: 'next-reset', label: 'RESET [Vortex 9]', target: 0 },
+        { id: 'next-vola',  label: 'VOLA [Node 1]',   target: 1 },
+        { id: 'next-core',  label: 'CORE [Vortex 3/6]', targets: [3, 6] }, // Speciaal geval
+        { id: 'next-osc',   label: 'OSC [Node 2/4/5/7]', targets: [2, 4, 5, 7] }
+    ];
+
+    nodes.forEach(n => {
+        const el = document.getElementById(n.id);
+        if (!el) return;
+
+        let targetTime;
+        if (n.targets) {
+            // Zoek de eerstvolgende van een set targets
+            let candidate = currentAbsoluteNode;
+            while (!n.targets.includes(((candidate % 8) + 8) % 8)) {
+                candidate++;
+            }
+            targetTime = ANCHOR_TIME + (candidate * T_PI_MS);
+        } else {
+            targetTime = getNextNodeTime(n.target);
+        }
+
+        el.innerText = `${n.label} | ${formatDateTime(targetTime)} | ${formatCountdown(targetTime)}`;
+    });
 }
 
 function applyUOTAMGrid(chartData) {
