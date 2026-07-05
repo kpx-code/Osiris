@@ -324,7 +324,9 @@ function updateHistoryList(rawData) {
 
 // --- 2. WebSocket aanpassen voor Live Volume ---
 // --- 2. WebSocket aanpassen voor Live Volume ---
+// --- UOTAM LIVE ENGINE: WebSocket en Data Verwerking ---
 function startLiveUpdates() {
+    // 1. Sluit actieve verbinding indien aanwezig
     if (currentWs) {
         currentWs.close();
         currentWs = null;
@@ -333,59 +335,77 @@ function startLiveUpdates() {
     const baseUrl = "wss://fstream.binance.com/market"; 
     currentWs = new WebSocket(`${baseUrl}/ws/btcusdt@kline_15m`);
     
-    currentWs.onopen = () => console.log("UOTAM Stream verbonden.");
+    currentWs.onopen = () => console.log("UOTAM Engine verbonden met Binance.");
 
-    // DE LOGICA STAAT NU HIER, WAAR HET VEILIG IS
-    // --- DEZE FUNCTIE VERVANGT JE HUIDIGE ONMESSAGE BLOK ---
-currentWs.onmessage = (event) => {
-    try {
-        const message = JSON.parse(event.data);
-        const candle = message.k;
-        const livePrice = parseFloat(candle.c);
-        const liveVol = parseFloat(candle.v);
+    currentWs.onmessage = (event) => {
+        try {
+            const message = JSON.parse(event.data);
+            const candle = message.k;
+            
+            // Controleer of de data geldig is
+            if (!candle) return;
 
-        // Update Grafiek
-        candlestickSeries.update({
-            time: candle.t / 1000,
-            open: parseFloat(candle.o),
-            high: parseFloat(candle.h),
-            low: parseFloat(candle.l),
-            close: livePrice,
-        });
+            const livePrice = parseFloat(candle.c);
+            const liveVol = parseFloat(candle.v);
 
-        // Berekeningen (UOTAM Engine)
-        if (rawData.length > 20) {
-            const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
-            const er = liveVol / sma20Volume;
-            const high = parseFloat(candle.h); // Gebruik live high/low voor betere DB
-            const low = parseFloat(candle.l);
-            const db = (2 * livePrice - (high + low)) / (high - low);
-            const vfm = er * db;
-            const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
-            const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+            // 2. Update de grafiek-serie (LightweightCharts)
+            candlestickSeries.update({
+                time: candle.t / 1000,
+                open: parseFloat(candle.o),
+                high: parseFloat(candle.h),
+                low: parseFloat(candle.l),
+                close: livePrice,
+            });
 
-            // UI UPDATES - Met check of element bestaat
-            const update = (id, val, status, isPerc = false) => {
-                const pEl = document.getElementById(id + '-display');
-                const sEl = document.getElementById(id + '-status');
-                if (pEl) pEl.innerText = isPerc ? val.toFixed(2) + '%' : val.toFixed(3);
-                if (sEl) {
-                    sEl.innerText = status;
-                    sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350";
+            // 3. UOTAM Engine Berekeningen
+            // Alleen uitvoeren als we voldoende historische data hebben (min. 20 candles)
+            if (rawData && rawData.length >= 20) {
+                const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
+                
+                // Energy Ratio (ER)
+                const er = liveVol / sma20Volume;
+                
+                // Delta Balance (DB)
+                const high = parseFloat(candle.h);
+                const low = parseFloat(candle.l);
+                const db = (2 * livePrice - (high + low)) / (high - low);
+                
+                // Volume Force Momentum (VFM)
+                const vfm = er * db;
+                
+                // Chaos Index (vergelijking met 3 dagen terug / 288 candles)
+                let chaos = 0;
+                if (rawData.length >= 288) {
+                    const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
+                    chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
                 }
-            };
 
-            update('vfm', vfm, Math.abs(vfm) > 1.5 ? "Extreme" : "Significant");
-            update('er', er, er > 1.2 ? "High Energy" : "Low Energy");
-            update('db', db, db > 0 ? "Bullish Bias" : "Bearish Bias");
-            update('chaos', chaos, chaos > 15 ? "Extreme Chaos" : "Stabiel", true);
+                // 4. UI Updates (Fout-tolerant)
+                const updateDisplay = (id, val, format, status) => {
+                    const pEl = document.getElementById(`${id}-display`);
+                    const sEl = document.getElementById(`${id}-status`);
+                    if (pEl) pEl.innerText = format(val);
+                    if (sEl) {
+                        sEl.innerText = status;
+                        sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350";
+                    }
+                };
+
+                updateDisplay('vfm', vfm, (v) => v.toFixed(3), Math.abs(vfm) > 1.5 ? "EXTREME" : "SIGNIFICANT");
+                updateDisplay('er', er, (v) => v.toFixed(2), er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
+                updateDisplay('db', db, (v) => v.toFixed(2), db > 0 ? "BULLISH" : "BEARISH");
+                updateDisplay('chaos', chaos, (v) => v.toFixed(1) + '%', chaos > 15 ? "EXTREME" : "STABIEL");
+                
+                // Live Volume
+                const volEl = document.getElementById('live-volume');
+                if (volEl) volEl.innerText = liveVol.toFixed(2);
+            }
+        } catch (err) {
+            console.error("Fout in UOTAM Engine WebSocket:", err);
         }
-    } catch (e) {
-        console.error("WebSocket Fout:", e);
-    }
     };
     
-    currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
+    currentWs.onerror = (err) => console.error("WebSocket Verbindingsfout:", err);
 }
 
 window.addEventListener('resize', () => {
