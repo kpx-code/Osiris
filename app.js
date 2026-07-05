@@ -135,10 +135,12 @@ function updateInfoPanel() {
         expEl.innerText = `${formatDate(nextExpTime)} (Node ${currentExpIndex})`;
     }
 }
+// --- MATRIX REKENKERN (VERVANG JE HUIDIGE FUNCTIE HIERDOOR) ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
-    // 1. Zorg voor een schone lei: Wis alle bestaande markers
+    // 1. ZORG VOOR EEN SCHONE LEI
+    // Door een lege array te sturen, wis je alle bestaande markers op de serie
     LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
     const markers = [];
@@ -186,7 +188,8 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    // Voeg de unieke markers toe
+    // 2. TEKEN DE NIEUWE MARKERS
+    // Hierdoor worden de oude markers vervangen door deze nieuwe, unieke set
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     
     if (typeof updateInfoPanel === 'function') {
