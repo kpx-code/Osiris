@@ -336,49 +336,65 @@ function startLiveUpdates() {
     currentWs.onopen = () => console.log("UOTAM Stream verbonden.");
 
     // DE LOGICA STAAT NU HIER, WAAR HET VEILIG IS
-    currentWs.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        const candle = message.k;
-        
-        const livePrice = parseFloat(candle.c);
-        const liveVol = parseFloat(candle.v);
+    // --- DEZE FUNCTIE VERVANGT JE HUIDIGE ONMESSAGE BLOK ---
+currentWs.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    const candle = message.k;
+    
+    // 1. Data voorbereiden
+    const livePrice = parseFloat(candle.c);
+    const liveVol = parseFloat(candle.v);
+    const currentCandle = rawData[rawData.length - 1];
+    const high = parseFloat(currentCandle[2]);
+    const low = parseFloat(currentCandle[3]);
 
-        // Update grafiek
-        candlestickSeries.update({
-            time: candle.t / 1000,
-            open: parseFloat(candle.o),
-            high: parseFloat(candle.h),
-            low: parseFloat(candle.l),
-            close: parseFloat(candle.c),
-        });
+    // 2. Berekeningen (UOTAM Engine)
+    const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
+    const er = liveVol / sma20Volume;
+    const db = (2 * livePrice - (high + low)) / (high - low);
+    const vfm = er * db;
+    
+    const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]); 
+    const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
 
-        // CHAOS BEREKENING
-        if (rawData && rawData.length >= 288) {
-            const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]); 
-            const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
-            const chaosEl = document.getElementById('chaos-display');
-            if (chaosEl) {
-                chaosEl.innerText = `${chaos.toFixed(2)}%`;
-                chaosEl.style.color = chaos > 15 ? "#ef5350" : (chaos > 8 ? "#ff9900" : "#00ffcc");
-            }
+    // 3. Interpretatie logica
+    const getInterpretation = (val, type) => {
+        if (type === 'vfm') {
+            if (Math.abs(val) > 1.5) return "Extreme | Sterk";
+            if (Math.abs(val) > 0.5) return "Significant | Tradable";
+            return "Low-energy | Consolidatie";
         }
+        if (type === 'chaos') {
+            if (val > 15) return "Extreme Chaos | Oppassen";
+            if (val > 8) return "Actieve Chaos | Filteren";
+            return "Stabiel | Geen actie";
+        }
+        return "";
+    };
 
-        // VFM BEREKENING
-        if (rawData && rawData.length >= 20) {
-            const vfm = calculateVFM(livePrice, liveVol, rawData);
-            const vfmEl = document.getElementById('vfm-display');
-            if (vfmEl) {
-                vfmEl.innerText = vfm.toFixed(2);
-                vfmEl.style.color = Math.abs(vfm) > 1.2 ? "#00ffcc" : "#888888";
-            }
+    // 4. Update de UI via een array (zoals je vroeg)
+    const metrics = [
+        { id: 'vfm', val: vfm, status: getInterpretation(vfm, 'vfm') },
+        { id: 'er', val: er, status: er > 1.2 ? "High Energy" : "Low Energy" },
+        { id: 'db', val: db, status: db > 0 ? "Bullish Bias" : "Bearish Bias" },
+        { id: 'chaos', val: chaos, status: getInterpretation(chaos, 'chaos') }
+    ];
+
+    metrics.forEach(m => {
+        const pEl = document.getElementById(`${m.id}-display`);
+        const sEl = document.getElementById(`${m.id}-status`);
+        if(pEl) pEl.innerText = m.val.toFixed(3);
+        if(sEl) {
+            sEl.innerText = m.status;
+            // Kleur logica: Bullish/gunstig = groen, Bearish/waarschuwing = rood
+            sEl.style.color = (m.id === 'db' && m.val < 0) ? "#ef5350" : "#00ffcc";
         }
-        
-        // Live Volume
-        const volEl = document.getElementById('live-volume');
-        if (volEl) {
-            volEl.innerText = liveVol.toFixed(4);
-            volEl.style.color = "#00ffcc";
-        }
+    });
+
+    // Update ook de grafiek en live volume
+    candlestickSeries.update({ time: candle.t / 1000, open: parseFloat(candle.o), high: parseFloat(candle.h), low: parseFloat(candle.l), close: livePrice });
+    const volEl = document.getElementById('live-volume');
+    if (volEl) volEl.innerText = liveVol.toFixed(4);
     };
     
     currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
