@@ -83,14 +83,11 @@ function changeTimeframe(interval) {
 // --- HOOFDFUNCTIE: INITIALISATIE ---
 async function initDashboard() {
     try {
-        LightweightCharts.createSeriesMarkers(candlestickSeries, []);
-        
-        // Fetch de data
-        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
+        // We vragen nu 300 candles op om de 3 dagen dekking te garanderen
+        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=300`);
         const rawData = await response.json();
         
-        // HIER IS DE FIX: Roep de update functie aan met de opgehaalde data
-        updateHistoryList(rawData); 
+        updateHistoryList(rawData); // Update de tabel met de volledige data
         
         const chartData = rawData.map(d => ({
             time: Math.floor(d[0] / 1000),
@@ -105,7 +102,7 @@ async function initDashboard() {
         startLiveUpdates();
         
     } catch (error) {
-        console.error("Fout bij het laden van de UOTAM Engine data:", error);
+        console.error("Fout bij het laden van de data:", error);
     }
 }
 
@@ -242,16 +239,28 @@ function updateHistoryList(rawData) {
     const listEl = document.getElementById('history-list');
     if (!listEl) return;
     
-    // Pak de laatste 10 candles (omgekeerd van de API-data)
-    const recent = rawData.slice(-10).reverse();
+    // We filteren de laatste 288 candles (3 dagen x 96 candles per dag)
+    const recent = rawData.slice(-288).reverse();
     
-    listEl.innerHTML = recent.map(d => `
-        <li style="margin-bottom: 5px; border-bottom: 1px solid #333;">
-            ${new Date(d[0]).toLocaleTimeString()} | 
-            <span style="color: #00ffcc;">$${parseFloat(d[4]).toFixed(2)}</span> | 
-            Vol: ${parseFloat(d[5]).toFixed(2)}
-        </li>
-    `).join('');
+    listEl.innerHTML = `
+        <table style="width: 100%; font-family: monospace; font-size: 0.85em; border-collapse: collapse;">
+            <tr style="border-bottom: 2px solid #333;">
+                <th>Tijd</th><th>O</th><th>H</th><th>L</th><th>C</th><th>Vol</th>
+            </tr>
+            ${recent.map(d => `
+                <tr style="border-bottom: 1px solid #222;">
+                    <td>${new Date(d[0]).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
+                    <td>${parseFloat(d[1]).toFixed(0)}</td>
+                    <td>${parseFloat(d[2]).toFixed(0)}</td>
+                    <td>${parseFloat(d[3]).toFixed(0)}</td>
+                    <td style="color: ${parseFloat(d[4]) >= parseFloat(d[1]) ? '#26a69a' : '#ef5350'}">
+                        ${parseFloat(d[4]).toFixed(0)}
+                    </td>
+                    <td>${parseFloat(d[5]).toFixed(1)}</td>
+                </tr>
+            `).join('')}
+        </table>
+    `;
 }
 
 // --- 2. WebSocket aanpassen voor Live Volume ---
