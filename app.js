@@ -71,7 +71,7 @@ function changeTimeframe(interval) {
     initDashboard();
 }
 
-// --- MATRIX REKENKERN ---
+// --- MATRIX REKENKERN (ROBUUSTE VERSIE) ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     const markers = [];
@@ -95,8 +95,17 @@ function applyUOTAMGrid(chartData) {
             }
         }
     }
-    // Correcte methode voor de meeste versies:
-    candlestickSeries.setMarkers(markers);
+
+    // VEILIGHEIDSCHECK:
+    if (typeof candlestickSeries.setMarkers === 'function') {
+        candlestickSeries.setMarkers(markers);
+    } else if (typeof chart.applyOptions === 'function') {
+        // Sommige versies vereisen dat markers via de serie worden toegevoegd
+        candlestickSeries.setMarkers(markers); 
+    } else {
+        console.warn("Markers worden niet ondersteund door deze versie van de library.");
+    }
+    
     updateInfoPanel();
 }
 
