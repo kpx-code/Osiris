@@ -389,13 +389,16 @@ function startLiveUpdates() {
             const volEl = document.getElementById('live-volume');
             if (volEl) volEl.innerText = liveVol.toFixed(4);
 
-            // 4. Sentiment Bar (Market Pressure)
+            // 4. Sentiment Bar (Market Pressure) - DE JUISTE LOGICA
             const bar = document.getElementById('sentiment-bar');
             if (bar) {
-                // DB is -1 tot 1. We converteren dit naar 0-100% voor de gradient.
+                // DB varieert van -1 (100% sellers) tot 1 (100% buyers)
+                // We willen dat 0% (Sellers) links is en 100% (Buyers) rechts.
                 const buyPercent = ((db + 1) / 2) * 100;
-                // Wissel de kleuren om in de gradient:
-                bar.style.background = `linear-gradient(to right, #00ffcc ${buyPercent}%, #ef5350 ${buyPercent}%)`;
+                
+                // Rood (#ef5350) moet links zijn (tot aan buyPercent)
+                // Groen (#00ffcc) moet rechts zijn (vanaf buyPercent)
+                bar.style.background = `linear-gradient(to right, #ef5350 ${buyPercent}%, #00ffcc ${buyPercent}%)`;
             }
         }
     } catch (err) {
