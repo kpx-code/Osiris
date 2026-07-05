@@ -174,7 +174,6 @@ function applyUOTAMGrid(chartData) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
-        // Datum en tijd formatteren
         const d = new Date(nodeTimeMs);
         const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
         const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
@@ -184,7 +183,6 @@ function applyUOTAMGrid(chartData) {
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
-            // 1. RESET
             if (relativeIndex === 0) {
                 markers.push({
                     time: closestCandle.time,
@@ -194,7 +192,6 @@ function applyUOTAMGrid(chartData) {
                     text: `RESET Node ${i} | ${label}`,
                 });
             }
-            // 2. VOLA TRIGGER
             else if (relativeIndex === 1) {
                 markers.push({
                     time: closestCandle.time,
@@ -204,17 +201,17 @@ function applyUOTAMGrid(chartData) {
                     text: `VOLA Node ${i} | ${label}`,
                 });
             }
-            // 3. CORE NODES (3 en 6)
+            // CORE NODE LOGICA MET VORTEX AANDUIDING
             else if (relativeIndex === 3 || relativeIndex === 6) {
+                let vortexValue = (relativeIndex === 3) ? "3" : "6";
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#00ffcc',
                     shape: 'arrowDown',
-                    text: `CORE Node ${i} | ${label}`,
+                    text: `CORE Node ${i} [Vortex ${vortexValue}] | ${label}`,
                 });
             }
-            // 4. OSCILLATORS
             else {
                 markers.push({
                     time: closestCandle.time,
