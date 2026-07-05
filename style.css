@@ -70,3 +70,11 @@ h1 {
     color: #00ffcc;
     margin: 5px 0 0 0;
 }
+
+#history-list {
+    max-height: 400px;
+    overflow-y: auto;
+    display: block; /* Nodig voor scrolling in een tabel-container */
+    background: #131722;
+    border: 1px solid #333;
+}
