@@ -125,11 +125,13 @@ function updateInfoPanel() {
 
     const formatCountdown = (ms) => {
         const diff = ms - now;
-        if (diff <= 0) return "NU";
-        const totalMinutes = Math.floor(diff / 1000 / 60);
-        const hours = Math.floor(totalMinutes / 60);
-        const minutes = totalMinutes % 60;
-        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        if (diff <= 0) return "00:00:00";
+        
+        const seconds = Math.floor((diff / 1000) % 60);
+        const minutes = Math.floor((diff / 1000 / 60) % 60);
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     };
 
     // Bereken huidige relatieve positie
