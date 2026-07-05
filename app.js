@@ -6,7 +6,7 @@ const T_PI_MS = T_PI_MINUTES * 60 * 1000;
 let currentInterval = '15m'; // Standaard interval bij opstarten
 let currentWs = null;        // Onthoudt actieve WebSocket-verbinding
 
-// --- INITIALISEER HET TRADINGVIEW CHART INTERFACE --
+// -- INITIALISEER HET TRADINGVIEW CHART INTERFACE --
 const chartContainer = document.getElementById('chart-container');
 const chart = LightweightCharts.createChart(chartContainer, {
     width: chartContainer.clientWidth,
