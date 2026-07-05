@@ -109,19 +109,32 @@ function changeTimeframe(interval) {
 }
 
 // --- LIVE KLOK BEREKENING (Zorg dat deze BOVEN de aanroep staat) ---
+// --- LIVE KLOK BEREKENING ---
 function updateInfoPanel() {
     const now = Date.now();
+    
+    // Hulpfunctie om de datum-string consistent te maken
+    const formatDate = (ms) => {
+        const iso = new Date(ms).toISOString();
+        return iso.substring(8, 10) + "-" + iso.substring(5, 7) + " " + iso.substring(11, 16) + " UTC";
+    };
+
+    // Core Node
     const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
     const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
     const coreEl = document.getElementById('next-core-node');
-    if (coreEl) coreEl.innerText = new Date(nextCoreTime).toISOString().substring(11, 16) + " UTC (Node " + currentCoreIndex + ")";
+    if (coreEl) {
+        coreEl.innerText = `${formatDate(nextCoreTime)} (Node ${currentCoreIndex})`;
+    }
     
+    // Expiratie
     const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
     const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
     const expEl = document.getElementById('next-expiration');
-    if (expEl) expEl.innerText = new Date(nextExpTime).toISOString().substring(11, 16) + " UTC (Node " + currentExpIndex + ")";
+    if (expEl) {
+        expEl.innerText = `${formatDate(nextExpTime)} (Node ${currentExpIndex})`;
+    }
 }
-
 // --- MATRIX REKENKERN ---
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
@@ -143,7 +156,11 @@ function applyUOTAMGrid(chartData) {
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
-        const dateStr = new Date(nodeTimeMs).toISOString().substring(11, 16) + " UTC";
+        // --- Vervang je huidige dateStr regel door deze ---
+// Hiermee krijg je: 05-07 13:31 UTC (bijvoorbeeld)
+        const dateStr = new Date(nodeTimeMs).toISOString().substring(8, 10) + "-" + 
+                        new Date(nodeTimeMs).toISOString().substring(5, 7) + " " + 
+                        new Date(nodeTimeMs).toISOString().substring(11, 16) + " UTC";
         
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
