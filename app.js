@@ -61,9 +61,37 @@ chart.subscribeCrosshairMove(param => {
     }
 });
 
-// --- HOOFDFUNCTIE: INITIALISATIE ---
+// --- DYNAMISCH TIMEFRAME WISSELEN ---
+function changeTimeframe(interval) {
+    currentInterval = interval;
+    
+    // Wis de markers expliciet
+    candlestickSeries.setMarkers([]);
+    
+    // Update UI knoppen
+    const intervals = ['15m', '30m', '1h'];
+    intervals.forEach(int => {
+        const btn = document.getElementById(`btn-${int}`);
+        if (btn) {
+            btn.style.background = (int === interval) ? '#00ffcc' : '#1f2233';
+            btn.style.color = (int === interval) ? '#131722' : '#fff';
+        }
+    });
+
+    // START DE REINITIALISATIE
+    initDashboard();
+}
+
+// --- HOOFDFUNCTIE: INITIALISATIE (Aangepast voor stabiliteit) ---
 async function initDashboard() {
     try {
+        // 1. WebSocket direct sluiten bij start van nieuwe fetch
+        if (currentWs) {
+            currentWs.onmessage = null;
+            currentWs.close();
+            currentWs = null;
+        }
+
         const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
         const rawData = await response.json();
         
@@ -75,35 +103,21 @@ async function initDashboard() {
             close: parseFloat(d[4])
         }));
         
+        // 2. MARKER RESET VOORAFGAAND AAN DATA
+        candlestickSeries.setMarkers([]); 
+        
+        // 3. Data zetten
         candlestickSeries.setData(chartData);
+        
+        // 4. Grid tekenen
         applyUOTAMGrid(chartData);
+        
+        // 5. Live stream starten
         startLiveUpdates();
+        
     } catch (error) {
-        console.error("Fout bij het laden van de UOTAM Engine data:", error);
+        console.error("Fout:", error);
     }
-}
-
-// --- DYNAMISCH TIMEFRAME WISSELEN ---
-function changeTimeframe(interval) {
-    currentInterval = interval;
-    
-    // 1. Forceer een volledige reset van de markers op de serie
-    // Dit zorgt ervoor dat het geheugen van de grafiek leeg is voor nieuwe data
-    candlestickSeries.setMarkers([]); 
-    
-    // 2. Update de UI knoppen
-    const intervals = ['15m', '30m', '1h'];
-    intervals.forEach(int => {
-        const btn = document.getElementById(`btn-${int}`);
-        if (btn) {
-            btn.style.background = (int === interval) ? '#00ffcc' : '#1f2233';
-            btn.style.color = (int === interval) ? '#131722' : '#fff';
-            btn.style.fontWeight = (int === interval) ? 'bold' : 'normal';
-        }
-    });
-
-    // 3. Laad de nieuwe data en start de berekening opnieuw
-    initDashboard();
 }
 
 // --- LIVE KLOK BEREKENING (Zorg dat deze BOVEN de aanroep staat) ---
