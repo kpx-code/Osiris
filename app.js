@@ -127,6 +127,13 @@ function applyUOTAMGrid(chartData) {
         // De exacte tijd van de node
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
+
+        // --- HIER PLAATS JE DE UTC AANPASSING ---
+        // .toISOString() geeft altijd UTC tijd, we pakken de uren en minuten (11-16)
+        const dateStr = new Date(nodeTimeMs).toISOString().substring(11, 16) + " UTC";
+        
+        const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
+        const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         // Formatteer datum en tijd voor in de marker tekst
         const dateStr = new Date(nodeTimeMs).toLocaleString('nl-NL', { 
@@ -178,11 +185,15 @@ function updateInfoPanel() {
     const now = Date.now();
     const currentCoreIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 3)) * 3;
     const nextCoreTime = ANCHOR_TIME + (currentCoreIndex * T_PI_MS);
-    document.getElementById('next-core-node').innerText = `${new Date(nextCoreTime).toLocaleTimeString('nl-NL')} (Node ${currentCoreIndex})`;
+    // Update deze regel in updateInfoPanel naar UTC:
+    document.getElementById('next-core-node').innerText = 
+    new Date(nextCoreTime).toISOString().substring(11, 16) + " UTC (Node " + currentCoreIndex + ")";
     
     const currentExpIndex = Math.ceil((now - ANCHOR_TIME) / (T_PI_MS * 8)) * 8;
     const nextExpTime = ANCHOR_TIME + (currentExpIndex * T_PI_MS);
-    document.getElementById('next-expiration').innerText = `${new Date(nextExpTime).toLocaleString('nl-NL')} (Node ${currentExpIndex})`;
+    // Update deze regel in updateInfoPanel naar UTC:
+    document.getElementById('next-core-node').innerText = 
+    new Date(nextCoreTime).toISOString().substring(11, 16) + " UTC (Node " + currentCoreIndex + ")";
 }
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
