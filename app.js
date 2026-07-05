@@ -124,8 +124,14 @@ function applyUOTAMGrid(chartData) {
     if (currentInterval === '1h') candleSizeSec = 3600;
 
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
+        // De exacte tijd van de node
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
+        
+        // Formatteer datum en tijd voor in de marker tekst
+        const dateStr = new Date(nodeTimeMs).toLocaleString('nl-NL', { 
+            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' 
+        });
         
         const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
@@ -137,16 +143,16 @@ function applyUOTAMGrid(chartData) {
             if (i % 3 === 0 && !hasCoreNode) {
                 let vortexValue = "";
                 const flowIndex = (i / 3) % 3; 
-                if (flowIndex === 0) vortexValue = "3 (Start)";
-                else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6 (Inversie)";
-                else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9 (Absorptie)";
+                if (flowIndex === 0) vortexValue = "3";
+                else if (flowIndex === 1 || flowIndex === -2) vortexValue = "6";
+                else if (flowIndex === 2 || flowIndex === -1) vortexValue = "9";
 
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
                     color: '#00ffcc',
                     shape: 'arrowDown',
-                    text: `Node ${i} [Vortex ${vortexValue.charAt(0)}]`,
+                    text: `Node ${i} [Vortex ${vortexValue}] | ${dateStr}`,
                 });
             }
             
@@ -156,7 +162,7 @@ function applyUOTAMGrid(chartData) {
                     position: 'belowBar',
                     color: '#ff3366',
                     shape: 'verticalLine',
-                    text: `EXPIRATIE (Node ${i})`,
+                    text: `EXPIRATIE (Node ${i}) | ${dateStr}`,
                 });
             }
         }
