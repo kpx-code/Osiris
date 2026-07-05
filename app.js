@@ -3,8 +3,8 @@ const ANCHOR_TIME = new Date('2026-07-01T12:00:00Z').getTime();
 const T_PI_MINUTES = 188.6634;
 const T_PI_MS = T_PI_MINUTES * 60 * 1000;
 
-let currentInterval = '15m';
-let currentWs = null;
+let currentInterval = '15m'; 
+let currentWs = null;        
 
 // --- INITIALISEER HET TRADINGVIEW CHART INTERFACE ---
 const chartContainer = document.getElementById('chart-container');
@@ -42,7 +42,7 @@ chart.subscribeCrosshairMove(param => {
     }
 });
 
-// --- HOOFDFUNCTIE ---
+// --- HOOFDFUNCTIE: INITIALISATIE ---
 async function initDashboard() {
     try {
         const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=1000`);
@@ -60,7 +60,6 @@ async function initDashboard() {
 // --- DYNAMISCH TIMEFRAME WISSELEN ---
 function changeTimeframe(interval) {
     currentInterval = interval;
-    // 1d verwijderd uit de lijst
     const intervals = ['15m', '30m', '1h'];
     intervals.forEach(int => {
         const btn = document.getElementById(`btn-${int}`);
@@ -96,6 +95,7 @@ function applyUOTAMGrid(chartData) {
             }
         }
     }
+    // Correcte methode voor de meeste versies:
     candlestickSeries.setMarkers(markers);
     updateInfoPanel();
 }
@@ -128,5 +128,6 @@ function startLiveUpdates() {
     };
 }
 
+window.addEventListener('resize', () => chart.resize(chartContainer.clientWidth, 600));
 initDashboard();
-setInterval(updateInfoPanel, 1000); // 1000ms voor actieve countdown
+setInterval(updateInfoPanel, 1000);
