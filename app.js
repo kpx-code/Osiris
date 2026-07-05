@@ -235,7 +235,7 @@ function applyUOTAMGrid(chartData) {
     if (typeof updateInfoPanel === 'function') {
         updateInfoPanel();
     }
-}
+
 
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
 function startLiveUpdates() {
