@@ -240,23 +240,36 @@ function applyUOTAMGrid(chartData) {
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
 }
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
+// --- 1. Historie lijst updaten ---
+function updateHistoryList(rawData) {
+    const listEl = document.getElementById('history-list');
+    if (!listEl) return;
+    
+    // Pak de laatste 10 candles (omgekeerd van de API-data)
+    const recent = rawData.slice(-10).reverse();
+    
+    listEl.innerHTML = recent.map(d => `
+        <li style="margin-bottom: 5px; border-bottom: 1px solid #333;">
+            ${new Date(d[0]).toLocaleTimeString()} | 
+            <span style="color: #00ffcc;">$${parseFloat(d[4]).toFixed(2)}</span> | 
+            Vol: ${parseFloat(d[5]).toFixed(2)}
+        </li>
+    `).join('');
+}
+
+// --- 2. WebSocket aanpassen voor Live Volume ---
 function startLiveUpdates() {
-    // 1. Zorg voor een volledige afsluiting van de vorige instantie
     if (currentWs) {
-        currentWs.onmessage = null; // ESSENTIEEL: verwijder de handler
-        currentWs.onerror = null;   // Verwijder ook de error handler
-        currentWs.close();          // Sluit de verbinding
-        currentWs = null;           // Maak de referentie leeg
+        currentWs.close();
     }
 
-    // 2. Start de nieuwe verbinding
     currentWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${currentInterval}`);
     
     currentWs.onmessage = (event) => {
         const message = JSON.parse(event.data);
         const candle = message.k;
         
-        // Update de candlestick-serie
+        // Update Chart
         candlestickSeries.update({
             time: candle.t / 1000,
             open: parseFloat(candle.o),
@@ -264,9 +277,13 @@ function startLiveUpdates() {
             low: parseFloat(candle.l),
             close: parseFloat(candle.c),
         });
+
+        // Update Live Volume in je nieuwe kaart
+        const volEl = document.getElementById('live-volume');
+        if (volEl) {
+            volEl.innerText = parseFloat(candle.v).toFixed(4);
+        }
     };
-    
-    currentWs.onerror = (err) => console.error("UOTAM Stream Error:", err);
 }
 
 window.addEventListener('resize', () => {
