@@ -68,16 +68,21 @@ function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
 
 function updateFibMarkers() {
     let fibMarkers = [];
+    const intervalSec = 900; // 15 minuten in seconden
 
     activeNodes.forEach(node => {
+        // 1. Zorg dat de tijd exact op een 15m grens ligt (900 seconden)
+        const snappedTime = Math.floor(node.time / intervalSec) * intervalSec;
+
         const levels = calculateFibLevels(node.high, node.low, node.isBullish);
+        
         Object.keys(levels).forEach(level => {
             fibMarkers.push({
-                time: node.time,
-                position: 'inBar',
+                time: snappedTime, // Gebruik de afgeronde tijd!
+                position: 'aboveBar', // Positie aangepast naar boven de bar
                 color: level === '0.618' ? '#00ffcc' : '#ffffff',
                 shape: 'circle',
-                size: 2,
+                size: 6, // Groter formaat voor testdoeleinden
                 price: levels[level]
             });
         });
@@ -410,90 +415,88 @@ function startLiveUpdates() {
     currentWs.onopen = () => console.log("UOTAM Engine verbonden met Binance.");
 
     currentWs.onmessage = (event) => {
-    try {
-        const message = JSON.parse(event.data);
-        const candle = message.k;
-        if (!candle) return;
+        try {
+            const message = JSON.parse(event.data);
+            const candle = message.k;
+            if (!candle) return;
 
-        const livePrice = parseFloat(candle.c);
-        const liveVol = parseFloat(candle.v);
-        const high = parseFloat(candle.h);
-        const low = parseFloat(candle.l);
+            const livePrice = parseFloat(candle.c);
+            const liveVol = parseFloat(candle.v);
+            const high = parseFloat(candle.h);
+            const low = parseFloat(candle.l);
 
-        // 1. Update de grafiek
-        candlestickSeries.update({
-            time: candle.t / 1000,
-            open: parseFloat(candle.o),
-            high: high,
-            low: low,
-            close: livePrice,
-        });
+            // 1. Update de grafiek
+            candlestickSeries.update({
+                time: candle.t / 1000,
+                open: parseFloat(candle.o),
+                high: high,
+                low: low,
+                close: livePrice,
+            });
 
-        // 2. UOTAM Engine Berekeningen
-        if (rawData && rawData.length >= 20) {
-            const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
-            const er = liveVol / sma20Volume;
-            const db = (2 * livePrice - (high + low)) / (high - low);
-            const vfm = er * db;
-            
-            let chaos = 0;
-            if (rawData.length >= 288) {
-                const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
-                chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
-            }
-
-            // 3. UI Updates
-            const updateDisplay = (id, val, format, status) => {
-                const pEl = document.getElementById(`${id}-display`);
-                const sEl = document.getElementById(`${id}-status`);
-                if (pEl) pEl.innerText = format(val);
-                if (sEl) {
-                    sEl.innerText = status;
-                    sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350";
-                }
-            };
-
-            updateDisplay('vfm', vfm, (v) => v.toFixed(3), Math.abs(vfm) > 1.5 ? "EXTREME" : "SIGNIFICANT");
-            updateDisplay('er', er, (v) => v.toFixed(2), er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
-            updateDisplay('db', db, (v) => v.toFixed(2), db > 0 ? "BULLISH" : "BEARISH");
-            updateDisplay('chaos', chaos, (v) => v.toFixed(1) + '%', chaos > 15 ? "EXTREME" : "STABIEL");
-            
-            const volEl = document.getElementById('live-volume');
-            if (volEl) volEl.innerText = liveVol.toFixed(4);
-
-            // 4. Sentiment Bar (Market Pressure) - DE JUISTE LOGICA
-            const bar = document.getElementById('sentiment-bar');
-            if (bar) {
-                // DB varieert van -1 (100% sellers) tot 1 (100% buyers)
-                // We willen dat 0% (Sellers) links is en 100% (Buyers) rechts.
-                const buyPercent = ((db + 1) / 2) * 100;
+            // 2. UOTAM Engine Berekeningen
+            if (rawData && rawData.length >= 20) {
+                const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
+                const er = liveVol / sma20Volume;
+                const db = (2 * livePrice - (high + low)) / (high - low);
+                const vfm = er * db;
                 
-                // Rood (#ef5350) moet links zijn (tot aan buyPercent)
-                // Groen (#00ffcc) moet rechts zijn (vanaf buyPercent)
-                // Wissel de kleuren om in de gradient:
-                bar.style.background = `linear-gradient(to right, #7FFFD4 ${buyPercent}%, #ef5350 ${buyPercent}%)`;
-            }
-        }
-        // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
-        const activeNode = getLastActiveNode(); 
-        if (activeNode) {
-            // Update node-data met de huidige candle-waarden (live)
-            activeNode.high = Math.max(parseFloat(candle.o), livePrice);
-            activeNode.low = Math.min(parseFloat(candle.o), livePrice);
-            activeNode.isBullish = livePrice > parseFloat(candle.o);
+                let chaos = 0;
+                if (rawData.length >= 288) {
+                    const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
+                    chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+                }
 
-            // Voeg toe aan lijst als hij er nog niet in staat
-            if (!activeNodes.find(n => n.time === activeNode.time)) {
-                activeNodes.push(activeNode);
+                // 3. UI Updates
+                const updateDisplay = (id, val, format, status) => {
+                    const pEl = document.getElementById(`${id}-display`);
+                    const sEl = document.getElementById(`${id}-status`);
+                    if (pEl) pEl.innerText = format(val);
+                    if (sEl) {
+                        sEl.innerText = status;
+                        sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350";
+                    }
+                };
+
+                updateDisplay('vfm', vfm, (v) => v.toFixed(3), Math.abs(vfm) > 1.5 ? "EXTREME" : "SIGNIFICANT");
+                updateDisplay('er', er, (v) => v.toFixed(2), er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
+                updateDisplay('db', db, (v) => v.toFixed(2), db > 0 ? "BULLISH" : "BEARISH");
+                updateDisplay('chaos', chaos, (v) => v.toFixed(1) + '%', chaos > 15 ? "EXTREME" : "STABIEL");
+                
+                const volEl = document.getElementById('live-volume');
+                if (volEl) volEl.innerText = liveVol.toFixed(4);
+
+                // 4. Sentiment Bar (Market Pressure) - DE JUISTE LOGICA
+                const bar = document.getElementById('sentiment-bar');
+                if (bar) {
+                    const buyPercent = ((db + 1) / 2) * 100;
+                    bar.style.background = `linear-gradient(to right, #7FFFD4 ${buyPercent}%, #ef5350 ${buyPercent}%)`;
+                }
             }
-            
-            // Teken de punten live
-            updateFibMarkers(); 
+
+            // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
+            const activeNode = getLastActiveNode(); 
+            if (activeNode) {
+                // 1. ZORG HIER DAT DE TIJD EEN GELDIGE UNIX TIMESTAMP IN SECONDEN IS
+                activeNode.time = Math.floor(candle.t / 1000); 
+
+                // Update node-data met de huidige candle-waarden (live)
+                activeNode.high = Math.max(parseFloat(candle.o), livePrice);
+                activeNode.low = Math.min(parseFloat(candle.o), livePrice);
+                activeNode.isBullish = livePrice > parseFloat(candle.o);
+
+                // Voeg toe aan lijst als hij er nog niet in staat
+                if (!activeNodes.find(n => n.time === activeNode.time)) {
+                    activeNodes.push(activeNode);
+                }
+                
+                // Teken de punten live
+                updateFibMarkers(); 
+            }
+        } catch (err) {
+            console.error("UOTAM Engine Fout:", err);
         }
-    } catch (err) {
-        console.error("UOTAM Engine Fout:", err);
-    }
-};
+    };
 }
 
 function calculateFibLevels(high, low, isBullish) {
