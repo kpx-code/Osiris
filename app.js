@@ -78,7 +78,7 @@ function updateFibMarkers() {
         Object.keys(levels).forEach(level => {
             fibMarkers.push({
                 time: snappedTime, // Dit moet exact matchen met de candle tijd
-                position: 'aboveBar',
+                position: 'inBar',
                 color: level === '0.618' ? '#00ffcc' : '#ffffff',
                 shape: 'circle',
                 size: 4,
