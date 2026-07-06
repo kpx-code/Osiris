@@ -47,34 +47,38 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
 function updateFibMarkers() {
     let fibMarkers = [];
 
-    // Loop over ALL nodes zodat we de puntjes op alle historische én live nodes zien
+    // 1. Jouw nieuwe kleuren-palet voor de Fib-levels
+    // Pas deze Hex-codes aan naar wat jij mooi vindt
+    const fibColors = {
+        '0.786': '#ef5350', // Rood
+        '0.618': '#00ffcc', // Jouw originele Cyaan
+        '0.500': '#ffee58', // Geel
+        '0.382': '#ab47bc', // Paars
+        '0.236': '#42a5f5'  // Blauw
+    };
+
     allNodes.forEach(node => {
         const levels = calculateFibLevels(node.high, node.low, node.isBullish);
         
         Object.keys(levels).forEach(level => {
             fibMarkers.push({
-                time: node.time, // Gebruik direct de exacte gecorrigeerde tijd van de node
-                position: 'aboveBar', // Boven aan de candle zoals gevraagd
-                color: level === '0.618' ? '#00ffcc' : '#ffffff',
-                shape: 'circle',
-                size: 0.3,
+                time: node.time, 
+                position: 'aboveBar', 
+                // 2. Haal de specifieke kleur op, val terug op wit als het level niet bestaat
+                color: fibColors[level] || '#ffffff', 
+                // 3. Veranderd naar 'square' voor een strakker, hoekig uiterlijk
+                shape: 'square',
+                size: 2, 
                 price: levels[level]
             });
         });
     });
 
-    // Combineer de vaste grid text-markers met de Fibonacci dots
     const combinedMarkers = [...gridMarkers, ...fibMarkers];
-
-    // CRUCIAAL: Lightweight Charts weigert markers te tekenen als ze niet exact chronologisch gesorteerd zijn!
     combinedMarkers.sort((a, b) => a.time - b.time);
 
-    console.log("DEBUG: Totaal aantal markers verzonden naar chart:", combinedMarkers.length);
-
-    // Jouw vereiste methode - Dit is de ENIGE plek waar we markers op de serie zetten
     LightweightCharts.createSeriesMarkers(candlestickSeries, combinedMarkers);
 }
-
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
 chart.subscribeCrosshairMove(param => {
     const ohlcOpen = document.getElementById('ohlc-open');
