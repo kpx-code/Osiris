@@ -11,6 +11,28 @@ let rawData = [];
 let activeNodes = [];
 let allNodes = []; // Hierin slaan we de gedetecteerde nodes op
 let gridMarkers = []; // Zorg dat deze hier staat
+// Globale variabele voor je lens (zorg dat deze bovenin staat)
+let uotamHarmonicSetting = 3; 
+// Houd een referentie bij van de actieve lijnen zodat we ze kunnen verwijderen
+let activeFibLines = [];
+
+// prachtige kleuren globaal gedefinieerd:
+const fibStyles = {
+    '1.0':    { color: '#ffffff', label: '1.0' },
+    '1.272':  { color: '#ff00ff', label: 'EXT 1.272' },
+    '1.618':  { color: '#ff0000', label: 'EXT 1.618' },
+    '0.786':  { color: '#26c6da', label: '0.782' },
+    '0.618':  { color: '#66bb6a', label: '0.618' },
+    '0.500':  { color: '#42a5f5', label: '0.5' },
+    '0.382':  { color: '#ffa726', label: '0.382' },
+    '0.236':  { color: '#fff176', label: '0.236' },
+    '0.0':    { color: '#ffffff', label: '0.0' },
+    '-0.236': { color: '#ffccbc', label: '-0.236' },
+    '-0.382': { color: '#ffab91', label: '-0.382' },
+    '-0.500': { color: '#ef9a9a', label: '-0.5' },
+    '-0.618': { color: '#e57373', label: '-0.618' },
+    '-0.786': { color: '#ef5350', label: '-0.782' }
+};
 
 
 // - INITIALISEER HET TRADINGVIEW CHART INTERFACE ---
@@ -69,9 +91,6 @@ chart.subscribeCrosshairMove(param => {
         ohlcClose.style.color = '#d1d4dc';
     }
 });
-
-// Globale variabele voor je lens (zorg dat deze bovenin staat)
-let uotamHarmonicSetting = 3; 
 
 function setHarmonic(value) {
     uotamHarmonicSetting = value;
@@ -203,6 +222,20 @@ function updateInfoPanel() {
         const targetTime = ANCHOR_TIME + (candidate * T_PI_MS);
         el.innerText = `${formatDateTime(targetTime)} (${formatCountdown(targetTime)})`;
     });
+}
+
+function updateSentimentBar(db) {
+    const bar = document.getElementById('sentiment-bar');
+    if (!bar) return;
+
+    // Normaliseer de DB waarde (-1 tot 1) naar een percentage (0% tot 100%)
+    // -1 (Bearish) -> 0% | 0 (Neutraal) -> 50% | 1 (Bullish) -> 100%
+    const percentage = ((db + 1) / 2) * 100;
+    const clampedPercentage = Math.min(Math.max(percentage, 0), 100);
+
+    // Update breedte en kleur
+    bar.style.width = `${clampedPercentage}%`;
+    bar.style.backgroundColor = db >= 0 ? '#00ffcc' : '#ef5350';
 }
 
 function applyUOTAMGrid(chartData) {
@@ -400,6 +433,7 @@ function startLiveUpdates() {
                 };
                 updateMetric('er', er, er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
                 updateMetric('db', db, db > 0 ? "BULLISH" : "BEARISH");
+                updateSentimentBar(db);
 
                 // Chaos Index
                 const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
@@ -449,54 +483,42 @@ function calculateFibLevels(high, low, isBullish) {
     };
 }
 
-// Houd een referentie bij van de actieve lijnen zodat we ze kunnen verwijderen
-let activeFibLines = [];
 
 // Standaard instelling (kan later via UI veranderd worden)
-let uotamHarmonicSetting = 3; 
 
 function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) {
-    // 1. Flush: Wis oude lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // 2. Filter voor RESET nodes (hoofdletter gevoeligheid check!)
     const resetNodes = targetNodes.filter(n => n.type === 'RESET' || n.type === 'reset');
     if (resetNodes.length < 2) return;
 
-    // 3. Wiskundige Schaling: Gebruik de harmonic (3, 6 of 9)
-    // We pakken de meest recente nodes op basis van je keuze
     const count = Math.min(harmonic, resetNodes.length);
     const relevantNodes = resetNodes.slice(-count);
 
-    // 4. Bepaal de range over deze specifieke harmonische reeks
     const nodesInRange = targetNodes.filter(n => 
         n.time >= relevantNodes[0].time && n.time <= relevantNodes[relevantNodes.length - 1].time
     );
 
     const rangeHigh = Math.max(...nodesInRange.map(n => n.high));
     const rangeLow = Math.min(...nodesInRange.map(n => n.low));
-    
-    // We gaan uit van de laatste node voor de trendrichting
     const isBullish = nodesInRange[nodesInRange.length - 1].isBullish;
 
-    // 5. Bereken levels (gebruik de nieuwe high+range logica)
     const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
-
-    // 6. Teken de lijnen
-    const fibStyles = { /* ... (jouw huidige styles) ... */ };
 
     Object.entries(levels).forEach(([ratio, price]) => {
         const style = fibStyles[ratio] || { color: '#cccccc', label: ratio };
-        const line = candlestickSeries.createPriceLine({
-            price: price,
-            color: style.color,
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dotted,
-            axisLabelVisible: true,
-            title: style.label
-        });
-        activeFibLines.push(line);
+        if (!isNaN(price)) {
+            const line = candlestickSeries.createPriceLine({
+                price: price,
+                color: style.color,
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dotted,
+                axisLabelVisible: true,
+                title: style.label
+            });
+            activeFibLines.push(line);
+        }
     });
     
     console.log(`Fibonacci berekend voor ${count} nodes (Tesla-Harmonie: ${harmonic})`);
@@ -508,6 +530,22 @@ function getLastActiveNode() {
     }
     return null; 
 }
+
+// ... al je andere code en functies (updateActiveNodeFibLines, setHarmonic, etc.) ...
+
+// INITIALISATIE:
+// Zorg dat de visuele status van de knoppen overeenkomt met de start-instelling
+// We wachten eventueel tot de DOM geladen is om zeker te zijn dat de knoppen bestaan
+document.addEventListener('DOMContentLoaded', () => {
+    // Zet de opacity van alle knoppen op 0.5 (inactief)
+    document.querySelectorAll('.harmonic-selector button').forEach(btn => btn.style.opacity = '0.5');
+    
+    // Zet de opacity van de standaard actieve knop op 1
+    const defaultBtn = document.getElementById(`btn-${uotamHarmonicSetting}`);
+    if (defaultBtn) {
+        defaultBtn.style.opacity = '1';
+    }
+});
 
 window.addEventListener('resize', () => {
     chart.resize(chartContainer.clientWidth, 600);
