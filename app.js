@@ -57,7 +57,7 @@ function updateFibMarkers() {
                 position: 'aboveBar', // Boven aan de candle zoals gevraagd
                 color: level === '0.618' ? '#00ffcc' : '#ffffff',
                 shape: 'circle',
-                size: 1,
+                size: 0.3,
                 price: levels[level]
             });
         });
