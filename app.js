@@ -68,7 +68,7 @@ function updateFibMarkers() {
                 color: fibColors[level] || '#ffffff', 
                 // 3. Veranderd naar 'square' voor een strakker, hoekig uiterlijk
                 shape: 'square',
-                size: 2, 
+                size: 1, 
                 price: levels[level]
             });
         });
