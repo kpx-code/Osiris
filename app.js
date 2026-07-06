@@ -454,12 +454,10 @@ function calculateFibLevels(high, low, isBullish) {
 let activeFibLines = [];
 
 function updateActiveNodeFibLines(targetNodes) {
-    // 1. Defensieve check: als er geen data is, doe niets en voorkom crash
-    if (!targetNodes || !Array.isArray(targetNodes) || targetNodes.length === 0) {
-        return;
-    }
+    // 1. Veiligheidscheck: bestaat de data wel?
+    if (!targetNodes || targetNodes.length === 0) return;
 
-    // 2. Verwijder eerst alle oude lijnen
+    // 2. Verwijder eerst alle oude lijnen van de grafiek
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
@@ -470,17 +468,26 @@ function updateActiveNodeFibLines(targetNodes) {
         'vortex6': '#00ffcc'
     };
 
-    // 3. Loop door de configuratie
+    // 3. Loop door elk type node
     Object.keys(nodeConfigs).forEach(type => {
-        // Gebruik de traditionele reverse-filter methode (werkt in elke browser)
-        // We zoeken de laatste node van dit type
-        const lastNode = [...targetNodes]
-            .filter(n => n && n.type === type)
-            .pop(); // .pop() pakt het laatste element uit de gefilterde array
+        // Filter alle nodes van dit type
+        const nodesOfType = targetNodes.filter(n => n.type === type);
         
-        if (lastNode) {
-            const levels = calculateFibLevels(lastNode.high, lastNode.low, lastNode.isBullish);
+        // We hebben minimaal 2 nodes nodig om een "envelop" (range) te vormen
+        if (nodesOfType.length >= 2) {
+            const lastTwoNodes = nodesOfType.slice(-2); // Pak de laatste 2 nodes
             
+            // BEREKEN DE ENERGIE-ENVELOP (Range tussen de twee nodes)
+            const rangeHigh = Math.max(lastTwoNodes[0].high, lastTwoNodes[1].high);
+            const rangeLow = Math.min(lastTwoNodes[0].low, lastTwoNodes[1].low);
+            
+            // Gebruik de trend van de meest recente node
+            const isBullish = lastTwoNodes[1].isBullish; 
+
+            // Bereken de Fib-levels over deze "energetische afstand"
+            const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
+            
+            // Teken de lijnen
             Object.values(levels).forEach(price => {
                 const line = candlestickSeries.createPriceLine({
                     price: price,
@@ -488,14 +495,13 @@ function updateActiveNodeFibLines(targetNodes) {
                     lineWidth: 1,
                     lineStyle: LightweightCharts.LineStyle.Dotted,
                     axisLabelVisible: true,
-                    title: type.toUpperCase()
+                    title: type.toUpperCase() // Label voor herkenbaarheid
                 });
                 activeFibLines.push(line);
             });
         }
     });
 }
-
 function getLastActiveNode() {
     if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
         return allNodes[allNodes.length - 1];
