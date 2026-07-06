@@ -10,6 +10,7 @@ let rawData = [];
 // Houd een lijst bij van alle nodes waarvoor we puntjes willen tonen
 let activeNodes = [];
 let allNodes = []; // Hierin slaan we de gedetecteerde nodes op
+let gridMarkers = []; // Zorg dat deze hier staat!
 
 
 // - INITIALISEER HET TRADINGVIEW CHART INTERFACE ---
@@ -66,13 +67,12 @@ function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
 }
 
 function updateFibMarkers() {
-    let allMarkers = [];
+    let fibMarkers = [];
 
-    // 1. Bereken de fib markers
     activeNodes.forEach(node => {
         const levels = calculateFibLevels(node.high, node.low, node.isBullish);
         Object.keys(levels).forEach(level => {
-            allMarkers.push({
+            fibMarkers.push({
                 time: node.time,
                 position: 'inBar',
                 color: level === '0.618' ? '#00ffcc' : '#ffffff',
@@ -83,17 +83,11 @@ function updateFibMarkers() {
         });
     });
 
-    // 2. Combineer met je gridMarkers (als je die gebruikt)
-    const combinedMarkers = [...gridMarkers, ...allMarkers];
+    // Combineer gridMarkers met de nieuwe fibMarkers
+    const combinedMarkers = [...gridMarkers, ...fibMarkers];
 
-    // 3. De cruciale fix:
-    // In Lightweight Charts 4.x+ moet je kijken of de functie bestaat op de serie.
-    if (candlestickSeries && typeof candlestickSeries.setMarkers === 'function') {
-        candlestickSeries.setMarkers(combinedMarkers);
-    } else {
-        console.error("CRITIEK: candlestickSeries heeft geen setMarkers() methode.");
-        console.log("Beschikbare methoden op serie:", Object.keys(candlestickSeries));
-    }
+    // Gebruik de 'chart' instantie (dit werkt voor alle series in de chart)
+    chart.setMarkers(combinedMarkers);
 }
 
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
@@ -264,8 +258,11 @@ function updateInfoPanel() {
 
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
-    // Voeg dit toe om oude data te wissen bij verversing
+    
+    // 1. Wis oude data
     allNodes = [];
+    // We wissen de markers op de serie (of chart) via de methode die jouw versie ondersteunt
+    // Mocht createSeriesMarkers de enige manier zijn in jouw versie, laat die staan:
     LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
     const markers = [];
@@ -284,7 +281,6 @@ function applyUOTAMGrid(chartData) {
         const nodeTimeMs = ANCHOR_TIME + (i * T_PI_MS);
         const nodeTimeSec = Math.floor(nodeTimeMs / 1000);
         
-        // Universeel label voor elke node
         const d = new Date(nodeTimeMs);
         const dateStr = `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
         const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
@@ -302,6 +298,7 @@ function applyUOTAMGrid(chartData) {
                 low: closestCandle.low,
                 isBullish: closestCandle.close >= closestCandle.open
             });
+
             // 1. RESET / VORTEX 9
             if (relativeIndex === 0) {
                 markers.push({
@@ -312,8 +309,6 @@ function applyUOTAMGrid(chartData) {
                     text: `RESET [Vortex 9] Node ${i} | ${timeLabel}`,
                 });
             }
-                
-                
             // 2. VOLA TRIGGER
             else if (relativeIndex === 1) {
                 markers.push({
@@ -347,6 +342,9 @@ function applyUOTAMGrid(chartData) {
             }
         }
     }
+    
+    // --- CRUCIALE TOEVOEGING VOOR DE INTEGRATIE ---
+    gridMarkers = markers; // Sla op in de globale variabele voor updateFibMarkers
     
     LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
