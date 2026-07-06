@@ -45,26 +45,7 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
 
 
 
-function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
-    const isBullish = livePrice > nodeCandle.open;
-    const high = Math.max(nodeCandle.open, livePrice);
-    const low = Math.min(nodeCandle.open, livePrice);
-    const levels = calculateFibLevels(high, low, isBullish);
 
-    const markers = [];
-    Object.keys(levels).forEach(level => {
-        markers.push({
-            time: nodeTime, 
-            shape: 'circle', // Het puntje
-            size: 4,
-            color: level === '0.618' ? '#00ffcc' : '#ffffff',
-            price: levels[level]
-        });
-    });
-
-    // Deze regel zorgt dat de puntjes op de grafiek verschijnen
-    fibMarkerSeries.setData(markers); 
-}
 
 function updateFibMarkers() {
     let fibMarkers = [];
