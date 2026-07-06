@@ -225,18 +225,22 @@ function updateInfoPanel() {
     });
 }
 
-function updateSentimentBar(db) {
-    const bar = document.getElementById('sentiment-bar');
-    if (!bar) return;
+function updateSentimentBar(obi) {
+    const barGreen = document.getElementById('sentiment-bar-green');
+    const barRed = document.getElementById('sentiment-bar-red');
+    if (!barGreen || !barRed) return;
 
-    // Normaliseer de DB waarde (-1 tot 1) naar een percentage (0% tot 100%)
-    // -1 (Bearish) -> 0% | 0 (Neutraal) -> 50% | 1 (Bullish) -> 100%
-    const percentage = ((db + 1) / 2) * 100;
-    const clampedPercentage = Math.min(Math.max(percentage, 0), 100);
+    // OBI is de balans: 1 is extreem koopdruk, -1 is extreem verkoopdruk.
+    // We willen dat 50% kopers / 50% verkopers = 50% breedte elk.
+    
+    // Bereken het percentage voor kopers (0 tot 100)
+    // Een OBI van 0 (neutraal) moet 50% groen opleveren.
+    const greenWidth = ((obi + 1) / 2) * 100;
+    const redWidth = 100 - greenWidth;
 
-    // Update breedte en kleur
-    bar.style.width = `${clampedPercentage}%`;
-    bar.style.backgroundColor = db >= 0 ? '#00ffcc' : '#ef5350';
+    // Update de breedtes
+    barGreen.style.width = `${greenWidth}%`;
+    barRed.style.width = `${redWidth}%`;
 }
 
 function applyUOTAMGrid(chartData) {
