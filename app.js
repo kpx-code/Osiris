@@ -257,8 +257,6 @@ function applyUOTAMGrid(chartData) {
     const startSearchIndex = Math.floor(((minTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) - 5;
     const endSearchIndex = Math.ceil(((maxTimeSec * 1000) - ANCHOR_TIME) / T_PI_MS) + 5;
 
-    let candleSizeSec = 900; 
-
     for (let i = startSearchIndex; i <= endSearchIndex; i++) {
         let relativeIndex = i % 8;
         if (relativeIndex < 0) relativeIndex += 8;
@@ -271,8 +269,9 @@ function applyUOTAMGrid(chartData) {
         const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
         const timeLabel = `${dateStr} ${timeStr}`;
         
-        const normalizedNodeTime = Math.floor(nodeTimeSec / candleSizeSec) * candleSizeSec;
-        const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
+        // Zoek de candle die het dichtst bij de berekende node tijd ligt (binnen een marge van 15 minuten)
+        const marge = 15 * 60; // 15 minuten in seconden
+        const closestCandle = chartData.find(c => Math.abs(c.time - nodeTimeSec) <= marge);
         
         if (closestCandle) {
             // 1. Bepaal het nodeType voor de PriceLines
@@ -282,17 +281,17 @@ function applyUOTAMGrid(chartData) {
             else if (relativeIndex === 3) nodeType = 'vortex3';
             else if (relativeIndex === 6) nodeType = 'vortex6';
 
-            // 2. Push naar allNodes inclusief het nieuwe 'type' veld
+            // 2. Push naar allNodes inclusief het type veld
             allNodes.push({
                 id: i,
-                type: nodeType,
+                type: nodeType, 
                 time: closestCandle.time,
                 high: closestCandle.high,
                 low: closestCandle.low,
                 isBullish: closestCandle.close >= closestCandle.open
             });
 
-            // 3. Tekst markers voor de grafiek (blijven bestaan voor visuele referentie)
+            // 3. Tekst markers voor de grafiek
             if (relativeIndex === 0) {
                 markers.push({
                     time: closestCandle.time,
@@ -330,13 +329,13 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-// Sla de tekst-markers op
+    // Sla de tekst-markers op
     gridMarkers = markers; 
     
-    // HOUD DEZE AANROEP ZOALS HIJ WAS, MAAR ZORG DAT HIJ ALLEEN JE TEXT-MARKERS BEVAT
+    // Update de grafiek markers
     LightweightCharts.createSeriesMarkers(candlestickSeries, gridMarkers);
     
-    // VOEG DAARONDER DE FIB-LIJNEN TOE
+    // Update de Fib-lijnen
     updateActiveNodeFibLines(allNodes);
 
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
