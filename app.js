@@ -5,7 +5,7 @@ const T_PI_MS = T_PI_MINUTES * 60 * 1000;
 
 let currentInterval = '15m'; // Standaard interval bij opstarten
 
-let currentWs = null; // Dit is cruciaal Onthoudt actieve WebSocket-verbinding
+let currentWs = null; // Dit is cruciaal: Onthoudt actieve WebSocket-verbinding
 let rawData = [];
 // Houd een lijst bij van alle nodes waarvoor we puntjes willen tonen
 let activeNodes = [];
@@ -43,23 +43,18 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
     wickDownColor: '#ef5350',
 });
 
-
-
-
-
+// --- FIBONACCI MARKERS FUNCTIE ---
 function updateFibMarkers() {
     let fibMarkers = [];
-    const intervalSec = 900;
 
-    activeNodes.forEach(node => {
-        // Zorg dat we altijd op de 15m grens zitten (zoals in de grid)
-        const snappedTime = Math.floor(node.time / intervalSec) * intervalSec;
+    // Loop over ALL nodes zodat we de puntjes op alle historische én live nodes zien
+    allNodes.forEach(node => {
         const levels = calculateFibLevels(node.high, node.low, node.isBullish);
         
         Object.keys(levels).forEach(level => {
             fibMarkers.push({
-                time: snappedTime, // Dit moet exact matchen met de candle tijd
-                position: 'inBar',
+                time: node.time, // Gebruik direct de exacte gecorrigeerde tijd van de node
+                position: 'aboveBar', // Boven aan de candle zoals gevraagd
                 color: level === '0.618' ? '#00ffcc' : '#ffffff',
                 shape: 'circle',
                 size: 4,
@@ -68,16 +63,18 @@ function updateFibMarkers() {
         });
     });
 
-    // Combineer en zorg dat we de volledige set aanbieden
+    // Combineer de vaste grid text-markers met de Fibonacci dots
     const combinedMarkers = [...gridMarkers, ...fibMarkers];
 
-    console.log("DEBUG: Aantal markers:", combinedMarkers.length);
-    // Debug de eerste marker om te zien of de tijd matcht met de data
-    console.log("DEBUG: Voorbeeld marker tijd:", combinedMarkers[0].time);
+    // CRUCIAAL: Lightweight Charts weigert markers te tekenen als ze niet exact chronologisch gesorteerd zijn!
+    combinedMarkers.sort((a, b) => a.time - b.time);
 
-    // Jouw vereiste methode
+    console.log("DEBUG: Totaal aantal markers verzonden naar chart:", combinedMarkers.length);
+
+    // Jouw vereiste methode - Dit is de ENIGE plek waar we markers op de serie zetten
     LightweightCharts.createSeriesMarkers(candlestickSeries, combinedMarkers);
 }
+
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
 chart.subscribeCrosshairMove(param => {
     const ohlcOpen = document.getElementById('ohlc-open');
@@ -123,12 +120,8 @@ function changeTimeframe(interval) {
 }
 
 // --- HOOFDFUNCTIE: INITIALISATIE ---
-// 1. Globale variabele voor data-toegang in WebSocket en VFM
-
 async function initDashboard() {
     try {
-        console.log("DEBUG: Is candlestickSeries gedefinieerd?", typeof candlestickSeries);
-        console.log("DEBUG: Inhoud van candlestickSeries:", candlestickSeries);
         LightweightCharts.createSeriesMarkers(candlestickSeries, []);
         
         // 2. Fetch 672 candles (exact 7 dagen bij 15m interval)
@@ -177,25 +170,6 @@ function calculateVFM(currentPrice, currentVolume, historyData) {
     return er * db;
 }
 
-
-function calculateVFM(currentPrice, currentVolume, historyData) {
-    // Pak laatste 20 volumes voor SMA20
-    const last20Volumes = historyData.slice(-20).map(d => parseFloat(d[5]));
-    const sma20Volume = last20Volumes.reduce((a, b) => a + b, 0) / 20;
-
-    // Energy Ratio
-    const er = currentVolume / sma20Volume;
-
-    // Delta Balance
-    const currentCandle = historyData[historyData.length - 1];
-    const high = parseFloat(currentCandle[2]);
-    const low = parseFloat(currentCandle[3]);
-    const db = (2 * currentPrice - (high + low)) / (high - low);
-
-    return er * db;
-}
-
-// --- LIVE KLOK BEREKENING (Zorg dat deze BOVEN de aanroep staat) ---
 // --- LIVE KLOK BEREKENING ---
 function updateInfoPanel() {
     const now = Date.now();
@@ -249,9 +223,6 @@ function applyUOTAMGrid(chartData) {
     
     // 1. Wis oude data
     allNodes = [];
-    // We wissen de markers op de serie (of chart) via de methode die jouw versie ondersteunt
-    // Mocht createSeriesMarkers de enige manier zijn in jouw versie, laat die staan:
-    LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
     const markers = [];
     const minTimeSec = chartData[0].time;
@@ -331,13 +302,15 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    // --- CRUCIALE TOEVOEGING VOOR DE INTEGRATIE ---
-    gridMarkers = markers; // Sla op in de globale variabele voor updateFibMarkers
+    // Sla de tekst-markers op
+    gridMarkers = markers; 
     
-    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
+    // Teken NU alle markers (tekst + fibs) direct op de grafiek
+    updateFibMarkers();
+
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
 }
-// --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
+
 // --- 1. Historie lijst updaten ---
 function updateHistoryList(rawData) {
     const listEl = document.getElementById('history-list');
@@ -379,8 +352,6 @@ function updateHistoryList(rawData) {
     `;
 }
 
-// --- 2. WebSocket aanpassen voor Live Volume ---
-// --- 2. WebSocket aanpassen voor Live Volume ---
 // --- UOTAM LIVE ENGINE: WebSocket en Data Verwerking ---
 function startLiveUpdates() {
     // 1. Sluit actieve verbinding indien aanwezig
@@ -446,7 +417,7 @@ function startLiveUpdates() {
                 const volEl = document.getElementById('live-volume');
                 if (volEl) volEl.innerText = liveVol.toFixed(4);
 
-                // 4. Sentiment Bar (Market Pressure) - DE JUISTE LOGICA
+                // 4. Sentiment Bar (Market Pressure)
                 const bar = document.getElementById('sentiment-bar');
                 if (bar) {
                     const buyPercent = ((db + 1) / 2) * 100;
@@ -455,10 +426,7 @@ function startLiveUpdates() {
             }
 
             // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
-            // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
-            // We updaten alle nodes uit allNodes, niet alleen de laatste
             allNodes.forEach(node => {
-                // Check of dit de node is die bij de huidige candle hoort (op 15m basis)
                 const nodeTimeSnapped = Math.floor(node.time / 900) * 900;
                 const currentCandleTime = Math.floor(candle.t / 1000 / 900) * 900;
 
@@ -467,14 +435,13 @@ function startLiveUpdates() {
                     node.low = Math.min(parseFloat(candle.o), livePrice);
                     node.isBullish = livePrice > parseFloat(candle.o);
                     
-                    // Zorg dat deze node in activeNodes staat
                     if (!activeNodes.find(n => n.id === node.id)) {
                         activeNodes.push(node);
                     }
                 }
             });
             
-            // Teken de punten live voor alle actieve nodes
+            // Teken alles opnieuw als de huidige candle een node raakt
             updateFibMarkers(); 
             
         } catch (err) {
@@ -485,7 +452,6 @@ function startLiveUpdates() {
 
 function calculateFibLevels(high, low, isBullish) {
     const range = high - low;
-    // Gebruik de standaard Fibonacci ratio's
     return {
         '0.786': isBullish ? low + (range * 0.786) : high - (range * 0.786),
         '0.618': isBullish ? low + (range * 0.618) : high - (range * 0.618),
@@ -496,17 +462,11 @@ function calculateFibLevels(high, low, isBullish) {
 }
 
 function getLastActiveNode() {
-    // Stel: 'allNodes' is de array waar je al je gedetecteerde nodes in bewaart
-    // We pakken de laatste node uit deze array
     if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
         return allNodes[allNodes.length - 1];
     }
-    
-    // Mocht je nodes anders opslaan, pas dit dan aan naar jouw bron
     return null; 
 }
-
-
 
 window.addEventListener('resize', () => {
     chart.resize(chartContainer.clientWidth, 600);
@@ -514,4 +474,3 @@ window.addEventListener('resize', () => {
 
 initDashboard();
 setInterval(updateInfoPanel, 1000);
-
