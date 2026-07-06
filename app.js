@@ -63,7 +63,7 @@ function updateFibMarkers() {
         Object.keys(levels).forEach(level => {
             fibMarkers.push({
                 time: node.time, 
-                position: 'aboveBar', 
+                position: 'inBar', 
                 // 2. Haal de specifieke kleur op, val terug op wit als het level niet bestaat
                 color: fibColors[level] || '#ffffff', 
                 // 3. Veranderd naar 'square' voor een strakker, hoekig uiterlijk
