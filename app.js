@@ -83,11 +83,13 @@ function updateFibMarkers() {
         });
     });
 
-    // Combineer gridMarkers met de nieuwe fibMarkers
+    // Combineer de vaste gridMarkers met de dynamische fibMarkers
     const combinedMarkers = [...gridMarkers, ...fibMarkers];
 
-    // FIX: Gebruik hier ook de LightweightCharts.createSeriesMarkers methode
-    // Dit lost de "is not a function" fout op voor de chart instantie
+    // Debug: Kijk in de console of er überhaupt markers zijn
+    console.log("DEBUG: Aantal te tekenen markers:", combinedMarkers.length);
+
+    // Gebruik de methode die je wilt behouden
     LightweightCharts.createSeriesMarkers(candlestickSeries, combinedMarkers);
 }
 
