@@ -47,14 +47,19 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
 function updateFibMarkers() {
     let fibMarkers = [];
 
-    // 1. Jouw nieuwe kleuren-palet voor de Fib-levels
-    // Pas deze Hex-codes aan naar wat jij mooi vindt
+    // Alle kleuren netjes in een dictionary (inclusief de negatieve levels)
     const fibColors = {
         '0.786': '#ef5350', // Rood
-        '0.618': '#00ffcc', // Jouw originele Cyaan
+        '0.618': '#00ffcc', // Cyaan
         '0.500': '#ffee58', // Geel
         '0.382': '#ab47bc', // Paars
-        '0.236': '#42a5f5'  // Blauw
+        '0.236': '#42a5f5', // Blauw
+        
+        '-0.236': '#42a5f5', // Negatieve levels zelfde kleuren (pas aan indien gewenst)
+        '-0.382': '#ab47bc',
+        '-0.500': '#ffee58',
+        '-0.618': '#00ffcc',
+        '-0.786': '#ef5350'
     };
 
     allNodes.forEach(node => {
@@ -63,18 +68,19 @@ function updateFibMarkers() {
         Object.keys(levels).forEach(level => {
             fibMarkers.push({
                 time: node.time, 
+                // CRUCIAAL: 'inBar' forceert de marker naar de exacte prijs op de Y-as
                 position: 'inBar', 
-                // 2. Haal de specifieke kleur op, val terug op wit als het level niet bestaat
                 color: fibColors[level] || '#ffffff', 
-                // 3. Veranderd naar 'square' voor een strakker, hoekig uiterlijk
-                shape: 'square',
-                size: 1, 
-                price: levels[level]
+                shape: 'square', // Dit creëert het effect van een strak "blokje/streepje"
+                size: 1, // Houd dit laag (1 of 2) voor een subtiele markering
+                price: levels[level] // Dit wordt nu 100% gerespecteerd door inBar
             });
         });
     });
 
     const combinedMarkers = [...gridMarkers, ...fibMarkers];
+    
+    // Altijd sorteren voor LightweightCharts
     combinedMarkers.sort((a, b) => a.time - b.time);
 
     LightweightCharts.createSeriesMarkers(candlestickSeries, combinedMarkers);
@@ -456,12 +462,22 @@ function startLiveUpdates() {
 
 function calculateFibLevels(high, low, isBullish) {
     const range = high - low;
+    
+    // We berekenen zowel de positieve retracements als de negatieve extensies
     return {
+        // Standaard levels (0 tot 1)
         '0.786': isBullish ? low + (range * 0.786) : high - (range * 0.786),
         '0.618': isBullish ? low + (range * 0.618) : high - (range * 0.618),
         '0.500': isBullish ? low + (range * 0.500) : high - (range * 0.500),
         '0.382': isBullish ? low + (range * 0.382) : high - (range * 0.382),
-        '0.236': isBullish ? low + (range * 0.236) : high - (range * 0.236)
+        '0.236': isBullish ? low + (range * 0.236) : high - (range * 0.236),
+        
+        // Negatieve levels (Extensies voor als de trend verder doorzet)
+        '-0.236': isBullish ? low - (range * 0.236) : high + (range * 0.236),
+        '-0.382': isBullish ? low - (range * 0.382) : high + (range * 0.382),
+        '-0.500': isBullish ? low - (range * 0.500) : high + (range * 0.500),
+        '-0.618': isBullish ? low - (range * 0.618) : high + (range * 0.618),
+        '-0.786': isBullish ? low - (range * 0.786) : high + (range * 0.786)
     };
 }
 
