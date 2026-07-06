@@ -86,10 +86,14 @@
 </div>
 <div class="card" style="margin-top: 20px;">
     <h3>Market Pressure (Buyers vs Sellers)</h3>
-    <div id="sentiment-bar-container" style="width: 100%; height: 20px; background: #1f2233; border-radius: 10px; overflow: hidden; margin-top: 10px;">
-        <div id="sentiment-bar" style="width: 100%; height: 100%; transition: background 0.3s ease;"></div>
+    
+    <div id="sentiment-bar-container" style="width: 100%; height: 20px; background: #1f2233; border-radius: 10px; overflow: hidden; display: flex; position: relative; margin-top: 10px;">
+        <div id="sentiment-bar-green" style="width: 50%; height: 100%; background: #00ffcc; transition: width 0.3s ease;"></div>
+        
+        <div id="sentiment-bar-red" style="width: 50%; height: 100%; background: #ef5350; transition: width 0.3s ease;"></div>
     </div>
-    <div style="display: flex; justify-content: space-between; font-size: 0.7em; margin-top: 5px;">
+    
+    <div style="display: flex; justify-content: space-between; font-size: 0.7em; margin-top: 5px; color: #888;">
         <span>BUYERS</span>
         <span>SELLERS</span>
     </div>
