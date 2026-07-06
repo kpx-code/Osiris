@@ -496,7 +496,7 @@ function startLiveUpdates() {
             
             // Teken de punten live voor alle actieve nodes
             updateFibMarkers(); 
-            }
+            
         } catch (err) {
             console.error("UOTAM Engine Fout:", err);
         }
