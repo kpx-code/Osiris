@@ -10,7 +10,7 @@ let rawData = [];
 // Houd een lijst bij van alle nodes waarvoor we puntjes willen tonen
 let activeNodes = [];
 let allNodes = []; // Hierin slaan we de gedetecteerde nodes op
-let gridMarkers = []; // Zorg dat deze hier staat!
+let gridMarkers = []; // Zorg dat deze hier staat
 
 
 // - INITIALISEER HET TRADINGVIEW CHART INTERFACE ---
