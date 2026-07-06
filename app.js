@@ -7,6 +7,8 @@ let currentInterval = '15m'; // Standaard interval bij opstarten
 
 let currentWs = null; // Dit is cruciaal Onthoudt actieve WebSocket-verbinding
 let rawData = [];
+// Houd een lijst bij van alle nodes waarvoor we puntjes willen tonen
+let activeNodes = [];
 
 // - INITIALISEER HET TRADINGVIEW CHART INTERFACE --
 const chartContainer = document.getElementById('chart-container');
@@ -38,12 +40,7 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
     wickDownColor: '#ef5350',
 });
 
-// -- HIER TOEVOEGEN --
-// Let op: controleer of jouw versie van Lightweight Charts 'addScatterSeries' ondersteunt.
-// Mocht dit een fout geven, dan gebruiken we 'addShapeSeries'.
-const fibMarkerSeries = chart.addShapeSeries({
-    // Shape series is vaak stabieler in oudere versies van Lightweight Charts
-});
+
 
 function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
     const isBullish = livePrice > nodeCandle.open;
@@ -64,6 +61,28 @@ function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
 
     // Deze regel zorgt dat de puntjes op de grafiek verschijnen
     fibMarkerSeries.setData(markers); 
+}
+
+function updateFibMarkers() {
+    let allMarkers = [];
+
+    activeNodes.forEach(node => {
+        const levels = calculateFibLevels(node.high, node.low, node.isBullish);
+        
+        Object.keys(levels).forEach(level => {
+            allMarkers.push({
+                time: node.time,
+                position: 'inBar',
+                color: level === '0.618' ? '#00ffcc' : '#ffffff',
+                shape: 'circle',
+                size: 2, 
+                price: levels[level]
+            });
+        });
+    });
+
+    // Dit plaatst alles op je grafiek
+    candlestickSeries.setMarkers(allMarkers);
 }
 
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
@@ -429,6 +448,22 @@ function startLiveUpdates() {
                 // Wissel de kleuren om in de gradient:
                 bar.style.background = `linear-gradient(to right, #7FFFD4 ${buyPercent}%, #ef5350 ${buyPercent}%)`;
             }
+        }
+        // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
+        const activeNode = getLastActiveNode(); 
+        if (activeNode) {
+            // Update node-data met de huidige candle-waarden (live)
+            activeNode.high = Math.max(parseFloat(candle.o), livePrice);
+            activeNode.low = Math.min(parseFloat(candle.o), livePrice);
+            activeNode.isBullish = livePrice > parseFloat(candle.o);
+
+            // Voeg toe aan lijst als hij er nog niet in staat
+            if (!activeNodes.find(n => n.time === activeNode.time)) {
+                activeNodes.push(activeNode);
+            }
+            
+            // Teken de punten live
+            updateFibMarkers(); 
         }
     } catch (err) {
         console.error("UOTAM Engine Fout:", err);
