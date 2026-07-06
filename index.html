@@ -28,7 +28,12 @@
         L: <span id="ohlc-low">-</span> | 
         C: <span id="ohlc-close">-</span>
     </div>
-
+    <div class="harmonic-selector" style="margin: 10px 0; display: flex; gap: 10px; align-items: center;">
+    <span style="color: #d1d4dc; font-size: 0.8em;">UOTAM HARMONIC LENS:</span>
+    <button onclick="setHarmonic(3)" id="btn-3" style="padding: 5px 12px; background: #131722; color: #00ffcc; border: 1px solid #00ffcc; cursor: pointer; border-radius: 4px;">3 (Micro)</button>
+    <button onclick="setHarmonic(6)" id="btn-6" style="padding: 5px 12px; background: #131722; color: #ffff00; border: 1px solid #ffff00; cursor: pointer; border-radius: 4px;">6 (Meso)</button>
+    <button onclick="setHarmonic(9)" id="btn-9" style="padding: 5px 12px; background: #131722; color: #ff00ff; border: 1px solid #ff00ff; cursor: pointer; border-radius: 4px;">9 (Macro)</button>
+    </div>
     <div id="chart-container"></div>
 
     <div id="info-panel" style="margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
