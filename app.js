@@ -539,7 +539,8 @@ function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) 
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    const resetNodes = targetNodes.filter(n => n.type === 'RESET' || n.type === 'reset');
+    // Deze variant vangt alles af, ook als er per ongeluk een spatie in het type zit
+const resetNodes = targetNodes.filter(n => n.type && n.type.toLowerCase().trim() === 'reset');
    if (resetNodes.length < 2) {
         console.warn("Nog niet genoeg RESET nodes voor Fibs:", resetNodes.length);
         return;
