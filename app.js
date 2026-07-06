@@ -148,6 +148,7 @@ async function initDashboard() {
         candlestickSeries.setData(chartData);
         applyUOTAMGrid(chartData);
         startLiveUpdates();
+        startSentimentStream();
         
     } catch (error) {
         console.error("Fout bij het laden van de data:", error);
@@ -433,7 +434,7 @@ function startLiveUpdates() {
                 };
                 updateMetric('er', er, er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
                 updateMetric('db', db, db > 0 ? "BULLISH" : "BEARISH");
-                updateSentimentBar(db);
+            
 
                 // Chaos Index
                 const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
@@ -454,6 +455,32 @@ function startLiveUpdates() {
             }
         } catch (err) { console.error("UOTAM Engine Fout:", err); }
     };
+}
+
+let sentimentWs = null;
+
+function startSentimentStream() {
+    // Sluit eventuele oude verbinding
+    if (sentimentWs) { sentimentWs.close(); }
+
+    // Depth stream: @depth10@100ms geeft de top 10 bids/asks elke 100ms
+    sentimentWs = new WebSocket(`wss://fstream.binance.com/ws/btcusdt@depth10@100ms`);
+
+    sentimentWs.onmessage = (event) => {
+        const depth = JSON.parse(event.data);
+        
+        // Bereken de totale liquiditeit aan beide kanten
+        const bids = depth.b.reduce((sum, item) => sum + parseFloat(item[1]), 0);
+        const asks = depth.a.reduce((sum, item) => sum + parseFloat(item[1]), 0);
+        
+        // Order Book Imbalance (OBI) - Waarde tussen -1 en 1
+        const obi = (bids - asks) / (bids + asks);
+        
+        // Update de sentiment balk direct met deze nieuwe, zuivere data
+        updateSentimentBar(obi);
+    };
+    
+    sentimentWs.onerror = (err) => console.error("Sentiment Stream Fout:", err);
 }
 
 function calculateFibLevels(high, low, isBullish) {
