@@ -230,15 +230,14 @@ function updateSentimentBar(obi) {
     const barRed = document.getElementById('sentiment-bar-red');
     if (!barGreen || !barRed) return;
 
-    // OBI is de balans: 1 is extreem koopdruk, -1 is extreem verkoopdruk.
-    // We willen dat 50% kopers / 50% verkopers = 50% breedte elk.
+    // OBI waarde tussen -1 en 1
+    // 0 = 50% groen, 50% rood
+    // 1 = 100% groen, 0% rood
+    // -1 = 0% groen, 100% rood
     
-    // Bereken het percentage voor kopers (0 tot 100)
-    // Een OBI van 0 (neutraal) moet 50% groen opleveren.
     const greenWidth = ((obi + 1) / 2) * 100;
     const redWidth = 100 - greenWidth;
 
-    // Update de breedtes
     barGreen.style.width = `${greenWidth}%`;
     barRed.style.width = `${redWidth}%`;
 }
