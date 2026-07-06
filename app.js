@@ -16,6 +16,7 @@ let uotamHarmonicSetting = 3;
 // Houd een referentie bij van de actieve lijnen zodat we ze kunnen verwijderen
 let activeFibLines = [];
 let lastProcessedNodeId = null;
+let sentimentWs = null;
 
 // prachtige kleuren globaal gedefinieerd:
 const fibStyles = {
@@ -479,7 +480,7 @@ function startLiveUpdates() {
 };
 }
 
-let sentimentWs = null;
+
 
 function startSentimentStream() {
     // Sluit eventuele oude verbinding
@@ -540,7 +541,10 @@ function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) 
     activeFibLines = [];
 
     const resetNodes = targetNodes.filter(n => n.type === 'RESET' || n.type === 'reset');
-    if (resetNodes.length < 2) return;
+   if (resetNodes.length < 2) {
+        console.warn("Nog niet genoeg RESET nodes voor Fibs:", resetNodes.length);
+        return;
+    }
 
     const count = Math.min(harmonic, resetNodes.length);
     const relevantNodes = resetNodes.slice(-count);
