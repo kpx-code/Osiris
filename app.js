@@ -68,34 +68,33 @@ function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
 
 function updateFibMarkers() {
     let fibMarkers = [];
-    const intervalSec = 900; // 15 minuten in seconden
+    const intervalSec = 900;
 
     activeNodes.forEach(node => {
-        // 1. Zorg dat de tijd exact op een 15m grens ligt (900 seconden)
+        // Zorg dat we altijd op de 15m grens zitten (zoals in de grid)
         const snappedTime = Math.floor(node.time / intervalSec) * intervalSec;
-
-        // 2. Bereken de Fibonacci levels op basis van de node
         const levels = calculateFibLevels(node.high, node.low, node.isBullish);
         
         Object.keys(levels).forEach(level => {
             fibMarkers.push({
-                time: snappedTime, // Gebruik de afgeronde tijd voor perfecte grid-alignment
-                position: 'aboveBar', // Jouw gewenste positie boven de bar
+                time: snappedTime, // Dit moet exact matchen met de candle tijd
+                position: 'aboveBar',
                 color: level === '0.618' ? '#00ffcc' : '#ffffff',
                 shape: 'circle',
-                size: 6, // Jouw testgrootte
+                size: 4,
                 price: levels[level]
             });
         });
     });
 
-    // Combineer de vaste gridMarkers met de dynamische fibMarkers
+    // Combineer en zorg dat we de volledige set aanbieden
     const combinedMarkers = [...gridMarkers, ...fibMarkers];
 
-    // Debug: Kijk in de console of er überhaupt markers zijn
-    console.log("DEBUG: Aantal te tekenen markers:", combinedMarkers.length);
+    console.log("DEBUG: Aantal markers:", combinedMarkers.length);
+    // Debug de eerste marker om te zien of de tijd matcht met de data
+    console.log("DEBUG: Voorbeeld marker tijd:", combinedMarkers[0].time);
 
-    // Gebruik de methode die je wilt behouden
+    // Jouw vereiste methode
     LightweightCharts.createSeriesMarkers(candlestickSeries, combinedMarkers);
 }
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
