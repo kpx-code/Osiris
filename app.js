@@ -396,6 +396,7 @@ function startLiveUpdates() {
         }
     } catch (err) { console.error("UOTAM Engine Fout:", err); }
 };
+}
 
 function calculateFibLevels(high, low, isBullish) {
     const range = high - low;
