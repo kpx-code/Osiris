@@ -9,6 +9,8 @@ let currentWs = null; // Dit is cruciaal Onthoudt actieve WebSocket-verbinding
 let rawData = [];
 // Houd een lijst bij van alle nodes waarvoor we puntjes willen tonen
 let activeNodes = [];
+let allNodes = []; // Hierin slaan we de gedetecteerde nodes op
+
 
 // - INITIALISEER HET TRADINGVIEW CHART INTERFACE --
 const chartContainer = document.getElementById('chart-container');
@@ -64,25 +66,25 @@ function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
 }
 
 function updateFibMarkers() {
-    let allMarkers = [];
-
+    // We pakken de huidige markers uit de candlestickSeries (die er al staan via applyUOTAMGrid)
+    let markers = candlestickSeries.markers().filter(m => !m.text); // Behoud alleen de Fib-stippen
+    
+    // Voeg de nieuwe Fib-stippen toe
     activeNodes.forEach(node => {
         const levels = calculateFibLevels(node.high, node.low, node.isBullish);
-        
         Object.keys(levels).forEach(level => {
-            allMarkers.push({
+            markers.push({
                 time: node.time,
                 position: 'inBar',
                 color: level === '0.618' ? '#00ffcc' : '#ffffff',
                 shape: 'circle',
-                size: 2, 
+                size: 2,
                 price: levels[level]
             });
         });
     });
 
-    // Dit plaatst alles op je grafiek
-    candlestickSeries.setMarkers(allMarkers);
+    candlestickSeries.setMarkers(markers);
 }
 
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
@@ -251,7 +253,8 @@ function updateInfoPanel() {
 
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
-    
+    // Voeg dit toe om oude data te wissen bij verversing
+    allNodes = [];
     LightweightCharts.createSeriesMarkers(candlestickSeries, []); 
     
     const markers = [];
@@ -280,6 +283,14 @@ function applyUOTAMGrid(chartData) {
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
+            allNodes.push({
+                id: i,
+                time: closestCandle.time,
+                open: closestCandle.open,
+                high: closestCandle.high,
+                low: closestCandle.low,
+                isBullish: closestCandle.close >= closestCandle.open
+            });
             // 1. RESET / VORTEX 9
             if (relativeIndex === 0) {
                 markers.push({
@@ -290,6 +301,8 @@ function applyUOTAMGrid(chartData) {
                     text: `RESET [Vortex 9] Node ${i} | ${timeLabel}`,
                 });
             }
+                
+                
             // 2. VOLA TRIGGER
             else if (relativeIndex === 1) {
                 markers.push({
