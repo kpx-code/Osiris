@@ -86,8 +86,10 @@ function updateFibMarkers() {
     // Combineer gridMarkers met de nieuwe fibMarkers
     const combinedMarkers = [...gridMarkers, ...fibMarkers];
 
-    // Gebruik de 'chart' instantie (dit werkt voor alle series in de chart)
-    chart.setMarkers(combinedMarkers);
+    // FIX: Gebruik de serie in plaats van de chart
+    if (candlestickSeries) {
+        candlestickSeries.setMarkers(combinedMarkers);
+    }
 }
 
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
@@ -346,7 +348,7 @@ function applyUOTAMGrid(chartData) {
     // --- CRUCIALE TOEVOEGING VOOR DE INTEGRATIE ---
     gridMarkers = markers; // Sla op in de globale variabele voor updateFibMarkers
     
-    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
+    candlestickSeries.setMarkers(gridMarkers);
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
 }
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
