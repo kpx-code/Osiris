@@ -483,6 +483,17 @@ function calculateFibLevels(high, low, isBullish) {
     };
 }
 
+function getLastActiveNode() {
+    // Stel: 'allNodes' is de array waar je al je gedetecteerde nodes in bewaart
+    // We pakken de laatste node uit deze array
+    if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
+        return allNodes[allNodes.length - 1];
+    }
+    
+    // Mocht je nodes anders opslaan, pas dit dan aan naar jouw bron
+    return null; 
+}
+
 
 
 window.addEventListener('resize', () => {
