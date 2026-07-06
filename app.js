@@ -12,7 +12,7 @@ let activeNodes = [];
 let allNodes = []; // Hierin slaan we de gedetecteerde nodes op
 
 
-// - INITIALISEER HET TRADINGVIEW CHART INTERFACE --
+// - INITIALISEER HET TRADINGVIEW CHART INTERFACE ---
 const chartContainer = document.getElementById('chart-container');
 const chart = LightweightCharts.createChart(chartContainer, {
     width: chartContainer.clientWidth,
