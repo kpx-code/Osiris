@@ -431,22 +431,24 @@ function startLiveUpdates() {
 
 function calculateFibLevels(high, low, isBullish) {
     const range = high - low;
-    
-    // We berekenen zowel de positieve retracements als de negatieve extensies
+
+    // We berekenen de niveaus gebaseerd op de absolute range.
+    // Voor steun/weerstand zones wil je dat 0 de onderkant is en 1 de bovenkant.
     return {
-        // Standaard levels (0 tot 1)
-        '0.786': isBullish ? low + (range * 0.786) : high - (range * 0.786),
-        '0.618': isBullish ? low + (range * 0.618) : high - (range * 0.618),
-        '0.500': isBullish ? low + (range * 0.500) : high - (range * 0.500),
-        '0.382': isBullish ? low + (range * 0.382) : high - (range * 0.382),
-        '0.236': isBullish ? low + (range * 0.236) : high - (range * 0.236),
+        '1.0':    high, // De absolute top van je macro-zone
+        '0.786':  low + (range * 0.786),
+        '0.618':  low + (range * 0.618),
+        '0.500':  low + (range * 0.500),
+        '0.382':  low + (range * 0.382),
+        '0.236':  low + (range * 0.236),
+        '0.0':    low,  // De absolute bodem van je macro-zone
         
-        // Negatieve levels (Extensies voor als de trend verder doorzet)
-        '-0.236': isBullish ? low - (range * 0.236) : high + (range * 0.236),
-        '-0.382': isBullish ? low - (range * 0.382) : high + (range * 0.382),
-        '-0.500': isBullish ? low - (range * 0.500) : high + (range * 0.500),
-        '-0.618': isBullish ? low - (range * 0.618) : high + (range * 0.618),
-        '-0.786': isBullish ? low - (range * 0.786) : high + (range * 0.786)
+        // Extensies (gebruik deze om te zien waar prijs naartoe 'lekt' als hij uitbreekt)
+        '-0.236': low - (range * 0.236),
+        '-0.382': low - (range * 0.382),
+        '-0.500': low - (range * 0.500),
+        '-0.618': low - (range * 0.618),
+        '-0.786': low - (range * 0.786)
     };
 }
 
@@ -454,50 +456,56 @@ function calculateFibLevels(high, low, isBullish) {
 let activeFibLines = [];
 
 function updateActiveNodeFibLines(targetNodes) {
-    // 1. Verwijder oude lijnen
+    // 1. Flush: Wis alle bestaande lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // 2. Filter alle 'reset' nodes
-    const resetNodes = targetNodes.filter(n => n.type === 'reset');
-    
-    // We hebben minimaal 2 reset nodes nodig om een range te definiëren
-    if (resetNodes.length >= 2) {
-        // Pak de laatste 6 reset nodes (of minder als er niet genoeg zijn)
-        const relevantNodes = resetNodes.slice(-6);
-        
-        // 3. Vind de extreme High en Low over deze volledige "Reset-periode"
-        // We zoeken door alle nodes die tussen de oudste en nieuwste reset node vallen
-        const startTime = relevantNodes[0].time;
-        const endTime = relevantNodes[relevantNodes.length - 1].time;
-        
-        // Filter alle data (candles) binnen deze range
-        const nodesInRange = targetNodes.filter(n => n.time >= startTime && n.time <= endTime);
-        
-        const rangeHigh = Math.max(...nodesInRange.map(n => n.high));
-        const rangeLow = Math.min(...nodesInRange.map(n => n.low));
-        
-        // 4. Bereken Fibonacci levels over deze Macro-Zone
-        // We gebruiken de trend van de meest recente node voor de richting
-        const isBullish = nodesInRange[nodesInRange.length - 1].isBullish;
-        const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
-        
-        // 5. Teken de lijnen met een neutrale kleur (bijv. wit of grijs) 
-        // omdat deze zones nu voor de hele marktstructuur gelden
-        Object.values(levels).forEach(price => {
-            const line = candlestickSeries.createPriceLine({
-                price: price,
-                color: '#ffffff', // Wit voor Macro-structuur
-                lineWidth: 2,
-                lineStyle: LightweightCharts.LineStyle.Solid,
-                axisLabelVisible: true,
-                title: 'MACRO-RESET'
-            });
-            activeFibLines.push(line);
-        });
-    }
-}
+    // 2. Definieer de kleuren en labels voor de ratio's (Bullish/Bearish ondersteuning)
+    const fibStyles = {
+        '0':      { color: '#ffffff', label: '0.0' },
+        '0.236':  { color: '#fff176', label: '0.236' },
+        '0.382':  { color: '#ffa726', label: '0.382' },
+        '0.5':    { color: '#42a5f5', label: '0.5' },
+        '0.618':  { color: '#66bb6a', label: '0.618' },
+        '0.782':  { color: '#26c6da', label: '0.782' },
+        '-0.236': { color: '#ffccbc', label: '-0.236' },
+        '-0.382': { color: '#ffab91', label: '-0.382' },
+        '-0.5':   { color: '#ef9a9a', label: '-0.5' },
+        '-0.618': { color: '#e57373', label: '-0.618' },
+        '-0.782': { color: '#ef5350', label: '-0.782' }
+    };
 
+    const resetNodes = targetNodes.filter(n => n.type === 'reset');
+    if (resetNodes.length < 2) return;
+
+    // Pak de laatste 6 nodes voor de "Macro-Reset" zone
+    const relevantNodes = resetNodes.slice(-6);
+    const nodesInRange = targetNodes.filter(n => 
+        n.time >= relevantNodes[0].time && n.time <= relevantNodes[relevantNodes.length - 1].time
+    );
+
+    const rangeHigh = Math.max(...nodesInRange.map(n => n.high));
+    const rangeLow = Math.min(...nodesInRange.map(n => n.low));
+    const isBullish = nodesInRange[nodesInRange.length - 1].isBullish;
+
+    // 3. Bereken de levels
+    const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
+
+    // 4. Teken de lijnen met labels
+    Object.entries(levels).forEach(([ratio, price]) => {
+        const style = fibStyles[ratio] || { color: '#cccccc', label: ratio };
+        
+        const line = candlestickSeries.createPriceLine({
+            price: price,
+            color: style.color,
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dotted,
+            axisLabelVisible: true,
+            title: `${style.label}` // Dit zorgt voor het label op je as
+        });
+        activeFibLines.push(line);
+    });
+}
 
 function getLastActiveNode() {
     if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
