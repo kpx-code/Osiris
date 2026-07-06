@@ -435,41 +435,39 @@ function calculateFibLevels(high, low, isBullish) {
 // Houd een referentie bij van de actieve lijnen zodat we ze kunnen verwijderen
 let activeFibLines = [];
 
-function updateActiveNodeFibLines(targetNodes) {
+// Standaard instelling (kan later via UI veranderd worden)
+let uotamHarmonicSetting = 3; 
+
+function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) {
     // 1. Flush: Wis oude lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // 2. Filter voor Macro-Zone
-    const resetNodes = targetNodes.filter(n => n.type === 'reset');
+    // 2. Filter voor RESET nodes (hoofdletter gevoeligheid check!)
+    const resetNodes = targetNodes.filter(n => n.type === 'RESET' || n.type === 'reset');
     if (resetNodes.length < 2) return;
 
-    const relevantNodes = resetNodes.slice(-6);
+    // 3. Wiskundige Schaling: Gebruik de harmonic (3, 6 of 9)
+    // We pakken de meest recente nodes op basis van je keuze
+    const count = Math.min(harmonic, resetNodes.length);
+    const relevantNodes = resetNodes.slice(-count);
+
+    // 4. Bepaal de range over deze specifieke harmonische reeks
     const nodesInRange = targetNodes.filter(n => 
         n.time >= relevantNodes[0].time && n.time <= relevantNodes[relevantNodes.length - 1].time
     );
 
     const rangeHigh = Math.max(...nodesInRange.map(n => n.high));
     const rangeLow = Math.min(...nodesInRange.map(n => n.low));
+    
+    // We gaan uit van de laatste node voor de trendrichting
     const isBullish = nodesInRange[nodesInRange.length - 1].isBullish;
 
+    // 5. Bereken levels (gebruik de nieuwe high+range logica)
     const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
-    const fibStyles = {
-        '1.0':    { color: '#ffffff', label: '1.0' },
-        '1.272':  { color: '#ff00ff', label: '1.272' }, // Bijv. magenta
-        '1.618':  { color: '#ff0000', label: '1.618' }, // Bijv. rood voor zware weerstand
-        '0.786':  { color: '#26c6da', label: '0.782' },
-        '0.618':  { color: '#66bb6a', label: '0.618' },
-        '0.500':  { color: '#42a5f5', label: '0.5' },
-        '0.382':  { color: '#ffa726', label: '0.382' },
-        '0.236':  { color: '#fff176', label: '0.236' },
-        '0.0':    { color: '#ffffff', label: '0.0' },
-        '-0.236': { color: '#ffccbc', label: '-0.236' },
-        '-0.382': { color: '#ffab91', label: '-0.382' },
-        '-0.500': { color: '#ef9a9a', label: '-0.5' },
-        '-0.618': { color: '#e57373', label: '-0.618' },
-        '-0.786': { color: '#ef5350', label: '-0.782' }
-    };
+
+    // 6. Teken de lijnen
+    const fibStyles = { /* ... (jouw huidige styles) ... */ };
 
     Object.entries(levels).forEach(([ratio, price]) => {
         const style = fibStyles[ratio] || { color: '#cccccc', label: ratio };
@@ -483,6 +481,8 @@ function updateActiveNodeFibLines(targetNodes) {
         });
         activeFibLines.push(line);
     });
+    
+    console.log(`Fibonacci berekend voor ${count} nodes (Tesla-Harmonie: ${harmonic})`);
 }
 
 function getLastActiveNode() {
