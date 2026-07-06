@@ -536,13 +536,17 @@ function calculateFibLevels(high, low, isBullish) {
 // Standaard instelling (kan later via UI veranderd worden)
 
 function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) {
+    // DEBUG: Dit vertelt ons precies waarom de filter faalt
+    console.log("Debug targetNodes:", targetNodes.map(n => ({ id: n.id, type: n.type })));
+    
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // Deze variant vangt alles af, ook als er per ongeluk een spatie in het type zit
-const resetNodes = targetNodes.filter(n => n.type && n.type.toLowerCase().trim() === 'reset');
-   if (resetNodes.length < 2) {
-        console.warn("Nog niet genoeg RESET nodes voor Fibs:", resetNodes.length);
+    // Gebruik de robuuste filter
+    const resetNodes = targetNodes.filter(n => n.type && n.type.toLowerCase() === 'reset');
+    
+    if (resetNodes.length < 2) {
+        console.warn(`[DEBUG] ResetNodes gevonden: ${resetNodes.length}. Totaal aantal nodes in targetNodes: ${targetNodes.length}`);
         return;
     }
 
