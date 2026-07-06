@@ -86,10 +86,9 @@ function updateFibMarkers() {
     // Combineer gridMarkers met de nieuwe fibMarkers
     const combinedMarkers = [...gridMarkers, ...fibMarkers];
 
-    // FIX: Gebruik de serie in plaats van de chart
-    if (candlestickSeries) {
-        candlestickSeries.setMarkers(combinedMarkers);
-    }
+    // FIX: Gebruik hier ook de LightweightCharts.createSeriesMarkers methode
+    // Dit lost de "is not a function" fout op voor de chart instantie
+    LightweightCharts.createSeriesMarkers(candlestickSeries, combinedMarkers);
 }
 
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
