@@ -68,6 +68,7 @@ function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
 function updateFibMarkers() {
     let allMarkers = [];
 
+    // 1. Bereken de fib markers
     activeNodes.forEach(node => {
         const levels = calculateFibLevels(node.high, node.low, node.isBullish);
         Object.keys(levels).forEach(level => {
@@ -82,14 +83,16 @@ function updateFibMarkers() {
         });
     });
 
-    // CONTROLEER DEZE AANROEP:
-    // Sommige versies gebruiken 'markers()' in plaats van 'setMarkers'
-    try {
-        candlestickSeries.setMarkers(allMarkers);
-    } catch (e) {
-        console.warn("setMarkers niet gevonden, probeer de 'markers' property...");
-        // Fallback voor oudere/andere versies:
-        candlestickSeries.markers(allMarkers); 
+    // 2. Combineer met je gridMarkers (als je die gebruikt)
+    const combinedMarkers = [...gridMarkers, ...allMarkers];
+
+    // 3. De cruciale fix:
+    // In Lightweight Charts 4.x+ moet je kijken of de functie bestaat op de serie.
+    if (candlestickSeries && typeof candlestickSeries.setMarkers === 'function') {
+        candlestickSeries.setMarkers(combinedMarkers);
+    } else {
+        console.error("CRITIEK: candlestickSeries heeft geen setMarkers() methode.");
+        console.log("Beschikbare methoden op serie:", Object.keys(candlestickSeries));
     }
 }
 
@@ -142,6 +145,8 @@ function changeTimeframe(interval) {
 
 async function initDashboard() {
     try {
+        console.log("DEBUG: Is candlestickSeries gedefinieerd?", typeof candlestickSeries);
+        console.log("DEBUG: Inhoud van candlestickSeries:", candlestickSeries);
         LightweightCharts.createSeriesMarkers(candlestickSeries, []);
         
         // 2. Fetch 672 candles (exact 7 dagen bij 15m interval)
