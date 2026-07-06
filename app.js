@@ -7,7 +7,7 @@ let currentInterval = '15m'; // Standaard interval bij opstarten
 
 let currentWs = null; // Dit is cruciaal: Onthoudt actieve WebSocket-verbinding
 let rawData = [];
-// Houd een lijst bij van alle nodes waarvoor we puntjes willen tonen
+// Houd een lijst bij van alle nodes waarvoor we puntjes willen tonen -
 let activeNodes = [];
 let allNodes = []; // Hierin slaan we de gedetecteerde nodes op
 let gridMarkers = []; // Zorg dat deze hier staat
