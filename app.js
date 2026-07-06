@@ -69,7 +69,7 @@ function updateFibMarkers() {
             fibMarkers.push({
                 time: node.time, 
                 // CRUCIAAL: 'inBar' forceert de marker naar de exacte prijs op de Y-as
-                position: 'inBar', 
+                position: 'aboveBar', 
                 color: fibColors[level] || '#ffffff', 
                 shape: 'square', // Dit creëert het effect van een strak "blokje/streepje"
                 size: 1, // Houd dit laag (1 of 2) voor een subtiele markering
