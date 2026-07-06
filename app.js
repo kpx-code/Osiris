@@ -408,18 +408,22 @@ function startLiveUpdates() {
 function calculateFibLevels(high, low, isBullish) {
     const range = high - low;
 
-    // We berekenen de niveaus gebaseerd op de absolute range.
-    // Voor steun/weerstand zones wil je dat 0 de onderkant is en 1 de bovenkant.
+    // Hier vervang je de oude return door deze nieuwe, logische structuur:
     return {
-        '1.0':    high, // De absolute top van je macro-zone
+        // --- BASIS NIVEAUS ---
+        '1.0':    high,
         '0.786':  low + (range * 0.786),
         '0.618':  low + (range * 0.618),
         '0.500':  low + (range * 0.500),
         '0.382':  low + (range * 0.382),
         '0.236':  low + (range * 0.236),
-        '0.0':    low,  // De absolute bodem van je macro-zone
-        
-        // Extensies (gebruik deze om te zien waar prijs naartoe 'lekt' als hij uitbreekt)
+        '0.0':    low,
+
+        // --- EXTENSIES (TESTZONES BOVEN DE 1.0) ---
+        '1.272':  high + (range * 0.272),
+        '1.618':  high + (range * 0.618),
+
+        // --- ONDERSTE EXTENSIES ---
         '-0.236': low - (range * 0.236),
         '-0.382': low - (range * 0.382),
         '-0.500': low - (range * 0.500),
@@ -452,6 +456,8 @@ function updateActiveNodeFibLines(targetNodes) {
     const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
     const fibStyles = {
         '1.0':    { color: '#ffffff', label: '1.0' },
+        '1.272':  { color: '#ff00ff', label: '1.272' }, // Bijv. magenta
+        '1.618':  { color: '#ff0000', label: '1.618' }, // Bijv. rood voor zware weerstand
         '0.786':  { color: '#26c6da', label: '0.782' },
         '0.618':  { color: '#66bb6a', label: '0.618' },
         '0.500':  { color: '#42a5f5', label: '0.5' },
