@@ -38,6 +38,34 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
     wickDownColor: '#ef5350',
 });
 
+// -- HIER TOEVOEGEN --
+// Let op: controleer of jouw versie van Lightweight Charts 'addScatterSeries' ondersteunt.
+// Mocht dit een fout geven, dan gebruiken we 'addShapeSeries'.
+const fibMarkerSeries = chart.addShapeSeries({
+    // Shape series is vaak stabieler in oudere versies van Lightweight Charts
+});
+
+function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
+    const isBullish = livePrice > nodeCandle.open;
+    const high = Math.max(nodeCandle.open, livePrice);
+    const low = Math.min(nodeCandle.open, livePrice);
+    const levels = calculateFibLevels(high, low, isBullish);
+
+    const markers = [];
+    Object.keys(levels).forEach(level => {
+        markers.push({
+            time: nodeTime, 
+            shape: 'circle', // Het puntje
+            size: 4,
+            color: level === '0.618' ? '#00ffcc' : '#ffffff',
+            price: levels[level]
+        });
+    });
+
+    // Deze regel zorgt dat de puntjes op de grafiek verschijnen
+    fibMarkerSeries.setData(markers); 
+}
+
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
 chart.subscribeCrosshairMove(param => {
     const ohlcOpen = document.getElementById('ohlc-open');
@@ -407,6 +435,19 @@ function startLiveUpdates() {
     }
 };
 }
+
+function calculateFibLevels(high, low, isBullish) {
+    const range = high - low;
+    // Gebruik de standaard Fibonacci ratio's
+    return {
+        '0.786': isBullish ? low + (range * 0.786) : high - (range * 0.786),
+        '0.618': isBullish ? low + (range * 0.618) : high - (range * 0.618),
+        '0.500': isBullish ? low + (range * 0.500) : high - (range * 0.500),
+        '0.382': isBullish ? low + (range * 0.382) : high - (range * 0.382),
+        '0.236': isBullish ? low + (range * 0.236) : high - (range * 0.236)
+    };
+}
+
 
 
 window.addEventListener('resize', () => {
