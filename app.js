@@ -454,54 +454,51 @@ function calculateFibLevels(high, low, isBullish) {
 let activeFibLines = [];
 
 function updateActiveNodeFibLines(targetNodes) {
-    // 1. Veiligheidscheck: bestaat de data wel?
-    if (!targetNodes || targetNodes.length === 0) return;
-
-    // 2. Verwijder eerst alle oude lijnen van de grafiek
+    // 1. Verwijder oude lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    const nodeConfigs = {
-        'reset': '#ffffff',
-        'vola': '#ffeb3b',
-        'vortex3': '#ff4081',
-        'vortex6': '#00ffcc'
-    };
-
-    // 3. Loop door elk type node
-    Object.keys(nodeConfigs).forEach(type => {
-        // Filter alle nodes van dit type
-        const nodesOfType = targetNodes.filter(n => n.type === type);
+    // 2. Filter alle 'reset' nodes
+    const resetNodes = targetNodes.filter(n => n.type === 'reset');
+    
+    // We hebben minimaal 2 reset nodes nodig om een range te definiëren
+    if (resetNodes.length >= 2) {
+        // Pak de laatste 6 reset nodes (of minder als er niet genoeg zijn)
+        const relevantNodes = resetNodes.slice(-6);
         
-        // We hebben minimaal 2 nodes nodig om een "envelop" (range) te vormen
-        if (nodesOfType.length >= 2) {
-            const lastTwoNodes = nodesOfType.slice(-2); // Pak de laatste 2 nodes
-            
-            // BEREKEN DE ENERGIE-ENVELOP (Range tussen de twee nodes)
-            const rangeHigh = Math.max(lastTwoNodes[0].high, lastTwoNodes[1].high);
-            const rangeLow = Math.min(lastTwoNodes[0].low, lastTwoNodes[1].low);
-            
-            // Gebruik de trend van de meest recente node
-            const isBullish = lastTwoNodes[1].isBullish; 
-
-            // Bereken de Fib-levels over deze "energetische afstand"
-            const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
-            
-            // Teken de lijnen
-            Object.values(levels).forEach(price => {
-                const line = candlestickSeries.createPriceLine({
-                    price: price,
-                    color: nodeConfigs[type],
-                    lineWidth: 1,
-                    lineStyle: LightweightCharts.LineStyle.Dotted,
-                    axisLabelVisible: true,
-                    title: type.toUpperCase() // Label voor herkenbaarheid
-                });
-                activeFibLines.push(line);
+        // 3. Vind de extreme High en Low over deze volledige "Reset-periode"
+        // We zoeken door alle nodes die tussen de oudste en nieuwste reset node vallen
+        const startTime = relevantNodes[0].time;
+        const endTime = relevantNodes[relevantNodes.length - 1].time;
+        
+        // Filter alle data (candles) binnen deze range
+        const nodesInRange = targetNodes.filter(n => n.time >= startTime && n.time <= endTime);
+        
+        const rangeHigh = Math.max(...nodesInRange.map(n => n.high));
+        const rangeLow = Math.min(...nodesInRange.map(n => n.low));
+        
+        // 4. Bereken Fibonacci levels over deze Macro-Zone
+        // We gebruiken de trend van de meest recente node voor de richting
+        const isBullish = nodesInRange[nodesInRange.length - 1].isBullish;
+        const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
+        
+        // 5. Teken de lijnen met een neutrale kleur (bijv. wit of grijs) 
+        // omdat deze zones nu voor de hele marktstructuur gelden
+        Object.values(levels).forEach(price => {
+            const line = candlestickSeries.createPriceLine({
+                price: price,
+                color: '#ffffff', // Wit voor Macro-structuur
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Solid,
+                axisLabelVisible: true,
+                title: 'MACRO-RESET'
             });
-        }
-    });
+            activeFibLines.push(line);
+        });
+    }
 }
+
+
 function getLastActiveNode() {
     if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
         return allNodes[allNodes.length - 1];
