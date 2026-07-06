@@ -329,17 +329,11 @@ function updateHistoryList(rawData) {
 
 // --- UOTAM LIVE ENGINE: WebSocket en Data Verwerking ---
 function startLiveUpdates() {
-    // 1. Sluit actieve verbinding indien aanwezig
-    if (currentWs) {
-        currentWs.close();
-        currentWs = null;
-    }
+    if (currentWs) { currentWs.close(); currentWs = null; }
 
     const baseUrl = "wss://fstream.binance.com/market"; 
     currentWs = new WebSocket(`${baseUrl}/ws/btcusdt@kline_15m`);
     
-    currentWs.onopen = () => console.log("UOTAM Engine verbonden met Binance.");
-
     currentWs.onmessage = (event) => {
         try {
             const message = JSON.parse(event.data);
@@ -351,7 +345,6 @@ function startLiveUpdates() {
             const high = parseFloat(candle.h);
             const low = parseFloat(candle.l);
 
-            // 1. Update de grafiek
             candlestickSeries.update({
                 time: candle.t / 1000,
                 open: parseFloat(candle.o),
@@ -360,72 +353,47 @@ function startLiveUpdates() {
                 close: livePrice,
             });
 
-            // 2. UOTAM Engine Berekeningen
             if (rawData && rawData.length >= 20) {
                 const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
                 const er = liveVol / sma20Volume;
                 const db = (2 * livePrice - (high + low)) / (high - low);
                 const vfm = er * db;
                 
-                let chaos = 0;
-                if (rawData.length >= 288) {
-                    const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
-                    chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+                // --- DYNAMISCHE VFM LOGICA ---
+                const absVfm = Math.abs(vfm);
+                let vfmStatus = "SIGNIFICANT";
+                if (absVfm < 0.1) vfmStatus = "NEUTRAAL (DEAD ZONE)";
+                else if (absVfm > 1.5) vfmStatus = "EXTREME";
+
+                const vfmEl = document.getElementById('vfm-display');
+                const vfmStatusEl = document.getElementById('vfm-status');
+                
+                if (vfmEl) vfmEl.innerText = vfm.toFixed(3);
+                if (vfmStatusEl) {
+                    vfmStatusEl.innerText = vfmStatus;
+                    // Grijs als Dead Zone, anders groen/rood
+                    const color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350");
+                    vfmStatusEl.style.color = color;
+                    if (vfmEl) vfmEl.style.color = color;
                 }
 
-                // 3. UI Updates
+                // Overige metrics
                 const updateDisplay = (id, val, format, status) => {
                     const pEl = document.getElementById(`${id}-display`);
                     const sEl = document.getElementById(`${id}-status`);
                     if (pEl) pEl.innerText = format(val);
-                    if (sEl) {
-                        sEl.innerText = status;
-                        sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350";
-                    }
+                    if (sEl) { sEl.innerText = status; sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350"; }
                 };
-
-                updateDisplay('vfm', vfm, (v) => v.toFixed(3), Math.abs(vfm) > 1.5 ? "EXTREME" : "SIGNIFICANT");
+                
                 updateDisplay('er', er, (v) => v.toFixed(2), er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
                 updateDisplay('db', db, (v) => v.toFixed(2), db > 0 ? "BULLISH" : "BEARISH");
-                updateDisplay('chaos', chaos, (v) => v.toFixed(1) + '%', chaos > 15 ? "EXTREME" : "STABIEL");
-                
-                const volEl = document.getElementById('live-volume');
-                if (volEl) volEl.innerText = liveVol.toFixed(4);
 
-                // 4. Sentiment Bar (Market Pressure)
-                const bar = document.getElementById('sentiment-bar');
-                if (bar) {
-                    const buyPercent = ((db + 1) / 2) * 100;
-                    bar.style.background = `linear-gradient(to right, #7FFFD4 ${buyPercent}%, #ef5350 ${buyPercent}%)`;
+                // --- FIBONACCI NODE UPDATE ---
+                if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
+                    updateActiveNodeFibLines(allNodes); 
                 }
             }
-
-            // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
-            // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
-            allNodes.forEach(node => {
-                const nodeTimeSnapped = Math.floor(node.time / 900) * 900;
-                const currentCandleTime = Math.floor(candle.t / 1000 / 900) * 900;
-
-                if (nodeTimeSnapped === currentCandleTime) {
-                    node.high = Math.max(parseFloat(candle.o), livePrice);
-                    node.low = Math.min(parseFloat(candle.o), livePrice);
-                    node.isBullish = livePrice > parseFloat(candle.o);
-                    
-                    if (!activeNodes.find(n => n.id === node.id)) {
-                        activeNodes.push(node);
-                    }
-                }
-            });
-            
-            // --- GECORRIGEERDE AANROEP ---
-            // We geven allNodes mee en checken of ze bestaan om de crash te voorkomen
-            if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
-                updateActiveNodeFibLines(allNodes); 
-            }
-            
-        } catch (err) {
-            console.error("UOTAM Engine Fout:", err);
-        }
+        } catch (err) { console.error("UOTAM Engine Fout:", err); }
     };
 }
 
@@ -456,29 +424,14 @@ function calculateFibLevels(high, low, isBullish) {
 let activeFibLines = [];
 
 function updateActiveNodeFibLines(targetNodes) {
-    // 1. Flush: Wis alle bestaande lijnen
+    // 1. Flush: Wis oude lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // 2. Definieer de kleuren en labels voor de ratio's (Bullish/Bearish ondersteuning)
-    const fibStyles = {
-        '0':      { color: '#ffffff', label: '0.0' },
-        '0.236':  { color: '#fff176', label: '0.236' },
-        '0.382':  { color: '#ffa726', label: '0.382' },
-        '0.5':    { color: '#42a5f5', label: '0.5' },
-        '0.618':  { color: '#66bb6a', label: '0.618' },
-        '0.782':  { color: '#26c6da', label: '0.782' },
-        '-0.236': { color: '#ffccbc', label: '-0.236' },
-        '-0.382': { color: '#ffab91', label: '-0.382' },
-        '-0.5':   { color: '#ef9a9a', label: '-0.5' },
-        '-0.618': { color: '#e57373', label: '-0.618' },
-        '-0.782': { color: '#ef5350', label: '-0.782' }
-    };
-
+    // 2. Filter voor Macro-Zone
     const resetNodes = targetNodes.filter(n => n.type === 'reset');
     if (resetNodes.length < 2) return;
 
-    // Pak de laatste 6 nodes voor de "Macro-Reset" zone
     const relevantNodes = resetNodes.slice(-6);
     const nodesInRange = targetNodes.filter(n => 
         n.time >= relevantNodes[0].time && n.time <= relevantNodes[relevantNodes.length - 1].time
@@ -488,20 +441,31 @@ function updateActiveNodeFibLines(targetNodes) {
     const rangeLow = Math.min(...nodesInRange.map(n => n.low));
     const isBullish = nodesInRange[nodesInRange.length - 1].isBullish;
 
-    // 3. Bereken de levels
     const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
+    const fibStyles = {
+        '1.0':    { color: '#ffffff', label: '1.0' },
+        '0.786':  { color: '#26c6da', label: '0.782' },
+        '0.618':  { color: '#66bb6a', label: '0.618' },
+        '0.500':  { color: '#42a5f5', label: '0.5' },
+        '0.382':  { color: '#ffa726', label: '0.382' },
+        '0.236':  { color: '#fff176', label: '0.236' },
+        '0.0':    { color: '#ffffff', label: '0.0' },
+        '-0.236': { color: '#ffccbc', label: '-0.236' },
+        '-0.382': { color: '#ffab91', label: '-0.382' },
+        '-0.500': { color: '#ef9a9a', label: '-0.5' },
+        '-0.618': { color: '#e57373', label: '-0.618' },
+        '-0.786': { color: '#ef5350', label: '-0.782' }
+    };
 
-    // 4. Teken de lijnen met labels
     Object.entries(levels).forEach(([ratio, price]) => {
         const style = fibStyles[ratio] || { color: '#cccccc', label: ratio };
-        
         const line = candlestickSeries.createPriceLine({
             price: price,
             color: style.color,
             lineWidth: 1,
             lineStyle: LightweightCharts.LineStyle.Dotted,
             axisLabelVisible: true,
-            title: `${style.label}` // Dit zorgt voor het label op je as
+            title: style.label
         });
         activeFibLines.push(line);
     });
