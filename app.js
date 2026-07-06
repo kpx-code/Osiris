@@ -15,6 +15,7 @@ let gridMarkers = []; // Zorg dat deze hier staat
 let uotamHarmonicSetting = 3; 
 // Houd een referentie bij van de actieve lijnen zodat we ze kunnen verwijderen
 let activeFibLines = [];
+let lastProcessedNodeId = null;
 
 // prachtige kleuren globaal gedefinieerd:
 const fibStyles = {
@@ -389,75 +390,93 @@ function startLiveUpdates() {
     currentWs = new WebSocket(`${baseUrl}/ws/btcusdt@kline_15m`);
     
     currentWs.onmessage = (event) => {
-        try {
-            const message = JSON.parse(event.data);
-            const candle = message.k;
-            if (!candle) return;
+    try {
+        const message = JSON.parse(event.data);
+        const candle = message.k;
+        if (!candle) return;
 
-            const livePrice = parseFloat(candle.c);
-            const liveVol = parseFloat(candle.v);
-            const high = parseFloat(candle.h);
-            const low = parseFloat(candle.l);
+        const livePrice = parseFloat(candle.c);
+        const liveVol = parseFloat(candle.v);
+        const high = parseFloat(candle.h);
+        const low = parseFloat(candle.l);
 
-            // 1. Chart Update
-            candlestickSeries.update({
-                time: candle.t / 1000,
-                open: parseFloat(candle.o),
-                high: high,
-                low: low,
-                close: livePrice,
-            });
+        // 1. Volume Rate Berekening (Nieuw)
+        const isBullish = livePrice >= parseFloat(candle.o);
+        const volMetrics = calculateVolumeMetrics(liveVol, isBullish);
+        const volRateEl = document.getElementById('vol-rate');
+        const volScoreEl = document.getElementById('vol-score');
+        if (volRateEl) volRateEl.innerText = `${volMetrics.rate}%`;
+        if (volScoreEl) {
+            volScoreEl.innerText = `${volMetrics.score}/100`;
+            volScoreEl.style.color = isBullish ? '#00ffcc' : '#ef5350';
+        }
 
-            // 2. Live Volume UI
-            const volEl = document.getElementById('live-volume');
-            if (volEl) volEl.innerText = liveVol ? liveVol.toFixed(4) : "Wachten...";
+        // 2. Chart Update
+        candlestickSeries.update({
+            time: candle.t / 1000,
+            open: parseFloat(candle.o),
+            high: high,
+            low: low,
+            close: livePrice,
+        });
 
-            // 3. Data-afhankelijke berekeningen
-            if (rawData && rawData.length >= 288) {
-                // VFM Berekening
-                const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
-                const er = liveVol / sma20Volume;
-                const db = (high - low !== 0) ? (2 * livePrice - (high + low)) / (high - low) : 0;
-                const vfm = er * db;
-                
-                // VFM UI Update
-                const absVfm = Math.abs(vfm);
-                let vfmStatus = (absVfm < 0.1) ? "NEUTRAAL (DEAD ZONE)" : (absVfm > 1.5 ? "EXTREME" : "SIGNIFICANT");
-                const vfmEl = document.getElementById('vfm-display');
-                const vfmStatusEl = document.getElementById('vfm-status');
-                if (vfmEl) { vfmEl.innerText = vfm.toFixed(3); vfmEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
-                if (vfmStatusEl) { vfmStatusEl.innerText = vfmStatus; vfmStatusEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
+        // 3. Live Volume UI
+        const volEl = document.getElementById('live-volume');
+        if (volEl) volEl.innerText = liveVol ? liveVol.toFixed(4) : "Wachten...";
 
-                // ER/DB Updates
-                const updateMetric = (id, val, status) => {
-                    const pEl = document.getElementById(`${id}-display`);
-                    const sEl = document.getElementById(`${id}-status`);
-                    if (pEl) pEl.innerText = val.toFixed(2);
-                    if (sEl) { sEl.innerText = status; sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350"; }
-                };
-                updateMetric('er', er, er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
-                updateMetric('db', db, db > 0 ? "BULLISH" : "BEARISH");
+        // 4. Data-afhankelijke berekeningen (Origineel + Fibonacci logica)
+        if (rawData && rawData.length >= 288) {
+            // VFM Berekening
+            const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
+            const er = liveVol / sma20Volume;
+            const db = (high - low !== 0) ? (2 * livePrice - (high + low)) / (high - low) : 0;
+            const vfm = er * db;
             
+            // VFM UI Update
+            const absVfm = Math.abs(vfm);
+            let vfmStatus = (absVfm < 0.1) ? "NEUTRAAL (DEAD ZONE)" : (absVfm > 1.5 ? "EXTREME" : "SIGNIFICANT");
+            const vfmEl = document.getElementById('vfm-display');
+            const vfmStatusEl = document.getElementById('vfm-status');
+            if (vfmEl) { vfmEl.innerText = vfm.toFixed(3); vfmEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
+            if (vfmStatusEl) { vfmStatusEl.innerText = vfmStatus; vfmStatusEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
 
-                // Chaos Index
-                const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
-                const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
-                const chaosEl = document.getElementById('chaos-display');
-                const chaosStatusEl = document.getElementById('chaos-status');
-                if (chaosEl) chaosEl.innerText = chaos.toFixed(1) + '%';
-                if (chaosStatusEl) { chaosStatusEl.innerText = chaos > 15 ? "EXTREME" : "STABIEL"; chaosStatusEl.style.color = chaos > 15 ? "#ef5350" : "#00ffcc"; }
+            // ER/DB Updates
+            const updateMetric = (id, val, status) => {
+                const pEl = document.getElementById(`${id}-display`);
+                const sEl = document.getElementById(`${id}-status`);
+                if (pEl) pEl.innerText = val.toFixed(2);
+                if (sEl) { sEl.innerText = status; sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350"; }
+            };
+            updateMetric('er', er, er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
+            updateMetric('db', db, db > 0 ? "BULLISH" : "BEARISH");
 
-                // Fibonacci Node Update
-                if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
+            // Chaos Index
+            const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
+            const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+            const chaosEl = document.getElementById('chaos-display');
+            const chaosStatusEl = document.getElementById('chaos-status');
+            if (chaosEl) chaosEl.innerText = chaos.toFixed(1) + '%';
+            if (chaosStatusEl) { chaosStatusEl.innerText = chaos > 15 ? "EXTREME" : "STABIEL"; chaosStatusEl.style.color = chaos > 15 ? "#ef5350" : "#00ffcc"; }
+
+            // --- NIEUWE FIBONACCI LOGICA ---
+            if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
+                const activeNode = allNodes[allNodes.length - 1];
+                
+                if (activeNode.id !== lastProcessedNodeId) {
+                    console.log("Nieuwe Node gedetecteerd:", activeNode.id);
+                    applyUOTAMGrid(rawData); 
+                    updateActiveNodeFibLines(allNodes); 
+                    lastProcessedNodeId = activeNode.id; 
+                } else {
                     updateActiveNodeFibLines(allNodes); 
                 }
-            } else {
-                // UI feedback tijdens laden
-                const chaosEl = document.getElementById('chaos-display');
-                if (chaosEl) chaosEl.innerText = `Laden (${rawData.length}/288)`;
             }
-        } catch (err) { console.error("UOTAM Engine Fout:", err); }
-    };
+        } else {
+            const chaosEl = document.getElementById('chaos-display');
+            if (chaosEl) chaosEl.innerText = `Laden (${rawData.length}/288)`;
+        }
+    } catch (err) { console.error("UOTAM Engine Fout:", err); }
+};
 }
 
 let sentimentWs = null;
@@ -552,6 +571,27 @@ function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) 
     });
     
     console.log(`Fibonacci berekend voor ${count} nodes (Tesla-Harmonie: ${harmonic})`);
+}
+
+// Globale array voor volume history
+let volumeHistory = [];
+
+function calculateVolumeMetrics(currentVol, isBullish) {
+    volumeHistory.push(currentVol);
+    if (volumeHistory.length > 20) volumeHistory.shift();
+
+    const avgVol = volumeHistory.reduce((a, b) => a + b, 0) / volumeHistory.length;
+    const rateOfChange = ((currentVol - avgVol) / avgVol) * 100;
+
+    // Relative Score (0 tot 100) op basis van volume intensiteit
+    const relativeScore = Math.min((currentVol / (avgVol * 2)) * 100, 100);
+
+    return {
+        rate: rateOfChange.toFixed(1),
+        score: relativeScore.toFixed(0),
+        bullishVolume: isBullish ? currentVol : 0,
+        bearishVolume: !isBullish ? currentVol : 0
+    };
 }
 
 function getLastActiveNode() {
