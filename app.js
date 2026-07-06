@@ -401,6 +401,7 @@ function startLiveUpdates() {
             }
 
             // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
+            // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
             allNodes.forEach(node => {
                 const nodeTimeSnapped = Math.floor(node.time / 900) * 900;
                 const currentCandleTime = Math.floor(candle.t / 1000 / 900) * 900;
@@ -416,8 +417,11 @@ function startLiveUpdates() {
                 }
             });
             
-            // Teken alles opnieuw als de huidige candle een node raakt
-            updateActiveNodeFibLines(); 
+            // --- GECORRIGEERDE AANROEP ---
+            // We geven allNodes mee en checken of ze bestaan om de crash te voorkomen
+            if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
+                updateActiveNodeFibLines(allNodes); 
+            }
             
         } catch (err) {
             console.error("UOTAM Engine Fout:", err);
@@ -450,9 +454,8 @@ function calculateFibLevels(high, low, isBullish) {
 let activeFibLines = [];
 
 function updateActiveNodeFibLines(targetNodes) {
-    // 1. Veiligheidscheck: bestaat de data wel?
-    if (!targetNodes || !Array.isArray(targetNodes)) {
-        console.warn("updateActiveNodeFibLines: targetNodes is leeg of geen array");
+    // 1. Defensieve check: als er geen data is, doe niets en voorkom crash
+    if (!targetNodes || !Array.isArray(targetNodes) || targetNodes.length === 0) {
         return;
     }
 
@@ -467,9 +470,13 @@ function updateActiveNodeFibLines(targetNodes) {
         'vortex6': '#00ffcc'
     };
 
+    // 3. Loop door de configuratie
     Object.keys(nodeConfigs).forEach(type => {
-        // Gebruik een veilige manier om de laatste node te vinden (zonder findLast)
-        const lastNode = [...targetNodes].reverse().find(n => n.type === type);
+        // Gebruik de traditionele reverse-filter methode (werkt in elke browser)
+        // We zoeken de laatste node van dit type
+        const lastNode = [...targetNodes]
+            .filter(n => n && n.type === type)
+            .pop(); // .pop() pakt het laatste element uit de gefilterde array
         
         if (lastNode) {
             const levels = calculateFibLevels(lastNode.high, lastNode.low, lastNode.isBullish);
@@ -488,6 +495,7 @@ function updateActiveNodeFibLines(targetNodes) {
         }
     });
 }
+
 function getLastActiveNode() {
     if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
         return allNodes[allNodes.length - 1];
