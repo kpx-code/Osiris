@@ -348,7 +348,7 @@ function applyUOTAMGrid(chartData) {
     // --- CRUCIALE TOEVOEGING VOOR DE INTEGRATIE ---
     gridMarkers = markers; // Sla op in de globale variabele voor updateFibMarkers
     
-    candlestickSeries.setMarkers(gridMarkers);
+    LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
 }
 // --- CRYPTO DATASTREAM VIA BINANCE WEBSOCKET ---
