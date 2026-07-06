@@ -66,25 +66,30 @@ function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
 }
 
 function updateFibMarkers() {
-    // We pakken de huidige markers uit de candlestickSeries (die er al staan via applyUOTAMGrid)
-    let markers = candlestickSeries.markers().filter(m => !m.text); // Behoud alleen de Fib-stippen
+    let allMarkers = [];
+
+    // 1. Voeg eerst de historische markers toe als je die wilt behouden
+    // (Optioneel: als je alleen de Fib-punten wilt zien, kun je dit overslaan)
     
-    // Voeg de nieuwe Fib-stippen toe
+    // 2. Voeg de actieve Fibonacci punten toe
     activeNodes.forEach(node => {
         const levels = calculateFibLevels(node.high, node.low, node.isBullish);
+        
         Object.keys(levels).forEach(level => {
-            markers.push({
+            allMarkers.push({
                 time: node.time,
                 position: 'inBar',
                 color: level === '0.618' ? '#00ffcc' : '#ffffff',
                 shape: 'circle',
-                size: 2,
+                size: 2, 
                 price: levels[level]
+                // Geen 'text' property hier, dit houdt de markers schoon
             });
         });
     });
 
-    candlestickSeries.setMarkers(markers);
+    // 3. Zet alle markers in één keer op de grafiek
+    candlestickSeries.setMarkers(allMarkers);
 }
 
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
