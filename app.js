@@ -335,67 +335,74 @@ function startLiveUpdates() {
     currentWs = new WebSocket(`${baseUrl}/ws/btcusdt@kline_15m`);
     
     currentWs.onmessage = (event) => {
-    try {
-        const message = JSON.parse(event.data);
-        const candle = message.k;
-        if (!candle) return;
+        try {
+            const message = JSON.parse(event.data);
+            const candle = message.k;
+            if (!candle) return;
 
-        // DEBUG: Check of volume binnenkomt
-        console.log("Volume ontvangen:", candle.v);
+            const livePrice = parseFloat(candle.c);
+            const liveVol = parseFloat(candle.v);
+            const high = parseFloat(candle.h);
+            const low = parseFloat(candle.l);
 
-        const livePrice = parseFloat(candle.c);
-        const liveVol = parseFloat(candle.v);
-        const high = parseFloat(candle.h);
-        const low = parseFloat(candle.l);
+            // 1. Chart Update
+            candlestickSeries.update({
+                time: candle.t / 1000,
+                open: parseFloat(candle.o),
+                high: high,
+                low: low,
+                close: livePrice,
+            });
 
-        candlestickSeries.update({
-            time: candle.t / 1000,
-            open: parseFloat(candle.o),
-            high: high,
-            low: low,
-            close: livePrice,
-        });
+            // 2. Live Volume UI
+            const volEl = document.getElementById('live-volume');
+            if (volEl) volEl.innerText = liveVol ? liveVol.toFixed(4) : "Wachten...";
 
-        // Update Live Volume in UI
-        const volEl = document.getElementById('live-volume');
-        if (volEl) volEl.innerText = liveVol ? liveVol.toFixed(4) : "Wachten...";
+            // 3. Data-afhankelijke berekeningen
+            if (rawData && rawData.length >= 288) {
+                // VFM Berekening
+                const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
+                const er = liveVol / sma20Volume;
+                const db = (high - low !== 0) ? (2 * livePrice - (high + low)) / (high - low) : 0;
+                const vfm = er * db;
+                
+                // VFM UI Update
+                const absVfm = Math.abs(vfm);
+                let vfmStatus = (absVfm < 0.1) ? "NEUTRAAL (DEAD ZONE)" : (absVfm > 1.5 ? "EXTREME" : "SIGNIFICANT");
+                const vfmEl = document.getElementById('vfm-display');
+                const vfmStatusEl = document.getElementById('vfm-status');
+                if (vfmEl) { vfmEl.innerText = vfm.toFixed(3); vfmEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
+                if (vfmStatusEl) { vfmStatusEl.innerText = vfmStatus; vfmStatusEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
 
-        if (rawData && rawData.length >= 20) {
-            const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
-            const er = liveVol / sma20Volume;
-            const db = (2 * livePrice - (high + low)) / (high - low);
-            const vfm = er * db;
-            
-            // --- CHAOS INDEX LOGICA ---
-            let chaos = 0;
-            let chaosText = "Data laden..."; // Default bij start
-            
-            if (rawData.length >= 288) {
+                // ER/DB Updates
+                const updateMetric = (id, val, status) => {
+                    const pEl = document.getElementById(`${id}-display`);
+                    const sEl = document.getElementById(`${id}-status`);
+                    if (pEl) pEl.innerText = val.toFixed(2);
+                    if (sEl) { sEl.innerText = status; sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350"; }
+                };
+                updateMetric('er', er, er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
+                updateMetric('db', db, db > 0 ? "BULLISH" : "BEARISH");
+
+                // Chaos Index
                 const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
-                chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
-                chaosText = chaos.toFixed(1) + '%';
-            } else {
-                chaosText = `Laden (${rawData.length}/288)`;
-            }
+                const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+                const chaosEl = document.getElementById('chaos-display');
+                const chaosStatusEl = document.getElementById('chaos-status');
+                if (chaosEl) chaosEl.innerText = chaos.toFixed(1) + '%';
+                if (chaosStatusEl) { chaosStatusEl.innerText = chaos > 15 ? "EXTREME" : "STABIEL"; chaosStatusEl.style.color = chaos > 15 ? "#ef5350" : "#00ffcc"; }
 
-            // UI Update voor Chaos
-            const chaosEl = document.getElementById('chaos-display');
-            const chaosStatusEl = document.getElementById('chaos-status');
-            if (chaosEl) chaosEl.innerText = chaosText;
-            if (chaosStatusEl) {
-                chaosStatusEl.innerText = chaos > 15 ? "EXTREME" : "STABIEL";
-                chaosStatusEl.style.color = chaos > 15 ? "#ef5350" : "#00ffcc";
+                // Fibonacci Node Update
+                if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
+                    updateActiveNodeFibLines(allNodes); 
+                }
+            } else {
+                // UI feedback tijdens laden
+                const chaosEl = document.getElementById('chaos-display');
+                if (chaosEl) chaosEl.innerText = `Laden (${rawData.length}/288)`;
             }
-            
-            // ... (Rest van je VFM en andere UI code blijft hier)
-            
-            // --- FIBONACCI NODE UPDATE ---
-            if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
-                updateActiveNodeFibLines(allNodes); 
-            }
-        }
-    } catch (err) { console.error("UOTAM Engine Fout:", err); }
-};
+        } catch (err) { console.error("UOTAM Engine Fout:", err); }
+    };
 }
 
 function calculateFibLevels(high, low, isBullish) {
