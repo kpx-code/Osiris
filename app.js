@@ -74,15 +74,16 @@ function updateFibMarkers() {
         // 1. Zorg dat de tijd exact op een 15m grens ligt (900 seconden)
         const snappedTime = Math.floor(node.time / intervalSec) * intervalSec;
 
+        // 2. Bereken de Fibonacci levels op basis van de node
         const levels = calculateFibLevels(node.high, node.low, node.isBullish);
         
         Object.keys(levels).forEach(level => {
             fibMarkers.push({
-                time: snappedTime, // Gebruik de afgeronde tijd!
-                position: 'aboveBar', // Positie aangepast naar boven de bar
+                time: snappedTime, // Gebruik de afgeronde tijd voor perfecte grid-alignment
+                position: 'aboveBar', // Jouw gewenste positie boven de bar
                 color: level === '0.618' ? '#00ffcc' : '#ffffff',
                 shape: 'circle',
-                size: 6, // Groter formaat voor testdoeleinden
+                size: 6, // Jouw testgrootte
                 price: levels[level]
             });
         });
@@ -97,7 +98,6 @@ function updateFibMarkers() {
     // Gebruik de methode die je wilt behouden
     LightweightCharts.createSeriesMarkers(candlestickSeries, combinedMarkers);
 }
-
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
 chart.subscribeCrosshairMove(param => {
     const ohlcOpen = document.getElementById('ohlc-open');
@@ -475,23 +475,27 @@ function startLiveUpdates() {
             }
 
             // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
-            const activeNode = getLastActiveNode(); 
-            if (activeNode) {
-                // 1. ZORG HIER DAT DE TIJD EEN GELDIGE UNIX TIMESTAMP IN SECONDEN IS
-                activeNode.time = Math.floor(candle.t / 1000); 
+            // --- FIBONACCI NODE STRUCTUUR (LIVE) ---
+            // We updaten alle nodes uit allNodes, niet alleen de laatste
+            allNodes.forEach(node => {
+                // Check of dit de node is die bij de huidige candle hoort (op 15m basis)
+                const nodeTimeSnapped = Math.floor(node.time / 900) * 900;
+                const currentCandleTime = Math.floor(candle.t / 1000 / 900) * 900;
 
-                // Update node-data met de huidige candle-waarden (live)
-                activeNode.high = Math.max(parseFloat(candle.o), livePrice);
-                activeNode.low = Math.min(parseFloat(candle.o), livePrice);
-                activeNode.isBullish = livePrice > parseFloat(candle.o);
-
-                // Voeg toe aan lijst als hij er nog niet in staat
-                if (!activeNodes.find(n => n.time === activeNode.time)) {
-                    activeNodes.push(activeNode);
+                if (nodeTimeSnapped === currentCandleTime) {
+                    node.high = Math.max(parseFloat(candle.o), livePrice);
+                    node.low = Math.min(parseFloat(candle.o), livePrice);
+                    node.isBullish = livePrice > parseFloat(candle.o);
+                    
+                    // Zorg dat deze node in activeNodes staat
+                    if (!activeNodes.find(n => n.id === node.id)) {
+                        activeNodes.push(node);
+                    }
                 }
-                
-                // Teken de punten live
-                updateFibMarkers(); 
+            });
+            
+            // Teken de punten live voor alle actieve nodes
+            updateFibMarkers(); 
             }
         } catch (err) {
             console.error("UOTAM Engine Fout:", err);
