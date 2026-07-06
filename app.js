@@ -450,41 +450,44 @@ function calculateFibLevels(high, low, isBullish) {
 let activeFibLines = [];
 
 function updateActiveNodeFibLines(targetNodes) {
-    // 1. Verwijder eerst alle oude lijnen van de grafiek
+    // 1. Veiligheidscheck: bestaat de data wel?
+    if (!targetNodes || !Array.isArray(targetNodes)) {
+        console.warn("updateActiveNodeFibLines: targetNodes is leeg of geen array");
+        return;
+    }
+
+    // 2. Verwijder eerst alle oude lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // 2. Definieer de node types die we willen plotten en hun kleuren
     const nodeConfigs = {
-        'reset': '#ffffff',  // Wit
-        'vola': '#ffeb3b',   // Goud/Geel
-        'vortex3': '#ff4081',// Roze
-        'vortex6': '#00ffcc' // Cyaan
+        'reset': '#ffffff',
+        'vola': '#ffeb3b',
+        'vortex3': '#ff4081',
+        'vortex6': '#00ffcc'
     };
 
-    // 3. Loop door de configuratie en zoek de laatste node van elk type
     Object.keys(nodeConfigs).forEach(type => {
-        const lastNode = targetNodes.findLast(n => n.type === type); // Zoek de meest recente
+        // Gebruik een veilige manier om de laatste node te vinden (zonder findLast)
+        const lastNode = [...targetNodes].reverse().find(n => n.type === type);
         
         if (lastNode) {
             const levels = calculateFibLevels(lastNode.high, lastNode.low, lastNode.isBullish);
             
-            // Teken elk level als een PriceLine
             Object.values(levels).forEach(price => {
                 const line = candlestickSeries.createPriceLine({
                     price: price,
                     color: nodeConfigs[type],
                     lineWidth: 1,
-                    lineStyle: LightweightCharts.LineStyle.Dotted, // Strakke stippellijn
+                    lineStyle: LightweightCharts.LineStyle.Dotted,
                     axisLabelVisible: true,
-                    title: type.toUpperCase() // Label op de Y-as
+                    title: type.toUpperCase()
                 });
                 activeFibLines.push(line);
             });
         }
     });
 }
-
 function getLastActiveNode() {
     if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
         return allNodes[allNodes.length - 1];
