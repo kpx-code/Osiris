@@ -44,47 +44,7 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
 });
 
 // --- FIBONACCI MARKERS FUNCTIE ---
-function updateFibMarkers() {
-    let fibMarkers = [];
 
-    // Alle kleuren netjes in een dictionary (inclusief de negatieve levels)
-    const fibColors = {
-        '0.786': '#ef5350', // Rood
-        '0.618': '#00ffcc', // Cyaan
-        '0.500': '#ffee58', // Geel
-        '0.382': '#ab47bc', // Paars
-        '0.236': '#42a5f5', // Blauw
-        
-        '-0.236': '#42a5f5', // Negatieve levels zelfde kleuren (pas aan indien gewenst)
-        '-0.382': '#ab47bc',
-        '-0.500': '#ffee58',
-        '-0.618': '#00ffcc',
-        '-0.786': '#ef5350'
-    };
-
-    allNodes.forEach(node => {
-        const levels = calculateFibLevels(node.high, node.low, node.isBullish);
-        
-        Object.keys(levels).forEach(level => {
-            fibMarkers.push({
-                time: node.time, 
-                // CRUCIAAL: 'inBar' forceert de marker naar de exacte prijs op de Y-as
-                position: 'aboveBar', 
-                color: fibColors[level] || '#ffffff', 
-                shape: 'square', // Dit creëert het effect van een strak "blokje/streepje"
-                size: 1, // Houd dit laag (1 of 2) voor een subtiele markering
-                price: levels[level] // Dit wordt nu 100% gerespecteerd door inBar
-            });
-        });
-    });
-
-    const combinedMarkers = [...gridMarkers, ...fibMarkers];
-    
-    // Altijd sorteren voor LightweightCharts
-    combinedMarkers.sort((a, b) => a.time - b.time);
-
-    LightweightCharts.createSeriesMarkers(candlestickSeries, combinedMarkers);
-}
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
 chart.subscribeCrosshairMove(param => {
     const ohlcOpen = document.getElementById('ohlc-open');
@@ -259,16 +219,24 @@ function applyUOTAMGrid(chartData) {
         const closestCandle = chartData.find(c => c.time === normalizedNodeTime);
         
         if (closestCandle) {
+            // 1. Bepaal het nodeType voor de PriceLines
+            let nodeType = 'osc';
+            if (relativeIndex === 0) nodeType = 'reset';
+            else if (relativeIndex === 1) nodeType = 'vola';
+            else if (relativeIndex === 3) nodeType = 'vortex3';
+            else if (relativeIndex === 6) nodeType = 'vortex6';
+
+            // 2. Push naar allNodes inclusief het nieuwe 'type' veld
             allNodes.push({
                 id: i,
+                type: nodeType,
                 time: closestCandle.time,
-                open: closestCandle.open,
                 high: closestCandle.high,
                 low: closestCandle.low,
                 isBullish: closestCandle.close >= closestCandle.open
             });
 
-            // 1. RESET / VORTEX 9
+            // 3. Tekst markers voor de grafiek (blijven bestaan voor visuele referentie)
             if (relativeIndex === 0) {
                 markers.push({
                     time: closestCandle.time,
@@ -277,9 +245,7 @@ function applyUOTAMGrid(chartData) {
                     shape: 'circle',
                     text: `RESET [Vortex 9] Node ${i} | ${timeLabel}`,
                 });
-            }
-            // 2. VOLA TRIGGER
-            else if (relativeIndex === 1) {
+            } else if (relativeIndex === 1) {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
@@ -287,9 +253,7 @@ function applyUOTAMGrid(chartData) {
                     shape: 'circle',
                     text: `VOLA Node ${i} | ${timeLabel}`,
                 });
-            }
-            // 3. CORE NODES (Vortex 3 en 6)
-            else if (relativeIndex === 3 || relativeIndex === 6) {
+            } else if (relativeIndex === 3 || relativeIndex === 6) {
                 let vortexValue = (relativeIndex === 3) ? "3" : "6";
                 markers.push({
                     time: closestCandle.time,
@@ -298,9 +262,7 @@ function applyUOTAMGrid(chartData) {
                     shape: 'arrowDown',
                     text: `CORE [Vortex ${vortexValue}] Node ${i} | ${timeLabel}`,
                 });
-            }
-            // 4. OVERIGE NODES (Oscillatoren)
-            else {
+            } else {
                 markers.push({
                     time: closestCandle.time,
                     position: 'aboveBar',
@@ -312,11 +274,14 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    // Sla de tekst-markers op
+// Sla de tekst-markers op
     gridMarkers = markers; 
     
-    // Teken NU alle markers (tekst + fibs) direct op de grafiek
-    updateFibMarkers();
+    // HOUD DEZE AANROEP ZOALS HIJ WAS, MAAR ZORG DAT HIJ ALLEEN JE TEXT-MARKERS BEVAT
+    LightweightCharts.createSeriesMarkers(candlestickSeries, gridMarkers);
+    
+    // VOEG DAARONDER DE FIB-LIJNEN TOE
+    updateActiveNodeFibLines(allNodes);
 
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
 }
@@ -452,7 +417,7 @@ function startLiveUpdates() {
             });
             
             // Teken alles opnieuw als de huidige candle een node raakt
-            updateFibMarkers(); 
+            updateActiveNodeFibLines(); 
             
         } catch (err) {
             console.error("UOTAM Engine Fout:", err);
@@ -479,6 +444,45 @@ function calculateFibLevels(high, low, isBullish) {
         '-0.618': isBullish ? low - (range * 0.618) : high + (range * 0.618),
         '-0.786': isBullish ? low - (range * 0.786) : high + (range * 0.786)
     };
+}
+
+// Houd een referentie bij van de actieve lijnen zodat we ze kunnen verwijderen
+let activeFibLines = [];
+
+function updateActiveNodeFibLines(targetNodes) {
+    // 1. Verwijder eerst alle oude lijnen van de grafiek
+    activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
+    activeFibLines = [];
+
+    // 2. Definieer de node types die we willen plotten en hun kleuren
+    const nodeConfigs = {
+        'reset': '#ffffff',  // Wit
+        'vola': '#ffeb3b',   // Goud/Geel
+        'vortex3': '#ff4081',// Roze
+        'vortex6': '#00ffcc' // Cyaan
+    };
+
+    // 3. Loop door de configuratie en zoek de laatste node van elk type
+    Object.keys(nodeConfigs).forEach(type => {
+        const lastNode = targetNodes.findLast(n => n.type === type); // Zoek de meest recente
+        
+        if (lastNode) {
+            const levels = calculateFibLevels(lastNode.high, lastNode.low, lastNode.isBullish);
+            
+            // Teken elk level als een PriceLine
+            Object.values(levels).forEach(price => {
+                const line = candlestickSeries.createPriceLine({
+                    price: price,
+                    color: nodeConfigs[type],
+                    lineWidth: 1,
+                    lineStyle: LightweightCharts.LineStyle.Dotted, // Strakke stippellijn
+                    axisLabelVisible: true,
+                    title: type.toUpperCase() // Label op de Y-as
+                });
+                activeFibLines.push(line);
+            });
+        }
+    });
 }
 
 function getLastActiveNode() {
