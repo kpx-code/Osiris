@@ -71,3 +71,10 @@ h1 { margin: 0; font-size: 24px; color: #00ffcc; }
     max-height: 400px; overflow-y: auto;
     background: #131722; border: 1px solid #333;
 }
+
+#sentiment-bar {
+    width: 50%; /* Startwaarde */
+    height: 100%;
+    transition: width 0.5s ease-out, background-color 0.3s ease;
+    border-radius: 10px;
+}
