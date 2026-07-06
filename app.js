@@ -70,6 +70,23 @@ chart.subscribeCrosshairMove(param => {
     }
 });
 
+// Globale variabele voor je lens (zorg dat deze bovenin staat)
+let uotamHarmonicSetting = 3; 
+
+function setHarmonic(value) {
+    uotamHarmonicSetting = value;
+    
+    // Visuele feedback op de knoppen (optional)
+    document.querySelectorAll('.harmonic-selector button').forEach(btn => btn.style.opacity = '0.5');
+    document.getElementById(`btn-${value}`).style.opacity = '1';
+    
+    // Herteken de lijnen direct
+    if (typeof allNodes !== 'undefined') {
+        updateActiveNodeFibLines(allNodes, uotamHarmonicSetting);
+    }
+    console.log("Lens gewijzigd naar:", value);
+}
+
 // --- DYNAMISCH TIMEFRAME WISSELEN ---
 function changeTimeframe(interval) {
     currentInterval = interval;
