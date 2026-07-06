@@ -68,28 +68,29 @@ function drawFibDotsForNode(nodeTime, nodeCandle, livePrice) {
 function updateFibMarkers() {
     let allMarkers = [];
 
-    // 1. Voeg eerst de historische markers toe als je die wilt behouden
-    // (Optioneel: als je alleen de Fib-punten wilt zien, kun je dit overslaan)
-    
-    // 2. Voeg de actieve Fibonacci punten toe
     activeNodes.forEach(node => {
         const levels = calculateFibLevels(node.high, node.low, node.isBullish);
-        
         Object.keys(levels).forEach(level => {
             allMarkers.push({
                 time: node.time,
                 position: 'inBar',
                 color: level === '0.618' ? '#00ffcc' : '#ffffff',
                 shape: 'circle',
-                size: 2, 
+                size: 2,
                 price: levels[level]
-                // Geen 'text' property hier, dit houdt de markers schoon
             });
         });
     });
 
-    // 3. Zet alle markers in één keer op de grafiek
-    candlestickSeries.setMarkers(allMarkers);
+    // CONTROLEER DEZE AANROEP:
+    // Sommige versies gebruiken 'markers()' in plaats van 'setMarkers'
+    try {
+        candlestickSeries.setMarkers(allMarkers);
+    } catch (e) {
+        console.warn("setMarkers niet gevonden, probeer de 'markers' property...");
+        // Fallback voor oudere/andere versies:
+        candlestickSeries.markers(allMarkers); 
+    }
 }
 
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
