@@ -494,20 +494,32 @@ function startLiveUpdates() {
                     low: parseFloat(d[3])
                 }));
 
+                // 4. ORISIS BESLISSING & FIBONACCI INTEGRATIE
                 if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
                     const activeNode = allNodes[allNodes.length - 1];
+                    const nextNode = allNodes.length > 1 ? allNodes[allNodes.length - 2] : activeNode;
                     
+                    // Fibonacci Grid update
+                    const chartData = rawData.map(d => ({ time: Math.floor(d[0] / 1000), high: parseFloat(d[2]), low: parseFloat(d[3]) }));
                     if (activeNode.id !== lastProcessedNodeId) {
-                        console.log("Nieuwe Node gedetecteerd:", activeNode.id);
                         applyUOTAMGrid(chartData); 
-                        updateActiveNodeFibLines(allNodes, chartData); // Aangepast!
                         lastProcessedNodeId = activeNode.id; 
-                    } else {
-                        updateActiveNodeFibLines(allNodes, chartData); // Aangepast!
                     }
-                }
-                // --- EINDE AANPASSING ---
+                    updateActiveNodeFibLines(allNodes, chartData);
 
+                    // --- ORISIS BESLISSINGS ENGINE ---
+                    const chaos = Math.abs((livePrice - parseFloat(rawData[rawData.length - 288][4])) / parseFloat(rawData[rawData.length - 288][4])) * 100;
+                    
+                    const decisionResult = getOrisisDecisionData(
+                        volMetrics, livePrice, activeNode, nextNode, vfm, er, db, chaos, isBullish
+                    );
+
+                    // Update de Orisis Status op je Dashboard
+                    const statusDisplay = document.getElementById('market-status-display');
+                    const targetDisplay = document.getElementById('target-range-display');
+                    if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision} (${decisionResult.probability})`;
+                    if (targetDisplay) targetDisplay.innerText = `Target: ${decisionResult.targetRange}`;
+                }
             } else {
                 const chaosEl = document.getElementById('chaos-display');
                 if (chaosEl) chaosEl.innerText = `Laden (${rawData.length}/288)`;
@@ -661,6 +673,39 @@ function calculateVolumeMetrics(currentVol, priceDelta, isBullish, harmonic) {
         regime,
         rate: (((currentVol - avgVol) / avgVol) * 100).toFixed(1),
         score: Math.max(0, Math.min((zScore + 1) * 50, 100)).toFixed(0)
+    };
+}
+
+function getOrisisDecisionData(metrics, currentPrice, activeNode, nextNode, vfm, er, db, chaos, isBullish) {
+    // 1. Confluence: Orisis' "Brain"
+    let confluence = 0;
+    if (metrics.regime === "BULLISH_EXPANSION" || metrics.regime === "BEARISH_CRASH") confluence += 2;
+    if (Math.abs(db) > 0.4) confluence += 1; // Delta Balance
+    if (vfm > 0) confluence += 2;           // VFM moet positief zijn voor een goede breakout
+    if (chaos < 12) confluence += 1;        // Stabiliteit
+
+    // 2. Dynamische Price Targets
+    // We kijken naar het volgende level (nextNode) om de range te bepalen
+    const rangeLow = Math.min(activeNode.price, nextNode.price);
+    const rangeHigh = Math.max(activeNode.price, nextNode.price);
+    
+    // 3. Besluitvorming
+    let decision = "WAIT";
+    let probability = "Low";
+    
+    if (confluence >= 4) {
+        decision = isBullish ? "🚀 BULLISH BREAKOUT" : "📉 BEARISH CRASH";
+        probability = "High (80%+)";
+    } else if (confluence >= 2) {
+        decision = "⚖️ TREND-FOLLOW";
+        probability = "Medium (60%)";
+    }
+
+    return { 
+        decision, 
+        probability, 
+        targetRange: `${rangeLow.toFixed(0)} - ${rangeHigh.toFixed(0)}`,
+        confluence 
     };
 }
 
