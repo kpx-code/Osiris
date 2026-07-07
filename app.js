@@ -249,8 +249,8 @@ function applyUOTAMGrid(chartData) {
     
     // 1. Wis oude data
     allNodes = [];
-    
     const markers = [];
+    
     const minTimeSec = chartData[0].time;
     const maxTimeSec = chartData[chartData.length - 1].time;
     
@@ -283,7 +283,7 @@ function applyUOTAMGrid(chartData) {
                 id: i,
                 type: nodeType, 
                 time: closestCandle.time,
-                price: closestCandle.close, // Toegevoegd voor de pulse berekening
+                price: closestCandle.close,
                 high: closestCandle.high,
                 low: closestCandle.low,
                 isBullish: closestCandle.close >= closestCandle.open
@@ -334,7 +334,9 @@ function applyUOTAMGrid(chartData) {
         
         nodesWithPulse.push(current);
         
-        const midTime = current.time + ((next.time - current.time) / 2);
+        // Bereken exact midden en rond af op dichtstbijzijnde 15 min (900 seconden)
+        let midTime = current.time + Math.floor((next.time - current.time) / 2);
+        midTime = Math.floor(midTime / 900) * 900; 
         
         const pulseNode = {
             id: `pulse_${current.id}`,
@@ -345,7 +347,7 @@ function applyUOTAMGrid(chartData) {
         
         nodesWithPulse.push(pulseNode);
         
-        // Voeg marker toe voor de grafiek
+        // Voeg marker toe aan de lijst
         markers.push({
             time: midTime,
             position: 'aboveBar',
@@ -356,14 +358,12 @@ function applyUOTAMGrid(chartData) {
     }
     nodesWithPulse.push(allNodes[allNodes.length - 1]);
     
-    // Update allNodes naar de nieuwe lijst inclusief pulses
+    // Update naar de nieuwe lijst
     allNodes = nodesWithPulse;
-    
-    // Sla de tekst-markers op
     gridMarkers = markers; 
     
     // Update de grafiek markers
-    LightweightCharts.createSeriesMarkers(candlestickSeries, gridMarkers);
+    candlestickSeries.setMarkers(gridMarkers);
     
     // Update de Fib-lijnen
     updateActiveNodeFibLines(allNodes);
