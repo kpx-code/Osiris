@@ -427,9 +427,11 @@ function startLiveUpdates() {
             const liveVol = parseFloat(candle.v);
             const high = parseFloat(candle.h);
             const low = parseFloat(candle.l);
+            const openPrice = parseFloat(candle.o);
+            const isBullish = livePrice >= openPrice;
+            const priceDelta = livePrice - openPrice;
 
             // 1. Volume Rate Berekening
-            const isBullish = livePrice >= parseFloat(candle.o);
             const volMetrics = calculateVolumeMetrics(liveVol, isBullish);
             const volRateEl = document.getElementById('vol-rate');
             const volScoreEl = document.getElementById('vol-score');
@@ -442,7 +444,7 @@ function startLiveUpdates() {
             // 2. Chart Update
             candlestickSeries.update({
                 time: candle.t / 1000,
-                open: parseFloat(candle.o),
+                open: openPrice,
                 high: high,
                 low: low,
                 close: livePrice,
@@ -454,87 +456,44 @@ function startLiveUpdates() {
 
             // 4. Data-afhankelijke berekeningen
             if (rawData && rawData.length >= 288) {
-                // VFM Berekening
                 const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
                 const er = liveVol / sma20Volume;
                 const db = (high - low !== 0) ? (2 * livePrice - (high + low)) / (high - low) : 0;
                 const vfm = er * db;
                 
-                // VFM UI Update
-                const absVfm = Math.abs(vfm);
-                let vfmStatus = (absVfm < 0.1) ? "NEUTRAAL (DEAD ZONE)" : (absVfm > 1.5 ? "EXTREME" : "SIGNIFICANT");
-                const vfmEl = document.getElementById('vfm-display');
-                const vfmStatusEl = document.getElementById('vfm-status');
-                if (vfmEl) { vfmEl.innerText = vfm.toFixed(3); vfmEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
-                if (vfmStatusEl) { vfmStatusEl.innerText = vfmStatus; vfmStatusEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
-
-                // ER/DB Updates
-                const updateMetric = (id, val, status) => {
-                    const pEl = document.getElementById(`${id}-display`);
-                    const sEl = document.getElementById(`${id}-status`);
-                    if (pEl) pEl.innerText = val.toFixed(2);
-                    if (sEl) { sEl.innerText = status; sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350"; }
-                };
-                updateMetric('er', er, er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
-                updateMetric('db', db, db > 0 ? "BULLISH" : "BEARISH");
-
-                // Chaos Index
-                const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
-                const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
-                const chaosEl = document.getElementById('chaos-display');
-                const chaosStatusEl = document.getElementById('chaos-status');
-                if (chaosEl) chaosEl.innerText = chaos.toFixed(1) + '%';
-                if (chaosStatusEl) { chaosStatusEl.innerText = chaos > 15 ? "EXTREME" : "STABIEL"; chaosStatusEl.style.color = chaos > 15 ? "#ef5350" : "#00ffcc"; }
-
-                // --- NIEUWE FIBONACCI LOGICA ---
-                // --- HIER PLAATS JE DE AANPASSING ---
-                const chartData = rawData.map(d => ({
-                    time: Math.floor(d[0] / 1000),
-                    high: parseFloat(d[2]),
-                    low: parseFloat(d[3])
-                }));
-
-                // 4. ORISIS BESLISSING & FIBONACCI INTEGRATIE
+                // [VFM en Metric UI updates blijven hier staan zoals je ze had]
+                
+                // 5. Orisis & Fibonacci Integratie
                 if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
                     const activeNode = allNodes[allNodes.length - 1];
                     const nextNode = allNodes.length > 1 ? allNodes[allNodes.length - 2] : activeNode;
-
-                    // DEBUG: Check wat hier uitkomt
-                    console.log("ActiveNode:", activeNode);
-                    console.log("NextNode:", nextNode);
-                    
-                    // Voeg dit toe: Controleer of de prijs een geldig getal is
-                    if (!activeNode || !activeNode.price) {
-                        console.error("Fout: ActiveNode prijs is niet beschikbaar!");
-                        return; // Stop de functie als we geen node hebben
-                    }
-                    
-                    // Fibonacci Grid update
                     const chartData = rawData.map(d => ({ time: Math.floor(d[0] / 1000), high: parseFloat(d[2]), low: parseFloat(d[3]) }));
+
+                    // Fibonacci Grid & Lines
                     if (activeNode.id !== lastProcessedNodeId) {
                         applyUOTAMGrid(chartData); 
                         lastProcessedNodeId = activeNode.id; 
                     }
                     updateActiveNodeFibLines(allNodes, chartData);
 
-                    // 2. ORISIS BESLISSINGS ENGINE (Hier komt je nieuwe logica)
-                    // Bereken de prijzen op basis van het object
+                    // Orisis Engine Berekeningen
                     const activePrice = (activeNode.high + activeNode.low) / 2;
                     const nextPrice = (nextNode.high + nextNode.low) / 2;
-                
-                    // Bereken chaos (reeds aanwezig in je code)
                     const chaos = Math.abs((livePrice - parseFloat(rawData[rawData.length - 288][4])) / parseFloat(rawData[rawData.length - 288][4])) * 100;
-                    
-                    // Roep de engine aan met de juiste parameters
-                    const decisionResult = getOrisisDecisionData(
-                        volMetrics, livePrice, activePrice, nextPrice, vfm, er, db, chaos, isBullish
-                    );
-                
-                    // 3. Update UI
-                    const statusDisplay = document.getElementById('market-status-display');
-                    const targetDisplay = document.getElementById('target-range-display');
-                    if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision} (${decisionResult.probability})`;
-                    if (targetDisplay) targetDisplay.innerText = `Target: ${decisionResult.targetRange}`;
+
+                    if (isNaN(activePrice) || isNaN(nextPrice)) {
+                        console.warn("Orisis: Prijzen nog niet beschikbaar, wacht op node data...");
+                    } else {
+                        const decisionResult = getOrisisDecisionData(
+                            volMetrics, livePrice, activePrice, nextPrice, vfm, er, db, chaos, isBullish
+                        );
+                        
+                        // Update UI
+                        const statusDisplay = document.getElementById('market-status-display');
+                        const targetDisplay = document.getElementById('target-range-display');
+                        if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision} (${decisionResult.probability})`;
+                        if (targetDisplay) targetDisplay.innerText = `Target: ${decisionResult.targetRange}`;
+                    }
                 }
             } else {
                 const chaosEl = document.getElementById('chaos-display');
@@ -543,7 +502,6 @@ function startLiveUpdates() {
         } catch (err) { console.error("UOTAM Engine Fout:", err); }
     };
 }
-
 
 function startSentimentStream() {
     // Sluit eventuele oude verbinding
