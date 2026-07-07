@@ -88,3 +88,7 @@ h1 { margin: 0; font-size: 24px; color: #00ffcc; }
     width: 50%; /* Startwaarde */
     transition: width 0.5s ease-out, background-color 0.3s ease;
 }
+
+#market-status-main {
+    transition: all 0.3s ease-in-out;
+}
