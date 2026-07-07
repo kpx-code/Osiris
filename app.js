@@ -502,8 +502,8 @@ function startLiveUpdates() {
                         const decisionResult = getOrisisDecisionData(
                             volMetrics, livePrice, activePrice, nextPrice, vfm, er, db, chaos, isBullish
                         );
-                        const statusDisplay = document.getElementById('market-status-display');
-                        const targetDisplay = document.getElementById('target-range-display');
+                        const statusDisplay = document.getElementById('market-range-main');
+                        const targetDisplay = document.getElementById('target-range-main');
                         if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision} (${decisionResult.probability})`;
                         if (targetDisplay) targetDisplay.innerText = `Target: ${decisionResult.targetRange}`;
                     } else {
