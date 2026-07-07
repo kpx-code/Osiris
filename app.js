@@ -269,10 +269,35 @@ function applyUOTAMGrid(chartData) {
         const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
         const timeLabel = `${dateStr} ${timeStr}`;
         
-        const marge = 15 * 60; // 15 minuten in seconden
+        const marge = 15 * 60;
         const closestCandle = chartData.find(c => Math.abs(c.time - nodeTimeSec) <= marge);
         
         if (closestCandle) {
+            // -- HIER DE MID-PULSE LOGICA --
+            // We kijken of er een vorige node was om het midden te berekenen
+            if (allNodes.length > 0) {
+                const prevNode = allNodes[allNodes.length - 1];
+                const midTime = prevNode.time + ((closestCandle.time - prevNode.time) / 2);
+                
+                // Voeg de Mid-Pulse toe aan allNodes
+                allNodes.push({
+                    id: `pulse_${i}`,
+                    type: 'mid-pulse',
+                    time: midTime,
+                    price: (prevNode.price + closestCandle.close) / 2
+                });
+                
+                // Teken de marker voor Mid-Pulse
+                markers.push({
+                    time: midTime,
+                    position: 'aboveBar',
+                    color: '#ffcc00',
+                    shape: 'circle',
+                    text: 'MID PULSE'
+                });
+            }
+
+            // -- DE ORIGINELE NODE LOGICA --
             let nodeType = 'osc';
             if (relativeIndex === 0) nodeType = 'reset';
             else if (relativeIndex === 1) nodeType = 'vola';
@@ -290,82 +315,20 @@ function applyUOTAMGrid(chartData) {
             });
 
             if (relativeIndex === 0) {
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'aboveBar',
-                    color: '#ffffff',
-                    shape: 'circle',
-                    text: `RESET [Vortex 9] Node ${i} | ${timeLabel}`,
-                });
+                markers.push({ time: closestCandle.time, position: 'aboveBar', color: '#ffffff', shape: 'circle', text: `RESET [Vortex 9] Node ${i} | ${timeLabel}` });
             } else if (relativeIndex === 1) {
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'aboveBar',
-                    color: '#ffff00',
-                    shape: 'circle',
-                    text: `VOLA Node ${i} | ${timeLabel}`,
-                });
+                markers.push({ time: closestCandle.time, position: 'aboveBar', color: '#ffff00', shape: 'circle', text: `VOLA Node ${i} | ${timeLabel}` });
             } else if (relativeIndex === 3 || relativeIndex === 6) {
                 let vortexValue = (relativeIndex === 3) ? "3" : "6";
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'aboveBar',
-                    color: '#00ffcc',
-                    shape: 'arrowDown',
-                    text: `CORE [Vortex ${vortexValue}] Node ${i} | ${timeLabel}`,
-                });
+                markers.push({ time: closestCandle.time, position: 'aboveBar', color: '#00ffcc', shape: 'arrowDown', text: `CORE [Vortex ${vortexValue}] Node ${i} | ${timeLabel}` });
             } else {
-                markers.push({
-                    time: closestCandle.time,
-                    position: 'aboveBar',
-                    color: '#888888',
-                    shape: 'square',
-                    text: `Node ${i} | ${timeLabel}`,
-                });
+                markers.push({ time: closestCandle.time, position: 'aboveBar', color: '#888888', shape: 'square', text: `Node ${i} | ${timeLabel}` });
             }
         }
     }
     
-    // --- NIEUWE LOGICA: Mid-Pulse Nodes ---
-    const nodesWithPulse = [];
-    for (let i = 0; i < allNodes.length - 1; i++) {
-        const current = allNodes[i];
-        const next = allNodes[i + 1];
-        
-        nodesWithPulse.push(current);
-        
-        // Bereken exact midden en rond af op dichtstbijzijnde 15 min (900 seconden)
-        let midTime = current.time + Math.floor((next.time - current.time) / 2);
-        midTime = Math.floor(midTime / 900) * 900; 
-        
-        const pulseNode = {
-            id: `pulse_${current.id}`,
-            type: 'mid-pulse',
-            time: midTime,
-            price: (current.price + next.price) / 2 
-        };
-        
-        nodesWithPulse.push(pulseNode);
-        
-        // Voeg marker toe aan de lijst
-        markers.push({
-            time: midTime,
-            position: 'aboveBar',
-            color: '#ffcc00',
-            shape: 'circle',
-            text: 'MID PULSE'
-        });
-    }
-    nodesWithPulse.push(allNodes[allNodes.length - 1]);
-    
-    // Update naar de nieuwe lijst
-    allNodes = nodesWithPulse;
     gridMarkers = markers; 
-    
-    // Update de grafiek markers
     candlestickSeries.setMarkers(gridMarkers);
-    
-    // Update de Fib-lijnen
     updateActiveNodeFibLines(allNodes);
 
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
