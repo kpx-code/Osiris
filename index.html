@@ -55,14 +55,18 @@
     </div>
 </div>
 
-<div class="metrics-container" style="margin-top: 20px;">
-    <div class="card" style="margin-bottom: 10px;">
+<div class="metrics-container" style="display: flex; gap: 20px; align-items: stretch; margin-top: 20px;">
+    
+    <div class="card" style="flex: 2; padding: 20px; text-align: center;">
         <h3>Live Volume (BTC)</h3>
-        <p id="live-volume" style="font-size: 1.5em; color: #ff9900;">Wachten...</p>
+        <p id="live-volume" style="font-size: 2em; color: #ff9900; margin: 0;">Wachten...</p>
     </div>
-    <div class="stat-container">
-    <p>Volume Rate: <span id="vol-rate">0%</span></p>
-    <p>Score: <span id="vol-score" style="font-size: 1.5em; color: #ff9900;">0/100</span></p>
+
+    <div class="card" style="flex: 1; padding: 20px; display: flex; flex-direction: column; justify-content: center;">
+        <div class="stat-container">
+            <p style="margin: 5px 0;">Volume Rate: <span id="vol-rate" style="color: #fff;">0%</span></p>
+            <p style="margin: 5px 0;">Score: <span id="vol-score" style="font-size: 1.2em; color: #ff9900;">0/100</span></p>
+        </div>
     </div>
 </div>
 
