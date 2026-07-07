@@ -461,14 +461,14 @@ function startLiveUpdates() {
                 const vfm = er * db;
                 const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
                 const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
-
+            
                 // UI Updates voor de meters
                 const absVfm = Math.abs(vfm);
                 const vfmEl = document.getElementById('vfm-display');
                 const vfmStatusEl = document.getElementById('vfm-status');
                 if (vfmEl) { vfmEl.innerText = vfm.toFixed(3); vfmEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
                 if (vfmStatusEl) { vfmStatusEl.innerText = (absVfm < 0.1) ? "NEUTRAAL" : (absVfm > 1.5 ? "EXTREME" : "SIGNIFICANT"); vfmStatusEl.style.color = vfmEl.style.color; }
-
+            
                 const updateMetric = (id, val, status) => {
                     const pEl = document.getElementById(`${id}-display`);
                     const sEl = document.getElementById(`${id}-status`);
@@ -477,27 +477,27 @@ function startLiveUpdates() {
                 };
                 updateMetric('er', er, er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
                 updateMetric('db', db, db > 0 ? "BULLISH" : "BEARISH");
-
+            
                 const chaosEl = document.getElementById('chaos-display');
                 const chaosStatusEl = document.getElementById('chaos-status');
                 if (chaosEl) chaosEl.innerText = chaos.toFixed(1) + '%';
                 if (chaosStatusEl) { chaosStatusEl.innerText = chaos > 15 ? "EXTREME" : "STABIEL"; chaosStatusEl.style.color = chaos > 15 ? "#ef5350" : "#00ffcc"; }
-
+            
                 // 5. Orisis & Fibonacci Integratie
                 if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
                     const activeNode = allNodes[allNodes.length - 1];
                     const nextNode = allNodes.length > 1 ? allNodes[allNodes.length - 2] : activeNode;
                     const chartData = rawData.map(d => ({ time: Math.floor(d[0] / 1000), high: parseFloat(d[2]), low: parseFloat(d[3]) }));
-
+            
                     if (activeNode.id !== lastProcessedNodeId) {
                         applyUOTAMGrid(chartData); 
                         lastProcessedNodeId = activeNode.id; 
                     }
                     updateActiveNodeFibLines(allNodes, chartData);
-
+            
                     const activePrice = (activeNode.high + activeNode.low) / 2;
                     const nextPrice = (nextNode.high + nextNode.low) / 2;
-
+            
                     if (!isNaN(activePrice) && !isNaN(nextPrice)) {
                         const decisionResult = getOrisisDecisionData(
                             volMetrics, livePrice, activePrice, nextPrice, vfm, er, db, chaos, isBullish
@@ -506,7 +506,11 @@ function startLiveUpdates() {
                         const targetDisplay = document.getElementById('target-range-display');
                         if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision} (${decisionResult.probability})`;
                         if (targetDisplay) targetDisplay.innerText = `Target: ${decisionResult.targetRange}`;
+                    } else {
+                        console.warn("Orisis blokkeert update: activePrice of nextPrice is NaN");
                     }
+                } else {
+                    console.warn("Orisis blokkeert update: allNodes leeg of undefined");
                 }
             } else {
                 const chaosEl = document.getElementById('chaos-display');
