@@ -361,7 +361,10 @@ function applyUOTAMGrid(chartData) {
     LightweightCharts.createSeriesMarkers(candlestickSeries, gridMarkers);
     
     // Update de Fib-lijnen
-    updateActiveNodeFibLines(allNodes);
+   // HIER PAS JE HET AAN:
+    // Je voegt 'chartData' toe als het tweede argument.
+    // De functie gebruikt nu allNodes voor de timing en chartData voor de prijs-range.
+    updateActiveNodeFibLines(allNodes, chartData);
 
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
 }
@@ -571,14 +574,15 @@ function calculateFibLevels(high, low, isBullish) {
 
 // Standaard instelling (kan later via UI veranderd worden)
 
-function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) {
+function updateActiveNodeFibLines(targetNodes, chartData, harmonic = uotamHarmonicSetting) {
     // DEBUG: Dit vertelt ons precies waarom de filter faalt
     console.log("Debug targetNodes:", targetNodes.map(n => ({ id: n.id, type: n.type })));
     
+    // 1. Wis oude lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // HERSCHREVEN FILTER: We filteren op basis van de harmonische lens
+    // 2. HERSCHREVEN FILTER: We filteren op basis van de harmonische lens
     // Micro (3) kijkt naar vortex3, Meso (6) naar vortex6, Macro (9) naar reset
     const filterType = (harmonic >= 9) ? 'reset' : (harmonic >= 6) ? 'vortex6' : 'vortex3';
     const relevantNodes = targetNodes.filter(n => n.type && n.type.toLowerCase().includes(filterType));
@@ -588,15 +592,26 @@ function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) 
         return;
     }
 
+    // 3. Bepaal het bereik (Nodes voor timing, Candles voor prijs)
     const count = Math.min(harmonic, relevantNodes.length);
     const nodesInRange = relevantNodes.slice(-count);
+    const startTime = nodesInRange[0].time;
+    const endTime = nodesInRange[nodesInRange.length - 1].time;
 
-    const rangeHigh = Math.max(...nodesInRange.map(n => n.high));
-    const rangeLow = Math.min(...nodesInRange.map(n => n.low));
+    // 4. SCAN ALLE RAUWE CANDLES (De liquiditeits-scan)
+    // We filteren chartData op alle candles die tussen de start- en eind-node vallen
+    const candlesInPeriod = chartData.filter(c => c.time >= startTime && c.time <= endTime);
+
+    // Bepaal de absolute High en Low van alle candles in die periode
+    const rangeHigh = Math.max(...candlesInPeriod.map(c => c.high));
+    const rangeLow = Math.min(...candlesInPeriod.map(c => c.low));
+    
+    // Gebruik de bullish status van de laatste node in de range
     const isBullish = nodesInRange[nodesInRange.length - 1].isBullish;
 
     const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
 
+    // 5. Tekenen van de lijnen
     Object.entries(levels).forEach(([ratio, price]) => {
         const style = fibStyles[ratio] || { color: '#cccccc', label: ratio };
         if (!isNaN(price)) {
@@ -612,7 +627,7 @@ function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) 
         }
     });
     
-    console.log(`Fibonacci berekend voor ${count} nodes van type ${filterType} (Tesla-Harmonie: ${harmonic})`);
+    console.log(`Fibonacci berekend voor ${count} nodes van type ${filterType} (Tesla-Harmonie: ${harmonic}) over ${candlesInPeriod.length} candles.`);
 }
 
 // Globale array voor volume history
