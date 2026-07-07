@@ -665,10 +665,15 @@ function calculateVolumeMetrics(currentVol, priceDelta, isBullish, harmonic) {
 }
 
 function updateDashboard(metrics) {
+    // Updaten van de bestaande velden
     document.getElementById('vol-rate').innerText = metrics.rate + '%';
     document.getElementById('vol-score').innerText = metrics.score + '/100';
-    // Eventueel: verander kleur op basis van regime
-    document.getElementById('vol-score').style.color = metrics.regime === "BULLISH_EXPANSION" ? "#00ffcc" : "#ff9900";
+    
+    // Optioneel: Visuele feedback op basis van regime
+    const scoreEl = document.getElementById('vol-score');
+    if (metrics.regime === "BULLISH_EXPANSION") scoreEl.style.color = "#00ffcc";
+    else if (metrics.regime === "BEARISH_CRASH") scoreEl.style.color = "#ef5350";
+    else scoreEl.style.color = "#ff9900";
 }
 
 function getLastActiveNode() {
