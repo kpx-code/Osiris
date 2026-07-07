@@ -269,29 +269,26 @@ function applyUOTAMGrid(chartData) {
         const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
         const timeLabel = `${dateStr} ${timeStr}`;
         
-        // Zoek de candle die het dichtst bij de berekende node tijd ligt (binnen een marge van 15 minuten)
         const marge = 15 * 60; // 15 minuten in seconden
         const closestCandle = chartData.find(c => Math.abs(c.time - nodeTimeSec) <= marge);
         
         if (closestCandle) {
-            // 1. Bepaal het nodeType voor de PriceLines
             let nodeType = 'osc';
             if (relativeIndex === 0) nodeType = 'reset';
             else if (relativeIndex === 1) nodeType = 'vola';
             else if (relativeIndex === 3) nodeType = 'vortex3';
             else if (relativeIndex === 6) nodeType = 'vortex6';
 
-            // 2. Push naar allNodes inclusief het type veld
             allNodes.push({
                 id: i,
                 type: nodeType, 
                 time: closestCandle.time,
+                price: closestCandle.close, // Toegevoegd voor de pulse berekening
                 high: closestCandle.high,
                 low: closestCandle.low,
                 isBullish: closestCandle.close >= closestCandle.open
             });
 
-            // 3. Tekst markers voor de grafiek
             if (relativeIndex === 0) {
                 markers.push({
                     time: closestCandle.time,
@@ -328,6 +325,39 @@ function applyUOTAMGrid(chartData) {
             }
         }
     }
+    
+    // --- NIEUWE LOGICA: Mid-Pulse Nodes ---
+    const nodesWithPulse = [];
+    for (let i = 0; i < allNodes.length - 1; i++) {
+        const current = allNodes[i];
+        const next = allNodes[i + 1];
+        
+        nodesWithPulse.push(current);
+        
+        const midTime = current.time + ((next.time - current.time) / 2);
+        
+        const pulseNode = {
+            id: `pulse_${current.id}`,
+            type: 'mid-pulse',
+            time: midTime,
+            price: (current.price + next.price) / 2 
+        };
+        
+        nodesWithPulse.push(pulseNode);
+        
+        // Voeg marker toe voor de grafiek
+        markers.push({
+            time: midTime,
+            position: 'aboveBar',
+            color: '#ffcc00',
+            shape: 'circle',
+            text: 'MID PULSE'
+        });
+    }
+    nodesWithPulse.push(allNodes[allNodes.length - 1]);
+    
+    // Update allNodes naar de nieuwe lijst inclusief pulses
+    allNodes = nodesWithPulse;
     
     // Sla de tekst-markers op
     gridMarkers = markers; 
@@ -541,6 +571,7 @@ function calculateFibLevels(high, low, isBullish) {
         '-0.786': low - (range * 0.786)
     };
 }
+
 
 
 // Standaard instelling (kan later via UI veranderd worden)
