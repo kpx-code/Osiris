@@ -692,24 +692,28 @@ function calculateVolumeMetrics(currentVol, priceDelta, isBullish, harmonic) {
     };
 }
 
-function getOrisisDecisionData(metrics, currentPrice, activeNode, nextNode, vfm, er, db, chaos, isBullish) {
+// Pas deze eerste regel van je functie aan:
+function getOrisisDecisionData(metrics, currentPrice, activePrice, nextPrice, vfm, er, db, chaos, isBullish) {
     // 1. Confluence: Orisis' "Brain"
     let confluence = 0;
     if (metrics.regime === "BULLISH_EXPANSION" || metrics.regime === "BEARISH_CRASH") confluence += 2;
     if (Math.abs(db) > 0.4) confluence += 1; // Delta Balance
-    if (vfm > 0) confluence += 2;           // VFM moet positief zijn voor een goede breakout
+    if (vfm > 0) confluence += 2;           // VFM moet positief zijn
     if (chaos < 12) confluence += 1;        // Stabiliteit
 
-    // 2. Dynamische Price Targets
-    // We kijken naar het volgende level (nextNode) om de range te bepalen
-    const rangeLow = Math.min(activeNode.price, nextNode.price);
-    const rangeHigh = Math.max(activeNode.price, nextNode.price);
+    // 2. Dynamische Price Targets (GEBRUIK NU DE GETALLEN)
+    const rangeLow = Math.min(activePrice, nextPrice);
+    const rangeHigh = Math.max(activePrice, nextPrice);
     
     // 3. Besluitvorming
     let decision = "WAIT";
     let probability = "Low";
     
-    if (confluence >= 4) {
+    // Optioneel: voeg hier je Critical Zone check toe
+    const distanceToNode = Math.abs(currentPrice - activePrice);
+    const isAtCriticalZone = distanceToNode < (currentPrice * 0.002);
+
+    if (isAtCriticalZone && confluence >= 4) {
         decision = isBullish ? "🚀 BULLISH BREAKOUT" : "📉 BEARISH CRASH";
         probability = "High (80%+)";
     } else if (confluence >= 2) {
