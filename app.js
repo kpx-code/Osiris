@@ -249,8 +249,8 @@ function applyUOTAMGrid(chartData) {
     
     // 1. Wis oude data
     allNodes = [];
-    const markers = [];
     
+    const markers = [];
     const minTimeSec = chartData[0].time;
     const maxTimeSec = chartData[chartData.length - 1].time;
     
@@ -269,66 +269,86 @@ function applyUOTAMGrid(chartData) {
         const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
         const timeLabel = `${dateStr} ${timeStr}`;
         
-        const marge = 15 * 60;
+        // Zoek de candle die het dichtst bij de berekende node tijd ligt (binnen een marge van 15 minuten)
+        const marge = 15 * 60; // 15 minuten in seconden
         const closestCandle = chartData.find(c => Math.abs(c.time - nodeTimeSec) <= marge);
         
         if (closestCandle) {
-            // -- HIER DE MID-PULSE LOGICA --
-            // We kijken of er een vorige node was om het midden te berekenen
+            // --- MID PULSE LOGICA ---
             if (allNodes.length > 0) {
                 const prevNode = allNodes[allNodes.length - 1];
                 const midTime = prevNode.time + ((closestCandle.time - prevNode.time) / 2);
-                
-                // Voeg de Mid-Pulse toe aan allNodes
-                allNodes.push({
-                    id: `pulse_${i}`,
-                    type: 'mid-pulse',
-                    time: midTime,
-                    price: (prevNode.price + closestCandle.close) / 2
-                });
-                
-                // Teken de marker voor Mid-Pulse
                 markers.push({
                     time: midTime,
                     position: 'aboveBar',
                     color: '#ffcc00',
                     shape: 'circle',
-                    text: 'MID PULSE'
+                    text: 'MID PULSE',
                 });
             }
 
-            // -- DE ORIGINELE NODE LOGICA --
+            // 1. Bepaal het nodeType voor de PriceLines
             let nodeType = 'osc';
             if (relativeIndex === 0) nodeType = 'reset';
             else if (relativeIndex === 1) nodeType = 'vola';
             else if (relativeIndex === 3) nodeType = 'vortex3';
             else if (relativeIndex === 6) nodeType = 'vortex6';
 
+            // 2. Push naar allNodes inclusief het type veld
             allNodes.push({
                 id: i,
                 type: nodeType, 
                 time: closestCandle.time,
-                price: closestCandle.close,
                 high: closestCandle.high,
                 low: closestCandle.low,
                 isBullish: closestCandle.close >= closestCandle.open
             });
 
+            // 3. Tekst markers voor de grafiek
             if (relativeIndex === 0) {
-                markers.push({ time: closestCandle.time, position: 'aboveBar', color: '#ffffff', shape: 'circle', text: `RESET [Vortex 9] Node ${i} | ${timeLabel}` });
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'aboveBar',
+                    color: '#ffffff',
+                    shape: 'circle',
+                    text: `RESET [Vortex 9] Node ${i} | ${timeLabel}`,
+                });
             } else if (relativeIndex === 1) {
-                markers.push({ time: closestCandle.time, position: 'aboveBar', color: '#ffff00', shape: 'circle', text: `VOLA Node ${i} | ${timeLabel}` });
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'aboveBar',
+                    color: '#ffff00',
+                    shape: 'circle',
+                    text: `VOLA Node ${i} | ${timeLabel}`,
+                });
             } else if (relativeIndex === 3 || relativeIndex === 6) {
                 let vortexValue = (relativeIndex === 3) ? "3" : "6";
-                markers.push({ time: closestCandle.time, position: 'aboveBar', color: '#00ffcc', shape: 'arrowDown', text: `CORE [Vortex ${vortexValue}] Node ${i} | ${timeLabel}` });
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'aboveBar',
+                    color: '#00ffcc',
+                    shape: 'arrowDown',
+                    text: `CORE [Vortex ${vortexValue}] Node ${i} | ${timeLabel}`,
+                });
             } else {
-                markers.push({ time: closestCandle.time, position: 'aboveBar', color: '#888888', shape: 'square', text: `Node ${i} | ${timeLabel}` });
+                markers.push({
+                    time: closestCandle.time,
+                    position: 'aboveBar',
+                    color: '#888888',
+                    shape: 'square',
+                    text: `Node ${i} | ${timeLabel}`,
+                });
             }
         }
     }
     
+    // Sla de tekst-markers op
     gridMarkers = markers; 
-    candlestickSeries.setMarkers(gridMarkers);
+    
+    // Update de grafiek markers
+    LightweightCharts.createSeriesMarkers(candlestickSeries, gridMarkers);
+    
+    // Update de Fib-lijnen
     updateActiveNodeFibLines(allNodes);
 
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
