@@ -506,6 +506,12 @@ function startLiveUpdates() {
                         const targetDisplay = document.getElementById('target-range-main');
                         if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision} (${decisionResult.probability})`;
                         if (targetDisplay) targetDisplay.innerText = `Target: ${decisionResult.targetRange}`;
+                        // 3. Update de Confidence Score (DEZE MISTE NOG!)
+                        const confEl = document.getElementById('probability-score');
+                        if (confEl) {
+                            confEl.innerText = `Confidence: ${decisionResult.probability}`; // of wat je in je resultaat hebt
+                            confEl.style.color = (decisionResult.probability === 'High') ? '#00ffcc' : '#aaa';
+                        }
                     } else {
                         console.warn("Orisis blokkeert update: activePrice of nextPrice is NaN");
                     }
