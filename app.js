@@ -578,20 +578,18 @@ function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) 
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // Gebruik de robuuste filter
-    const resetNodes = targetNodes.filter(n => n.type && n.type.toLowerCase() === 'reset');
+    // HERSCHREVEN FILTER: We filteren op basis van de harmonische lens
+    // Micro (3) kijkt naar vortex3, Meso (6) naar vortex6, Macro (9) naar reset
+    const filterType = (harmonic >= 9) ? 'reset' : (harmonic >= 6) ? 'vortex6' : 'vortex3';
+    const relevantNodes = targetNodes.filter(n => n.type && n.type.toLowerCase().includes(filterType));
     
-    if (resetNodes.length < 2) {
-        console.warn(`[DEBUG] ResetNodes gevonden: ${resetNodes.length}. Totaal aantal nodes in targetNodes: ${targetNodes.length}`);
+    if (relevantNodes.length < 2) {
+        console.warn(`[DEBUG] Nodes van type ${filterType} gevonden: ${relevantNodes.length}. Totaal aantal nodes in targetNodes: ${targetNodes.length}`);
         return;
     }
 
-    const count = Math.min(harmonic, resetNodes.length);
-    const relevantNodes = resetNodes.slice(-count);
-
-    const nodesInRange = targetNodes.filter(n => 
-        n.time >= relevantNodes[0].time && n.time <= relevantNodes[relevantNodes.length - 1].time
-    );
+    const count = Math.min(harmonic, relevantNodes.length);
+    const nodesInRange = relevantNodes.slice(-count);
 
     const rangeHigh = Math.max(...nodesInRange.map(n => n.high));
     const rangeLow = Math.min(...nodesInRange.map(n => n.low));
@@ -614,7 +612,7 @@ function updateActiveNodeFibLines(targetNodes, harmonic = uotamHarmonicSetting) 
         }
     });
     
-    console.log(`Fibonacci berekend voor ${count} nodes (Tesla-Harmonie: ${harmonic})`);
+    console.log(`Fibonacci berekend voor ${count} nodes van type ${filterType} (Tesla-Harmonie: ${harmonic})`);
 }
 
 // Globale array voor volume history
