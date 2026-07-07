@@ -498,6 +498,16 @@ function startLiveUpdates() {
                 if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
                     const activeNode = allNodes[allNodes.length - 1];
                     const nextNode = allNodes.length > 1 ? allNodes[allNodes.length - 2] : activeNode;
+
+                    // DEBUG: Check wat hier uitkomt
+                    console.log("ActiveNode:", activeNode);
+                    console.log("NextNode:", nextNode);
+                    
+                    // Voeg dit toe: Controleer of de prijs een geldig getal is
+                    if (!activeNode || !activeNode.price) {
+                        console.error("Fout: ActiveNode prijs is niet beschikbaar!");
+                        return; // Stop de functie als we geen node hebben
+                    }
                     
                     // Fibonacci Grid update
                     const chartData = rawData.map(d => ({ time: Math.floor(d[0] / 1000), high: parseFloat(d[2]), low: parseFloat(d[3]) }));
