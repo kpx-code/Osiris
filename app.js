@@ -487,13 +487,11 @@ function startLiveUpdates() {
                 if (chaosStatusEl) { chaosStatusEl.innerText = chaos > 15 ? "EXTREME" : "STABIEL"; chaosStatusEl.style.color = chaos > 15 ? "#ef5350" : "#00ffcc"; }
 
                 // --- NIEUWE FIBONACCI LOGICA ---
-                // Transformeer rawData naar het formaat dat applyUOTAMGrid verwacht
+                // --- HIER PLAATS JE DE AANPASSING ---
                 const chartData = rawData.map(d => ({
                     time: Math.floor(d[0] / 1000),
-                    open: parseFloat(d[1]),
                     high: parseFloat(d[2]),
-                    low: parseFloat(d[3]),
-                    close: parseFloat(d[4])
+                    low: parseFloat(d[3])
                 }));
 
                 if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
@@ -501,14 +499,15 @@ function startLiveUpdates() {
                     
                     if (activeNode.id !== lastProcessedNodeId) {
                         console.log("Nieuwe Node gedetecteerd:", activeNode.id);
-                        // Gebruik hier de correct getransformeerde chartData
                         applyUOTAMGrid(chartData); 
-                        updateActiveNodeFibLines(allNodes); 
+                        updateActiveNodeFibLines(allNodes, chartData); // Aangepast!
                         lastProcessedNodeId = activeNode.id; 
                     } else {
-                        updateActiveNodeFibLines(allNodes); 
+                        updateActiveNodeFibLines(allNodes, chartData); // Aangepast!
                     }
                 }
+                // --- EINDE AANPASSING ---
+
             } else {
                 const chaosEl = document.getElementById('chaos-display');
                 if (chaosEl) chaosEl.innerText = `Laden (${rawData.length}/288)`;
@@ -516,7 +515,6 @@ function startLiveUpdates() {
         } catch (err) { console.error("UOTAM Engine Fout:", err); }
     };
 }
-
 
 
 function startSentimentStream() {
@@ -574,50 +572,47 @@ function calculateFibLevels(high, low, isBullish) {
 
 // Standaard instelling (kan later via UI veranderd worden)
 
-function updateActiveNodeFibLines(targetNodes, chartData, harmonic = uotamHarmonicSetting) {
+function updateActiveNodeFibLines(targetNodes, chartData = null, harmonic = uotamHarmonicSetting) {
+    // Kogelvrije check: Als chartData ontbreekt, probeer het te halen uit rawData
+    if (!chartData && typeof rawData !== 'undefined' && rawData.length > 0) {
+        chartData = rawData.map(d => ({
+            time: Math.floor(d[0] / 1000),
+            high: parseFloat(d[2]),
+            low: parseFloat(d[3])
+        }));
+    }
 
-    // VEILIGHEIDSCHECK: Als chartData ontbreekt, stop hier en crash niet
+    // Stop als we echt geen data hebben
     if (!chartData || chartData.length === 0) {
-        console.warn("Fib-lijnen uitgesteld: Geen chartData beschikbaar.");
+        console.warn("Fib-lijnen uitgesteld: Geen data beschikbaar.");
         return;
     }
-    // DEBUG: Dit vertelt ons precies waarom de filter faalt
-    console.log("Debug targetNodes:", targetNodes.map(n => ({ id: n.id, type: n.type })));
-    
+
     // 1. Wis oude lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // 2. HERSCHREVEN FILTER: We filteren op basis van de harmonische lens
-    // Micro (3) kijkt naar vortex3, Meso (6) naar vortex6, Macro (9) naar reset
+    // 2. Filter op basis van harmonische lens
     const filterType = (harmonic >= 9) ? 'reset' : (harmonic >= 6) ? 'vortex6' : 'vortex3';
     const relevantNodes = targetNodes.filter(n => n.type && n.type.toLowerCase().includes(filterType));
     
-    if (relevantNodes.length < 2) {
-        console.warn(`[DEBUG] Nodes van type ${filterType} gevonden: ${relevantNodes.length}. Totaal aantal nodes in targetNodes: ${targetNodes.length}`);
-        return;
-    }
+    if (relevantNodes.length < 2) return;
 
-    // 3. Bepaal het bereik (Nodes voor timing, Candles voor prijs)
+    // 3. Bepaal bereik
     const count = Math.min(harmonic, relevantNodes.length);
     const nodesInRange = relevantNodes.slice(-count);
     const startTime = nodesInRange[0].time;
     const endTime = nodesInRange[nodesInRange.length - 1].time;
 
-    // 4. SCAN ALLE RAUWE CANDLES (De liquiditeits-scan)
-    // We filteren chartData op alle candles die tussen de start- en eind-node vallen
+    // 4. Scan rauwe candles voor prijs-range
     const candlesInPeriod = chartData.filter(c => c.time >= startTime && c.time <= endTime);
+    if (candlesInPeriod.length === 0) return;
 
-    // Bepaal de absolute High en Low van alle candles in die periode
     const rangeHigh = Math.max(...candlesInPeriod.map(c => c.high));
     const rangeLow = Math.min(...candlesInPeriod.map(c => c.low));
     
-    // Gebruik de bullish status van de laatste node in de range
-    const isBullish = nodesInRange[nodesInRange.length - 1].isBullish;
-
-    const levels = calculateFibLevels(rangeHigh, rangeLow, isBullish);
-
-    // 5. Tekenen van de lijnen
+    // 5. Teken de lijnen
+    const levels = calculateFibLevels(rangeHigh, rangeLow, nodesInRange[nodesInRange.length - 1].isBullish);
     Object.entries(levels).forEach(([ratio, price]) => {
         const style = fibStyles[ratio] || { color: '#cccccc', label: ratio };
         if (!isNaN(price)) {
@@ -632,7 +627,8 @@ function updateActiveNodeFibLines(targetNodes, chartData, harmonic = uotamHarmon
             activeFibLines.push(line);
         }
     });
-    
+
+    // Hier is je debugging regel weer terug:
     console.log(`Fibonacci berekend voor ${count} nodes van type ${filterType} (Tesla-Harmonie: ${harmonic}) over ${candlesInPeriod.length} candles.`);
 }
 
