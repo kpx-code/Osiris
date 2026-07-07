@@ -575,6 +575,12 @@ function calculateFibLevels(high, low, isBullish) {
 // Standaard instelling (kan later via UI veranderd worden)
 
 function updateActiveNodeFibLines(targetNodes, chartData, harmonic = uotamHarmonicSetting) {
+
+    // VEILIGHEIDSCHECK: Als chartData ontbreekt, stop hier en crash niet
+    if (!chartData || chartData.length === 0) {
+        console.warn("Fib-lijnen uitgesteld: Geen chartData beschikbaar.");
+        return;
+    }
     // DEBUG: Dit vertelt ons precies waarom de filter faalt
     console.log("Debug targetNodes:", targetNodes.map(n => ({ id: n.id, type: n.type })));
     
