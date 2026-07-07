@@ -460,8 +460,74 @@ function startLiveUpdates() {
                 const er = liveVol / sma20Volume;
                 const db = (high - low !== 0) ? (2 * livePrice - (high + low)) / (high - low) : 0;
                 const vfm = er * db;
-                
+                const chaos = Math.abs((livePrice - parseFloat(rawData[rawData.length - 288][4])) / parseFloat(rawData[rawData.length - 288][4])) * 100;
+            
                 // [VFM en Metric UI updates blijven hier staan zoals je ze had]
+                // VFM UI Update
+
+                const absVfm = Math.abs(vfm);
+
+                let vfmStatus = (absVfm < 0.1) ? "NEUTRAAL (DEAD ZONE)" : (absVfm > 1.5 ? "EXTREME" : "SIGNIFICANT");
+
+                const vfmEl = document.getElementById('vfm-display');
+
+                const vfmStatusEl = document.getElementById('vfm-status');
+
+                if (vfmEl) { vfmEl.innerText = vfm.toFixed(3); vfmEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
+
+                if (vfmStatusEl) { vfmStatusEl.innerText = vfmStatus; vfmStatusEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
+
+
+
+                // ER/DB Updates
+
+                const updateMetric = (id, val, status) => {
+
+                    const pEl = document.getElementById(`${id}-display`);
+
+                    const sEl = document.getElementById(`${id}-status`);
+
+                    if (pEl) pEl.innerText = val.toFixed(2);
+
+                    if (sEl) { sEl.innerText = status; sEl.style.color = (val > 0) ? "#00ffcc" : "#ef5350"; }
+
+                };
+
+                updateMetric('er', er, er > 1.2 ? "HIGH ENERGY" : "LOW ENERGY");
+
+                updateMetric('db', db, db > 0 ? "BULLISH" : "BEARISH");
+
+
+
+                // Chaos Index
+
+                const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
+
+                const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+
+                const chaosEl = document.getElementById('chaos-display');
+
+                const chaosStatusEl = document.getElementById('chaos-status');
+
+                if (chaosEl) chaosEl.innerText = chaos.toFixed(1) + '%';
+
+                if (chaosStatusEl) { chaosStatusEl.innerText = chaos > 15 ? "EXTREME" : "STABIEL"; chaosStatusEl.style.color = chaos > 15 ? "#ef5350" : "#00ffcc"; }
+
+
+
+                // --- NIEUWE FIBONACCI LOGICA ---
+
+                // --- HIER PLAATS JE DE AANPASSING ---
+
+                const chartData = rawData.map(d => ({
+
+                    time: Math.floor(d[0] / 1000),
+
+                    high: parseFloat(d[2]),
+
+                    low: parseFloat(d[3])
+
+                }));
                 
                 // 5. Orisis & Fibonacci Integratie
                 if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
