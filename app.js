@@ -573,46 +573,52 @@ function calculateFibLevels(high, low, isBullish) {
 // Standaard instelling (kan later via UI veranderd worden)
 
 function updateActiveNodeFibLines(targetNodes, chartData = null, harmonic = uotamHarmonicSetting) {
-    // Kogelvrije check: Als chartData ontbreekt, probeer het te halen uit rawData
-    if (!chartData && typeof rawData !== 'undefined' && rawData.length > 0) {
-        chartData = rawData.map(d => ({
+    // 1. ZORG DAT WE EEN ARRAY HEBBEN
+    // Als chartData null is, probeer rawData te gebruiken. 
+    // We mappen het hier direct naar de juiste structuur (time, high, low)
+    let processedData = [];
+    
+    if (chartData && Array.isArray(chartData)) {
+        processedData = chartData;
+    } else if (typeof rawData !== 'undefined' && Array.isArray(rawData)) {
+        processedData = rawData.map(d => ({
             time: Math.floor(d[0] / 1000),
             high: parseFloat(d[2]),
             low: parseFloat(d[3])
         }));
     }
 
-    // Stop als we echt geen data hebben
-    if (!chartData || chartData.length === 0) {
-        console.warn("Fib-lijnen uitgesteld: Geen data beschikbaar.");
+    // 2. CHECK OF WE NU EEN ARRAY HEBBEN
+    if (!Array.isArray(processedData) || processedData.length === 0) {
+        console.warn("Fib-lijnen geannuleerd: Geen valide chartData beschikbaar.");
         return;
     }
 
-    // 1. Wis oude lijnen
+    // 3. Wis oude lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // 2. Filter op basis van harmonische lens
+    // 4. Filter op basis van harmonische lens
     const filterType = (harmonic >= 9) ? 'reset' : (harmonic >= 6) ? 'vortex6' : 'vortex3';
     const relevantNodes = targetNodes.filter(n => n.type && n.type.toLowerCase().includes(filterType));
     
     if (relevantNodes.length < 2) return;
 
-    // 3. Bepaal bereik
     const count = Math.min(harmonic, relevantNodes.length);
     const nodesInRange = relevantNodes.slice(-count);
     const startTime = nodesInRange[0].time;
     const endTime = nodesInRange[nodesInRange.length - 1].time;
 
-    // 4. Scan rauwe candles voor prijs-range
-    const candlesInPeriod = chartData.filter(c => c.time >= startTime && c.time <= endTime);
+    // 5. Gebruik nu processedData in plaats van chartData.filter
+    const candlesInPeriod = processedData.filter(c => c.time >= startTime && c.time <= endTime);
+    
     if (candlesInPeriod.length === 0) return;
 
     const rangeHigh = Math.max(...candlesInPeriod.map(c => c.high));
     const rangeLow = Math.min(...candlesInPeriod.map(c => c.low));
     
-    // 5. Teken de lijnen
     const levels = calculateFibLevels(rangeHigh, rangeLow, nodesInRange[nodesInRange.length - 1].isBullish);
+    
     Object.entries(levels).forEach(([ratio, price]) => {
         const style = fibStyles[ratio] || { color: '#cccccc', label: ratio };
         if (!isNaN(price)) {
@@ -628,7 +634,6 @@ function updateActiveNodeFibLines(targetNodes, chartData = null, harmonic = uota
         }
     });
 
-    // Hier is je debugging regel weer terug:
     console.log(`Fibonacci berekend voor ${count} nodes van type ${filterType} (Tesla-Harmonie: ${harmonic}) over ${candlesInPeriod.length} candles.`);
 }
 
