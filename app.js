@@ -517,14 +517,20 @@ function startLiveUpdates() {
                     }
                     updateActiveNodeFibLines(allNodes, chartData);
 
-                    // --- ORISIS BESLISSINGS ENGINE ---
+                    // 2. ORISIS BESLISSINGS ENGINE (Hier komt je nieuwe logica)
+                    // Bereken de prijzen op basis van het object
+                    const activePrice = (activeNode.high + activeNode.low) / 2;
+                    const nextPrice = (nextNode.high + nextNode.low) / 2;
+                
+                    // Bereken chaos (reeds aanwezig in je code)
                     const chaos = Math.abs((livePrice - parseFloat(rawData[rawData.length - 288][4])) / parseFloat(rawData[rawData.length - 288][4])) * 100;
                     
+                    // Roep de engine aan met de juiste parameters
                     const decisionResult = getOrisisDecisionData(
-                        volMetrics, livePrice, activeNode, nextNode, vfm, er, db, chaos, isBullish
+                        volMetrics, livePrice, activePrice, nextPrice, vfm, er, db, chaos, isBullish
                     );
-
-                    // Update de Orisis Status op je Dashboard
+                
+                    // 3. Update UI
                     const statusDisplay = document.getElementById('market-status-display');
                     const targetDisplay = document.getElementById('target-range-display');
                     if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision} (${decisionResult.probability})`;
