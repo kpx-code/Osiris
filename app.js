@@ -573,9 +573,7 @@ function calculateFibLevels(high, low, isBullish) {
 // Standaard instelling (kan later via UI veranderd worden)
 
 function updateActiveNodeFibLines(targetNodes, chartData = null, harmonic = uotamHarmonicSetting) {
-    // 1. ZORG DAT WE EEN ARRAY HEBBEN
-    // Als chartData null is, probeer rawData te gebruiken. 
-    // We mappen het hier direct naar de juiste structuur (time, high, low)
+    // 1. Herstel de structuur: Zorg voor een werkbare array zonder de logic flow aan te passen
     let processedData = [];
     
     if (chartData && Array.isArray(chartData)) {
@@ -609,7 +607,7 @@ function updateActiveNodeFibLines(targetNodes, chartData = null, harmonic = uota
     const startTime = nodesInRange[0].time;
     const endTime = nodesInRange[nodesInRange.length - 1].time;
 
-    // 5. Gebruik nu processedData in plaats van chartData.filter
+    // 5. Gebruik processedData (deze is nu gegarandeerd een array, dus .filter werkt altijd)
     const candlesInPeriod = processedData.filter(c => c.time >= startTime && c.time <= endTime);
     
     if (candlesInPeriod.length === 0) return;
