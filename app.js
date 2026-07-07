@@ -638,22 +638,37 @@ function updateActiveNodeFibLines(targetNodes, chartData = null, harmonic = uota
 // Globale array voor volume history
 let volumeHistory = [];
 
-function calculateVolumeMetrics(currentVol, isBullish) {
+function calculateVolumeMetrics(currentVol, priceDelta, isBullish, harmonic) {
+    const windowSize = harmonic * 10;
     volumeHistory.push(currentVol);
-    if (volumeHistory.length > 20) volumeHistory.shift();
+    if (volumeHistory.length > windowSize) volumeHistory.shift();
 
     const avgVol = volumeHistory.reduce((a, b) => a + b, 0) / volumeHistory.length;
-    const rateOfChange = ((currentVol - avgVol) / avgVol) * 100;
+    const variance = volumeHistory.reduce((a, b) => a + Math.pow(b - avgVol, 2), 0) / volumeHistory.length;
+    const stdDev = Math.sqrt(variance);
+    const zScore = stdDev > 0 ? (currentVol - avgVol) / stdDev : 0;
+    const vpe = Math.abs(priceDelta) / (zScore + 1);
 
-    // Relative Score (0 tot 100) op basis van volume intensiteit
-    const relativeScore = Math.min((currentVol / (avgVol * 2)) * 100, 100);
+    let regime = "RANGE-BOUND";
+    if (zScore > 1.5 && Math.abs(priceDelta) > 0.05) regime = isBullish ? "BULLISH_EXPANSION" : "BEARISH_CRASH";
+    else if (zScore < -0.5) regime = "LOW_CONVICTION";
+    else if (zScore > 0.5 && Math.abs(priceDelta) < 0.01) regime = "ACCUMULATION";
 
-    return {
-        rate: rateOfChange.toFixed(1),
-        score: relativeScore.toFixed(0),
-        bullishVolume: isBullish ? currentVol : 0,
-        bearishVolume: !isBullish ? currentVol : 0
+    // We geven alles terug: zowel de rauwe stats als de UI-ready formaten
+    return { 
+        zScore: zScore.toFixed(2), 
+        vpe: vpe.toFixed(4), 
+        regime,
+        rate: (((currentVol - avgVol) / avgVol) * 100).toFixed(1),
+        score: Math.max(0, Math.min((zScore + 1) * 50, 100)).toFixed(0)
     };
+}
+
+function updateDashboard(metrics) {
+    document.getElementById('vol-rate').innerText = metrics.rate + '%';
+    document.getElementById('vol-score').innerText = metrics.score + '/100';
+    // Eventueel: verander kleur op basis van regime
+    document.getElementById('vol-score').style.color = metrics.regime === "BULLISH_EXPANSION" ? "#00ffcc" : "#ff9900";
 }
 
 function getLastActiveNode() {
