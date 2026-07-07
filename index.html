@@ -55,63 +55,43 @@
     </div>
 </div>
 
-<div class="metrics-container" style="display: flex; gap: 20px; align-items: stretch; margin-top: 20px;">
-    
-    <div class="card" style="flex: 2; padding: 20px; text-align: center;">
-        <h3>Live Volume (BTC)</h3>
-        <p id="live-volume" style="font-size: 2em; color: #ff9900; margin: 0;">Wachten...</p>
+<div class="metrics-container" style="display: flex; gap: 15px; margin-top: 20px;">
+    <div class="card" style="flex: 1; padding: 20px; text-align: center; background: #1f2233; border-radius: 8px;">
+        <h3 style="margin: 0 0 10px 0; font-size: 0.9em; opacity: 0.7;">LIVE VOLUME (BTC)</h3>
+        <p id="live-volume" style="font-size: 2em; color: #ff9900; margin: 0; font-weight: bold;">Wachten...</p>
     </div>
-
-    <div class="card" style="flex: 1; padding: 20px; display: flex; flex-direction: column; justify-content: center;">
-        <div class="stat-container">
-            <p style="margin: 5px 0;">Volume Rate: <span id="vol-rate" style="color: #fff;">0%</span></p>
-            <p style="margin: 5px 0;">Score: <span id="vol-score" style="font-size: 1.2em; color: #ff9900;">0/100</span></p>
-        </div>
+    <div class="card" style="flex: 1; padding: 20px; text-align: center; background: #1f2233; border-radius: 8px; display: flex; flex-direction: column; justify-content: center;">
+        <p style="margin: 5px 0; font-weight: bold;">Volume Rate: <span id="vol-rate" style="color: #fff;">0%</span></p>
+        <p style="margin: 5px 0; font-weight: bold;">Score: <span id="vol-score" style="color: #ff9900;">0/100</span></p>
     </div>
 </div>
 
-    <div class="metrics-grid">
-        <div class="card">
-            <h3>VFM</h3>
-            <p id="vfm-display">0.00</p>
-            <small id="vfm-status">Wachten...</small>
-        </div>
-        <div class="card">
-            <h3>ER (Energy Ratio)</h3>
-            <p id="er-display">0.00</p>
-            <small id="er-status">Ref: 1.0</small>
-        </div>
-        <div class="card">
-            <h3>DB (Delta Balance)</h3>
-            <p id="db-display">0.00</p>
-            <small id="db-status">Bereik: -1 tot 1</small>
-        </div>
-        <div class="card">
-            <h3>Chaos Index</h3>
-            <p id="chaos-display">0.00%</p>
-            <small id="chaos-status">Limit: 8% / 15%</small>
-        </div>
+<div class="metrics-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 20px;">
+    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
+        <h3>VFM</h3><p id="vfm-display">0.00</p><small id="vfm-status">Wachten...</small>
+    </div>
+    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
+        <h3>ER (Energy Ratio)</h3><p id="er-display">0.00</p><small id="er-status">Ref: 1.0</small>
+    </div>
+    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
+        <h3>DB (Delta Balance)</h3><p id="db-display">0.00</p><small id="db-status">Bereik: -1 tot 1</small>
+    </div>
+    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
+        <h3>Chaos Index</h3><p id="chaos-display">0.00%</p><small id="chaos-status">Limit: 8% / 15%</small>
     </div>
 </div>
-<div class="card" style="margin-top: 20px;">
+
+<div class="card" style="margin-top: 20px; padding: 15px; background: #1f2233; border-radius: 8px;">
     <h3>Market Pressure (Buyers vs Sellers)</h3>
-    
-    <div id="sentiment-bar-container" style="width: 100%; height: 20px; background: #1f2233; border-radius: 10px; overflow: hidden; display: flex; position: relative; margin-top: 10px;">
-        <div id="sentiment-bar-green" style="width: 50%; height: 100%; background: #00ffcc; transition: width 0.3s ease;"></div>
-        
-        <div id="sentiment-bar-red" style="width: 50%; height: 100%; background: #ef5350; transition: width 0.3s ease;"></div>
-    </div>
-    
-    <div style="display: flex; justify-content: space-between; font-size: 0.7em; margin-top: 5px; color: #888;">
-        <span>BUYERS</span>
-        <span>SELLERS</span>
+    <div id="sentiment-bar-container" style="width: 100%; height: 20px; background: #131722; border-radius: 10px; overflow: hidden; display: flex; position: relative; margin-top: 10px;">
+        <div id="sentiment-bar-green" style="width: 50%; height: 100%; background: #00ffcc;"></div>
+        <div id="sentiment-bar-red" style="width: 50%; height: 100%; background: #ef5350;"></div>
     </div>
 </div>
-<div>
-    <div class="card" style="margin-top: 30px;">
+
+<div class="card" style="margin-top: 20px; padding: 15px; background: #1f2233; border-radius: 8px;">
     <h3>Prijs & Volume Historie (Laatste 10)</h3>
-    <ul id="history-list" style="list-style: none; padding: 0; font-family: monospace;"></ul>
-    </div>
+    <div id="history-list"></div>
 </div>
 </div>
     <script src="/Osiris/app.js"></script>
