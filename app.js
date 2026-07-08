@@ -653,19 +653,40 @@ function updateActiveNodeFibLines(targetNodes, chartData = null) {
     };
 
     const allScales = [
-        { id: 'MIC', harmonic: 3, type: 'vortex3' },
-        { id: 'MES', harmonic: 9, type: 'reset' },
-        { id: 'MAC', harmonic: 24, type: 'reset' }
-    ];
+    // Micro: 9-candle cyclus. 
+    // We filteren niet op type, maar we kijken naar de laatste 9.
+    { id: 'MIC', harmonic: 9, width: 1 }, 
+    
+    // Meso: 12.25-dag cyclus. 
+    // Hier kijken we naar 12 nodes terug voor de swing-structuur.
+    { id: 'MES', harmonic: 12, width: 1 }, 
+    
+    // Macro: 49-dag cyclus (Quarterly Scaffolding).
+    // Hier kijken we naar 49 nodes terug voor de structurele marktlaag.
+    { id: 'MAC', harmonic: 49, width: 1 }
+];
+   // const allScales = [
+   //     { id: 'MIC', harmonic: 9 },  // 9-candle Micro
+   //     { id: 'MES', harmonic: 12 }, // 12.25-dag Meso
+   //     { id: 'MAC', harmonic: 49 }  // 49-dag Macro
+   // ];
 
-    // 4. Teken alleen wat actief is
+    // 4. Teken alleen wat actief is (Fractaal TAM model)
     allScales.forEach(scale => {
-        if (!activeFibScales[scale.id]) return; 
+        // Check of de gebruiker deze schaal aan heeft staan via de UI
+        if (!activeFibScales[scale.id]) return;
 
-        const relevantNodes = targetNodes.filter(n => n.type && n.type.toLowerCase().includes(scale.type));
+        // GEEN harde filter op 'type' meer: 
+        // We gebruiken ALLE beschikbare nodes als ankerpunten.
+        // Dit respecteert de fractale natuur van het TAM-model.
+        const relevantNodes = targetNodes; 
+        
         if (relevantNodes.length < 2) return;
 
+        // Pak de laatste X nodes op basis van de harmonische waarde (9, 12, of 49)
         const nodesInRange = relevantNodes.slice(-scale.harmonic);
+        
+        // Bepaal het tijdsbereik op basis van deze nodes
         const startTime = nodesInRange[0].time;
         const endTime = nodesInRange[nodesInRange.length - 1].time;
         
@@ -675,20 +696,20 @@ function updateActiveNodeFibLines(targetNodes, chartData = null) {
         const rangeHigh = Math.max(...candlesInPeriod.map(c => c.high));
         const rangeLow = Math.min(...candlesInPeriod.map(c => c.low));
         
-        // Bereken levels
-        const levels = calculateFibLevels(rangeHigh, rangeLow);
+        // Bereken Fibonacci niveaus (isBullish gebaseerd op de laatste node in de reeks)
+        const levels = calculateFibLevels(rangeHigh, rangeLow, nodesInRange[nodesInRange.length - 1].isBullish);
+        
         const palette = fibPalettes[scale.id];
 
         Object.entries(levels).forEach(([ratio, price]) => {
-            // Gebruik kleur van fibStyles, maar stijl/dikte van palette
             const levelStyle = fibStyles[ratio] || { color: '#cccccc', label: ratio };
             
             if (!isNaN(price)) {
                 const line = candlestickSeries.createPriceLine({
                     price: price,
-                    color: levelStyle.color, // Jouw kleuren (0.618 blijft groen, etc.)
-                    lineWidth: palette.width,
-                    lineStyle: palette.style, // Stijl per schaal (Dotted/Dashed/Solid)
+                    color: levelStyle.color, // Kleur per Fib-niveau
+                    lineWidth: palette.width, // Dikte per schaal
+                    lineStyle: palette.style, // Stijl (dotted/dashed/solid) per schaal
                     axisLabelVisible: true,
                     title: `${scale.id} ${levelStyle.label}` 
                 });
@@ -697,16 +718,16 @@ function updateActiveNodeFibLines(targetNodes, chartData = null) {
         });
     });
 }
-
 /**
  * Schakelt Fibonacci schalen in/uit en ververst de chart.
  * Zorg dat deze functie op het hoogste niveau in app.js staat!
  */
+
 function toggleFibScale(scaleId) {
     // 1. Wissel de status
     activeFibScales[scaleId] = !activeFibScales[scaleId];
     
-    // 2. Visuele feedback (knoppen oplichten/dimmen)
+    // 2. Visuele feedback
     const btn = document.getElementById(`btn-toggle-${scaleId}`);
     if (btn) {
         btn.style.opacity = activeFibScales[scaleId] ? '1' : '0.5';
@@ -714,12 +735,12 @@ function toggleFibScale(scaleId) {
     }
     
     // 3. Herbereken en teken de chart
-    // We gebruiken 'allNodes' en 'rawData' die globaal beschikbaar zijn
-    if (typeof allNodes !== 'undefined' && typeof rawData !== 'undefined') {
+    // VOEG TOE: Check of de chart-serie überhaupt al bestaat
+    if (typeof candlestickSeries !== 'undefined' && typeof allNodes !== 'undefined' && typeof rawData !== 'undefined') {
         updateActiveNodeFibLines(allNodes, rawData);
         console.log(`Schaal ${scaleId} is nu: ${activeFibScales[scaleId] ? 'AAN' : 'UIT'}`);
     } else {
-        console.warn("Data (allNodes/rawData) nog niet beschikbaar voor Fibonacci update.");
+        console.warn("Chart of data is nog niet klaar voor Fibonacci update.");
     }
 }
 
