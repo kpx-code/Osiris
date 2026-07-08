@@ -87,3 +87,14 @@ body {
     70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(0, 255, 204, 0); }
     100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 255, 204, 0); }
 }
+
+#chart-container {
+    width: 100%;
+    /* Minimaal 400px voor leesbaarheid, maximaal 800px om te voorkomen dat hij te groot wordt */
+    height: 60vh; 
+    min-height: 400px;
+    max-height: 800px;
+    background-color: #131722;
+    border-radius: 4px;
+    margin-top: 10px;
+}
