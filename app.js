@@ -230,8 +230,18 @@ function updateInfoPanel() {
     // Mid Pulse: Zoek de eerste 'mid_'-node in allNodes die nog moet komen
     const midPulseEl = document.getElementById('mid-pulse-display');
     if (midPulseEl) {
-        const nextMidNode = allNodes.find(n => n.type === 'mid-pulse' && (n.time * 1000) > now);
-        midPulseEl.innerText = nextMidNode ? formatCountdown(nextMidNode.time * 1000) : "Wachten...";
+        if (allNodes.length === 0) {
+            midPulseEl.innerText = "Synchroniseren...";
+        } else {
+            // Filter en vind de eerste toekomstige mid-pulse
+            const nextMidNode = allNodes.find(n => n.type === 'mid-pulse' && (n.time * 1000) > now);
+            
+            if (nextMidNode) {
+                midPulseEl.innerText = formatCountdown(nextMidNode.time * 1000);
+            } else {
+                midPulseEl.innerText = "Pulse voorbij";
+            }
+        }
     }
 
     // Next Node: De absolute eerstvolgende node (Reset/Vola/Vortex/etc)
