@@ -229,26 +229,28 @@ function updateInfoPanel() {
     
     // Mid Pulse: Zoek de eerste 'mid_'-node in allNodes die nog moet komen
     // Mid Pulse: Zoek de eerste 'mid_'-node in de toekomst
+   // Mid Pulse: Bereken altijd de eerstvolgende mid-pulse op basis van tijd
     const midPulseEl = document.getElementById('mid-pulse-display');
     if (midPulseEl) {
-        if (allNodes.length === 0) {
-            midPulseEl.innerText = "Synchroniseren...";
-        } else {
-            // 1. Zoek naar toekomstige nodes in de bestaande array
-            let nextMidNode = allNodes.find(n => n.type === 'mid-pulse' && (n.time * 1000) > now);
-            
-            // 2. Fallback: Als er geen toekomstige node in de array staat, berekenen we de volgende zelf
-            if (!nextMidNode) {
-                // Bereken de index van de volgende mid-pulse
-                // Huidige index (ongeveer) + 0.5 (voor de mid-offset)
-                const nextMidIndex = Math.floor((now - ANCHOR_TIME) / T_PI_MS) + 0.5;
-                const nextMidTime = ANCHOR_TIME + (nextMidIndex * T_PI_MS);
-                
-                midPulseEl.innerText = formatCountdown(nextMidTime);
-            } else {
-                midPulseEl.innerText = formatCountdown(nextMidNode.time * 1000);
-            }
+        // We weten dat een node T_PI_MS duurt. Een mid-pulse is op exact +0.5 node afstand.
+        const now = Date.now();
+        const timeSinceAnchor = now - ANCHOR_TIME;
+        
+        // Bereken de index van de huidige cyclus (bijv. 120.4)
+        const currentIndex = timeSinceAnchor / T_PI_MS;
+        
+        // De volgende mid-pulse is de eerstvolgende 'X.5' waarde
+        // We pakken de floor van de index, en tellen daar 0.5 bij op
+        const nextMidIndex = Math.floor(currentIndex) + 0.5;
+        
+        // Als we al voorbij de 0.5 zijn, moeten we naar de volgende node (X+1.5)
+        let targetMidIndex = nextMidIndex;
+        if (targetMidIndex * T_PI_MS < timeSinceAnchor) {
+            targetMidIndex += 1;
         }
+        
+        const nextMidTime = ANCHOR_TIME + (targetMidIndex * T_PI_MS);
+        midPulseEl.innerText = formatCountdown(nextMidTime);
     }
 
     // Next Node: De absolute eerstvolgende node (Reset/Vola/Vortex/etc)
