@@ -541,7 +541,7 @@ function startLiveUpdates() {
                         );
                         const statusDisplay = document.getElementById('market-status-main');
                         const targetDisplay = document.getElementById('target-range-main');
-                        if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision} (${decisionResult.probability})`;
+                        if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision}`;
                         if (targetDisplay) targetDisplay.innerText = `Target: ${decisionResult.targetRange}`;
                         // 3. Update de Confidence Score (DEZE MISTE NOG!)
                         const confEl = document.getElementById('probability-score');
