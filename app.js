@@ -620,67 +620,73 @@ function calculateFibLevels(high, low, isBullish) {
 
 // Standaard instelling (kan later via UI veranderd worden)
 
-function updateActiveNodeFibLines(targetNodes, chartData = null, harmonic = uotamHarmonicSetting) {
-    // 1. Herstel de structuur: Zorg voor een werkbare array zonder de logic flow aan te passen
-    let processedData = [];
-    
-    if (chartData && Array.isArray(chartData)) {
-        processedData = chartData;
-    } else if (typeof rawData !== 'undefined' && Array.isArray(rawData)) {
-        processedData = rawData.map(d => ({
-            time: Math.floor(d[0] / 1000),
-            high: parseFloat(d[2]),
-            low: parseFloat(d[3])
-        }));
-    }
+function updateActiveNodeFibLines(targetNodes, chartData = null) {
+    // 1. Data voorbereiding (blijft gelijk)
+    let processedData = (chartData && Array.isArray(chartData)) ? chartData : rawData.map(d => ({
+        time: Math.floor(d[0] / 1000),
+        high: parseFloat(d[2]),
+        low: parseFloat(d[3])
+    }));
 
-    // 2. CHECK OF WE NU EEN ARRAY HEBBEN
-    if (!Array.isArray(processedData) || processedData.length === 0) {
-        console.warn("Fib-lijnen geannuleerd: Geen valide chartData beschikbaar.");
-        return;
-    }
+    if (!Array.isArray(processedData) || processedData.length === 0) return;
 
-    // 3. Wis oude lijnen
+    // 2. Wis oude lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // 4. Filter op basis van harmonische lens
-    const filterType = (harmonic >= 9) ? 'reset' : (harmonic >= 6) ? 'vortex6' : 'vortex3';
-    const relevantNodes = targetNodes.filter(n => n.type && n.type.toLowerCase().includes(filterType));
-    
-    if (relevantNodes.length < 2) return;
+    // 3. De drie schalen
+    const allScales = [
+        { id: 'MIC', label: 'MIC', harmonic: 3, type: 'vortex3', width: 1, style: LightweightCharts.LineStyle.Dotted },
+        { id: 'MES', label: 'MES', harmonic: 9, type: 'reset',   width: 2, style: LightweightCharts.LineStyle.Dashed },
+        { id: 'MAC', label: 'MAC', harmonic: 24, type: 'reset',  width: 3, style: LightweightCharts.LineStyle.Solid }
+    ];
 
-    const count = Math.min(harmonic, relevantNodes.length);
-    const nodesInRange = relevantNodes.slice(-count);
-    const startTime = nodesInRange[0].time;
-    const endTime = nodesInRange[nodesInRange.length - 1].time;
+    // 4. Filter op basis van wat de gebruiker actief heeft gezet
+    const scalesToDraw = allScales.filter(s => activeFibScales[s.id]);
 
-    // 5. Gebruik processedData (deze is nu gegarandeerd een array, dus .filter werkt altijd)
-    const candlesInPeriod = processedData.filter(c => c.time >= startTime && c.time <= endTime);
-    
-    if (candlesInPeriod.length === 0) return;
+    scalesToDraw.forEach(scale => {
+        const relevantNodes = targetNodes.filter(n => n.type && n.type.toLowerCase().includes(scale.type));
+        if (relevantNodes.length < 2) return;
 
-    const rangeHigh = Math.max(...candlesInPeriod.map(c => c.high));
-    const rangeLow = Math.min(...candlesInPeriod.map(c => c.low));
-    
-    const levels = calculateFibLevels(rangeHigh, rangeLow, nodesInRange[nodesInRange.length - 1].isBullish);
-    
-    Object.entries(levels).forEach(([ratio, price]) => {
-        const style = fibStyles[ratio] || { color: '#cccccc', label: ratio };
-        if (!isNaN(price)) {
-            const line = candlestickSeries.createPriceLine({
-                price: price,
-                color: style.color,
-                lineWidth: 1,
-                lineStyle: LightweightCharts.LineStyle.Dotted,
-                axisLabelVisible: true,
-                title: style.label
-            });
-            activeFibLines.push(line);
-        }
+        const count = Math.min(scale.harmonic, relevantNodes.length);
+        const nodesInRange = relevantNodes.slice(-count);
+        const startTime = nodesInRange[0].time;
+        const endTime = nodesInRange[nodesInRange.length - 1].time;
+
+        const candlesInPeriod = processedData.filter(c => c.time >= startTime && c.time <= endTime);
+        if (candlesInPeriod.length === 0) return;
+
+        const rangeHigh = Math.max(...candlesInPeriod.map(c => c.high));
+        const rangeLow = Math.min(...candlesInPeriod.map(c => c.low));
+        
+        const levels = calculateFibLevels(rangeHigh, rangeLow, nodesInRange[nodesInRange.length - 1].isBullish);
+        
+        Object.entries(levels).forEach(([ratio, price]) => {
+            const style = fibStyles[ratio] || { color: '#cccccc', label: ratio };
+            if (!isNaN(price)) {
+                const line = candlestickSeries.createPriceLine({
+                    price: price,
+                    color: style.color,
+                    lineWidth: scale.width,
+                    lineStyle: scale.style,
+                    axisLabelVisible: true,
+                    title: `${scale.label} ${style.label}` 
+                });
+                activeFibLines.push(line);
+            }
+        });
     });
+}
 
-    console.log(`Fibonacci berekend voor ${count} nodes van type ${filterType} (Tesla-Harmonie: ${harmonic}) over ${candlesInPeriod.length} candles.`);
+function toggleFibScale(scaleId) {
+    // Wissel de status (true -> false of false -> true)
+    activeFibScales[scaleId] = !activeFibScales[scaleId];
+    
+    // Trigger een directe update van de chart
+    // Je hebt 'allNodes' en 'rawData' al globaal beschikbaar
+    updateActiveNodeFibLines(allNodes, rawData);
+    
+    console.log(`Schaal ${scaleId} is nu: ${activeFibScales[scaleId] ? 'AAN' : 'UIT'}`);
 }
 
 // Globale array voor volume history
