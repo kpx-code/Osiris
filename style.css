@@ -77,8 +77,30 @@ h1 { margin: 0; font-size: 28px; color: #00ffcc; letter-spacing: 1px; }
     100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 255, 204, 0); }
 }
 
-/* --- SCROLLBAR LOOK --- */
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-track { background: #0c0d14; }
-::-webkit-scrollbar-thumb { background: #2a2e39; border-radius: 4px; }
+/* Zorg dat de lijst zelf scrollbaar blijft */
+#history-list {
+    max-height: 400px;
+    overflow-y: auto !important; /* Dwingt scrollen af */
+    scrollbar-width: thin;       /* Voor Firefox */
+    scrollbar-color: #2a2e39 #0c0d14;
+}
+
+/* Voor Chrome/Edge/Safari */
+#history-list::-webkit-scrollbar {
+    width: 8px;
+}
+#history-list::-webkit-scrollbar-track {
+    background: #0c0d14;
+}
+#history-list::-webkit-scrollbar-thumb {
+    background: #2a2e39;
+    border-radius: 4px;
+}
+#history-list::-webkit-scrollbar-thumb:hover {
+    background: #4a4f5f;
+}
+
+.card:has(#history-list) {
+    overflow: visible !important; /* Zorgt dat de kaart de scrollende lijst niet afsnijdt */
+}
 
