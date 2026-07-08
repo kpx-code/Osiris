@@ -17,6 +17,11 @@ let uotamHarmonicSetting = 3;
 let activeFibLines = [];
 let lastProcessedNodeId = null;
 let sentimentWs = null;
+let activeFibScales = {
+    MIC: true,
+    MES: true,
+    MAC: true
+};
 
 // prachtige kleuren globaal gedefinieerd:
 const fibStyles = {
