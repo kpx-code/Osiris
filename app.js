@@ -698,6 +698,31 @@ function updateActiveNodeFibLines(targetNodes, chartData = null) {
     });
 }
 
+/**
+ * Schakelt Fibonacci schalen in/uit en ververst de chart.
+ * Zorg dat deze functie op het hoogste niveau in app.js staat!
+ */
+function toggleFibScale(scaleId) {
+    // 1. Wissel de status
+    activeFibScales[scaleId] = !activeFibScales[scaleId];
+    
+    // 2. Visuele feedback (knoppen oplichten/dimmen)
+    const btn = document.getElementById(`btn-toggle-${scaleId}`);
+    if (btn) {
+        btn.style.opacity = activeFibScales[scaleId] ? '1' : '0.5';
+        btn.style.border = activeFibScales[scaleId] ? '2px solid #00ffcc' : '1px solid #555';
+    }
+    
+    // 3. Herbereken en teken de chart
+    // We gebruiken 'allNodes' en 'rawData' die globaal beschikbaar zijn
+    if (typeof allNodes !== 'undefined' && typeof rawData !== 'undefined') {
+        updateActiveNodeFibLines(allNodes, rawData);
+        console.log(`Schaal ${scaleId} is nu: ${activeFibScales[scaleId] ? 'AAN' : 'UIT'}`);
+    } else {
+        console.warn("Data (allNodes/rawData) nog niet beschikbaar voor Fibonacci update.");
+    }
+}
+
 // Globale array voor volume history
 let volumeHistory = [];
 
