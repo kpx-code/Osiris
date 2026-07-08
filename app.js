@@ -228,18 +228,25 @@ function updateInfoPanel() {
     // 2. NIEUWE LOGICA: Mid Pulse en Next Node (Type + Countdown)
     
     // Mid Pulse: Zoek de eerste 'mid_'-node in allNodes die nog moet komen
+    // Mid Pulse: Zoek de eerste 'mid_'-node in de toekomst
     const midPulseEl = document.getElementById('mid-pulse-display');
     if (midPulseEl) {
         if (allNodes.length === 0) {
             midPulseEl.innerText = "Synchroniseren...";
         } else {
-            // Filter en vind de eerste toekomstige mid-pulse
-            const nextMidNode = allNodes.find(n => n.type === 'mid-pulse' && (n.time * 1000) > now);
+            // 1. Zoek naar toekomstige nodes in de bestaande array
+            let nextMidNode = allNodes.find(n => n.type === 'mid-pulse' && (n.time * 1000) > now);
             
-            if (nextMidNode) {
-                midPulseEl.innerText = formatCountdown(nextMidNode.time * 1000);
+            // 2. Fallback: Als er geen toekomstige node in de array staat, berekenen we de volgende zelf
+            if (!nextMidNode) {
+                // Bereken de index van de volgende mid-pulse
+                // Huidige index (ongeveer) + 0.5 (voor de mid-offset)
+                const nextMidIndex = Math.floor((now - ANCHOR_TIME) / T_PI_MS) + 0.5;
+                const nextMidTime = ANCHOR_TIME + (nextMidIndex * T_PI_MS);
+                
+                midPulseEl.innerText = formatCountdown(nextMidTime);
             } else {
-                midPulseEl.innerText = "Pulse voorbij";
+                midPulseEl.innerText = formatCountdown(nextMidNode.time * 1000);
             }
         }
     }
