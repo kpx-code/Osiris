@@ -225,6 +225,26 @@ function updateInfoPanel() {
         const targetTime = ANCHOR_TIME + (candidate * T_PI_MS);
         el.innerText = `${formatDateTime(targetTime)} (${formatCountdown(targetTime)})`;
     });
+    // 2. NIEUWE LOGICA: Mid Pulse en Next Node (Type + Countdown)
+    
+    // Mid Pulse: Zoek de eerste 'mid_'-node in allNodes die nog moet komen
+    const midPulseEl = document.getElementById('mid-pulse-display');
+    if (midPulseEl) {
+        const nextMidNode = allNodes.find(n => n.type === 'mid-pulse' && (n.time * 1000) > now);
+        midPulseEl.innerText = nextMidNode ? formatCountdown(nextMidNode.time * 1000) : "Wachten...";
+    }
+
+    // Next Node: De absolute eerstvolgende node (Reset/Vola/Vortex/etc)
+    const nextNodeEl = document.getElementById('next-node-display');
+    if (nextNodeEl) {
+        const nextIdx = currentAbsoluteNode + 1;
+        const nextTime = ANCHOR_TIME + (nextIdx * T_PI_MS);
+        
+        let relIdx = ((nextIdx % 8) + 8) % 8;
+        let type = ['RESET', 'VOLA', 'OSC', 'VORTEX 3', 'OSC', 'OSC', 'VORTEX 6', 'OSC'][relIdx];
+        
+        nextNodeEl.innerText = `${formatCountdown(nextTime)} | ${type}`;
+    }
 }
 
 function updateSentimentBar(obi) {
