@@ -81,3 +81,8 @@ h1 { margin: 0; font-size: 28px; color: #00ffcc; letter-spacing: 1px; }
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: #0c0d14; }
 ::-webkit-scrollbar-thumb { background: #2a2e39; border-radius: 4px; }
+
+/* Test om te zien of CSS geladen wordt */
+.card {
+    border: 5px solid red !important;
+}
