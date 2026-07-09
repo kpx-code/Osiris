@@ -536,34 +536,38 @@ function startLiveUpdates() {
                 // 5. Orisis & Fibonacci Integratie
                 if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
                     const activeNode = allNodes[allNodes.length - 1];
-                    const nextNode = allNodes.length > 1 ? allNodes[allNodes.length - 2] : activeNode;
                     const chartData = rawData.map(d => ({ time: Math.floor(d[0] / 1000), high: parseFloat(d[2]), low: parseFloat(d[3]) }));
-            
+
                     if (activeNode.id !== lastProcessedNodeId) {
                         applyUOTAMGrid(chartData); 
                         lastProcessedNodeId = activeNode.id; 
                     }
                     updateActiveNodeFibLines(allNodes, chartData);
-            
-                    const activePrice = (activeNode.high + activeNode.low) / 2;
-                    const nextPrice = (nextNode.high + nextNode.low) / 2;
-            
-                    if (!isNaN(activePrice) && !isNaN(nextPrice)) {
-                        const decisionResult = getOrisisDecisionData(
-                            volMetrics, livePrice, activePrice, nextPrice, vfm, er, db, chaos, isBullish
-                        );
-                        const statusDisplay = document.getElementById('market-status-main');
-                        const targetDisplay = document.getElementById('target-range-main');
-                        if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision}`;
-                        if (targetDisplay) targetDisplay.innerText = `Target: ${decisionResult.targetRange}`;
-                        // 3. Update de Confidence Score (DEZE MISTE NOG!)
-                        const confEl = document.getElementById('probability-score');
-                        if (confEl) {
-                            confEl.innerText = `Confidence: ${decisionResult.probability}`; // of wat je in je resultaat hebt
-                            confEl.style.color = (decisionResult.probability === 'High') ? '#00ffcc' : '#aaa';
-                        }
-                    } else {
-                        console.warn("Orisis blokkeert update: activePrice of nextPrice is NaN");
+
+                    // BEREKEN HIER DE NIEUWE FRACTALE BESLISSING
+                    const decisionResult = getOrisisDecisionData(
+                        volMetrics, livePrice, vfm, er, db, chaos, isBullish
+                    );
+
+                    // UI Updates
+                    const statusDisplay = document.getElementById('market-status-main');
+                    if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision}`;
+
+                    // FRACTALE TARGETS UPDATE
+                    if (decisionResult.targets) {
+                        document.getElementById('mic-bull').innerText = decisionResult.targets.micro.bullish;
+                        document.getElementById('mic-bear').innerText = decisionResult.targets.micro.bearish;
+                        document.getElementById('mes-bull').innerText = decisionResult.targets.meso.bullish;
+                        document.getElementById('mes-bear').innerText = decisionResult.targets.meso.bearish;
+                        document.getElementById('mac-bull').innerText = decisionResult.targets.macro.bullish;
+                        document.getElementById('mac-bear').innerText = decisionResult.targets.macro.bearish;
+                    }
+
+                    // Confidence Score
+                    const confEl = document.getElementById('probability-score');
+                    if (confEl) {
+                        confEl.innerText = `Confidence: ${decisionResult.probability}`;
+                        confEl.style.color = (decisionResult.probability.includes('High')) ? '#00ffcc' : '#aaa';
                     }
                 } else {
                     console.warn("Orisis blokkeert update: allNodes leeg of undefined");
@@ -773,28 +777,46 @@ function calculateVolumeMetrics(currentVol, priceDelta, isBullish, harmonic) {
     };
 }
 
-// Pas deze eerste regel van je functie aan:
-function getOrisisDecisionData(metrics, currentPrice, activePrice, nextPrice, vfm, er, db, chaos, isBullish) {
-    // 1. Confluence: Orisis' "Brain"
-    let confluence = 0;
-    if (metrics.regime === "BULLISH_EXPANSION" || metrics.regime === "BEARISH_CRASH") confluence += 2;
-    if (Math.abs(db) > 0.4) confluence += 1; // Delta Balance
-    if (vfm > 0) confluence += 2;           // VFM moet positief zijn
-    if (chaos < 12) confluence += 1;        // Stabiliteit
-
-    // 2. Dynamische Price Targets (GEBRUIK NU DE GETALLEN)
-    const rangeLow = Math.min(activePrice, nextPrice);
-    const rangeHigh = Math.max(activePrice, nextPrice);
+/**
+ * Vernieuwde UOTAM Fractale Besluitvormingsmatrix
+ * Berekent targets per schaal en integreert energetische markt-data.
+ */
+function getOrisisDecisionData(metrics, currentPrice, vfm, er, db, chaos, isBullish) {
     
+    // 1. FRACTALE SCAN: Bereken ranges per schaal (absolute extremen + energetische factor)
+    // De factor (multiplier) bepaalt de wijdte van de range gebaseerd op volatiliteit/energie
+    const energyFactor = Math.abs(vfm) * (er / 1.5) * (1 + (chaos / 100));
+
+    const calculateScaleRange = (harmonic) => {
+        const relevantData = rawData.slice(-harmonic);
+        const scanHigh = Math.max(...relevantData.map(d => parseFloat(d[2])));
+        const scanLow = Math.min(...relevantData.map(d => parseFloat(d[3])));
+        const range = scanHigh - scanLow;
+        
+        return {
+            bullish: (scanHigh + (range * 0.382 * energyFactor)).toFixed(0),
+            bearish: (scanLow - (range * 0.382 * energyFactor)).toFixed(0)
+        };
+    };
+
+    const targets = {
+        micro: calculateScaleRange(9),   // Micro-scalp bereik
+        meso:  calculateScaleRange(36),  // Meso-trend bereik
+        macro: calculateScaleRange(144)  // Macro-structuur bereik
+    };
+
+    // 2. Confluence: Orisis' "Brain" (Logica voor status)
+    let confluence = 0;
+    if (Math.abs(vfm) > 1.2) confluence += 2;
+    if (Math.abs(db) > 0.3) confluence += 1;
+    if (chaos < 10) confluence += 1;
+    if (er > 1.2) confluence += 1;
+
     // 3. Besluitvorming
     let decision = "WAIT";
     let probability = "Low";
-    
-    // Optioneel: voeg hier je Critical Zone check toe
-    const distanceToNode = Math.abs(currentPrice - activePrice);
-    const isAtCriticalZone = distanceToNode < (currentPrice * 0.002);
 
-    if (isAtCriticalZone && confluence >= 4) {
+    if (confluence >= 4) {
         decision = isBullish ? "🚀 BULLISH BREAKOUT" : "📉 BEARISH CRASH";
         probability = "High (80%+)";
     } else if (confluence >= 2) {
@@ -805,8 +827,25 @@ function getOrisisDecisionData(metrics, currentPrice, activePrice, nextPrice, vf
     return { 
         decision, 
         probability, 
-        targetRange: `${rangeLow.toFixed(0)} - ${rangeHigh.toFixed(0)}`,
+        targets, // Geeft nu het volledige target-object terug
         confluence 
+    };
+}
+
+// --- NIEUWE FRACTALE TARGET BEREKENING ---
+function calculateFractalTargets(scaleHarmonic, rawData) {
+    // 1. Pak de relevante data voor deze schaal (laatste X candles)
+    const relevantData = rawData.slice(-scaleHarmonic);
+    
+    // 2. Scan voor absolute extremen in de tijd tussen de nodes
+    const scanHigh = Math.max(...relevantData.map(d => parseFloat(d[2])));
+    const scanLow = Math.min(...relevantData.map(d => parseFloat(d[3])));
+    const range = scanHigh - scanLow;
+    
+    // 3. Pas energetische weging toe (Eenvoudig model: range * Fibonacci extensie)
+    return {
+        bullish: (scanHigh + (range * 0.382)).toFixed(0),
+        bearish: (scanLow - (range * 0.382)).toFixed(0)
     };
 }
 
