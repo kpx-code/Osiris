@@ -781,38 +781,47 @@ function calculateVolumeMetrics(currentVol, priceDelta, isBullish, harmonic) {
  * Vernieuwde UOTAM Fractale Besluitvormingsmatrix
  * Berekent targets per schaal en integreert energetische markt-data.
  */
+/**
+ * Definitieve UOTAM Fractale Besluitvormingsmatrix
+ * Gebruikt logaritmische demping om exponentiële uitschieters te voorkomen.
+ */
 function getOrisisDecisionData(metrics, currentPrice, vfm, er, db, chaos, isBullish) {
     
-    // 1. FRACTALE SCAN: Bereken ranges per schaal (absolute extremen + energetische factor)
-    // De factor (multiplier) bepaalt de wijdte van de range gebaseerd op volatiliteit/energie
-    const energyFactor = Math.abs(vfm) * (er / 1.5) * (1 + (chaos / 100));
+    // 1. Bereken de energetische factor met logaritmische demping
+    // Dit voorkomt dat extreme VFM/ER waarden je targets naar oneindig sturen.
+    const rawEnergy = Math.abs(vfm) * (er / 1.5);
+    const dampedEnergy = Math.log1p(rawEnergy); 
+    const chaosFactor = 1 + (Math.min(chaos, 10) / 100);
+    const energyFactor = dampedEnergy * chaosFactor;
 
+    // 2. Interne helper voor fractale scan per schaal
     const calculateScaleRange = (harmonic) => {
         const relevantData = rawData.slice(-harmonic);
         const scanHigh = Math.max(...relevantData.map(d => parseFloat(d[2])));
         const scanLow = Math.min(...relevantData.map(d => parseFloat(d[3])));
         const range = scanHigh - scanLow;
         
+        // Gebruik 0.382 extensie, vermenigvuldigd met de gedempte energie
         return {
             bullish: (scanHigh + (range * 0.382 * energyFactor)).toFixed(0),
             bearish: (scanLow - (range * 0.382 * energyFactor)).toFixed(0)
         };
     };
 
+    // 3. Bouw de target matrix
     const targets = {
         micro: calculateScaleRange(9),   // Micro-scalp bereik
         meso:  calculateScaleRange(36),  // Meso-trend bereik
         macro: calculateScaleRange(144)  // Macro-structuur bereik
     };
 
-    // 2. Confluence: Orisis' "Brain" (Logica voor status)
+    // 4. Confluence: Orisis' "Brain"
     let confluence = 0;
     if (Math.abs(vfm) > 1.2) confluence += 2;
     if (Math.abs(db) > 0.3) confluence += 1;
     if (chaos < 10) confluence += 1;
     if (er > 1.2) confluence += 1;
 
-    // 3. Besluitvorming
     let decision = "WAIT";
     let probability = "Low";
 
@@ -824,29 +833,7 @@ function getOrisisDecisionData(metrics, currentPrice, vfm, er, db, chaos, isBull
         probability = "Medium (60%)";
     }
 
-    return { 
-        decision, 
-        probability, 
-        targets, // Geeft nu het volledige target-object terug
-        confluence 
-    };
-}
-
-// --- NIEUWE FRACTALE TARGET BEREKENING ---
-function calculateFractalTargets(scaleHarmonic, rawData) {
-    // 1. Pak de relevante data voor deze schaal (laatste X candles)
-    const relevantData = rawData.slice(-scaleHarmonic);
-    
-    // 2. Scan voor absolute extremen in de tijd tussen de nodes
-    const scanHigh = Math.max(...relevantData.map(d => parseFloat(d[2])));
-    const scanLow = Math.min(...relevantData.map(d => parseFloat(d[3])));
-    const range = scanHigh - scanLow;
-    
-    // 3. Pas energetische weging toe (Eenvoudig model: range * Fibonacci extensie)
-    return {
-        bullish: (scanHigh + (range * 0.382)).toFixed(0),
-        bearish: (scanLow - (range * 0.382)).toFixed(0)
-    };
+    return { decision, probability, targets, confluence };
 }
 
 function updateDashboard(metrics) {
