@@ -98,3 +98,12 @@ body {
     border-radius: 4px;
     margin-top: 10px;
 }
+
+/* Voeg dit toe aan je CSS bestand voor een professionele look */
+.orisis-container {
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    transition: transform 0.2s ease;
+}
+.orisis-container:hover {
+    transform: translateY(-2px);
+}
