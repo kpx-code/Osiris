@@ -47,21 +47,35 @@
     <div id="chart-container"></div>
 
      <div class="orisis-container" style="margin-top: 20px; padding: 15px; background: #1f2233; border: 1px solid #00ffcc; border-radius: 8px;">
-        <h3 style="margin: 0 0 10px 0; font-size: 0.8em; color: #888; text-align: center;">ORISIS MARKET STATUS</h3>
-        
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-            <div style="flex: 1; text-align: center;">
-                <p id="market-status-main" style="font-size: 1.2em; font-weight: bold; color: #00ffcc; margin: 0;">--</p>
-            </div>
-            <div style="width: 1px; height: 30px; background: #333;"></div> <div style="flex: 1; text-align: center;">
-                <p id="target-range-main" style="font-size: 1.2em; color: #aaa; margin: 0;">Target: --</p>
-            </div>
+    <h3 style="margin: 0 0 10px 0; font-size: 0.8em; color: #888; text-align: center;">ORISIS MARKET STATUS</h3>
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+        <div style="flex: 1; text-align: center;">
+            <p id="market-status-main" style="font-size: 1.2em; font-weight: bold; color: #00ffcc; margin: 0;">--</p>
         </div>
-        
-        <div style="text-align: center; margin-top: 10px;">
-            <small id="probability-score" style="color: #888;">Confidence: Monitoring...</small>
+        <div style="width: 1px; height: 30px; background: #333;"></div>
+        <div style="flex: 1; text-align: center;">
+            <p id="probability-score" style="font-size: 0.9em; color: #aaa; margin: 0;">Confidence: --</p>
         </div>
     </div>
+</div>
+
+<div class="orisis-container" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px;">
+    <div style="padding: 10px; background: #1f2233; border: 1px solid #00ffcc; border-radius: 5px; text-align: center;">
+        <h4 style="margin:0; font-size: 0.7em; color:#00ffcc;">MICRO (9)</h4>
+        <small>Bull: <span id="mic-bull">--</span></small><br>
+        <small>Bear: <span id="mic-bear">--</span></small>
+    </div>
+    <div style="padding: 10px; background: #1f2233; border: 1px solid #ffff00; border-radius: 5px; text-align: center;">
+        <h4 style="margin:0; font-size: 0.7em; color:#ffff00;">MESO (36)</h4>
+        <small>Bull: <span id="mes-bull">--</span></small><br>
+        <small>Bear: <span id="mes-bear">--</span></small>
+    </div>
+    <div style="padding: 10px; background: #1f2233; border: 1px solid #ff00ff; border-radius: 5px; text-align: center;">
+        <h4 style="margin:0; font-size: 0.7em; color:#ff00ff;">MACRO (144)</h4>
+        <small>Bull: <span id="mac-bull">--</span></small><br>
+        <small>Bear: <span id="mac-bear">--</span></small>
+    </div>
+</div>
 
     <div id="info-panel" style="margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
     <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
