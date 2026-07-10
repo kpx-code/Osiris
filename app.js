@@ -699,12 +699,12 @@ function startLiveUpdates() {
             const candle = message.k;
             if (!candle) return;
 
-            const livePrice = parseFloat(candle.c);
-            const liveVol = parseFloat(candle.v);
+            livePrice = parseFloat(candle.c); // Geen 'const' of 'let' hier!
+            liveVol = parseFloat(candle.v);   // Hiermee overschrijf je de globale variabelen
             const high = parseFloat(candle.h);
             const low = parseFloat(candle.l);
             const openPrice = parseFloat(candle.o);
-            const isBullish = livePrice >= openPrice;
+            isBullish = livePrice >= openPrice;
 
             // 1. Volume Rate Berekening
             const volMetrics = calculateVolumeMetrics(liveVol, isBullish);
