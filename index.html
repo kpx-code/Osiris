@@ -60,6 +60,10 @@
 </div>
 <div id="bot-control-hub" style="background: #121212; padding: 20px; border: 1px solid #333; border-radius: 12px; color: #fff; font-family: sans-serif;">
     <h2 style="margin-top: 0; color: #ff00ff;">🤖 Osiris Autonomous Agent</h2>
+    <div style="background: #1a1a1a; padding: 10px;">
+    <small style="color: #888;">Runtime:</small>
+    <div id="bot-runtime" style="font-weight: bold; color: #fff;">00:00:00</div>
+</div>
     
     <div id="bot-config" style="display: flex; gap: 10px; margin-bottom: 20px;">
         <div style="flex: 1;">
@@ -99,6 +103,18 @@
         <button onclick="exportOsirisData()" style="padding: 5px 10px; font-size: 10px; background: #333; color: white; border: none; cursor: pointer;">📥 Export Systeemdata</button>
         <button onclick="exportBotTradeLog()" style="padding: 5px 10px; font-size: 10px; background: #333; color: white; border: none; cursor: pointer;">📥 Export Trade Log</button>
     </div>
+</div>
+        <div class="card" style="margin-top: 20px; padding: 15px; background: #1f2233; border-radius: 8px;">
+    <h3>Laatste 10 Posities</h3>
+    <table id="trade-history" style="width:100%; color:white; border-collapse: collapse; text-align: left;">
+        <thead>
+            <tr style="border-bottom: 1px solid #444;">
+                <th>Tijd</th><th>Side</th><th>Prijs</th><th>Amount</th><th>P/L</th>
+            </tr>
+        </thead>
+        <tbody id="history-body">
+            </tbody>
+    </table>
 </div>
 <div class="orisis-container" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px;">
     <div style="padding: 10px; background: #1f2233; border: 1px solid #00ffcc; border-radius: 5px; text-align: center;">
