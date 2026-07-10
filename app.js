@@ -297,6 +297,67 @@ setInterval(() => {
     }
 }, 10000);
 
+function exportBotTradeLog() {
+    if (botTradeLog.length === 0) {
+        alert("Geen trade data beschikbaar om te exporteren.");
+        return;
+    }
+
+    // Headers voor je CSV
+    const headers = ["Timestamp", "Action", "Price", "Side", "PnL_Percent", "Capital"];
+    
+    // Rijen formatteren
+    const rows = botTradeLog.map(t => [
+        t.timestamp,
+        t.action,
+        t.price,
+        t.side,
+        (t.pnl * 100).toFixed(2), // PnL als percentage voor leesbaarheid in Excel
+        t.capital
+    ].join(","));
+
+    // Samenvoegen tot CSV
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
+    
+    // Download trigger
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "osiris_bot_trade_log.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function logBotAction(action, price, side, pnl = 0) {
+    const entry = {
+        timestamp: new Date().toISOString(),
+        action: action, 
+        price: price,
+        side: side,
+        pnl: pnl,
+        capital: botSettings.capital
+    };
+    botTradeLog.push(entry);
+    
+    // Update UI
+    document.getElementById('bot-last-action').innerText = `${action} @ ${price}`;
+    if (action === "EXIT") {
+        document.getElementById('bot-status').innerText = `Status: Standby (Laatste PnL: ${(pnl*100).toFixed(2)}%)`;
+    }
+}
+
+function isTargetReached(targetMatrix, side, price) {
+    if (side === 'LONG') {
+        // Sluit als de prijs de mesoBull target raakt of overschrijdt
+        return price >= targetMatrix.mesoBull;
+    } else if (side === 'SHORT') {
+        // Sluit als de prijs de mesoBear target raakt of onderschrijdt
+        return price <= targetMatrix.mesoBear;
+    }
+    return false;
+}
+
 
 
 function setHarmonic(value) {
