@@ -161,22 +161,26 @@ let botState = {
 let botTradeLog = []; // Voor je trades (Entry/Exit/PnL)
 let osirisSystemLog = []; // Voor je 1-minuut marktdata
 
+//houd deze 
 function startAutonomousBot() {
-    botSettings.capital = parseFloat(document.getElementById('start-capital').value);
-    botSettings.riskPerTrade = parseFloat(document.getElementById('risk-per-trade').value) / 100;
+    const capInput = document.getElementById('start-capital');
+    botSettings.capital = parseFloat(capInput.value) || 1000;
     botSettings.isRunning = true;
     
+    console.log("🚀 Osiris Bot operationeel.");
+    document.getElementById('bot-status').innerText = "Status: Actief";
     document.getElementById('btn-start-bot').style.display = 'none';
     document.getElementById('btn-stop-bot').style.display = 'inline-block';
-    
-    console.log("Bot gestart met kapitaal:", botSettings.capital);
 }
 
 function stopAutonomousBot() {
     botSettings.isRunning = false;
+    console.log("🛑 Osiris Bot gestopt.");
+    document.getElementById('bot-status').innerText = "Status: Gestopt";
     document.getElementById('btn-start-bot').style.display = 'inline-block';
     document.getElementById('btn-stop-bot').style.display = 'none';
 }
+
 
 // De kern: De "Heartbeat" van de bot
 setInterval(() => {
@@ -223,18 +227,20 @@ function checkExits(decision, price) {
 
 let botTradeLog = []; // Specifiek voor entries/exits/PnL
 
+//houd deze botlog
 function logBotAction(action, price, side, pnl = 0) {
     const entry = {
         timestamp: new Date().toISOString(),
-        action: action, // "ENTRY" of "EXIT"
+        action: action, 
         price: price,
         side: side,
         pnl: pnl,
-        capital: botSettings.capital // Om P/L in euro's te zien
+        capital: botSettings.capital
     };
     botTradeLog.push(entry);
     
-    // Update de UI
+    // Update UI
+    document.getElementById('bot-last-action').innerText = `${action} @ ${price}`;
     if (action === "EXIT") {
         document.getElementById('bot-status').innerText = `Status: Standby (Laatste PnL: ${(pnl*100).toFixed(2)}%)`;
     }
@@ -261,21 +267,6 @@ function updateBotUI() {
     } else {
         posEl.innerText = "Geen actieve positie";
     }
-}
-
-function startAutonomousBot() {
-    const capInput = document.getElementById('start-capital');
-    botSettings.capital = parseFloat(capInput.value) || 1000;
-    botSettings.isRunning = true;
-    
-    console.log("🚀 Osiris Bot operationeel.");
-    document.getElementById('bot-status').innerText = "Status: Actief";
-}
-
-function stopAutonomousBot() {
-    botSettings.isRunning = false;
-    console.log("🛑 Osiris Bot gestopt.");
-    document.getElementById('bot-status').innerText = "Status: Gestopt";
 }
 
 // De Heartbeat (elke 10 seconden voor hoge precisie)
@@ -327,24 +318,6 @@ function exportBotTradeLog() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-}
-
-function logBotAction(action, price, side, pnl = 0) {
-    const entry = {
-        timestamp: new Date().toISOString(),
-        action: action, 
-        price: price,
-        side: side,
-        pnl: pnl,
-        capital: botSettings.capital
-    };
-    botTradeLog.push(entry);
-    
-    // Update UI
-    document.getElementById('bot-last-action').innerText = `${action} @ ${price}`;
-    if (action === "EXIT") {
-        document.getElementById('bot-status').innerText = `Status: Standby (Laatste PnL: ${(pnl*100).toFixed(2)}%)`;
-    }
 }
 
 function isTargetReached(targetMatrix, side, price) {
