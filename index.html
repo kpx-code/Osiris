@@ -58,7 +58,48 @@
         </div>
     </div>
 </div>
+<div id="bot-control-hub" style="background: #121212; padding: 20px; border: 1px solid #333; border-radius: 12px; color: #fff; font-family: sans-serif;">
+    <h2 style="margin-top: 0; color: #ff00ff;">🤖 Osiris Autonomous Agent</h2>
+    
+    <div id="bot-config" style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <div style="flex: 1;">
+            <label>Start Kapitaal (€)</label><br>
+            <input type="number" id="start-capital" value="1000" style="width: 100%; padding: 8px;">
+        </div>
+        <div style="flex: 1;">
+            <label>Risico % per trade</label><br>
+            <input type="number" id="risk-per-trade" value="1" style="width: 100%; padding: 8px;">
+        </div>
+        <div style="display: flex; align-items: flex-end;">
+            <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold;">🚀 START BOT</button>
+            <button id="btn-stop-bot" onclick="stopAutonomousBot()" style="display:none; padding: 10px 20px; background: #ff4444; border: none; cursor: pointer; font-weight: bold;">🛑 STOP BOT</button>
+        </div>
+    </div>
 
+    <div id="bot-monitor" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; border-top: 1px solid #333; padding-top: 15px;">
+        <div style="background: #1a1a1a; padding: 10px;">
+            <small style="color: #888;">Status:</small>
+            <div id="bot-status" style="font-weight: bold; color: #00ffcc;">STANDBY</div>
+        </div>
+        <div style="background: #1a1a1a; padding: 10px;">
+            <small style="color: #888;">Live P/L:</small>
+            <div id="bot-pnl" style="font-weight: bold;">0.00%</div>
+        </div>
+        <div style="background: #1a1a1a; padding: 10px;">
+            <small style="color: #888;">Huidige Positie:</small>
+            <div id="bot-position">Geen</div>
+        </div>
+        <div style="background: #1a1a1a; padding: 10px;">
+            <small style="color: #888;">Laatste Actie:</small>
+            <div id="bot-last-action">-</div>
+        </div>
+    </div>
+
+    <div style="text-align: right;">
+        <button onclick="exportOsirisData()" style="padding: 5px 10px; font-size: 10px; background: #333; color: white; border: none; cursor: pointer;">📥 Export Systeemdata</button>
+        <button onclick="exportBotTradeLog()" style="padding: 5px 10px; font-size: 10px; background: #333; color: white; border: none; cursor: pointer;">📥 Export Trade Log</button>
+    </div>
+</div>
 <div class="orisis-container" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px;">
     <div style="padding: 10px; background: #1f2233; border: 1px solid #00ffcc; border-radius: 5px; text-align: center;">
         <h4 style="margin:0; font-size: 0.7em; color:#00ffcc;">MICRO (9)</h4>
