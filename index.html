@@ -67,6 +67,13 @@
             <option value="VISIBLE">Zichtbaar</option>
         </select>
     </div>
+    <div>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">VALUTA (chart)</label>
+        <select id="currency-select" onchange="handleCurrencySelect(this.value)" style="background: #131722; color: #26a69a; border: 1px solid #26a69a; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
+            <option value="USD" selected>USD ($)</option>
+            <option value="EUR">EUR (€)</option>
+        </select>
+    </div>
     </div>
     <div id="chart-container"></div>
 
@@ -107,8 +114,28 @@
             <input type="number" id="min-probability-pct" value="70" style="width: 100%; padding: 8px; box-sizing: border-box;">
         </div>
         <div style="flex: 1; min-width: 140px;">
+            <label>Min. kans % (doorlopen &gt;2%)</label><br>
+            <input type="number" id="hold-continuation-probability-pct" value="85" style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div style="flex: 1; min-width: 140px;">
             <label>Min. verwacht rendement %</label><br>
             <input type="number" id="min-projected-profit-pct" value="1" style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div style="flex: 1; min-width: 140px;">
+            <label>Max open posities (max 4)</label><br>
+            <input type="number" id="max-open-positions" value="3" min="1" max="4" style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div style="flex: 1; min-width: 140px;">
+            <label>Hedge-reserve %</label><br>
+            <input type="number" id="hedge-reserve-pct" value="15" style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div style="flex: 1; min-width: 140px;">
+            <label>Pending order geldig (min)</label><br>
+            <input type="number" id="pending-order-ttl" value="30" style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div style="flex: 1; min-width: 140px;">
+            <label>Min. verlies % voor vroege exit</label><br>
+            <input type="number" id="min-loss-early-exit" value="0.3" step="0.1" style="width: 100%; padding: 8px; box-sizing: border-box;">
         </div>
         <div style="display: flex; align-items: flex-end; gap: 5px;">
             <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold;">🚀 START BOT</button>
@@ -122,7 +149,7 @@
             <div id="bot-status" style="font-weight: bold; color: #00ffcc;">STANDBY</div>
         </div>
         <div style="background: #1a1a1a; padding: 10px;">
-            <small style="color: #888;">Live P/L (%):</small>
+            <small style="color: #888;">Live P/L:</small>
             <div id="bot-pnl" style="font-weight: bold;">0.00%</div>
         </div>
         <div style="background: #1a1a1a; padding: 10px;">
@@ -281,6 +308,6 @@
     <div id="history-list"></div>
 </div>
 </div>
-    <script src="/Osiris/app.js"></script>
+    <script src="/Osiris/app.js?v=20260710-3"></script>
 </body>
 </html>
