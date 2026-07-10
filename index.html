@@ -135,8 +135,15 @@
 
     <div id="bot-config" class="grid-row" style="margin-bottom: 20px;">
         <div>
-            <label>Start Kapitaal (€)</label><br>
+            <label>Start Kapitaal</label><br>
             <input type="number" id="start-capital" value="1000">
+        </div>
+        <div>
+            <label>Wallet valuta (bij Reset)</label><br>
+            <select id="wallet-currency-select" style="width: 100%; padding: 8px; background: #131722; color: #d1d4dc; border: 1px solid #555; border-radius: 4px;">
+                <option value="EUR" selected>EUR (€)</option>
+                <option value="USD">USD ($)</option>
+            </select>
         </div>
         <div>
             <label>Max % per trade</label><br>
