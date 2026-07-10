@@ -31,6 +31,7 @@ let botSettings = { capital: 1000, riskPerTrade: 0.01, isRunning: false };
 let botState = { active: false, entryPrice: 0, side: null };
 let botTradeLog = [];
 let osirisSystemLog = [];
+let botInterval = null; // FIX: was nooit gedeclareerd, liep als impliciete global (breekt in strict mode)
 
 // Bovenin bij je andere variabelen:
 let vfm = 0;
@@ -175,6 +176,22 @@ window.addEventListener('load', () => {
 function startAutonomousBot(isAutoRestart = false) {
     isBotRunning = true;
     localStorage.setItem('botIsRunning', 'true');
+
+    // FIX: dit was nooit true gezet, waardoor botHeartbeat() de trading
+    // engine altijd oversloeg (bot deed nooit iets, ook al stond hij "ACTIEF").
+    botSettings.isRunning = true;
+
+    // FIX: lees de door de gebruiker ingevulde waarden uit de UI in plaats van
+    // de hardcoded defaults (1000 / 1%) te blijven gebruiken.
+    const capitalInput = document.getElementById('start-capital');
+    const riskInput = document.getElementById('risk-per-trade');
+    if (capitalInput && !isNaN(parseFloat(capitalInput.value))) {
+        botSettings.capital = parseFloat(capitalInput.value);
+    }
+    if (riskInput && !isNaN(parseFloat(riskInput.value))) {
+        botSettings.riskPerTrade = parseFloat(riskInput.value) / 100;
+    }
+
     if (!isAutoRestart) {
         botStartTime = Date.now();
         localStorage.setItem('botStartTime', botStartTime);
@@ -182,6 +199,13 @@ function startAutonomousBot(isAutoRestart = false) {
     // Start je interval hier
     botInterval = setInterval(botHeartbeat, 1000); 
     document.getElementById('bot-status').innerText = "ACTIEF";
+
+    // FIX: knoppen wisselen (dit gebeurde alleen in stopAutonomousBot,
+    // waardoor START zichtbaar bleef staan na het starten).
+    const startBtn = document.getElementById('btn-start-bot');
+    const stopBtn = document.getElementById('btn-stop-bot');
+    if (startBtn) startBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'inline-block';
 }
 
 function stopAutonomousBot() {
@@ -413,11 +437,17 @@ function botHeartbeat() {
         if (!botSettings.isRunning) return;
 
         // Bereken metrics en beslissing
-        const metrics = calculateVolumeMetrics(liveVol, isBullish);
+        // FIX: calculateVolumeMetrics verwacht (currentVol, priceDelta, isBullish, harmonic).
+        // Hier werden maar 2 argumenten meegegeven, waardoor 'isBullish' in de
+        // 'priceDelta' slot terechtkwam en de rest 'undefined' was (harmonic -> NaN venster).
+        const metrics = calculateVolumeMetrics(liveVol, db, isBullish, 9);
         const decision = getOrisisDecisionData(metrics, livePrice, vfm, er, db, chaos, isBullish);
         
         // Log naar systeem
-        logSystemState(metrics, decision.targets, livePrice, liveVol, chaos, db, isBullish);
+        // FIX: logSystemState verwacht (metrics, targets, currentPrice, chaos, db, isBullish) -
+        // 6 parameters. Er werden 7 argumenten meegegeven (incl. liveVol), waardoor alles na
+        // currentPrice met 1 plek opschoof en chaos/db/isBullish verkeerd gelogd werden.
+        logSystemState(metrics, decision.targets, livePrice, chaos, db, isBullish);
         
         // Voer trade actie uit
         if (botState.active) {
@@ -805,7 +835,9 @@ function startLiveUpdates() {
             isBullish = livePrice >= openPrice;
 
             // 1. Volume Rate Berekening
-            const volMetrics = calculateVolumeMetrics(liveVol, isBullish);
+            // FIX: zelfde argument-mismatch als in botHeartbeat (zie fix hierboven).
+            const priceDelta = openPrice !== 0 ? (livePrice - openPrice) / openPrice : 0;
+            const volMetrics = calculateVolumeMetrics(liveVol, priceDelta, isBullish, 9);
             const volRateEl = document.getElementById('vol-rate');
             const volScoreEl = document.getElementById('vol-score');
             if (volRateEl) volRateEl.innerText = `${volMetrics.rate}%`;
