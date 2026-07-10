@@ -11,6 +11,12 @@ let rawData = [];
 let activeNodes = [];
 let allNodes = []; // Hierin slaan we de gedetecteerde nodes op
 let gridMarkers = []; // Zorg dat deze hier staat
+// FIX: LightweightCharts.createSeriesMarkers() geeft één plugin-instantie terug
+// die je moet HERGEBRUIKEN via .setMarkers() om te updaten. Hem telkens opnieuw
+// aanroepen (zoals voorheen overal gebeurde) stapelt marker-sets op elkaar i.p.v.
+// ze te vervangen - daardoor bleven bij het node-type filter alle oude markers
+// gewoon zichtbaar. Deze referentie zorgt dat er maar één instantie bestaat.
+let nodeMarkersPlugin = null;
 // Globale variabele voor je lens (zorg dat deze bovenin staat)
 let uotamHarmonicSetting = 3; 
 // Houd een referentie bij van de actieve lijnen zodat we ze kunnen verwijderen
@@ -940,22 +946,49 @@ function exportBotTradeLog() {
 // prijs/volume-historie in één JSON-bestand, zodat je de bot achteraf kunt
 // kalibreren met alle data uit de eerste testperiode.
 function downloadAllData() {
+    const nodeCtx = getNodeContext();
     const payload = {
         exportedAt: new Date().toISOString(),
+        meta: {
+            symbol: 'BTCUSDT',
+            interval: currentInterval,
+            anchorTime: new Date(ANCHOR_TIME).toISOString(),
+            tPiMinutes: T_PI_MINUTES,
+            sessionTransitionsUTC: SESSION_TRANSITIONS_UTC,
+            nodeInfluenceWeights: NODE_INFLUENCE_WEIGHTS,
+            uiToggleState: { activeFibScales, activeNodeTypes, showPositionLines, uotamHarmonicSetting }
+        },
         wallet: {
             startingCapital: walletState.startingCapital,
             realizedPnL: walletState.realizedPnL,
             balance: getBalance(),
             equity: getEquity(),
             unrealizedPnL: getUnrealizedPnL(),
+            allocatedPct: getAllocatedPct(),
             wins: walletState.wins,
             losses: walletState.losses
         },
         botSettings,
+        // Live snapshot van alle kernindicatoren op het exportmoment
+        liveSnapshot: {
+            timestamp: new Date().toISOString(),
+            livePrice, liveVol, vfm, er, db, chaos, isBullish,
+            nodeContext: nodeCtx,
+            nodeInfluence: calculateNodeInfluence(nodeCtx),
+            momentumContext: getMomentumContext(),
+            volumeShiftPct: calculateVolumeShift(6)
+        },
+        // Meest recente volledige Osiris-beslissing (targets, confluence, status, momentum)
+        lastDecision: lastOsirisDecision,
+        lastVolumeMetrics: lastOsirisMetrics,
         openPositions,
         pendingOrders,
-        tradeLog: botTradeLog,
-        systemLog: osirisSystemLog, // vfm, er, db, chaos, live volume, volRate, volScore, fractale targets - elke 10s
+        tradeLog: botTradeLog, // elke ENTRY/EXIT/PENDING/CANCELLED/SKIPPED actie, met €-bedragen en volledige datum/tijd
+        systemLog: osirisSystemLog, // vfm/er/db/chaos/volume/scores/targets/node/sessie/momentum - elke 10s
+        // Rauwe geheugen-buffer (iets ruwer dan systemLog, elke 10s, tot 500 samples terug)
+        metricsHistory,
+        // Volledige node-grid zoals gebruikt voor de chart-Fib-lijnen (zie §6 van het rekendocument)
+        allNodes,
         priceVolumeHistory: rawData.map(d => ({
             time: new Date(d[0]).toISOString(),
             open: parseFloat(d[1]),
@@ -1047,7 +1080,7 @@ function changeTimeframe(interval) {
     currentInterval = interval;
     
     // Wis de markers
-    LightweightCharts.createSeriesMarkers(candlestickSeries, []);
+    setChartMarkers([]);
     
     // Update alleen de 15m knop (of verwijder de loop als je geen actieve status nodig hebt)
     const btn = document.getElementById('btn-15m');
@@ -1064,7 +1097,7 @@ function changeTimeframe(interval) {
 // --- HOOFDFUNCTIE: INITIALISATIE ---
 async function initDashboard() {
     try {
-        LightweightCharts.createSeriesMarkers(candlestickSeries, []);
+        setChartMarkers([]);
         
         // 2. Fetch 672 candles (exact 7 dagen bij 15m interval)
         const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=672`);
@@ -1539,9 +1572,20 @@ function applyUOTAMGrid(chartData) {
 // Tekent alleen de markers waarvan het node-type actief staat geselecteerd
 // (activeNodeTypes) - aparte functie zodat handleNodeTypeSelect() dit kan
 // hertekenen zonder de hele grid opnieuw te hoeven berekenen.
+// Centrale helper: hergebruikt de bestaande markers-plugin via .setMarkers()
+// zodra die bestaat, en maakt 'm alleen de allereerste keer aan. Dit is de
+// enige plek in de code die createSeriesMarkers/setMarkers mag aanroepen.
+function setChartMarkers(markers) {
+    if (nodeMarkersPlugin) {
+        nodeMarkersPlugin.setMarkers(markers);
+    } else {
+        nodeMarkersPlugin = LightweightCharts.createSeriesMarkers(candlestickSeries, markers);
+    }
+}
+
 function renderNodeMarkers() {
     const visibleMarkers = gridMarkers.filter(m => activeNodeTypes[m.nodeTypeKey] !== false);
-    LightweightCharts.createSeriesMarkers(candlestickSeries, visibleMarkers);
+    setChartMarkers(visibleMarkers);
 }
 
 // Schakelt een node-type aan/uit op de chart, net als handleFibScaleSelect()
