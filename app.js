@@ -69,7 +69,8 @@ let botSettings = {
 // --- WALLET (persistente staat, los van botSettings.startingCapital-invoer) ---
 let walletState = {
     startingCapital: 1000,
-    realizedPnL: 0,   // cumulatieve gerealiseerde winst/verlies in EUR
+    realizedPnL: 0,   // cumulatieve gerealiseerde winst/verlies, in walletState.currency
+    currency: 'EUR',  // de ECHTE rekeneenheid van de wallet - los van displayCurrency (die is puur voor de chart-prijzen)
     wins: 0,
     losses: 0
 };
@@ -195,11 +196,17 @@ function formatChartPrice(usdPrice) {
     return `${currencySymbol()}${convertToDisplayCurrency(usdPrice).toFixed(0)}`;
 }
 
-function formatMoney(eurAmount, decimals = 2) {
-    if (displayCurrency === 'USD' && eurUsdtRate) {
-        return `$${(eurAmount * eurUsdtRate).toFixed(decimals)}`;
-    }
-    return `€${eurAmount.toFixed(decimals)}`;
+// FIX: dit deed voorheen een ECHTE FX-omrekening (x eurUsdtRate) op de wallet,
+// waardoor "Reset Wallet" met 1000 in het invoerveld plotseling ~1080-1170 kon
+// tonen in USD-weergave - verwarrend, want de wallet is gewoon een vast bedrag
+// dat je zelf invult, geen live-geconverteerd bezit. De wallet heeft nu zijn
+// EIGEN valuta (walletState.currency, gekozen bij Reset Wallet) en toont dat
+// bedrag exact zoals ingevoerd, zonder marktkoers-vermenigvuldiging. Dit is
+// volledig los van displayCurrency, dat alleen de chart-prijzen (USD-bron)
+// cosmetisch omrekent.
+function formatMoney(amount, decimals = 2) {
+    const sym = walletState.currency === 'USD' ? '$' : '€';
+    return `${sym}${amount.toFixed(decimals)}`;
 }
 
 // Past de as-labels, crosshair-labels EN alle price-line-labels (fib-lijnen,
@@ -403,6 +410,8 @@ function startAutonomousBot(isAutoRestart = false) {
         if (capitalInput && !isNaN(parseFloat(capitalInput.value)) && parseFloat(capitalInput.value) > 0) {
             walletState.startingCapital = parseFloat(capitalInput.value);
         }
+        const currencyInput = document.getElementById('wallet-currency-select');
+        walletState.currency = (currencyInput && currencyInput.value === 'USD') ? 'USD' : 'EUR';
     }
     if (allocInput && !isNaN(parseFloat(allocInput.value))) {
         botSettings.maxAllocationPct = Math.min(Math.max(parseFloat(allocInput.value) / 100, 0), 1);
@@ -514,10 +523,13 @@ function resetWallet() {
 
     const capitalInput = document.getElementById('start-capital');
     const newCapital = capitalInput ? parseFloat(capitalInput.value) : 1000;
+    const currencyInput = document.getElementById('wallet-currency-select');
+    const newCurrency = (currencyInput && currencyInput.value === 'USD') ? 'USD' : 'EUR';
 
     walletState = {
         startingCapital: (!isNaN(newCapital) && newCapital > 0) ? newCapital : 1000,
         realizedPnL: 0,
+        currency: newCurrency,
         wins: 0,
         losses: 0
     };
@@ -536,7 +548,7 @@ function resetWallet() {
 
     updateWalletUI();
     updatePendingOrdersUI();
-    console.log("Wallet gereset naar €" + walletState.startingCapital);
+    console.log(`Wallet gereset naar ${walletState.currency === 'USD' ? '$' : '€'}${walletState.startingCapital}`);
 }
 
 // ============================================================
@@ -709,11 +721,14 @@ function formatFullDateTime(ts = Date.now()) {
 function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0, notionalEUR = 0) {
     const timestamp = formatFullDateTime();
     const priceNum = typeof price === 'number' ? price : parseFloat(price);
-    // Fallback voor het (zeldzame) geval dat notionalEUR niet is meegegeven:
-    // amount*priceNum geeft een USD-bedrag (want price komt van BTCUSDT), dus
-    // eerst omrekenen naar EUR i.p.v. die twee te verwarren.
+    // Fallback voor het (zeldzame) geval dat notional niet is meegegeven:
+    // amount*priceNum geeft een USD-bedrag (want price komt van BTCUSDT). Is de
+    // wallet zelf USD, dan is dat al goed; is de wallet EUR, dan eerst omrekenen.
     const usdNotionalFallback = (amount && priceNum) ? amount * priceNum : 0;
-    const notional = notionalEUR || (eurUsdtRate ? usdNotionalFallback / eurUsdtRate : usdNotionalFallback);
+    const walletNotionalFallback = walletState.currency === 'USD'
+        ? usdNotionalFallback
+        : (eurUsdtRate ? usdNotionalFallback / eurUsdtRate : usdNotionalFallback);
+    const notional = notionalEUR || walletNotionalFallback;
 
     const entry = {
         timestamp,
@@ -979,17 +994,22 @@ function openPositionFromOrder(order) {
     // de dynamische Equity (die nu ook unrealized P/L meeneemt, zie getEquity()).
     // Zo pyramide je nooit positiegrootte bovenop nog-niet-gerealiseerde winst.
     const balance = getBalance();
-    const notional = balance * finalSizePct; // dit is het bedrag in EUR (de wallet-valuta)
+    const notional = balance * finalSizePct; // bedrag in walletState.currency (EUR of USD)
 
-    // FIX: `price` (livePrice) komt van BTCUSDT en is dus een USD-bedrag, terwijl
-    // `notional` in EUR is - notional direct door price delen behandelde 1 EUR
-    // stilzwijgend als 1 USD (~8-17% fout, afhankelijk van de actuele koers).
-    // Reken notional eerst correct om naar USD via de live EUR/USDT-koers voor
-    // een kloppende BTC-hoeveelheid. Zonder koers (nog niet opgehaald) valt dit
-    // terug op de oude aanname als noodgreep, met een duidelijke log-vermelding.
-    const notionalUSD = eurUsdtRate ? (notional * eurUsdtRate) : notional;
+    // `price` (livePrice) komt van BTCUSDT en is dus altijd een USD-bedrag. Is de
+    // wallet zelf al in USD, dan is er niets om te converteren. Is de wallet in
+    // EUR, dan moet notional eerst omgerekend naar USD via de live EUR/USDT-koers
+    // voor een kloppende BTC-hoeveelheid (anders werd 1 EUR stilzwijgend als 1 USD
+    // behandeld, ~8-17% fout). Zonder koers (nog niet opgehaald) valt dit terug op
+    // de EUR-aanname als noodgreep, met een duidelijke log-vermelding.
+    let notionalUSD;
+    if (walletState.currency === 'USD') {
+        notionalUSD = notional;
+    } else {
+        notionalUSD = eurUsdtRate ? (notional * eurUsdtRate) : notional;
+    }
     const amount = parseFloat((notionalUSD / price).toFixed(6));
-    if (!eurUsdtRate) {
+    if (walletState.currency === 'EUR' && !eurUsdtRate) {
         console.warn("EUR/USDT-koers nog niet beschikbaar - BTC-hoeveelheid is een schatting op basis van 1 EUR = 1 USD.");
     }
 
