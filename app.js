@@ -22,6 +22,19 @@ let activeFibScales = {
     MES: false,
     MAC: false
 };
+// Welke node-types worden als marker op de chart getoond (allemaal standaard aan,
+// net als voorheen toen dit nog niet toggelbaar was).
+let activeNodeTypes = {
+    RESET: true,
+    VOLA: true,
+    VORTEX3: true,
+    VORTEX6: true,
+    OSC: true,
+    MIDPULSE: true
+};
+// Open-posities als lijnen op de chart tonen (entry/target/stop), standaard uit.
+let showPositionLines = false;
+let positionChartLines = []; // referenties zodat we ze kunnen verwijderen bij een update
 //bot globale var
 // Globale variabelen (cruciaal voor de bot)
 let livePrice = 0;
@@ -38,6 +51,7 @@ let botSettings = {
     trailBufferPct: 0.01,        // trailing-marge zodra we boven de trigger houden
     minProjectedProfitPct: 1,    // alleen openen als het verwachte doel >1% winst oplevert
     minProbabilityPct: 90,       // alleen openen als Osiris' zekerheids-score >=90%
+    minProfitForTrendExit: 0.002, // ondergrens (0.2%) voordat een trendommekeer al winst mag verzilveren - voorkomt churn op ruis
     isRunning: false
 };
 
@@ -296,7 +310,10 @@ function stopAutonomousBot() {
 // ============================================================
 // WALLET / POSITIE HELPERS
 // ============================================================
-function getEquity() {
+// Balance = alleen gerealiseerd kapitaal (startkapitaal + gerealiseerde P/L).
+// Dit is de stabiele basis waartegen nieuwe posities worden gesized (zie
+// openPositionFromOrder) - zo pyramide je nooit op nog-niet-gerealiseerde winst.
+function getBalance() {
     return walletState.startingCapital + walletState.realizedPnL;
 }
 
@@ -312,6 +329,13 @@ function getUnrealizedPnL() {
             : (p.entryPrice - livePrice) / p.entryPrice;
         return sum + (p.notional * pnlPct);
     }, 0);
+}
+
+// Equity = Balance + unrealized P/L van alle open posities: beweegt live mee
+// met de markt, zoals gevraagd. Alleen voor weergave/inzicht - de bot zelf
+// sized nieuwe trades tegen getBalance(), niet tegen deze dynamische waarde.
+function getEquity() {
+    return getBalance() + getUnrealizedPnL();
 }
 
 function setText(id, text) {
@@ -353,12 +377,14 @@ function resetWallet() {
 // ============================================================
 function updateWalletUI() {
     const equity = getEquity();
+    const balance = getBalance();
     const unrealized = getUnrealizedPnL();
     const allocatedPct = getAllocatedPct() * 100;
     const totalTrades = walletState.wins + walletState.losses;
     const winRate = totalTrades > 0 ? ((walletState.wins / totalTrades) * 100).toFixed(1) : null;
 
     setText('wallet-equity', `€${equity.toFixed(2)}`);
+    setText('wallet-balance', `€${balance.toFixed(2)}`);
     setText('wallet-realized-pnl', `€${walletState.realizedPnL.toFixed(2)}`);
     const realizedEl = document.getElementById('wallet-realized-pnl');
     if (realizedEl) realizedEl.style.color = walletState.realizedPnL >= 0 ? '#00ffcc' : '#ef5350';
@@ -381,7 +407,7 @@ function updateWalletUI() {
     const posBody = document.getElementById('open-positions-body');
     if (posBody) {
         if (openPositions.length === 0) {
-            posBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#888; padding:8px;">Geen open posities</td></tr>`;
+            posBody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#888; padding:8px;">Geen open posities</td></tr>`;
             setText('bot-position', 'Geen');
         } else {
             posBody.innerHTML = openPositions.map(p => {
@@ -389,10 +415,13 @@ function updateWalletUI() {
                     ? (livePrice - p.entryPrice) / p.entryPrice
                     : (p.entryPrice - livePrice) / p.entryPrice) : 0;
                 const color = pnlPct >= 0 ? '#00ffcc' : '#ef5350';
+                const entryTijd = p.openTime ? formatFullDateTime(p.openTime) : '-';
                 return `<tr>
                     <td style="padding:4px; color:${p.side === 'LONG' ? '#26a69a' : '#ef5350'}; font-weight:bold;">${p.side}</td>
                     <td>${p.entryPrice.toFixed(2)}</td>
+                    <td style="font-size:0.9em; color:#aaa;">${entryTijd}</td>
                     <td>${p.amount}</td>
+                    <td>€${p.notional.toFixed(2)}</td>
                     <td>${(p.sizePct * 100).toFixed(1)}%</td>
                     <td style="color:${color};">${(pnlPct * 100).toFixed(2)}%</td>
                     <td style="color:${color};">€${(p.notional * pnlPct).toFixed(2)}</td>
@@ -401,6 +430,8 @@ function updateWalletUI() {
             setText('bot-position', openPositions.map(p => p.side).join(' + '));
         }
     }
+
+    updatePositionLines();
 }
 
 function updatePendingOrdersUI() {
@@ -415,6 +446,69 @@ function updatePendingOrdersUI() {
     ).join('');
 }
 
+// ============================================================
+// OPEN POSITIES OP DE CHART (toggelbaar, zoals de MIC/MES/MAC fib-lijnen)
+// ============================================================
+function togglePositionLines() {
+    showPositionLines = !showPositionLines;
+    const btn = document.getElementById('btn-toggle-POSITIONS');
+    if (btn) {
+        btn.style.opacity = showPositionLines ? '1' : '0.5';
+        btn.style.border = showPositionLines ? '2px solid #ff9900' : '1px solid #555';
+    }
+    updatePositionLines();
+}
+
+function updatePositionLines() {
+    // Wis altijd eerst de oude lijnen
+    positionChartLines.forEach(line => {
+        try { candlestickSeries.removePriceLine(line); } catch (e) { /* lijn bestond al niet meer */ }
+    });
+    positionChartLines = [];
+
+    if (!showPositionLines || typeof candlestickSeries === 'undefined') return;
+
+    openPositions.forEach(pos => {
+        const color = pos.side === 'LONG' ? '#26a69a' : '#ef5350';
+
+        const entryLine = candlestickSeries.createPriceLine({
+            price: pos.entryPrice,
+            color,
+            lineWidth: 2,
+            lineStyle: LightweightCharts.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: `${pos.side} ENTRY`
+        });
+        positionChartLines.push(entryLine);
+
+        if (pos.targetPrice) {
+            const targetLine = candlestickSeries.createPriceLine({
+                price: parseFloat(pos.targetPrice),
+                color,
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dotted,
+                axisLabelVisible: true,
+                title: `${pos.side} TARGET`
+            });
+            positionChartLines.push(targetLine);
+        }
+
+        // Toon de actieve stop: trailing stop indien actief, anders de vaste -2% stop-loss
+        const stopPrice = pos.trailingStopPct != null
+            ? (pos.side === 'LONG' ? pos.entryPrice * (1 + pos.trailingStopPct) : pos.entryPrice * (1 - pos.trailingStopPct))
+            : (pos.side === 'LONG' ? pos.entryPrice * (1 - botSettings.stopLossPct) : pos.entryPrice * (1 + botSettings.stopLossPct));
+        const stopLine = candlestickSeries.createPriceLine({
+            price: stopPrice,
+            color: '#ff4444',
+            lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: `${pos.side} STOP`
+        });
+        positionChartLines.push(stopLine);
+    });
+}
+
 function updateHistoryUI(entry) {
     const body = document.getElementById('history-body');
     if (!body) return;
@@ -426,6 +520,7 @@ function updateHistoryUI(entry) {
         <td style="color:${entry.side === 'LONG' ? '#26a69a' : '#ef5350'};">${entry.side || '-'}</td>
         <td>${typeof entry.price === 'number' ? entry.price.toFixed(2) : entry.price}</td>
         <td>${entry.amount}</td>
+        <td>€${(entry.notionalEUR || 0).toFixed(2)}</td>
         <td style="color:${pnlColor}; font-weight:bold;">${(entry.pnl * 100).toFixed(2)}% (€${(entry.pnlAmount || 0).toFixed(2)})</td>
     `;
     body.insertBefore(row, body.firstChild);
@@ -439,8 +534,19 @@ function updateHistoryUI(entry) {
 // ============================================================
 // LOGGING
 // ============================================================
-function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0) {
-    const timestamp = new Date().toLocaleTimeString();
+// Volledige datum + tijd (i.p.v. alleen tijd) zodat entries/exits die over
+// middernacht of dagen heen lopen nog steeds eenduidig te herleiden zijn.
+function formatFullDateTime(ts = Date.now()) {
+    const d = new Date(ts);
+    const date = `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+    const time = d.toLocaleTimeString('nl-NL');
+    return `${date} ${time}`;
+}
+
+function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0, notionalEUR = 0) {
+    const timestamp = formatFullDateTime();
+    const priceNum = typeof price === 'number' ? price : parseFloat(price);
+    const notional = notionalEUR || (amount && priceNum ? amount * priceNum : 0);
 
     const entry = {
         timestamp,
@@ -450,6 +556,7 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
         pnl,
         pnlAmount,
         amount,
+        notionalEUR: notional,
         reason,
         equity: getEquity()
     };
@@ -458,7 +565,8 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
     const actionEl = document.getElementById('bot-last-action');
     if (actionEl) {
         const priceTxt = typeof price === 'number' ? price.toFixed(2) : price;
-        actionEl.innerText = `${action} ${side || ''} @ ${priceTxt} ${amount ? `(Amt: ${amount})` : ''} ${reason ? `[${reason}]` : ''} (${timestamp})`.replace(/\s+/g, ' ');
+        const sizeTxt = amount ? `(${amount} BTC \u2248 \u20ac${notional.toFixed(2)})` : '';
+        actionEl.innerText = `${action} ${side || ''} @ ${priceTxt} ${sizeTxt} ${reason ? `[${reason}]` : ''} (${timestamp})`.replace(/\s+/g, ' ');
     }
 
     if (action === "EXIT") {
@@ -476,11 +584,12 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
 // Gebaseerd op de bestaande confluence-telling (0-5, zie getOrisisDecisionData)
 // plus chaos/ER als betrouwbaarheids-correctie. Dit is een instelbare proxy —
 // kalibreer 'm met de gedownloade data (Download All Data-knop).
-function calculateProbabilityScore(confluence, chaosVal, erVal) {
+function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0) {
     let score = 50 + (confluence * 9); // confluence 0-5 -> 50-95
     if (chaosVal > 15) score -= 15;    // extreme volatiliteit = onbetrouwbaarder
     else if (chaosVal < 5) score += 5; // rustige markt = betrouwbaarder
     if (erVal > 1.5) score += 5;       // sterke volume-deelname = betrouwbaarder
+    score += nodeInfluence;            // node-timing: VOLA/CORE verhogen, RESET verlaagt (zie calculateNodeInfluence)
     return Math.max(0, Math.min(100, score));
 }
 
@@ -514,7 +623,9 @@ function calculateEntryTrigger(side, currentPrice) {
 // verwachte winst > minProjectedProfitPct.
 function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const triggerPrice = calculateEntryTrigger(side, currentPrice);
-    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er);
+    const nodeContext = getNodeContext();
+    const nodeInfluence = calculateNodeInfluence(nodeContext);
+    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence);
 
     const targetPrice = side === 'LONG'
         ? parseFloat(decision.targets.meso.bullish)
@@ -527,7 +638,7 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const eligible = probabilityPct >= botSettings.minProbabilityPct &&
                       projectedProfitPct > botSettings.minProjectedProfitPct;
 
-    return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct };
+    return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence };
 }
 
 // Elke 10 seconden: scan of er een nieuwe kans is voor LONG en/of SHORT.
@@ -552,6 +663,7 @@ function scanForOpportunities(decision, metrics) {
             targetPrice: evalResult.targetPrice,
             projectedProfitPct: evalResult.projectedProfitPct,
             probabilityPct: evalResult.probabilityPct,
+            nodeInfluence: evalResult.nodeInfluence,
             createdAt: new Date().toISOString(),
             expiresAt: Date.now() + (30 * 60 * 1000) // 30 min geldig
         };
@@ -571,9 +683,16 @@ function openPositionFromOrder(order) {
     const maxConfluence = 5; // zie getOrisisDecisionData: vfm(2)+db(1)+chaos(1)+er(1)
 
     // Grootte schaalt met signaalsterkte, tot maximaal maxAllocationPct
-    const desiredSizePct = Math.min((confluence / maxConfluence) * botSettings.maxAllocationPct, botSettings.maxAllocationPct);
+    let desiredSizePct = Math.min((confluence / maxConfluence) * botSettings.maxAllocationPct, botSettings.maxAllocationPct);
 
-    // Nooit meer dan 100% van de equity alloceren, ook niet met hedging op beide kanten
+    // Node-timing beïnvloedt ook de sizing: een gunstige node (VOLA/CORE dichtbij)
+    // laat iets groter toe, een RESET-node in de buurt maakt de bot voorzichtiger.
+    // Begrensd tot 0.5x-1.2x zodat dit nooit de maxAllocationPct-cap kan doorbreken
+    // op een manier die de bedoeling van die instelling ondermijnt.
+    const sizeMultiplier = Math.max(0.5, Math.min(1.2, 1 + (order.nodeInfluence || 0) / 100));
+    desiredSizePct = Math.min(desiredSizePct * sizeMultiplier, botSettings.maxAllocationPct);
+
+    // Nooit meer dan 100% van de beschikbare allocatie, ook niet met hedging op beide kanten
     const availablePct = Math.max(0, 1 - getAllocatedPct());
     const finalSizePct = Math.min(desiredSizePct, availablePct);
 
@@ -582,8 +701,11 @@ function openPositionFromOrder(order) {
         return;
     }
 
-    const equity = getEquity();
-    const notional = equity * finalSizePct;
+    // FIX: sizing gebeurt tegen de Balance (alleen gerealiseerd kapitaal), niet tegen
+    // de dynamische Equity (die nu ook unrealized P/L meeneemt, zie getEquity()).
+    // Zo pyramide je nooit positiegrootte bovenop nog-niet-gerealiseerde winst.
+    const balance = getBalance();
+    const notional = balance * finalSizePct;
     const amount = parseFloat((notional / price).toFixed(6));
 
     const position = {
@@ -595,27 +717,32 @@ function openPositionFromOrder(order) {
         sizePct: finalSizePct,
         targetPrice: order.targetPrice,
         probabilityPct: order.probabilityPct,
+        nodeInfluence: order.nodeInfluence || 0,
         openTime: Date.now(),
+        closeTime: null,
         peakPnlPct: 0,
         trailingStopPct: null
     };
 
     openPositions.push(position);
-    logBotAction("ENTRY", price, order.side, 0, amount, `alloc ${(finalSizePct * 100).toFixed(1)}%`);
+    logBotAction("ENTRY", price, order.side, 0, amount, `alloc ${(finalSizePct * 100).toFixed(1)}% | node-inv ${(order.nodeInfluence || 0).toFixed(1)}`, 0, notional);
     savePersistentState();
     updateWalletUI();
+    updatePositionLines();
 }
 
 function closePosition(pos, pnlPct, reason) {
     const pnlAmount = pos.notional * pnlPct;
     walletState.realizedPnL += pnlAmount;
     if (pnlPct >= 0) walletState.wins++; else walletState.losses++;
+    pos.closeTime = Date.now();
 
     openPositions = openPositions.filter(p => p.id !== pos.id);
 
-    logBotAction("EXIT", livePrice, pos.side, pnlPct, pos.amount, reason, pnlAmount);
+    logBotAction("EXIT", livePrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional);
     savePersistentState();
     updateWalletUI();
+    updatePositionLines();
 }
 
 function isTargetReached(pos) {
@@ -694,10 +821,22 @@ function checkOpenPositionsExits() {
             return;
         }
 
-        // 3. Onder de 2%-drempel: gewoon het oorspronkelijk berekende doel gebruiken
+        // 3. Onder de 2%-drempel, maar wél in winst: als het doel exact geraakt wordt
+        // pakken we het (TARGET). Draait de markttrend ondertussen tegen de positie
+        // in - vóórdat de 2%-drempel is gehaald - dan kan Osiris er ook voor kiezen
+        // om de kleinere winst te verzilveren i.p.v. te wachten op het volle doel of
+        // af te glijden richting de stop-loss. Dit hergebruikt dezelfde
+        // continuïteits-check als hierboven, zodat node-timing hier ook meeweegt.
         if (pnlPct > 0 && isTargetReached(pos)) {
             closePosition(pos, pnlPct, "TARGET");
             return;
+        }
+        if (pnlPct >= botSettings.minProfitForTrendExit && lastOsirisDecision) {
+            const continuation = evaluateEntryOpportunity(pos.side, lastOsirisDecision, lastOsirisMetrics, livePrice);
+            if (!continuation.eligible) {
+                closePosition(pos, pnlPct, "TREND_REVERSAL_EXIT");
+                return;
+            }
         }
 
         survivors.push(pos);
@@ -714,9 +853,9 @@ function exportBotTradeLog() {
         alert("Geen trade data beschikbaar om te exporteren.");
         return;
     }
-    const headers = ["Timestamp", "Action", "Price", "Side", "Amount", "PnL_Percent", "PnL_EUR", "Reason", "Equity"];
+    const headers = ["Timestamp", "Action", "Price", "Side", "Amount_BTC", "Notional_EUR", "PnL_Percent", "PnL_EUR", "Reason", "Equity"];
     const rows = botTradeLog.map(t => [
-        t.timestamp, t.action, t.price, t.side, t.amount,
+        t.timestamp, t.action, t.price, t.side, t.amount, (t.notionalEUR || 0).toFixed(2),
         (t.pnl * 100).toFixed(2), (t.pnlAmount || 0).toFixed(2), t.reason || '', (t.equity || 0).toFixed(2)
     ].join(","));
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
@@ -739,6 +878,7 @@ function downloadAllData() {
         wallet: {
             startingCapital: walletState.startingCapital,
             realizedPnL: walletState.realizedPnL,
+            balance: getBalance(),
             equity: getEquity(),
             unrealizedPnL: getUnrealizedPnL(),
             wins: walletState.wins,
@@ -1006,6 +1146,71 @@ function updateSentimentBar(obi) {
     barRed.style.width = `${redWidth}%`;
 }
 
+// ============================================================
+// NODE CONTEXT & INVLOED OP DE BOT
+// ============================================================
+// Primaire nodes staan op integer n (t_n = ANCHOR_TIME + n*T_PI_MS), mid-pulses
+// op n+0.5. Samen liggen ze dus evenredig verdeeld op halve stappen van T_PI_MS.
+// k = index in halve stappen: even k = primaire node (n = k/2), oneven k = mid-pulse.
+function nodeTypeForHalfStepIndex(k) {
+    const isMidPulse = (((k % 2) + 2) % 2) === 1;
+    if (isMidPulse) return 'MIDPULSE';
+    const n = k / 2;
+    const rel = ((n % 8) + 8) % 8;
+    if (rel === 0) return 'RESET';
+    if (rel === 1) return 'VOLA';
+    if (rel === 3) return 'VORTEX3';
+    if (rel === 6) return 'VORTEX6';
+    return 'OSC';
+}
+
+// Geeft de meest recent gepasseerde node en de eerstvolgende node terug,
+// elk met hun type en de tijd (in minuten) sinds/tot dat moment. Het venster
+// tussen "last" en "next" is precies één halve T_PI-cyclus (~94.33 min) -
+// dat is het volledige venster waarbinnen een node nog relevant wordt geacht.
+function getNodeContext(now = Date.now()) {
+    const HALF_MS = T_PI_MS / 2;
+    const kRaw = (now - ANCHOR_TIME) / HALF_MS;
+    const kPrev = Math.floor(kRaw);
+    const kNext = Math.ceil(kRaw);
+    const prevTime = ANCHOR_TIME + kPrev * HALF_MS;
+    const nextTime = ANCHOR_TIME + kNext * HALF_MS;
+    return {
+        lastNode: { type: nodeTypeForHalfStepIndex(kPrev), minutesAgo: Math.max(0, (now - prevTime) / 60000) },
+        nextNode: { type: nodeTypeForHalfStepIndex(kNext), minutesUntil: Math.max(0, (nextTime - now) / 60000) }
+    };
+}
+
+// Node-gewichten: hoeveel een node-type de probability score / sizing beïnvloedt.
+// VOLA = oplopende volatiliteit verwacht -> hogere kans. RESET = mogelijk
+// omslagpunt -> voorzichtiger. CORE (Vortex 3/6) = trend-bevestiging -> hogere
+// kans. OSC/MIDPULSE = verwaarloosbaar (geen van beide beweegt de score).
+const NODE_INFLUENCE_WEIGHTS = {
+    RESET: -8,
+    VOLA: 10,
+    VORTEX3: 6,
+    VORTEX6: 6,
+    OSC: 0,
+    MIDPULSE: 0
+};
+
+// Berekent één samengestelde invloedswaarde (ongeveer -12..+15) op basis van de
+// dichtstbijzijnde nodes. Asymmetrisch: de countdown náár de volgende node weegt
+// zwaarder (1.5x) dan de tijd sinds de vorige node (1x), zoals gevraagd - een
+// aankomende VOLA-node telt zwaarder mee dan eentje die net voorbij is.
+function calculateNodeInfluence(nodeContext) {
+    const windowMinutes = T_PI_MS / 2 / 60000; // ~94.33 min, het volledige relevante venster
+    const proximityWeight = (minutes) => Math.max(0, 1 - (minutes / windowMinutes));
+
+    const nextWeight = proximityWeight(nodeContext.nextNode.minutesUntil) * 1.5;
+    const lastWeight = proximityWeight(nodeContext.lastNode.minutesAgo) * 1.0;
+
+    const nextScore = (NODE_INFLUENCE_WEIGHTS[nodeContext.nextNode.type] || 0) * nextWeight;
+    const lastScore = (NODE_INFLUENCE_WEIGHTS[nodeContext.lastNode.type] || 0) * lastWeight;
+
+    return nextScore + lastScore;
+}
+
 function applyUOTAMGrid(chartData) {
     if (chartData.length === 0) return;
     
@@ -1053,7 +1258,7 @@ function applyUOTAMGrid(chartData) {
                 isBullish: closestCandle.close >= closestCandle.open
             });
 
-            // 3. Tekst markers voor de grafiek
+            // 3. Tekst markers voor de grafiek (nodeTypeKey matcht activeNodeTypes voor de toggle-knoppen)
             if (relativeIndex === 0) {
                 markers.push({
                     time: closestCandle.time,
@@ -1061,6 +1266,7 @@ function applyUOTAMGrid(chartData) {
                     color: '#ffffff',
                     shape: 'circle',
                     text: `RESET [Vortex 9] Node ${i} | ${timeLabel}`,
+                    nodeTypeKey: 'RESET',
                 });
             } else if (relativeIndex === 1) {
                 markers.push({
@@ -1069,6 +1275,7 @@ function applyUOTAMGrid(chartData) {
                     color: '#ffff00',
                     shape: 'circle',
                     text: `VOLA Node ${i} | ${timeLabel}`,
+                    nodeTypeKey: 'VOLA',
                 });
             } else if (relativeIndex === 3 || relativeIndex === 6) {
                 let vortexValue = (relativeIndex === 3) ? "3" : "6";
@@ -1078,6 +1285,7 @@ function applyUOTAMGrid(chartData) {
                     color: '#00ffcc',
                     shape: 'arrowDown',
                     text: `CORE [Vortex ${vortexValue}] Node ${i} | ${timeLabel}`,
+                    nodeTypeKey: relativeIndex === 3 ? 'VORTEX3' : 'VORTEX6',
                 });
             } else {
                 markers.push({
@@ -1086,6 +1294,7 @@ function applyUOTAMGrid(chartData) {
                     color: '#888888',
                     shape: 'square',
                     text: `Node ${i} | ${timeLabel}`,
+                    nodeTypeKey: 'OSC',
                 });
             }
         }
@@ -1112,6 +1321,7 @@ function applyUOTAMGrid(chartData) {
                 color: '#ffcc00',
                 shape: 'circle',
                 text: `MID PULSE Node ${i}`,
+                nodeTypeKey: 'MIDPULSE',
             });
         }
     }
@@ -1119,8 +1329,8 @@ function applyUOTAMGrid(chartData) {
     // Sla de tekst-markers op
     gridMarkers = markers; 
     
-    // Update de grafiek markers
-    LightweightCharts.createSeriesMarkers(candlestickSeries, gridMarkers);
+    // Update de grafiek markers (gefilterd op welke node-types actief zijn getoggeld)
+    renderNodeMarkers();
     
     // Update de Fib-lijnen
    // HIER PAS JE HET AAN:
@@ -1129,6 +1339,27 @@ function applyUOTAMGrid(chartData) {
     updateActiveNodeFibLines(allNodes, chartData);
 
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
+}
+
+// Tekent alleen de markers waarvan het node-type actief staat getoggeld
+// (activeNodeTypes) - aparte functie zodat toggleNodeType() dit kan hertekenen
+// zonder de hele grid opnieuw te hoeven berekenen.
+function renderNodeMarkers() {
+    const visibleMarkers = gridMarkers.filter(m => activeNodeTypes[m.nodeTypeKey] !== false);
+    LightweightCharts.createSeriesMarkers(candlestickSeries, visibleMarkers);
+}
+
+// Schakelt een node-type aan/uit op de chart, net als toggleFibScale() voor de
+// MIC/MES/MAC-lijnen.
+function toggleNodeType(typeKey) {
+    activeNodeTypes[typeKey] = !activeNodeTypes[typeKey];
+
+    const btn = document.getElementById(`btn-toggle-node-${typeKey}`);
+    if (btn) {
+        btn.style.opacity = activeNodeTypes[typeKey] ? '1' : '0.5';
+    }
+
+    renderNodeMarkers();
 }
 
 // --- 1. Historie lijst updaten ---
