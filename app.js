@@ -159,74 +159,95 @@ function exportOsirisData() {
     link.click();
 }
 
+// --- PERSISTENTIE ---
+let botStartTime = localStorage.getItem('botStartTime') ? parseInt(localStorage.getItem('botStartTime')) : null;
+let isBotRunning = localStorage.getItem('botIsRunning') === 'true';
+
+// Auto-start bij laden
+window.addEventListener('load', () => {
+    if (isBotRunning) {
+        startAutonomousBot(true); // true = herstart
+    }
+});
 
 
-function startAutonomousBot() {
-    botSettings.capital = parseFloat(document.getElementById('start-capital').value) || 1000;
-    botSettings.isRunning = true;
-    document.getElementById('bot-status').innerText = "Status: Actief";
-    document.getElementById('btn-start-bot').style.display = 'none';
-    document.getElementById('btn-stop-bot').style.display = 'inline-block';
+
+function startAutonomousBot(isAutoRestart = false) {
+    isBotRunning = true;
+    localStorage.setItem('botIsRunning', 'true');
+    if (!isAutoRestart) {
+        botStartTime = Date.now();
+        localStorage.setItem('botStartTime', botStartTime);
+    }
+    // Start je interval hier
+    botInterval = setInterval(botHeartbeat, 1000); 
+    document.getElementById('bot-status').innerText = "ACTIEF";
 }
 
 function stopAutonomousBot() {
+    // 1. Stop de bot-logica
     botSettings.isRunning = false;
-    document.getElementById('bot-status').innerText = "Status: Gestopt";
+    
+    // 2. Stop de 'hartslag' van de bot (belangrijk!)
+    if (botInterval) {
+        clearInterval(botInterval);
+        botInterval = null;
+    }
+
+    // 3. Wis het geheugen zodat de bot niet auto-start na refresh
+    localStorage.setItem('botIsRunning', 'false');
+    localStorage.removeItem('botStartTime');
+    
+    // 4. Update de UI
+    document.getElementById('bot-status').innerText = "STANDBY";
     document.getElementById('btn-start-bot').style.display = 'inline-block';
     document.getElementById('btn-stop-bot').style.display = 'none';
+    
+    // Optioneel: Reset runtime naar 0
+    document.getElementById('bot-runtime').innerText = "Runtime: 00:00:00";
 }
 
-function logBotAction(action, price, side, pnl = 0) {
+function logBotAction(action, price, side, pnl = 0, amount = 0) {
     // 1. Maak een leesbare tijdstempel
     const timestamp = new Date().toLocaleTimeString(); 
 
     // 2. Sla de volledige data op in je log-array
     const entry = {
-        timestamp: timestamp,
-        action: action, 
-        price: price,
-        side: side,
-        pnl: pnl,
+        timestamp,
+        action,
+        price,
+        side,
+        pnl,
+        amount, // Nieuwe parameter toegevoegd
         capital: botSettings.capital
     };
     botTradeLog.push(entry);
     
-    // 3. Update de UI: Laatste Actie (naar bot-last-action)
+    // 3. Update UI: Laatste Actie
     const actionEl = document.getElementById('bot-last-action');
     if (actionEl) {
-        actionEl.innerText = `${action} ${side ? side : ''} @ ${price} (${timestamp})`;
+        actionEl.innerText = `${action} ${side ? side : ''} @ ${price} (Amt: ${amount}) (${timestamp})`;
     }
 
-    // 4. Update de UI: Huidige Positie (naar bot-position, jouw HTML ID)
+    // 4. Update UI: Huidige Positie (gebruikt bot-position uit jouw HTML)
     const posEl = document.getElementById('bot-position');
     if (posEl) {
-        posEl.innerText = botState.active ? `${botState.side} @ ${botState.entryPrice}` : "Geen";
+        posEl.innerText = botState.active 
+            ? `${botState.side} @ ${botState.entryPrice} (Size: ${amount})` 
+            : "Geen actieve positie";
     }
 
-    // 5. Update PnL in UI als er een exit is
+    // 5. Update PnL in UI (alleen bij EXIT)
     if (action === "EXIT") {
         const pnlEl = document.getElementById('bot-pnl');
         if (pnlEl) {
             pnlEl.innerText = (pnl * 100).toFixed(2) + "%";
             pnlEl.style.color = pnl >= 0 ? "#00ffcc" : "#ef5350";
         }
+        // Voeg toe aan je geschiedenis tabel
+        updateHistoryUI(entry);
     }
 }
-
-// Heartbeat
-setInterval(() => {
-    if (!botSettings.isRunning) return;
-    const metrics = calculateVolumeMetrics(liveVol, isBullish);
-    const decision = getOrisisDecisionData(metrics, livePrice, vfm, er, db, chaos, isBullish);
-    
-    logSystemState(metrics, decision.targets, livePrice, liveVol, chaos, db, isBullish);
-    
-    if (botState.active) {
-        checkExits(decision, livePrice);
-    } else {
-        checkEntries(decision, livePrice);
-    }
-}, 10000);
 
 
 
@@ -237,13 +258,22 @@ function openPosition(side, price) {
 }
 
 function checkEntries(decision, price) {
-    // Voeg toe: && !botState.active
+    // 1. Check op confluence EN of de bot nog niet actief is
     if (decision.confluence >= 4 && !botState.active) {
+        
+        // 2. Bereken de positiegrootte (amount)
+        // Risico per trade (in euro's) / instapprijs = aantal tokens/BTC
+        const riskAmount = (botSettings.capital * botSettings.riskPerTrade) / price;
+        const amountToTrade = parseFloat(riskAmount.toFixed(4)); 
+
+        // 3. Update de bot status
         botState.active = true;
         botState.entryPrice = price;
         botState.side = decision.decision.includes("BULLISH") ? "LONG" : "SHORT";
+        botState.amount = amountToTrade; // Opslaan voor de UI en toekomstige berekeningen
         
-        logBotAction("ENTRY", price, botState.side);
+        // 4. Log de actie MET amount
+        logBotAction("ENTRY", price, botState.side, 0, amountToTrade);
     }
 }
 
@@ -270,42 +300,30 @@ function executeExit(reason, pnl) {
     botState.side = null;
 }
 
-function isTargetReached(targets, side, price) {
-    if (!targets) return false;
-    return side === 'LONG' ? price >= targets.meso.bullish : price <= targets.meso.bearish;
-}
 function updateBotUI() {
     const posEl = document.getElementById('bot-position');
     const pnlEl = document.getElementById('bot-pnl');
     
     if (botState.active) {
-        posEl.innerText = `Positie: ${botState.side} @ ${botState.entryPrice}`;
-        // Bereken live P/L
-        const livePnl = botState.side === 'LONG' ? ((livePrice - botState.entryPrice)/botState.entryPrice) : ((botState.entryPrice - livePrice)/botState.entryPrice);
-        pnlEl.innerText = `Live P/L: ${(livePnl * 100).toFixed(2)}%`;
+        // 1. Update Positie met de opgeslagen amount
+        posEl.innerText = `${botState.side} @ ${botState.entryPrice} (Size: ${botState.amount})`;
+        
+        // 2. Bereken live P/L
+        const livePnl = botState.side === 'LONG' 
+            ? ((livePrice - botState.entryPrice) / botState.entryPrice) 
+            : ((botState.entryPrice - livePrice) / botState.entryPrice);
+        
+        // 3. Update P/L text en kleur
+        pnlEl.innerText = (livePnl * 100).toFixed(2) + "%";
+        pnlEl.style.color = livePnl >= 0 ? "#00ffcc" : "#ef5350";
     } else {
-        posEl.innerText = "Geen actieve positie";
+        // Reset naar de standaard "STANDBY" staat
+        posEl.innerText = "Geen";
+        pnlEl.innerText = "0.00%";
+        pnlEl.style.color = "#fff"; // Of jouw standaard tekstkleur
     }
 }
 
-// De Heartbeat (elke 10 seconden voor hoge precisie)
-setInterval(() => {
-    if (!botSettings.isRunning) return;
-
-    // 1. Data verzamelen voor kalibratie
-    const metrics = calculateVolumeMetrics(liveVol, isBullish);
-    const decision = getOrisisDecisionData(metrics, livePrice, vfm, er, db, chaos, isBullish);
-    
-    // 2. Altijd loggen voor je kalibratie (elke 10 sec)
-    logSystemState(metrics, decision.targets, livePrice, liveVol, chaos, db, isBullish);
-    
-    // 3. Bot actie
-    if (botState.active) {
-        checkExits(decision, livePrice);
-    } else {
-        checkEntries(decision, livePrice);
-    }
-}, 10000);
 
 function exportBotTradeLog() {
     if (botTradeLog.length === 0) {
@@ -313,23 +331,24 @@ function exportBotTradeLog() {
         return;
     }
 
-    // Headers voor je CSV
-    const headers = ["Timestamp", "Action", "Price", "Side", "PnL_Percent", "Capital"];
+    // 1. Headers aangepast met 'Amount'
+    const headers = ["Timestamp", "Action", "Price", "Side", "Amount", "PnL_Percent", "Capital"];
     
-    // Rijen formatteren
+    // 2. Rijen formatteren (let op de volgorde van de array)
     const rows = botTradeLog.map(t => [
         t.timestamp,
         t.action,
         t.price,
         t.side,
-        (t.pnl * 100).toFixed(2), // PnL als percentage voor leesbaarheid in Excel
+        t.amount, // Nu correct toegevoegd
+        (t.pnl * 100).toFixed(2),
         t.capital
     ].join(","));
 
-    // Samenvoegen tot CSV
+    // 3. Samenvoegen tot CSV
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
     
-    // Download trigger
+    // 4. Download trigger
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -355,6 +374,59 @@ function isTargetReached(targetMatrix, side, price) {
     return false;
 }
 
+// Globale variabele om de 10-seconden cyclus bij te houden
+let botTickCounter = 0;
+
+function botHeartbeat() {
+    // 1. Runtime UI Update (Elke seconde)
+    if (botStartTime) {
+        const diff = Date.now() - botStartTime;
+        const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
+        const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
+        const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
+        
+        const runtimeEl = document.getElementById('bot-runtime');
+        if (runtimeEl) runtimeEl.innerText = `Runtime: ${h}:${m}:${s}`;
+    }
+
+    // 2. Live P/L Berekening (Elke seconde)
+    const pnlEl = document.getElementById('bot-pnl');
+    if (botState.active) {
+        const pnl = botState.side === 'LONG' 
+            ? ((livePrice - botState.entryPrice) / botState.entryPrice) 
+            : ((botState.entryPrice - livePrice) / botState.entryPrice);
+        
+        if (pnlEl) {
+            pnlEl.innerText = (pnl * 100).toFixed(2) + "%";
+            pnlEl.style.color = pnl >= 0 ? "#00ffcc" : "#ef5350";
+        }
+    } else {
+        if (pnlEl) pnlEl.innerText = "0.00%";
+    }
+
+    // 3. Trading Engine (Elke 10 seconden)
+    botTickCounter++;
+    if (botTickCounter >= 10) {
+        botTickCounter = 0; // Reset teller
+        
+        // Check of bot actief is volgens settings
+        if (!botSettings.isRunning) return;
+
+        // Bereken metrics en beslissing
+        const metrics = calculateVolumeMetrics(liveVol, isBullish);
+        const decision = getOrisisDecisionData(metrics, livePrice, vfm, er, db, chaos, isBullish);
+        
+        // Log naar systeem
+        logSystemState(metrics, decision.targets, livePrice, liveVol, chaos, db, isBullish);
+        
+        // Voer trade actie uit
+        if (botState.active) {
+            checkExits(decision, livePrice);
+        } else {
+            checkEntries(decision, livePrice);
+        }
+    }
+}
 
 
 function setHarmonic(value) {
