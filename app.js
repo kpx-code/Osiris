@@ -120,9 +120,16 @@ const fibStyles = {
 
 // - INITIALISEER HET TRADINGVIEW CHART INTERFACE ---
 const chartContainer = document.getElementById('chart-container');
+
+// FIX: chart-hoogte stond vast op 600px, wat op een telefoonscherm het
+// grootste deel van de pagina inneemt. Schaalt nu mee met de viewportbreedte.
+function getResponsiveChartHeight() {
+    return window.innerWidth < 768 ? 350 : 600;
+}
+
 const chart = LightweightCharts.createChart(chartContainer, {
     width: chartContainer.clientWidth,
-    height: 600,
+    height: getResponsiveChartHeight(),
     layout: {
         background: { color: '#131722' },
         textColor: '#d1d4dc',
@@ -180,8 +187,19 @@ function currencySymbol() {
     return (displayCurrency === 'EUR' && eurUsdtRate) ? '€' : '$';
 }
 
+// De chart-prijzen komen van BTCUSDT (dus USD als brontaal); de wallet is
+// intern altijd EUR (dat is de echte valuta van je kapitaal - dit verandert
+// NOOIT, alleen de weergave). Vandaar twee aparte formatters met een
+// verschillend startpunt, die allebei uitkomen op dezelfde displayCurrency.
 function formatChartPrice(usdPrice) {
     return `${currencySymbol()}${convertToDisplayCurrency(usdPrice).toFixed(0)}`;
+}
+
+function formatMoney(eurAmount, decimals = 2) {
+    if (displayCurrency === 'USD' && eurUsdtRate) {
+        return `$${(eurAmount * eurUsdtRate).toFixed(decimals)}`;
+    }
+    return `€${eurAmount.toFixed(decimals)}`;
 }
 
 // Past de as-labels, crosshair-labels EN alle price-line-labels (fib-lijnen,
@@ -199,6 +217,8 @@ function applyChartPriceFormat() {
 function handleCurrencySelect(value) {
     displayCurrency = value;
     applyChartPriceFormat();
+    updateWalletUI();
+    updatePendingOrdersUI();
 }
 
 // --- FIBONACCI MARKERS FUNCTIE ---
@@ -530,13 +550,13 @@ function updateWalletUI() {
     const totalTrades = walletState.wins + walletState.losses;
     const winRate = totalTrades > 0 ? ((walletState.wins / totalTrades) * 100).toFixed(1) : null;
 
-    setText('wallet-equity', `€${equity.toFixed(2)}`);
-    setText('wallet-balance', `€${balance.toFixed(2)}`);
-    setText('wallet-realized-pnl', `€${walletState.realizedPnL.toFixed(2)}`);
+    setText('wallet-equity', formatMoney(equity));
+    setText('wallet-balance', formatMoney(balance));
+    setText('wallet-realized-pnl', formatMoney(walletState.realizedPnL));
     const realizedEl = document.getElementById('wallet-realized-pnl');
     if (realizedEl) realizedEl.style.color = walletState.realizedPnL >= 0 ? '#00ffcc' : '#ef5350';
 
-    setText('wallet-unrealized-pnl', `€${unrealized.toFixed(2)}`);
+    setText('wallet-unrealized-pnl', formatMoney(unrealized));
     const unrealizedEl = document.getElementById('wallet-unrealized-pnl');
     if (unrealizedEl) unrealizedEl.style.color = unrealized >= 0 ? '#00ffcc' : '#ef5350';
 
@@ -544,9 +564,9 @@ function updateWalletUI() {
     setText('wallet-open-count', `${openPositions.length}`);
     setText('wallet-winrate', winRate !== null ? `${winRate}% (${walletState.wins}W / ${walletState.losses}L)` : '--');
 
-    // Backwards-compatible aggregate P/L veld (bovenin de bot-monitor tegel) - nu met €-bedrag erbij
+    // Backwards-compatible aggregate P/L veld (bovenin de bot-monitor tegel) - nu met bedrag erbij
     const aggPct = equity !== 0 ? (unrealized / equity) * 100 : 0;
-    setText('bot-pnl', `${aggPct >= 0 ? '+' : ''}${aggPct.toFixed(2)}% (${unrealized >= 0 ? '+' : ''}€${unrealized.toFixed(2)})`);
+    setText('bot-pnl', `${aggPct >= 0 ? '+' : ''}${aggPct.toFixed(2)}% (${unrealized >= 0 ? '+' : ''}${formatMoney(unrealized)})`);
     const pnlEl = document.getElementById('bot-pnl');
     if (pnlEl) pnlEl.style.color = unrealized >= 0 ? '#00ffcc' : '#ef5350';
 
@@ -565,13 +585,13 @@ function updateWalletUI() {
                 const entryTijd = p.openTime ? formatFullDateTime(p.openTime) : '-';
                 return `<tr>
                     <td style="padding:4px; color:${p.side === 'LONG' ? '#26a69a' : '#ef5350'}; font-weight:bold;">${p.side}</td>
-                    <td>${p.entryPrice.toFixed(2)}</td>
+                    <td>${formatChartPrice(p.entryPrice)}</td>
                     <td style="font-size:0.9em; color:#aaa;">${entryTijd}</td>
                     <td>${p.amount}</td>
-                    <td>€${p.notional.toFixed(2)}</td>
+                    <td>${formatMoney(p.notional)}</td>
                     <td>${(p.sizePct * 100).toFixed(1)}%</td>
                     <td style="color:${color};">${(pnlPct * 100).toFixed(2)}%</td>
-                    <td style="color:${color};">€${(p.notional * pnlPct).toFixed(2)}</td>
+                    <td style="color:${color};">${formatMoney(p.notional * pnlPct)}</td>
                 </tr>`;
             }).join('');
             setText('bot-position', openPositions.map(p => p.side).join(' + '));
@@ -589,7 +609,7 @@ function updatePendingOrdersUI() {
         return;
     }
     el.innerHTML = pendingOrders.map(o =>
-        `<div>${o.side === 'LONG' ? '🟢' : '🔴'} ${o.side} wacht op €${o.triggerPrice.toFixed(2)} (kans ${o.probabilityPct.toFixed(0)}%, verwacht +${o.projectedProfitPct.toFixed(2)}%)</div>`
+        `<div>${o.side === 'LONG' ? '🟢' : '🔴'} ${o.side} wacht op ${formatChartPrice(o.triggerPrice)} (kans ${o.probabilityPct.toFixed(0)}%, verwacht +${o.projectedProfitPct.toFixed(2)}%)</div>`
     ).join('');
 }
 
@@ -661,10 +681,10 @@ function updateHistoryUI(entry) {
     row.innerHTML = `
         <td style="padding:5px; color:#888;">${entry.timestamp}</td>
         <td style="color:${entry.side === 'LONG' ? '#26a69a' : '#ef5350'};">${entry.side || '-'}</td>
-        <td>${typeof entry.price === 'number' ? entry.price.toFixed(2) : entry.price}</td>
+        <td>${typeof entry.price === 'number' ? formatChartPrice(entry.price) : entry.price}</td>
         <td>${entry.amount}</td>
-        <td>€${(entry.notionalEUR || 0).toFixed(2)}</td>
-        <td style="color:${pnlColor}; font-weight:bold;">${(entry.pnl * 100).toFixed(2)}% (€${(entry.pnlAmount || 0).toFixed(2)})</td>
+        <td>${formatMoney(entry.notionalEUR || 0)}</td>
+        <td style="color:${pnlColor}; font-weight:bold;">${(entry.pnl * 100).toFixed(2)}% (${formatMoney(entry.pnlAmount || 0)})</td>
     `;
     body.insertBefore(row, body.firstChild);
 
@@ -689,7 +709,11 @@ function formatFullDateTime(ts = Date.now()) {
 function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0, notionalEUR = 0) {
     const timestamp = formatFullDateTime();
     const priceNum = typeof price === 'number' ? price : parseFloat(price);
-    const notional = notionalEUR || (amount && priceNum ? amount * priceNum : 0);
+    // Fallback voor het (zeldzame) geval dat notionalEUR niet is meegegeven:
+    // amount*priceNum geeft een USD-bedrag (want price komt van BTCUSDT), dus
+    // eerst omrekenen naar EUR i.p.v. die twee te verwarren.
+    const usdNotionalFallback = (amount && priceNum) ? amount * priceNum : 0;
+    const notional = notionalEUR || (eurUsdtRate ? usdNotionalFallback / eurUsdtRate : usdNotionalFallback);
 
     const entry = {
         timestamp,
@@ -707,8 +731,8 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
 
     const actionEl = document.getElementById('bot-last-action');
     if (actionEl) {
-        const priceTxt = typeof price === 'number' ? price.toFixed(2) : price;
-        const sizeTxt = amount ? `(${amount} BTC \u2248 \u20ac${notional.toFixed(2)})` : '';
+        const priceTxt = typeof price === 'number' ? formatChartPrice(price) : price;
+        const sizeTxt = amount ? `(${amount} BTC \u2248 ${formatMoney(notional)})` : '';
         actionEl.innerText = `${action} ${side || ''} @ ${priceTxt} ${sizeTxt} ${reason ? `[${reason}]` : ''} (${timestamp})`.replace(/\s+/g, ' ');
     }
 
@@ -842,11 +866,31 @@ function evaluateContinuation(side, thresholdOverride = null) {
 // alleen een harde TTL) - als het signaal intussen is weggevallen, wordt de
 // order meteen geannuleerd i.p.v. te blijven wachten tot de vervaltijd. Loopt
 // op dezelfde 10s-cadans als de rest van de Osiris-scan, dus zonder extra load.
+// FIX: dit hergebruikte evaluateEntryOpportunity(), die bij ELKE herbeoordeling
+// een compleet NIEUWE instapprijs berekent en opnieuw de volle "1% verse
+// winstruimte"-eis stelt. Bij een kleine prijsschommeling kan die herberekende
+// ruimte tijdelijk onder de drempel duiken, waardoor geldige orders veel te
+// vaak voortijdig werden geannuleerd. Deze check kijkt alleen of de
+// onderliggende kans nog redelijk overeind staat (met een marge van 10
+// procentpunt onder de entry-drempel als buffer tegen ruis), zonder de
+// oorspronkelijke triggerPrice/targetPrice van de order opnieuw te herschrijven.
+function isPendingOrderStillValid(order) {
+    if (!lastOsirisDecision) return true; // geen recente scan - wees niet te snel met cancelen
+
+    const nodeContext = getNodeContext();
+    const nodeInfluence = calculateNodeInfluence(nodeContext);
+    const momentumContext = getMomentumContext();
+    const momentumInfluence = calculateMomentumInfluence(order.side, momentumContext);
+    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence);
+
+    const cancelThreshold = Math.max(0, botSettings.minProbabilityPct - 10);
+    return probabilityPct >= cancelThreshold;
+}
+
 function revalidatePendingOrders(decision, metrics) {
     let changed = false;
     pendingOrders = pendingOrders.filter(order => {
-        const evalResult = evaluateEntryOpportunity(order.side, decision, metrics, livePrice);
-        if (!evalResult.eligible) {
+        if (!isPendingOrderStillValid(order)) {
             logBotAction("CANCELLED", order.triggerPrice, order.side, 0, 0, "niet langer geldig (herbeoordeeld)");
             changed = true;
             return false;
@@ -2277,7 +2321,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.addEventListener('resize', () => {
-    chart.resize(chartContainer.clientWidth, 600);
+    chart.resize(chartContainer.clientWidth, getResponsiveChartHeight());
 });
 
 applyChartPriceFormat();
