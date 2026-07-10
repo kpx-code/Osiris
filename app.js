@@ -22,6 +22,7 @@ let activeFibScales = {
     MES: false,
     MAC: false
 };
+let osirisSystemLog = [];
 
 const fibPalettes = {
     MIC: { style: LightweightCharts.LineStyle.Dotted },
@@ -104,6 +105,199 @@ chart.subscribeCrosshairMove(param => {
         ohlcClose.style.color = '#d1d4dc';
     }
 });
+
+function logSystemState(metrics, targets, currentPrice, chaos, db, isBullish) {
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        price: currentPrice,
+        // Kern-indicatoren
+        vfm: metrics.vfm || 0,
+        er: metrics.er || 0,
+        db: db || 0,
+        chaos: chaos || 0,
+        // Context-data
+        volRate: metrics.rate || 0,
+        volScore: metrics.score || 0,
+        // Fractal Targets
+        microBull: targets.micro.bullish,
+        microBear: targets.micro.bearish,
+        mesoBull: targets.meso.bullish,
+        mesoBear: targets.meso.bearish,
+        macroBull: targets.macro.bullish,
+        macroBear: targets.macro.bearish,
+        // Besluitvorming
+        isBullish: isBullish
+    };
+    
+    osirisSystemLog.push(logEntry);
+}
+
+function exportOsirisData() {
+    const headers = Object.keys(osirisSystemLog[0]).join(",");
+    const rows = osirisSystemLog.map(obj => Object.values(obj).join(","));
+    const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + rows.join("\n");
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "osiris_kalibratie_log.csv");
+    document.body.appendChild(link);
+    link.click();
+}
+
+let botSettings = {
+    capital: 0,
+    riskPerTrade: 0.01, // 1% risico
+    isRunning: false
+};
+
+
+let botState = {
+    active: false,
+    entryPrice: 0,
+    side: null
+};
+
+let botTradeLog = []; // Voor je trades (Entry/Exit/PnL)
+let osirisSystemLog = []; // Voor je 1-minuut marktdata
+
+function startAutonomousBot() {
+    botSettings.capital = parseFloat(document.getElementById('start-capital').value);
+    botSettings.riskPerTrade = parseFloat(document.getElementById('risk-per-trade').value) / 100;
+    botSettings.isRunning = true;
+    
+    document.getElementById('btn-start-bot').style.display = 'none';
+    document.getElementById('btn-stop-bot').style.display = 'inline-block';
+    
+    console.log("Bot gestart met kapitaal:", botSettings.capital);
+}
+
+function stopAutonomousBot() {
+    botSettings.isRunning = false;
+    document.getElementById('btn-start-bot').style.display = 'inline-block';
+    document.getElementById('btn-stop-bot').style.display = 'none';
+}
+
+// De kern: De "Heartbeat" van de bot
+setInterval(() => {
+    if (!botSettings.isRunning) return;
+    
+    // Check of we in een positie zitten of nieuwe signalen zoeken
+    const metrics = calculateVolumeMetrics(liveVol, isBullish);
+    const decision = getOrisisDecisionData(metrics, livePrice, vfm, er, db, chaos, isBullish);
+    
+    if (botState.active) {
+        checkExits(decision, livePrice);
+    } else {
+        checkEntries(decision, livePrice);
+    }
+}, 5000); // Bot checkt elke 5 seconden voor maximale responsiviteit
+
+function checkEntries(decision, price) {
+    if (decision.confluence >= 4) {
+        // Bereken positiegrootte obv risico
+        const amountToRisk = botSettings.capital * botSettings.riskPerTrade;
+        const positionSize = amountToRisk / 0.01; // Bij 1% SL afstand
+
+        // Logic voor entry
+        botState = { 
+            active: true, 
+            entryPrice: price, 
+            side: decision.decision.includes("BULLISH") ? "LONG" : "SHORT",
+            size: positionSize 
+        };
+    }
+}
+
+function checkExits(decision, price) {
+    const pnl = botState.side === 'LONG' ? ((price - botState.entryPrice) / botState.entryPrice) : ((botState.entryPrice - price) / botState.entryPrice);
+
+    // Harde Stoploss op -1%
+    if (pnl <= -0.01) executeExit("STOP_LOSS", pnl);
+    
+    // Dynamische Exit: sluit bij meso target
+    else if (pnl > 0 && isTargetReached(decision.targets.meso, botState.side, price)) {
+        executeExit("MESO_TARGET_REACHED", pnl);
+    }
+}
+
+let botTradeLog = []; // Specifiek voor entries/exits/PnL
+
+function logBotAction(action, price, side, pnl = 0) {
+    const entry = {
+        timestamp: new Date().toISOString(),
+        action: action, // "ENTRY" of "EXIT"
+        price: price,
+        side: side,
+        pnl: pnl,
+        capital: botSettings.capital // Om P/L in euro's te zien
+    };
+    botTradeLog.push(entry);
+    
+    // Update de UI
+    if (action === "EXIT") {
+        document.getElementById('bot-status').innerText = `Status: Standby (Laatste PnL: ${(pnl*100).toFixed(2)}%)`;
+    }
+}
+
+function openPosition(side, price) {
+    botState = { active: true, entryPrice: price, side: side };
+    logBotAction("ENTRY", price, side); // <--- HIER LOGGEN
+}
+
+function executeExit(reason, pnl) {
+    logBotAction("EXIT", livePrice, botState.side, pnl); // <--- HIER LOGGEN
+    botState = { active: false, ... };
+}
+function updateBotUI() {
+    const posEl = document.getElementById('bot-position');
+    const pnlEl = document.getElementById('bot-pnl');
+    
+    if (botState.active) {
+        posEl.innerText = `Positie: ${botState.side} @ ${botState.entryPrice}`;
+        // Bereken live P/L
+        const livePnl = botState.side === 'LONG' ? ((livePrice - botState.entryPrice)/botState.entryPrice) : ((botState.entryPrice - livePrice)/botState.entryPrice);
+        pnlEl.innerText = `Live P/L: ${(livePnl * 100).toFixed(2)}%`;
+    } else {
+        posEl.innerText = "Geen actieve positie";
+    }
+}
+
+function startAutonomousBot() {
+    const capInput = document.getElementById('start-capital');
+    botSettings.capital = parseFloat(capInput.value) || 1000;
+    botSettings.isRunning = true;
+    
+    console.log("🚀 Osiris Bot operationeel.");
+    document.getElementById('bot-status').innerText = "Status: Actief";
+}
+
+function stopAutonomousBot() {
+    botSettings.isRunning = false;
+    console.log("🛑 Osiris Bot gestopt.");
+    document.getElementById('bot-status').innerText = "Status: Gestopt";
+}
+
+// De Heartbeat (elke 10 seconden voor hoge precisie)
+setInterval(() => {
+    if (!botSettings.isRunning) return;
+
+    // 1. Data verzamelen voor kalibratie
+    const metrics = calculateVolumeMetrics(liveVol, isBullish);
+    const decision = getOrisisDecisionData(metrics, livePrice, vfm, er, db, chaos, isBullish);
+    
+    // 2. Altijd loggen voor je kalibratie (elke 10 sec)
+    logSystemState(metrics, decision.targets, livePrice, liveVol, chaos, db, isBullish);
+    
+    // 3. Bot actie
+    if (botState.active) {
+        checkExits(decision, livePrice);
+    } else {
+        checkEntries(decision, livePrice);
+    }
+}, 10000);
+
+
 
 function setHarmonic(value) {
     uotamHarmonicSetting = value;
