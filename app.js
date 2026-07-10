@@ -177,7 +177,10 @@ function stopAutonomousBot() {
 }
 
 function logBotAction(action, price, side, pnl = 0) {
-    const timestamp = new Date().toLocaleString(); // Mooi leesbare datum + tijd
+    // 1. Maak een leesbare tijdstempel
+    const timestamp = new Date().toLocaleTimeString(); 
+
+    // 2. Sla de volledige data op in je log-array
     const entry = {
         timestamp: timestamp,
         action: action, 
@@ -188,16 +191,25 @@ function logBotAction(action, price, side, pnl = 0) {
     };
     botTradeLog.push(entry);
     
-    // Update de UI: Laatste Actie
+    // 3. Update de UI: Laatste Actie (naar bot-last-action)
     const actionEl = document.getElementById('bot-last-action');
     if (actionEl) {
         actionEl.innerText = `${action} ${side ? side : ''} @ ${price} (${timestamp})`;
     }
 
-    // Update de UI: Huidige Positie
-    const posEl = document.getElementById('bot-current-position');
+    // 4. Update de UI: Huidige Positie (naar bot-position, jouw HTML ID)
+    const posEl = document.getElementById('bot-position');
     if (posEl) {
         posEl.innerText = botState.active ? `${botState.side} @ ${botState.entryPrice}` : "Geen";
+    }
+
+    // 5. Update PnL in UI als er een exit is
+    if (action === "EXIT") {
+        const pnlEl = document.getElementById('bot-pnl');
+        if (pnlEl) {
+            pnlEl.innerText = (pnl * 100).toFixed(2) + "%";
+            pnlEl.style.color = pnl >= 0 ? "#00ffcc" : "#ef5350";
+        }
     }
 }
 
@@ -225,25 +237,25 @@ function openPosition(side, price) {
 }
 
 function checkEntries(decision, price) {
-    // 4 is jouw drempelwaarde
-    if (decision.confluence >= 4) {
+    // Voeg toe: && !botState.active
+    if (decision.confluence >= 4 && !botState.active) {
         botState.active = true;
         botState.entryPrice = price;
         botState.side = decision.decision.includes("BULLISH") ? "LONG" : "SHORT";
         
-        // Nu roep je de log aan
         logBotAction("ENTRY", price, botState.side);
     }
 }
 
 function checkExits(decision, price) {
+    // Beveiliging: als er geen targets zijn, kun je ook niet op targets exit-en
+    if (!decision || !decision.targets) return; 
+
     const pnl = botState.side === 'LONG' ? ((price - botState.entryPrice) / botState.entryPrice) : ((botState.entryPrice - price) / botState.entryPrice);
 
-    // Stoploss op -1%
     if (pnl <= -0.01) {
         executeExit("STOP_LOSS", pnl);
     } 
-    // Profit op Meso target
     else if (pnl > 0 && isTargetReached(decision.targets, botState.side, price)) {
         executeExit("MESO_TARGET", pnl);
     }
@@ -251,7 +263,11 @@ function checkExits(decision, price) {
 
 function executeExit(reason, pnl) {
     logBotAction("EXIT", livePrice, botState.side, pnl);
-    botState = { active: false, entryPrice: 0, side: null };
+    
+    // Pas de eigenschappen individueel aan in plaats van het hele object te overschrijven
+    botState.active = false;
+    botState.entryPrice = 0;
+    botState.side = null;
 }
 
 function isTargetReached(targets, side, price) {
