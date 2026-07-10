@@ -211,33 +211,7 @@ setInterval(() => {
     }
 }, 10000);
 
-function checkEntries(decision, price) {
-    if (decision.confluence >= 4) {
-        // Bereken positiegrootte obv risico
-        const amountToRisk = botSettings.capital * botSettings.riskPerTrade;
-        const positionSize = amountToRisk / 0.01; // Bij 1% SL afstand
 
-        // Logic voor entry
-        botState = { 
-            active: true, 
-            entryPrice: price, 
-            side: decision.decision.includes("BULLISH") ? "LONG" : "SHORT",
-            size: positionSize 
-        };
-    }
-}
-
-function checkExits(decision, price) {
-    const pnl = botState.side === 'LONG' ? ((price - botState.entryPrice) / botState.entryPrice) : ((botState.entryPrice - price) / botState.entryPrice);
-
-    // Harde Stoploss op -1%
-    if (pnl <= -0.01) executeExit("STOP_LOSS", pnl);
-    
-    // Dynamische Exit: sluit bij meso target
-    else if (pnl > 0 && isTargetReached(decision.targets.meso, botState.side, price)) {
-        executeExit("MESO_TARGET_REACHED", pnl);
-    }
-}
 
 
 function openPosition(side, price) {
@@ -245,9 +219,34 @@ function openPosition(side, price) {
     logBotAction("ENTRY", price, side); // <--- HIER LOGGEN
 }
 
+function checkEntries(decision, price) {
+    if (decision.confluence >= 4) {
+        botState = { active: true, entryPrice: price, side: decision.decision.includes("BULLISH") ? "LONG" : "SHORT" };
+        logBotAction("ENTRY", price, botState.side);
+    }
+}
+
+function checkExits(decision, price) {
+    const pnl = botState.side === 'LONG' ? ((price - botState.entryPrice) / botState.entryPrice) : ((botState.entryPrice - price) / botState.entryPrice);
+
+    // Stoploss op -1%
+    if (pnl <= -0.01) {
+        executeExit("STOP_LOSS", pnl);
+    } 
+    // Profit op Meso target
+    else if (pnl > 0 && isTargetReached(decision.targets, botState.side, price)) {
+        executeExit("MESO_TARGET", pnl);
+    }
+}
+
 function executeExit(reason, pnl) {
-    logBotAction("EXIT", livePrice, botState.side, pnl); // <--- HIER LOGGEN
-    botState = { active: false, ... };
+    logBotAction("EXIT", livePrice, botState.side, pnl);
+    botState = { active: false, entryPrice: 0, side: null };
+}
+
+function isTargetReached(targets, side, price) {
+    if (!targets) return false;
+    return side === 'LONG' ? price >= targets.meso.bullish : price <= targets.meso.bearish;
 }
 function updateBotUI() {
     const posEl = document.getElementById('bot-position');
@@ -315,13 +314,18 @@ function exportBotTradeLog() {
 }
 
 function isTargetReached(targetMatrix, side, price) {
-    if (side === 'LONG') {
-        // Sluit als de prijs de mesoBull target raakt of overschrijdt
+    // 1. Veiligheidscheck: bestaat de matrix en de nodige data wel?
+    if (!targetMatrix || !price) return false;
+
+    // 2. Jouw logica (aangepast aan jouw specifieke variabelen)
+    if (side === 'LONG' && targetMatrix.mesoBull) {
         return price >= targetMatrix.mesoBull;
-    } else if (side === 'SHORT') {
-        // Sluit als de prijs de mesoBear target raakt of onderschrijdt
+    } 
+    
+    if (side === 'SHORT' && targetMatrix.mesoBear) {
         return price <= targetMatrix.mesoBear;
     }
+    
     return false;
 }
 
