@@ -177,10 +177,28 @@ function stopAutonomousBot() {
 }
 
 function logBotAction(action, price, side, pnl = 0) {
-    const entry = { timestamp: new Date().toISOString(), action, price, side, pnl, capital: botSettings.capital };
+    const timestamp = new Date().toLocaleString(); // Mooi leesbare datum + tijd
+    const entry = {
+        timestamp: timestamp,
+        action: action, 
+        price: price,
+        side: side,
+        pnl: pnl,
+        capital: botSettings.capital
+    };
     botTradeLog.push(entry);
-    document.getElementById('bot-last-action').innerText = `${action} @ ${price}`;
-    if (action === "EXIT") document.getElementById('bot-status').innerText = `Status: Standby (Laatste PnL: ${(pnl*100).toFixed(2)}%)`;
+    
+    // Update de UI: Laatste Actie
+    const actionEl = document.getElementById('bot-last-action');
+    if (actionEl) {
+        actionEl.innerText = `${action} ${side ? side : ''} @ ${price} (${timestamp})`;
+    }
+
+    // Update de UI: Huidige Positie
+    const posEl = document.getElementById('bot-current-position');
+    if (posEl) {
+        posEl.innerText = botState.active ? `${botState.side} @ ${botState.entryPrice}` : "Geen";
+    }
 }
 
 // Heartbeat
@@ -207,8 +225,13 @@ function openPosition(side, price) {
 }
 
 function checkEntries(decision, price) {
+    // 4 is jouw drempelwaarde
     if (decision.confluence >= 4) {
-        botState = { active: true, entryPrice: price, side: decision.decision.includes("BULLISH") ? "LONG" : "SHORT" };
+        botState.active = true;
+        botState.entryPrice = price;
+        botState.side = decision.decision.includes("BULLISH") ? "LONG" : "SHORT";
+        
+        // Nu roep je de log aan
         logBotAction("ENTRY", price, botState.side);
     }
 }
