@@ -22,7 +22,6 @@ let activeFibScales = {
     MES: false,
     MAC: false
 };
-let osirisSystemLog = [];
 //bot globale var
 // Globale variabelen (cruciaal voor de bot)
 let livePrice = 0;
