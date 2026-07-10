@@ -32,6 +32,12 @@ let botState = { active: false, entryPrice: 0, side: null };
 let botTradeLog = [];
 let osirisSystemLog = [];
 
+// Bovenin bij je andere variabelen:
+let vfm = 0;
+let er = 0;
+let db = 0;
+let chaos = 0;
+
 const fibPalettes = {
     MIC: { style: LightweightCharts.LineStyle.Dotted },
     MES: { style: LightweightCharts.LineStyle.Dashed },
@@ -713,11 +719,11 @@ function startLiveUpdates() {
             // 4. Data-afhankelijke berekeningen (VFM, ER, DB, Chaos)
             if (rawData && rawData.length >= 288) {
                 const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
-                const er = liveVol / sma20Volume;
-                const db = (high - low !== 0) ? (2 * livePrice - (high + low)) / (high - low) : 0;
-                const vfm = er * db;
+                er = liveVol / sma20Volume;
+                db = (high - low !== 0) ? (2 * livePrice - (high + low)) / (high - low) : 0;
+                vfm = er * db;
                 const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
-                const chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+                chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
             
                 // UI Updates voor de meters
                 const absVfm = Math.abs(vfm);
