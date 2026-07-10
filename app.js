@@ -153,24 +153,6 @@ function exportOsirisData() {
     link.click();
 }
 
-let botSettings = {
-    capital: 0,
-    riskPerTrade: 0.01, // 1% risico
-    isRunning: false
-};
-
-
-let botState = {
-    active: false,
-    entryPrice: 0,
-    side: null
-};
-
-let botTradeLog = []; // Voor je trades (Entry/Exit/PnL)
-let osirisSystemLog = []; // Voor je 1-minuut marktdata
-let botTradeLog = []; // Specifiek voor entries/exits/PnL
-//houd deze 
-
 
 
 function startAutonomousBot() {
