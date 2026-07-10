@@ -50,7 +50,7 @@ let botSettings = {
     profitHoldTriggerPct: 0.02,  // vanaf +2% winst mag Osiris zelf beslissen: houden of innen
     trailBufferPct: 0.01,        // trailing-marge zodra we boven de trigger houden
     minProjectedProfitPct: 1,    // alleen openen als het verwachte doel >1% winst oplevert
-    minProbabilityPct: 90,       // alleen openen als Osiris' zekerheids-score >=90%
+    minProbabilityPct: 70,       // alleen openen als Osiris' zekerheids-score >=70% (was 90% - verlaagd voor meer entries/P&L-kansen, instelbaar via UI)
     minProfitForTrendExit: 0.002, // ondergrens (0.2%) voordat een trendommekeer al winst mag verzilveren - voorkomt churn op ruis
     isRunning: false
 };
@@ -165,6 +165,12 @@ chart.subscribeCrosshairMove(param => {
 });
 
 function logSystemState(metrics, targets, currentPrice, liveVolume, chaosVal, dbVal, bullish) {
+    // Snapshot van de node/sessie/momentum-context op het moment van loggen,
+    // zodat je achteraf (Download All Data) exact kunt zien wat er meewoog.
+    const nodeCtx = getNodeContext();
+    const nodeInf = calculateNodeInfluence(nodeCtx);
+    const momentumCtx = getMomentumContext();
+
     const logEntry = {
         timestamp: new Date().toISOString(),
         price: currentPrice,
@@ -185,7 +191,18 @@ function logSystemState(metrics, targets, currentPrice, liveVolume, chaosVal, db
         macroBull: targets.macro.bullish,
         macroBear: targets.macro.bearish,
         // Besluitvorming
-        isBullish: bullish
+        isBullish: bullish,
+        // Node/sessie/geheugen-context (nieuw)
+        nextNodeType: nodeCtx.nextNode.type,
+        nextNodeMinutes: nodeCtx.nextNode.minutesUntil.toFixed(1),
+        lastNodeType: nodeCtx.lastNode.type,
+        lastNodeMinutesAgo: nodeCtx.lastNode.minutesAgo.toFixed(1),
+        nodeInfluence: nodeInf.toFixed(2),
+        volumeShiftPct: calculateVolumeShift(6).toFixed(2),
+        consecutiveBullish: momentumCtx.consecutiveBullish,
+        consecutiveBearish: momentumCtx.consecutiveBearish,
+        rangeCompressed: momentumCtx.rangeCompressed,
+        vfmTrend: momentumCtx.vfmTrend
     };
     
     osirisSystemLog.push(logEntry);
@@ -213,6 +230,12 @@ function savePersistentState() {
         localStorage.setItem('osirisWalletState', JSON.stringify(walletState));
         localStorage.setItem('osirisOpenPositions', JSON.stringify(openPositions));
         localStorage.setItem('osirisPendingOrders', JSON.stringify(pendingOrders));
+        // FIX: botTradeLog werd nooit opgeslagen, waardoor de "Laatste 10 Posities"
+        // tabel bij elke refresh/auto-herstart leeg leek (de DOM begint leeg, en
+        // werd pas weer gevuld zodra een NIEUWE exit plaatsvond). Cap op de laatste
+        // 500 entries zodat localStorage niet ongelimiteerd blijft groeien.
+        const cappedLog = botTradeLog.length > 500 ? botTradeLog.slice(-500) : botTradeLog;
+        localStorage.setItem('osirisTradeLog', JSON.stringify(cappedLog));
     } catch (e) { console.warn("Kon wallet/positie-status niet opslaan:", e); }
 }
 
@@ -221,18 +244,33 @@ function loadPersistentState() {
         const w = localStorage.getItem('osirisWalletState');
         const p = localStorage.getItem('osirisOpenPositions');
         const q = localStorage.getItem('osirisPendingOrders');
+        const t = localStorage.getItem('osirisTradeLog');
         if (w) walletState = JSON.parse(w);
         if (p) openPositions = JSON.parse(p);
         if (q) pendingOrders = JSON.parse(q);
+        if (t) botTradeLog = JSON.parse(t);
     } catch (e) { console.warn("Kon wallet/positie-status niet laden:", e); }
 }
 
 loadPersistentState();
 
+// FIX: na het laden de "Laatste 10 Posities" tabel opnieuw opbouwen uit de
+// hersteldeel trade log, zodat gesloten posities niet meer "verdwijnen" bij
+// een refresh - ze staan nu gewoon weer in de tabel, precies zoals vóór het
+// herladen.
+function rebuildHistoryUIFromLog() {
+    const body = document.getElementById('history-body');
+    if (!body) return;
+    body.innerHTML = '';
+    const exits = botTradeLog.filter(e => e.action === 'EXIT').slice(-10);
+    exits.forEach(entry => updateHistoryUI(entry));
+}
+
 // Auto-start bij laden
 window.addEventListener('load', () => {
     updateWalletUI();
     updatePendingOrdersUI();
+    rebuildHistoryUIFromLog();
     if (isBotRunning) {
         startAutonomousBot(true); // true = herstart
     }
@@ -254,6 +292,8 @@ function startAutonomousBot(isAutoRestart = false) {
     const capitalInput = document.getElementById('start-capital');
     const allocInput = document.getElementById('max-allocation-pct');
     const stopLossInput = document.getElementById('stop-loss-pct');
+    const minProbInput = document.getElementById('min-probability-pct');
+    const minProfitInput = document.getElementById('min-projected-profit-pct');
 
     if (!isAutoRestart && walletState.realizedPnL === 0 && openPositions.length === 0) {
         if (capitalInput && !isNaN(parseFloat(capitalInput.value)) && parseFloat(capitalInput.value) > 0) {
@@ -265,6 +305,12 @@ function startAutonomousBot(isAutoRestart = false) {
     }
     if (stopLossInput && !isNaN(parseFloat(stopLossInput.value))) {
         botSettings.stopLossPct = Math.max(parseFloat(stopLossInput.value) / 100, 0.001);
+    }
+    if (minProbInput && !isNaN(parseFloat(minProbInput.value))) {
+        botSettings.minProbabilityPct = Math.min(Math.max(parseFloat(minProbInput.value), 0), 100);
+    }
+    if (minProfitInput && !isNaN(parseFloat(minProfitInput.value))) {
+        botSettings.minProjectedProfitPct = Math.max(parseFloat(minProfitInput.value), 0);
     }
 
     if (!isAutoRestart) {
@@ -363,6 +409,7 @@ function resetWallet() {
     localStorage.removeItem('osirisWalletState');
     localStorage.removeItem('osirisOpenPositions');
     localStorage.removeItem('osirisPendingOrders');
+    localStorage.removeItem('osirisTradeLog');
 
     const histBody = document.getElementById('history-body');
     if (histBody) histBody.innerHTML = '';
@@ -449,13 +496,9 @@ function updatePendingOrdersUI() {
 // ============================================================
 // OPEN POSITIES OP DE CHART (toggelbaar, zoals de MIC/MES/MAC fib-lijnen)
 // ============================================================
-function togglePositionLines() {
-    showPositionLines = !showPositionLines;
-    const btn = document.getElementById('btn-toggle-POSITIONS');
-    if (btn) {
-        btn.style.opacity = showPositionLines ? '1' : '0.5';
-        btn.style.border = showPositionLines ? '2px solid #ff9900' : '1px solid #555';
-    }
+// Dropdown-gestuurd: "HIDDEN"/"VISIBLE" i.p.v. een los aan/uit-knopje.
+function handlePositionLinesSelect(value) {
+    showPositionLines = (value === 'VISIBLE');
     updatePositionLines();
 }
 
@@ -584,13 +627,35 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
 // Gebaseerd op de bestaande confluence-telling (0-5, zie getOrisisDecisionData)
 // plus chaos/ER als betrouwbaarheids-correctie. Dit is een instelbare proxy —
 // kalibreer 'm met de gedownloade data (Download All Data-knop).
-function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0) {
+function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0, momentumInfluence = 0) {
     let score = 50 + (confluence * 9); // confluence 0-5 -> 50-95
     if (chaosVal > 15) score -= 15;    // extreme volatiliteit = onbetrouwbaarder
     else if (chaosVal < 5) score += 5; // rustige markt = betrouwbaarder
     if (erVal > 1.5) score += 5;       // sterke volume-deelname = betrouwbaarder
     score += nodeInfluence;            // node-timing: VOLA/CORE verhogen, RESET verlaagt (zie calculateNodeInfluence)
+    score += momentumInfluence;        // "geheugen": trend uit metricsHistory bevestigt of ontkracht het signaal
     return Math.max(0, Math.min(100, score));
+}
+
+// Vertaalt de momentum-context (uit het metrics-geheugen) naar een kleine,
+// begrensde bijstelling (-6..+6): een aanhoudende trend in dezelfde richting
+// als het voorgestelde signaal verhoogt de kans; een tegengestelde trend of
+// een samendrukkende (consoliderende) range verlaagt hem.
+function calculateMomentumInfluence(side, momentumContext) {
+    if (!momentumContext) return 0;
+    let influence = 0;
+
+    if (side === 'LONG' && momentumContext.consecutiveBullish >= 3) influence += 4;
+    if (side === 'SHORT' && momentumContext.consecutiveBearish >= 3) influence += 4;
+    if (side === 'LONG' && momentumContext.consecutiveBearish >= 3) influence -= 4;
+    if (side === 'SHORT' && momentumContext.consecutiveBullish >= 3) influence -= 4;
+
+    if (momentumContext.vfmTrend === 'rising') influence += 2;
+    else if (momentumContext.vfmTrend === 'falling') influence -= 2;
+
+    if (momentumContext.rangeCompressed) influence -= 2; // consolidatie = minder betrouwbaar signaal
+
+    return Math.max(-6, Math.min(6, influence));
 }
 
 // Bepaalt het niveau waarop Osiris autonoom wil instappen: een pullback-zone
@@ -625,7 +690,9 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const triggerPrice = calculateEntryTrigger(side, currentPrice);
     const nodeContext = getNodeContext();
     const nodeInfluence = calculateNodeInfluence(nodeContext);
-    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence);
+    const momentumContext = getMomentumContext();
+    const momentumInfluence = calculateMomentumInfluence(side, momentumContext);
+    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence, momentumInfluence);
 
     const targetPrice = side === 'LONG'
         ? parseFloat(decision.targets.meso.bullish)
@@ -638,7 +705,7 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const eligible = probabilityPct >= botSettings.minProbabilityPct &&
                       projectedProfitPct > botSettings.minProjectedProfitPct;
 
-    return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence };
+    return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence };
 }
 
 // Elke 10 seconden: scan of er een nieuwe kans is voor LONG en/of SHORT.
@@ -944,6 +1011,10 @@ function botHeartbeat() {
     if (botTickCounter >= 10) {
         botTickCounter = 0;
 
+        // Geheugen bijwerken vóór de scan, zodat getMomentumContext() hierbinnen
+        // de meest recente sample al meeneemt.
+        recordMetricsSnapshot();
+
         const metrics = calculateVolumeMetrics(liveVol, db, isBullish, 9);
         const decision = getOrisisDecisionData(metrics, livePrice, vfm, er, db, chaos, isBullish);
 
@@ -1164,10 +1235,11 @@ function nodeTypeForHalfStepIndex(k) {
     return 'OSC';
 }
 
-// Geeft de meest recent gepasseerde node en de eerstvolgende node terug,
-// elk met hun type en de tijd (in minuten) sinds/tot dat moment. Het venster
-// tussen "last" en "next" is precies één halve T_PI-cyclus (~94.33 min) -
-// dat is het volledige venster waarbinnen een node nog relevant wordt geacht.
+// Geeft de meest recent gepasseerde node en de eerstvolgende node terug, elk met
+// hun type, tijd (in minuten) sinds/tot dat moment, én de absolute timestamp
+// (nodig om sessie-overlap op het node-moment zelf te checken, niet op "nu").
+// Het venster tussen "last" en "next" is precies één halve T_PI-cyclus (~94.33
+// min) - dat is het volledige venster waarbinnen een node nog relevant is.
 function getNodeContext(now = Date.now()) {
     const HALF_MS = T_PI_MS / 2;
     const kRaw = (now - ANCHOR_TIME) / HALF_MS;
@@ -1176,28 +1248,137 @@ function getNodeContext(now = Date.now()) {
     const prevTime = ANCHOR_TIME + kPrev * HALF_MS;
     const nextTime = ANCHOR_TIME + kNext * HALF_MS;
     return {
-        lastNode: { type: nodeTypeForHalfStepIndex(kPrev), minutesAgo: Math.max(0, (now - prevTime) / 60000) },
-        nextNode: { type: nodeTypeForHalfStepIndex(kNext), minutesUntil: Math.max(0, (nextTime - now) / 60000) }
+        lastNode: { type: nodeTypeForHalfStepIndex(kPrev), time: prevTime, minutesAgo: Math.max(0, (now - prevTime) / 60000) },
+        nextNode: { type: nodeTypeForHalfStepIndex(kNext), time: nextTime, minutesUntil: Math.max(0, (nextTime - now) / 60000) }
     };
 }
 
-// Node-gewichten: hoeveel een node-type de probability score / sizing beïnvloedt.
-// VOLA = oplopende volatiliteit verwacht -> hogere kans. RESET = mogelijk
-// omslagpunt -> voorzichtiger. CORE (Vortex 3/6) = trend-bevestiging -> hogere
-// kans. OSC/MIDPULSE = verwaarloosbaar (geen van beide beweegt de score).
+// ============================================================
+// GEHEUGEN: rolling history van vfm/er/db/chaos/volume/prijs
+// ============================================================
+// Osiris kon voorheen alleen het huidige moment zien. Deze buffer onthoudt de
+// laatste N samples (1 per 10s-scan, dus ~500 samples = ruim 80 minuten) zodat
+// de bot kan redeneren over VERANDERINGEN (stijgt vfm? droogt volume op?)
+// i.p.v. alleen een losse snapshot.
+let metricsHistory = [];
+const METRICS_HISTORY_MAX = 500;
+
+function recordMetricsSnapshot() {
+    metricsHistory.push({
+        timestamp: Date.now(),
+        price: livePrice,
+        vfm, er, db, chaos,
+        liveVol,
+        isBullish
+    });
+    if (metricsHistory.length > METRICS_HISTORY_MAX) metricsHistory.shift();
+}
+
+// Vergelijkt het gemiddelde volume van de laatste `lookback` samples met het
+// gemiddelde van de `lookback` samples daarvóór - een simpele, robuuste manier
+// om te zien of er rond dit moment een volume-verschuiving gaande is, zonder
+// afhankelijk te zijn van een node-type. Dit is precies wat OSC/MIDPULSE-nodes
+// nu gebruiken (zie calculateNodeInfluence) in plaats van een vaste 0-waarde.
+function calculateVolumeShift(lookback = 6) {
+    if (metricsHistory.length < lookback * 2) return 0;
+    const recent = metricsHistory.slice(-lookback);
+    const prior = metricsHistory.slice(-lookback * 2, -lookback);
+    const avgRecent = recent.reduce((a, m) => a + m.liveVol, 0) / recent.length;
+    const avgPrior = prior.reduce((a, m) => a + m.liveVol, 0) / prior.length;
+    if (avgPrior === 0) return 0;
+    return ((avgRecent - avgPrior) / avgPrior) * 100; // % verschuiving
+}
+
+// Redeneert over de recente geschiedenis: hoeveel opeenvolgende samples waren
+// bullish/bearish (trend-aanhoudendheid), is de prijs-range aan het
+// samendrukken (consolidatie-signaal), en stijgt/daalt vfm. Wordt gebruikt
+// voor zowel de probability score als de gegradeerde market-status (§ verderop).
+function getMomentumContext(lookback = 6) {
+    if (metricsHistory.length < lookback) {
+        return { consecutiveBullish: 0, consecutiveBearish: 0, rangeCompressed: false, rangePct: null, vfmTrend: 'flat' };
+    }
+    const recent = metricsHistory.slice(-lookback);
+
+    let bullStreak = 0, bearStreak = 0;
+    for (let i = recent.length - 1; i >= 0; i--) {
+        if (recent[i].isBullish) {
+            if (bearStreak > 0) break;
+            bullStreak++;
+        } else {
+            if (bullStreak > 0) break;
+            bearStreak++;
+        }
+    }
+
+    const prices = recent.map(m => m.price).filter(p => p > 0);
+    let rangeCompressed = false, rangePct = null;
+    if (prices.length >= 2) {
+        const range = Math.max(...prices) - Math.min(...prices);
+        rangePct = (range / prices[0]) * 100;
+        rangeCompressed = rangePct < 0.15; // < 0.15% beweging over de lookback = zijwaarts
+    }
+
+    const vfmVals = recent.map(m => m.vfm);
+    const vfmDelta = vfmVals[vfmVals.length - 1] - vfmVals[0];
+    const vfmTrend = Math.abs(vfmDelta) < 0.05 ? 'flat' : (vfmDelta > 0 ? 'rising' : 'falling');
+
+    return { consecutiveBullish: bullStreak, consecutiveBearish: bearStreak, rangeCompressed, rangePct, vfmTrend };
+}
+
+// ============================================================
+// MARKT-SESSIES (Azië / Europa / VS) - benaderende UTC-tijden
+// ============================================================
+// UOTAM §3 noemt zelf de "geografische overdracht van liquiditeit (Azië →
+// Europa → VS)" als verklaring voor waarom de cyclus werkt. Crypto handelt
+// 24/7 dus er is geen letterlijke open/close, maar deze tijden zijn de
+// gangbare conventie voor waar doorgaans de liquiditeit merkbaar verschuift.
+const SESSION_TRANSITIONS_UTC = [
+    { name: 'ASIA_OPEN', minuteOfDay: 0 * 60 },
+    { name: 'EU_OPEN', minuteOfDay: 8 * 60 },
+    { name: 'US_OPEN', minuteOfDay: 13 * 60 },
+    { name: 'US_CLOSE', minuteOfDay: 22 * 60 },
+];
+
+function getSessionContext(timestamp) {
+    const d = new Date(timestamp);
+    const minuteOfDay = d.getUTCHours() * 60 + d.getUTCMinutes();
+    let closest = null, minDist = Infinity;
+    SESSION_TRANSITIONS_UTC.forEach(s => {
+        let dist = Math.abs(minuteOfDay - s.minuteOfDay);
+        dist = Math.min(dist, 1440 - dist); // cirkelvormig (23:50 ligt dicht bij 00:00)
+        if (dist < minDist) { minDist = dist; closest = s.name; }
+    });
+    return { nearestSession: closest, minutesFromTransition: minDist };
+}
+
+// Hoeveel een sessie-overlap bijdraagt: max +6, lineair aflopend tot 0 op ±60 min.
+function calculateSessionInfluence(timestamp) {
+    const windowMinutes = 60;
+    const ctx = getSessionContext(timestamp);
+    const weight = Math.max(0, 1 - (ctx.minutesFromTransition / windowMinutes));
+    return weight * 6;
+}
+
+// Node-gewichten: hoeveel elk node-type de probability score / sizing
+// beïnvloedt. VOLA = oplopende volatiliteit verwacht -> hogere kans. RESET =
+// mogelijk omslagpunt -> voorzichtiger. CORE (Vortex 3/6) = trend-bevestiging
+// -> hogere kans. OSC/MIDPULSE hebben GEEN vast gewicht meer: die worden
+// dynamisch bepaald door de actuele volume-shift (calculateVolumeShift) rond
+// dat moment, zoals gevraagd - een OSC-node met een duidelijke volume-piek
+// telt wél mee, eentje zonder beweging blijft neutraal.
 const NODE_INFLUENCE_WEIGHTS = {
     RESET: -8,
     VOLA: 10,
     VORTEX3: 6,
-    VORTEX6: 6,
-    OSC: 0,
-    MIDPULSE: 0
+    VORTEX6: 6
 };
 
-// Berekent één samengestelde invloedswaarde (ongeveer -12..+15) op basis van de
-// dichtstbijzijnde nodes. Asymmetrisch: de countdown náár de volgende node weegt
-// zwaarder (1.5x) dan de tijd sinds de vorige node (1x), zoals gevraagd - een
-// aankomende VOLA-node telt zwaarder mee dan eentje die net voorbij is.
+// Berekent één samengestelde invloedswaarde op basis van: (1) het type en de
+// nabijheid van de dichtstbijzijnde nodes (asymmetrisch: countdown weegt 1.5x
+// zwaarder dan tijd-sinds), (2) voor OSC/MIDPULSE specifiek: de live
+// volume-shift i.p.v. een vast gewicht, en (3) of die nodes toevallig
+// samenvallen met een markt-sessie-transitie (Azië/Europa/VS) - zo'n
+// samenloop telt extra mee, zoals in de documenten beschreven.
 function calculateNodeInfluence(nodeContext) {
     const windowMinutes = T_PI_MS / 2 / 60000; // ~94.33 min, het volledige relevante venster
     const proximityWeight = (minutes) => Math.max(0, 1 - (minutes / windowMinutes));
@@ -1205,10 +1386,24 @@ function calculateNodeInfluence(nodeContext) {
     const nextWeight = proximityWeight(nodeContext.nextNode.minutesUntil) * 1.5;
     const lastWeight = proximityWeight(nodeContext.lastNode.minutesAgo) * 1.0;
 
-    const nextScore = (NODE_INFLUENCE_WEIGHTS[nodeContext.nextNode.type] || 0) * nextWeight;
-    const lastScore = (NODE_INFLUENCE_WEIGHTS[nodeContext.lastNode.type] || 0) * lastWeight;
+    const weightForType = (type) => {
+        if (type === 'OSC' || type === 'MIDPULSE') {
+            // Dynamisch: begrensd tot -4..+6 zodat een "klein" node-type nooit
+            // zwaarder kan wegen dan een "groot" type zoals VOLA.
+            const shift = calculateVolumeShift(6);
+            return Math.max(-4, Math.min(6, shift / 10));
+        }
+        return NODE_INFLUENCE_WEIGHTS[type] || 0;
+    };
 
-    return nextScore + lastScore;
+    const nextScore = weightForType(nodeContext.nextNode.type) * nextWeight;
+    const lastScore = weightForType(nodeContext.lastNode.type) * lastWeight;
+
+    // Sessie-samenloop op de node-momenten zelf (niet op "nu")
+    const nextSessionScore = calculateSessionInfluence(nodeContext.nextNode.time) * nextWeight;
+    const lastSessionScore = calculateSessionInfluence(nodeContext.lastNode.time) * lastWeight;
+
+    return nextScore + lastScore + nextSessionScore + lastSessionScore;
 }
 
 function applyUOTAMGrid(chartData) {
@@ -1341,24 +1536,28 @@ function applyUOTAMGrid(chartData) {
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
 }
 
-// Tekent alleen de markers waarvan het node-type actief staat getoggeld
-// (activeNodeTypes) - aparte functie zodat toggleNodeType() dit kan hertekenen
-// zonder de hele grid opnieuw te hoeven berekenen.
+// Tekent alleen de markers waarvan het node-type actief staat geselecteerd
+// (activeNodeTypes) - aparte functie zodat handleNodeTypeSelect() dit kan
+// hertekenen zonder de hele grid opnieuw te hoeven berekenen.
 function renderNodeMarkers() {
     const visibleMarkers = gridMarkers.filter(m => activeNodeTypes[m.nodeTypeKey] !== false);
     LightweightCharts.createSeriesMarkers(candlestickSeries, visibleMarkers);
 }
 
-// Schakelt een node-type aan/uit op de chart, net als toggleFibScale() voor de
-// MIC/MES/MAC-lijnen.
-function toggleNodeType(typeKey) {
-    activeNodeTypes[typeKey] = !activeNodeTypes[typeKey];
-
-    const btn = document.getElementById(`btn-toggle-node-${typeKey}`);
-    if (btn) {
-        btn.style.opacity = activeNodeTypes[typeKey] ? '1' : '0.5';
+// Schakelt een node-type aan/uit op de chart, net als handleFibScaleSelect()
+// voor de MIC/MES/MAC-lijnen.
+// Dropdown-gestuurd, exclusief: "ALL" toont alle node-types, "NONE" toont er
+// geen, een specifiek type toont ALLEEN dat type - net als de fib-schaal
+// dropdown, niet meer optellend zoals de oude knoppenrij.
+function handleNodeTypeSelect(value) {
+    const allTypes = ['RESET', 'VOLA', 'VORTEX3', 'VORTEX6', 'OSC', 'MIDPULSE'];
+    if (value === 'ALL') {
+        allTypes.forEach(t => activeNodeTypes[t] = true);
+    } else if (value === 'NONE') {
+        allTypes.forEach(t => activeNodeTypes[t] = false);
+    } else {
+        allTypes.forEach(t => activeNodeTypes[t] = (t === value));
     }
-
     renderNodeMarkers();
 }
 
@@ -1512,7 +1711,7 @@ function startLiveUpdates() {
                     const confEl = document.getElementById('probability-score');
                     if (confEl) {
                         confEl.innerText = `Confidence: ${decisionResult.probability}`;
-                        confEl.style.color = (decisionResult.probability.includes('High')) ? '#00ffcc' : '#aaa';
+                        confEl.style.color = (decisionResult.probability.includes('hoog') || decisionResult.probability.includes('Hoog')) ? '#00ffcc' : '#aaa';
                     }
                 } else {
                     console.warn("Orisis blokkeert update: allNodes leeg of undefined");
@@ -1672,22 +1871,21 @@ function updateActiveNodeFibLines(targetNodes, chartData = null) {
  * Zorg dat deze functie op het hoogste niveau in app.js staat!
  */
 
-function toggleFibScale(scaleId) {
-    // 1. Wissel de status
-    activeFibScales[scaleId] = !activeFibScales[scaleId];
-    
-    // 2. Visuele feedback
-    const btn = document.getElementById(`btn-toggle-${scaleId}`);
-    if (btn) {
-        btn.style.opacity = activeFibScales[scaleId] ? '1' : '0.5';
-        btn.style.border = activeFibScales[scaleId] ? '2px solid #00ffcc' : '1px solid #555';
+// Dropdown-gestuurd: "ALL" toont alle drie schalen, "NONE" toont er geen,
+// een specifieke waarde (MIC/MES/MAC) toont ALLEEN die schaal - exclusief,
+// niet optellend zoals de oude knoppenrij.
+function handleFibScaleSelect(value) {
+    if (value === 'ALL') {
+        activeFibScales = { MIC: true, MES: true, MAC: true };
+    } else if (value === 'NONE') {
+        activeFibScales = { MIC: false, MES: false, MAC: false };
+    } else {
+        activeFibScales = { MIC: false, MES: false, MAC: false };
+        activeFibScales[value] = true;
     }
-    
-    // 3. Herbereken en teken de chart
-    // VOEG TOE: Check of de chart-serie überhaupt al bestaat
+
     if (typeof candlestickSeries !== 'undefined' && typeof allNodes !== 'undefined' && typeof rawData !== 'undefined') {
         updateActiveNodeFibLines(allNodes, rawData);
-        console.log(`Schaal ${scaleId} is nu: ${activeFibScales[scaleId] ? 'AAN' : 'UIT'}`);
     } else {
         console.warn("Chart of data is nog niet klaar voor Fibonacci update.");
     }
@@ -1730,6 +1928,49 @@ function calculateVolumeMetrics(currentVol, priceDelta, isBullish, harmonic) {
  * Definitieve UOTAM Fractale Besluitvormingsmatrix
  * Gebruikt logaritmische demping om exponentiële uitschieters te voorkomen.
  */
+// Gegradeerde markt-status i.p.v. de oude platte WAIT/TREND-FOLLOW/BREAKOUT-
+// indeling. Gebruikt de momentum-context uit het geheugen (metricsHistory) om
+// onderscheid te maken tussen een VERS signaal, een AANHOUDEND signaal (trend
+// continuation) en een CONSOLIDERENDE (zijwaartse) markt - zodat "80% kans"
+// niet meer instant verschijnt zodra confluence toevallig 4 raakt.
+function classifyMarketStatus(confluence, isBullish, momentumContext) {
+    const trendContinuing = isBullish
+        ? (momentumContext.consecutiveBullish >= 3)
+        : (momentumContext.consecutiveBearish >= 3);
+
+    if (confluence >= 4) {
+        if (trendContinuing) {
+            return {
+                decision: isBullish ? "🚀 BULLISH BREAKOUT (aanhoudend)" : "📉 BEARISH CRASH (aanhoudend)",
+                probability: "Zeer hoog (80-85%)"
+            };
+        }
+        return {
+            decision: isBullish ? "🚀 BULLISH BREAKOUT (vers)" : "📉 BEARISH CRASH (vers)",
+            probability: "Hoog (75-80%)"
+        };
+    }
+
+    if (confluence <= 1) {
+        if (momentumContext.rangeCompressed) {
+            return { decision: "➡️ CONSOLIDATIE / SIDEWAYS", probability: "Laag (45-50%)" };
+        }
+        return { decision: "⏸️ WAIT", probability: "Laag (<45%)" };
+    }
+
+    // confluence 2-3: mild directioneel signaal
+    if (trendContinuing) {
+        return {
+            decision: isBullish ? "📈 BULLISH CONTINUATION" : "📉 BEARISH CONTINUATION",
+            probability: "Gemiddeld (62-68%)"
+        };
+    }
+    return {
+        decision: isBullish ? "↗️ BULLISH BIAS" : "↘️ BEARISH BIAS",
+        probability: "Gemiddeld (55-60%)"
+    };
+}
+
 function getOrisisDecisionData(metrics, currentPrice, vfm, er, db, chaos, isBullish) {
     
     // 1. Bereken de energetische factor met logaritmische demping
@@ -1767,18 +2008,11 @@ function getOrisisDecisionData(metrics, currentPrice, vfm, er, db, chaos, isBull
     if (chaos < 10) confluence += 1;
     if (er > 1.2) confluence += 1;
 
-    let decision = "WAIT";
-    let probability = "Low";
+    // Gegradeerd niveau i.p.v. platte WAIT/TREND-FOLLOW/BREAKOUT (zie classifyMarketStatus)
+    const momentumContext = getMomentumContext();
+    const status = classifyMarketStatus(confluence, isBullish, momentumContext);
 
-    if (confluence >= 4) {
-        decision = isBullish ? "🚀 BULLISH BREAKOUT" : "📉 BEARISH CRASH";
-        probability = "High (80%+)";
-    } else if (confluence >= 2) {
-        decision = "⚖️ TREND-FOLLOW";
-        probability = "Medium (60%)";
-    }
-
-    return { decision, probability, targets, confluence };
+    return { decision: status.decision, probability: status.probability, targets, confluence, momentumContext };
 }
 
 function updateDashboard(metrics) {
