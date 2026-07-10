@@ -36,26 +36,36 @@
         L: <span id="ohlc-low">-</span> | 
         C: <span id="ohlc-close">-</span>
     </div>
-    <div class="harmonic-selector" style="margin: 10px 0; display: flex; gap: 10px; align-items: center;">
-    <span style="color: #d1d4dc; font-size: 0.8em;">OSIRIS HARMONIC LENS:</span>
-    <div class="fib-toggle-container" style="margin: 10px 0; display: flex; gap: 10px;">
-    <button onclick="toggleFibScale('MIC')" id="btn-toggle-MIC" style="padding: 5px 12px; background: #131722; color: #00ffcc; border: 1px solid #00ffcc; cursor: pointer; border-radius: 4px;">Toggle Micro</button>
-    <button onclick="toggleFibScale('MES')" id="btn-toggle-MES" style="padding: 5px 12px; background: #131722; color: #ffff00; border: 1px solid #ffff00; cursor: pointer; border-radius: 4px;">Toggle Meso</button>
-    <button onclick="toggleFibScale('MAC')" id="btn-toggle-MAC" style="padding: 5px 12px; background: #131722; color: #ff00ff; border: 1px solid #ff00ff; cursor: pointer; border-radius: 4px;">Toggle Macro</button>
+    <div class="chart-controls" style="margin: 15px 0 20px 0; display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;">
+    <div>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">FIBONACCI SCHAAL</label>
+        <select id="fib-scale-select" onchange="handleFibScaleSelect(this.value)" style="background: #131722; color: #00ffcc; border: 1px solid #00ffcc; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
+            <option value="ALL">Alle schalen</option>
+            <option value="MIC" selected>Micro</option>
+            <option value="MES">Meso</option>
+            <option value="MAC">Macro</option>
+            <option value="NONE">Geen</option>
+        </select>
     </div>
-    <div class="position-toggle-container" style="margin: 10px 0; display: flex; gap: 10px;">
-    <button onclick="togglePositionLines()" id="btn-toggle-POSITIONS" style="padding: 5px 12px; background: #131722; color: #ff9900; border: 1px solid #ff9900; cursor: pointer; border-radius: 4px; opacity: 0.5;">Toggle Posities</button>
+    <div>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">NODE TYPE</label>
+        <select id="node-type-select" onchange="handleNodeTypeSelect(this.value)" style="background: #131722; color: #ffcc00; border: 1px solid #ffcc00; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
+            <option value="ALL" selected>Alle nodes</option>
+            <option value="RESET">RESET</option>
+            <option value="VOLA">VOLA</option>
+            <option value="VORTEX3">CORE 3</option>
+            <option value="VORTEX6">CORE 6</option>
+            <option value="OSC">OSC</option>
+            <option value="MIDPULSE">MID PULSE</option>
+            <option value="NONE">Geen</option>
+        </select>
     </div>
-    </div>
-    <div class="node-toggle-selector" style="margin: 10px 0 20px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-    <span style="color: #d1d4dc; font-size: 0.8em;">NODE TYPES:</span>
-    <div class="node-toggle-container" style="display: flex; gap: 8px; flex-wrap: wrap;">
-    <button onclick="toggleNodeType('RESET')" id="btn-toggle-node-RESET" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #ffffff; border: 1px solid #ffffff; cursor: pointer; border-radius: 4px;">RESET</button>
-    <button onclick="toggleNodeType('VOLA')" id="btn-toggle-node-VOLA" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #ffff00; border: 1px solid #ffff00; cursor: pointer; border-radius: 4px;">VOLA</button>
-    <button onclick="toggleNodeType('VORTEX3')" id="btn-toggle-node-VORTEX3" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #00ffcc; border: 1px solid #00ffcc; cursor: pointer; border-radius: 4px;">CORE 3</button>
-    <button onclick="toggleNodeType('VORTEX6')" id="btn-toggle-node-VORTEX6" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #00ffcc; border: 1px solid #00ffcc; cursor: pointer; border-radius: 4px;">CORE 6</button>
-    <button onclick="toggleNodeType('OSC')" id="btn-toggle-node-OSC" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #888888; border: 1px solid #888888; cursor: pointer; border-radius: 4px;">OSC</button>
-    <button onclick="toggleNodeType('MIDPULSE')" id="btn-toggle-node-MIDPULSE" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #ffcc00; border: 1px solid #ffcc00; cursor: pointer; border-radius: 4px;">MID PULSE</button>
+    <div>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">OPEN POSITIES OP CHART</label>
+        <select id="position-lines-select" onchange="handlePositionLinesSelect(this.value)" style="background: #131722; color: #ff9900; border: 1px solid #ff9900; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
+            <option value="HIDDEN" selected>Verborgen</option>
+            <option value="VISIBLE">Zichtbaar</option>
+        </select>
     </div>
     </div>
     <div id="chart-container"></div>
@@ -91,6 +101,14 @@
         <div style="flex: 1; min-width: 140px;">
             <label>Stop-loss %</label><br>
             <input type="number" id="stop-loss-pct" value="2" style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div style="flex: 1; min-width: 140px;">
+            <label>Min. kans % (entry)</label><br>
+            <input type="number" id="min-probability-pct" value="70" style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div style="flex: 1; min-width: 140px;">
+            <label>Min. verwacht rendement %</label><br>
+            <input type="number" id="min-projected-profit-pct" value="1" style="width: 100%; padding: 8px; box-sizing: border-box;">
         </div>
         <div style="display: flex; align-items: flex-end; gap: 5px;">
             <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold;">🚀 START BOT</button>
