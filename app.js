@@ -57,7 +57,12 @@ let botSettings = {
     trailBufferPct: 0.01,        // trailing-marge zodra we boven de trigger houden
     minProjectedProfitPct: 1,    // alleen openen als het verwachte doel >1% winst oplevert
     minProbabilityPct: 70,       // alleen openen als Osiris' zekerheids-score >=70% (was 90% - verlaagd voor meer entries/P&L-kansen, instelbaar via UI)
+    holdContinuationMinProbabilityPct: 85, // STRENGER dan entries: je zet al zekere winst op het spel om op meer te gokken, dus de lat moet hoger liggen
     minProfitForTrendExit: 0.002, // ondergrens (0.2%) voordat een trendommekeer al winst mag verzilveren - voorkomt churn op ruis
+    minLossForEarlyExit: 0.003,  // ondergrens (0.3%) verlies voordat de bot vroegtijdig mag sluiten op bevestigde tegentrend, vóór de volle stop-loss
+    maxOpenPositions: 3,         // totaal aantal posities dat tegelijk open mag staan (over beide kanten samen), hard begrensd op 4
+    minHedgeReservePct: 0.15,    // gereserveerde allocatie voor een eventuele hedge op de andere kant, ALLEEN als die kant nog geen positie heeft
+    pendingOrderTtlMinutes: 30,  // hoe lang een pending order geldig blijft als hij niet eerder triggert of wordt herbeoordeeld (zie revalidatePendingOrders)
     isRunning: false
 };
 
@@ -143,6 +148,59 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
     wickDownColor: '#ef5350',
 });
 
+// ============================================================
+// VALUTA-WEERGAVE (USD/EUR) - puur cosmetisch voor de chart, raakt de
+// trading-logica/wallet NIET (die blijft intern altijd correct rekenen,
+// zie de EUR->USD-conversie in openPositionFromOrder voor de échte fix).
+// ============================================================
+let eurUsdtRate = null; // Binance's eigen EURUSDT-koers: hoeveel USDT is 1 EUR waard
+let displayCurrency = 'USD'; // 'USD' of 'EUR' - alleen voor chart-labels
+
+async function fetchEurUsdtRate() {
+    try {
+        const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=EURUSDT');
+        const data = await res.json();
+        const rate = parseFloat(data.price);
+        if (rate && isFinite(rate) && rate > 0) eurUsdtRate = rate;
+    } catch (e) {
+        console.warn("Kon EUR/USDT-koers niet ophalen (valutaswitch valt terug op USD):", e);
+    }
+}
+
+// Converteert een USD-bedrag (zoals livePrice, altijd de brontaal van de chart)
+// naar het gekozen weergave-bedrag. Let op: dit is een BENADERING - historische
+// candles worden allemaal met de HUIDIGE koers omgerekend, niet met de koers
+// die op dat historische moment gold.
+function convertToDisplayCurrency(usdAmount) {
+    if (displayCurrency === 'EUR' && eurUsdtRate) return usdAmount / eurUsdtRate;
+    return usdAmount;
+}
+
+function currencySymbol() {
+    return (displayCurrency === 'EUR' && eurUsdtRate) ? '€' : '$';
+}
+
+function formatChartPrice(usdPrice) {
+    return `${currencySymbol()}${convertToDisplayCurrency(usdPrice).toFixed(0)}`;
+}
+
+// Past de as-labels, crosshair-labels EN alle price-line-labels (fib-lijnen,
+// node-lijnen, positie-lijnen) in één keer aan via Lightweight Charts' eigen
+// custom priceFormat - geen enkele lijn hoeft hiervoor opnieuw getekend te
+// worden, alleen hoe de tekst wordt weergegeven verandert.
+function applyChartPriceFormat() {
+    if (typeof candlestickSeries === 'undefined') return;
+    candlestickSeries.applyOptions({
+        priceFormat: { type: 'custom', formatter: formatChartPrice, minMove: 0.01 }
+    });
+}
+
+// Dropdown-handler voor de valuta-selector
+function handleCurrencySelect(value) {
+    displayCurrency = value;
+    applyChartPriceFormat();
+}
+
 // --- FIBONACCI MARKERS FUNCTIE ---
 
 // --- MOUSE HOVER (OHLC DATA) SUBSCRIBER ---
@@ -154,10 +212,10 @@ chart.subscribeCrosshairMove(param => {
 
     if (param.time && param.seriesData.has(candlestickSeries)) {
         const data = param.seriesData.get(candlestickSeries);
-        ohlcOpen.innerText = data.open.toFixed(2);
-        ohlcHigh.innerText = data.high.toFixed(2);
-        ohlcLow.innerText = data.low.toFixed(2);
-        ohlcClose.innerText = data.close.toFixed(2);
+        ohlcOpen.innerText = formatChartPrice(data.open);
+        ohlcHigh.innerText = formatChartPrice(data.high);
+        ohlcLow.innerText = formatChartPrice(data.low);
+        ohlcClose.innerText = formatChartPrice(data.close);
         
         const color = data.close >= data.open ? '#26a69a' : '#ef5350';
         ohlcClose.style.color = color;
@@ -273,14 +331,29 @@ function rebuildHistoryUIFromLog() {
 }
 
 // Auto-start bij laden
-window.addEventListener('load', () => {
+// FIX: dit hing eerder af van window 'load', dat wacht op ALLE resources
+// (incl. externe scripts zoals Google Tag Manager). Als zo'n script geblokkeerd
+// wordt (bijv. door Edge Tracking Prevention of een ad-blocker) en blijft
+// hangen i.p.v. direct te falen, vuurt 'load' nooit - waardoor
+// rebuildHistoryUIFromLog() nooit liep en de historie-tabel leeg leek, zelfs
+// met correct opgeslagen data in localStorage. DOMContentLoaded wacht alleen op
+// de HTML zelf, niet op externe scripts, en is de juiste keuze voor UI-init
+// die geen externe resources nodig heeft.
+function initializeOnReady() {
     updateWalletUI();
     updatePendingOrdersUI();
     rebuildHistoryUIFromLog();
     if (isBotRunning) {
         startAutonomousBot(true); // true = herstart
     }
-});
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeOnReady);
+} else {
+    // DOM is al geparsed (interactive of complete) tegen de tijd dat dit script draait
+    initializeOnReady();
+}
 
 
 
@@ -299,7 +372,12 @@ function startAutonomousBot(isAutoRestart = false) {
     const allocInput = document.getElementById('max-allocation-pct');
     const stopLossInput = document.getElementById('stop-loss-pct');
     const minProbInput = document.getElementById('min-probability-pct');
+    const holdProbInput = document.getElementById('hold-continuation-probability-pct');
     const minProfitInput = document.getElementById('min-projected-profit-pct');
+    const maxPositionsInput = document.getElementById('max-open-positions');
+    const hedgeReserveInput = document.getElementById('hedge-reserve-pct');
+    const pendingTtlInput = document.getElementById('pending-order-ttl');
+    const minLossEarlyExitInput = document.getElementById('min-loss-early-exit');
 
     if (!isAutoRestart && walletState.realizedPnL === 0 && openPositions.length === 0) {
         if (capitalInput && !isNaN(parseFloat(capitalInput.value)) && parseFloat(capitalInput.value) > 0) {
@@ -315,8 +393,24 @@ function startAutonomousBot(isAutoRestart = false) {
     if (minProbInput && !isNaN(parseFloat(minProbInput.value))) {
         botSettings.minProbabilityPct = Math.min(Math.max(parseFloat(minProbInput.value), 0), 100);
     }
+    if (holdProbInput && !isNaN(parseFloat(holdProbInput.value))) {
+        botSettings.holdContinuationMinProbabilityPct = Math.min(Math.max(parseFloat(holdProbInput.value), 0), 100);
+    }
     if (minProfitInput && !isNaN(parseFloat(minProfitInput.value))) {
         botSettings.minProjectedProfitPct = Math.max(parseFloat(minProfitInput.value), 0);
+    }
+    if (maxPositionsInput && !isNaN(parseInt(maxPositionsInput.value))) {
+        // Harde bovengrens van 4, ongeacht wat er wordt ingevuld
+        botSettings.maxOpenPositions = Math.min(Math.max(parseInt(maxPositionsInput.value), 1), 4);
+    }
+    if (hedgeReserveInput && !isNaN(parseFloat(hedgeReserveInput.value))) {
+        botSettings.minHedgeReservePct = Math.min(Math.max(parseFloat(hedgeReserveInput.value) / 100, 0), 0.5);
+    }
+    if (pendingTtlInput && !isNaN(parseFloat(pendingTtlInput.value))) {
+        botSettings.pendingOrderTtlMinutes = Math.max(parseFloat(pendingTtlInput.value), 1);
+    }
+    if (minLossEarlyExitInput && !isNaN(parseFloat(minLossEarlyExitInput.value))) {
+        botSettings.minLossForEarlyExit = Math.max(parseFloat(minLossEarlyExitInput.value) / 100, 0);
     }
 
     if (!isAutoRestart) {
@@ -450,9 +544,9 @@ function updateWalletUI() {
     setText('wallet-open-count', `${openPositions.length}`);
     setText('wallet-winrate', winRate !== null ? `${winRate}% (${walletState.wins}W / ${walletState.losses}L)` : '--');
 
-    // Backwards-compatible aggregate P/L veld (bovenin de bot-monitor tegel)
+    // Backwards-compatible aggregate P/L veld (bovenin de bot-monitor tegel) - nu met €-bedrag erbij
     const aggPct = equity !== 0 ? (unrealized / equity) * 100 : 0;
-    setText('bot-pnl', `${aggPct >= 0 ? '+' : ''}${aggPct.toFixed(2)}%`);
+    setText('bot-pnl', `${aggPct >= 0 ? '+' : ''}${aggPct.toFixed(2)}% (${unrealized >= 0 ? '+' : ''}€${unrealized.toFixed(2)})`);
     const pnlEl = document.getElementById('bot-pnl');
     if (pnlEl) pnlEl.style.color = unrealized >= 0 ? '#00ffcc' : '#ef5350';
 
@@ -714,13 +808,68 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence };
 }
 
+// FIX: dit was voorheen evaluateEntryOpportunity() (zie hierboven) die óók een
+// "minstens 1% ruimte tot het doel"-eis stelt. Die eis is bedoeld voor NIEUWE
+// instappen ("is deze trade de moeite waard?"), niet voor een beslissing om een
+// AL WINSTGEVENDE positie vast te houden - eenmaal 2%+ in winst is de ruimte tot
+// hetzelfde doel vaak al bijna op, waardoor die eis meteen faalde en Osiris de
+// winst binnen enkele ticks na het raken van 2% weer sloot. Deze functie stelt
+// alleen de vraag die er bij het HOUDEN toe doet: wijst trend/momentum/kans nog
+// steeds dezelfde kant op? Geen "ruimte tot doel"-eis meer.
+function evaluateContinuation(side, thresholdOverride = null) {
+    const threshold = thresholdOverride ?? botSettings.minProbabilityPct;
+    if (!lastOsirisDecision) {
+        // Geen recente scan beschikbaar (net gestart) - wees voorzichtig en
+        // sluit niet af op basis van ontbrekende data; laat de trailing stop
+        // en de harde stop-loss het werk doen.
+        return { eligible: true, probabilityPct: null };
+    }
+    const nodeContext = getNodeContext();
+    const nodeInfluence = calculateNodeInfluence(nodeContext);
+    const momentumContext = getMomentumContext();
+    const momentumInfluence = calculateMomentumInfluence(side, momentumContext);
+    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence);
+
+    return {
+        eligible: probabilityPct >= threshold,
+        probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence
+    };
+}
+
 // Elke 10 seconden: scan of er een nieuwe kans is voor LONG en/of SHORT.
 // Hedging is toegestaan (beide kanten tegelijk), maar niet dubbel op dezelfde kant.
+// Herbeoordeelt bestaande pending orders elke 10s (dynamische geldigheid i.p.v.
+// alleen een harde TTL) - als het signaal intussen is weggevallen, wordt de
+// order meteen geannuleerd i.p.v. te blijven wachten tot de vervaltijd. Loopt
+// op dezelfde 10s-cadans als de rest van de Osiris-scan, dus zonder extra load.
+function revalidatePendingOrders(decision, metrics) {
+    let changed = false;
+    pendingOrders = pendingOrders.filter(order => {
+        const evalResult = evaluateEntryOpportunity(order.side, decision, metrics, livePrice);
+        if (!evalResult.eligible) {
+            logBotAction("CANCELLED", order.triggerPrice, order.side, 0, 0, "niet langer geldig (herbeoordeeld)");
+            changed = true;
+            return false;
+        }
+        return true;
+    });
+    if (changed) updatePendingOrdersUI();
+}
+
+// Elke 10 seconden: scan of er een nieuwe kans is voor LONG en/of SHORT.
+// Hedging is toegestaan (beide kanten tegelijk), EN stapelen op dezelfde kant
+// is toegestaan (bijv. een 2e LONG naast een al open LONG) - het enige echte
+// plafond is het totale aantal open posities (maxOpenPositions). Wel maar
+// één pending order tegelijk per kant, om te voorkomen dat er meerdere
+// wachtende orders op precies hetzelfde signaal stapelen.
 function scanForOpportunities(decision, metrics) {
+    revalidatePendingOrders(decision, metrics);
+
     ['LONG', 'SHORT'].forEach(side => {
-        const hasOpen = openPositions.some(p => p.side === side);
+        if (openPositions.length >= botSettings.maxOpenPositions) return;
+
         const hasPending = pendingOrders.some(p => p.side === side);
-        if (hasOpen || hasPending) return;
+        if (hasPending) return;
 
         const evalResult = evaluateEntryOpportunity(side, decision, metrics, livePrice);
         if (!evalResult.eligible) return;
@@ -738,7 +887,7 @@ function scanForOpportunities(decision, metrics) {
             probabilityPct: evalResult.probabilityPct,
             nodeInfluence: evalResult.nodeInfluence,
             createdAt: new Date().toISOString(),
-            expiresAt: Date.now() + (30 * 60 * 1000) // 30 min geldig
+            expiresAt: Date.now() + (botSettings.pendingOrderTtlMinutes * 60 * 1000)
         };
         pendingOrders.push(order);
         logBotAction("PENDING", evalResult.triggerPrice, side, 0, 0, `kans ${evalResult.probabilityPct.toFixed(0)}%`);
@@ -765,12 +914,20 @@ function openPositionFromOrder(order) {
     const sizeMultiplier = Math.max(0.5, Math.min(1.2, 1 + (order.nodeInfluence || 0) / 100));
     desiredSizePct = Math.min(desiredSizePct * sizeMultiplier, botSettings.maxAllocationPct);
 
-    // Nooit meer dan 100% van de beschikbare allocatie, ook niet met hedging op beide kanten
-    const availablePct = Math.max(0, 1 - getAllocatedPct());
+    // Nooit meer dan 100% van de beschikbare allocatie, ook niet met hedging op beide kanten.
+    // Reserveer daarbovenop ruimte voor een eventuele hedge: als de andere kant nog
+    // GEEN positie heeft, houd minHedgeReservePct vrij zodat er straks nog altijd
+    // budget is om tegen deze positie in te hedgen als het misgaat. Heeft de andere
+    // kant al een positie (de hedge bestaat al), dan is die reservering niet nodig.
+    const oppositeSide = order.side === 'LONG' ? 'SHORT' : 'LONG';
+    const oppositeHasPosition = openPositions.some(p => p.side === oppositeSide);
+    const hedgeReserve = oppositeHasPosition ? 0 : botSettings.minHedgeReservePct;
+
+    const availablePct = Math.max(0, 1 - getAllocatedPct() - hedgeReserve);
     const finalSizePct = Math.min(desiredSizePct, availablePct);
 
     if (finalSizePct <= 0.001) {
-        logBotAction("SKIPPED", price, order.side, 0, 0, "onvoldoende beschikbare allocatie");
+        logBotAction("SKIPPED", price, order.side, 0, 0, "onvoldoende beschikbare allocatie (na hedge-reserve)");
         return;
     }
 
@@ -778,8 +935,19 @@ function openPositionFromOrder(order) {
     // de dynamische Equity (die nu ook unrealized P/L meeneemt, zie getEquity()).
     // Zo pyramide je nooit positiegrootte bovenop nog-niet-gerealiseerde winst.
     const balance = getBalance();
-    const notional = balance * finalSizePct;
-    const amount = parseFloat((notional / price).toFixed(6));
+    const notional = balance * finalSizePct; // dit is het bedrag in EUR (de wallet-valuta)
+
+    // FIX: `price` (livePrice) komt van BTCUSDT en is dus een USD-bedrag, terwijl
+    // `notional` in EUR is - notional direct door price delen behandelde 1 EUR
+    // stilzwijgend als 1 USD (~8-17% fout, afhankelijk van de actuele koers).
+    // Reken notional eerst correct om naar USD via de live EUR/USDT-koers voor
+    // een kloppende BTC-hoeveelheid. Zonder koers (nog niet opgehaald) valt dit
+    // terug op de oude aanname als noodgreep, met een duidelijke log-vermelding.
+    const notionalUSD = eurUsdtRate ? (notional * eurUsdtRate) : notional;
+    const amount = parseFloat((notionalUSD / price).toFixed(6));
+    if (!eurUsdtRate) {
+        console.warn("EUR/USDT-koers nog niet beschikbaar - BTC-hoeveelheid is een schatting op basis van 1 EUR = 1 USD.");
+    }
 
     const position = {
         id: `pos_${Date.now()}_${order.side}`,
@@ -831,7 +999,7 @@ function checkPendingTriggers() {
 
     pendingOrders = pendingOrders.filter(order => {
         if (order.expiresAt && now > order.expiresAt) {
-            logBotAction("CANCELLED", order.triggerPrice, order.side, 0, 0, "verlopen (30 min)");
+            logBotAction("CANCELLED", order.triggerPrice, order.side, 0, 0, `verlopen (${botSettings.pendingOrderTtlMinutes} min)`);
             changed = true;
             return false;
         }
@@ -868,10 +1036,12 @@ function checkOpenPositionsExits() {
             return;
         }
 
-        // 2. Winst >= 2%: Osiris mag zelf beslissen om te blijven zitten
-        // als de kans op méér winst nog steeds goed is (>=90% & >1% extra).
-        // Een trailing stop borgt de winst zodat "laten lopen" niet alsnog
-        // in een verlies kan eindigen.
+        // 2. Winst >= 2%: Osiris mag zelf beslissen om te blijven zitten als
+        // trend/momentum/kans nog steeds gunstig zijn (evaluateContinuation,
+        // drempel = minProbabilityPct, GEEN "ruimte tot doel"-eis meer - die
+        // hoort bij nieuwe instappen, niet bij het vasthouden van een
+        // al winstgevende positie). Een trailing stop borgt de winst zodat
+        // "laten lopen" niet alsnog in een verlies kan eindigen.
         if (pnlPct >= botSettings.profitHoldTriggerPct) {
             pos.peakPnlPct = Math.max(pos.peakPnlPct || 0, pnlPct);
             const floorPct = botSettings.profitHoldTriggerPct - botSettings.trailBufferPct;
@@ -882,14 +1052,12 @@ function checkOpenPositionsExits() {
                 return;
             }
 
-            if (lastOsirisDecision) {
-                const continuation = evaluateEntryOpportunity(pos.side, lastOsirisDecision, lastOsirisMetrics, livePrice);
-                if (!continuation.eligible) {
-                    closePosition(pos, pnlPct, "PROFIT_LOCKED");
-                    return;
-                }
-                // eligible -> Osiris kiest ervoor de winnaar te laten lopen
+            const continuation = evaluateContinuation(pos.side, botSettings.holdContinuationMinProbabilityPct);
+            if (!continuation.eligible) {
+                closePosition(pos, pnlPct, "PROFIT_LOCKED");
+                return;
             }
+            // eligible -> Osiris kiest ervoor de winnaar te laten lopen
             survivors.push(pos);
             return;
         }
@@ -904,10 +1072,24 @@ function checkOpenPositionsExits() {
             closePosition(pos, pnlPct, "TARGET");
             return;
         }
-        if (pnlPct >= botSettings.minProfitForTrendExit && lastOsirisDecision) {
-            const continuation = evaluateEntryOpportunity(pos.side, lastOsirisDecision, lastOsirisMetrics, livePrice);
+        if (pnlPct >= botSettings.minProfitForTrendExit) {
+            const continuation = evaluateContinuation(pos.side);
             if (!continuation.eligible) {
                 closePosition(pos, pnlPct, "TREND_REVERSAL_EXIT");
+                return;
+            }
+        }
+
+        // 4. Verlies, maar nog boven de harde -2%-stop: als het momentum
+        // bevestigt dat de trend TEGEN de positie in blijft gaan (dezelfde
+        // continuïteits-check als hierboven, nu in de andere richting), hoeft
+        // de bot niet passief te wachten tot de volle -2% bereikt is. Alleen
+        // vanaf een kleine ondergrens (minLossForEarlyExit) om niet op elke
+        // kleine, ruis-achtige dip te reageren die net zo goed kan herstellen.
+        if (pnlPct < 0 && Math.abs(pnlPct) >= botSettings.minLossForEarlyExit) {
+            const continuation = evaluateContinuation(pos.side);
+            if (!continuation.eligible) {
+                closePosition(pos, pnlPct, "EARLY_STOP_TREND");
                 return;
             }
         }
@@ -1743,12 +1925,12 @@ function startLiveUpdates() {
 
                     // FRACTALE TARGETS UPDATE
                     if (decisionResult.targets) {
-                        document.getElementById('mic-bull').innerText = decisionResult.targets.micro.bullish;
-                        document.getElementById('mic-bear').innerText = decisionResult.targets.micro.bearish;
-                        document.getElementById('mes-bull').innerText = decisionResult.targets.meso.bullish;
-                        document.getElementById('mes-bear').innerText = decisionResult.targets.meso.bearish;
-                        document.getElementById('mac-bull').innerText = decisionResult.targets.macro.bullish;
-                        document.getElementById('mac-bear').innerText = decisionResult.targets.macro.bearish;
+                        document.getElementById('mic-bull').innerText = formatChartPrice(parseFloat(decisionResult.targets.micro.bullish));
+                        document.getElementById('mic-bear').innerText = formatChartPrice(parseFloat(decisionResult.targets.micro.bearish));
+                        document.getElementById('mes-bull').innerText = formatChartPrice(parseFloat(decisionResult.targets.meso.bullish));
+                        document.getElementById('mes-bear').innerText = formatChartPrice(parseFloat(decisionResult.targets.meso.bearish));
+                        document.getElementById('mac-bull').innerText = formatChartPrice(parseFloat(decisionResult.targets.macro.bullish));
+                        document.getElementById('mac-bear').innerText = formatChartPrice(parseFloat(decisionResult.targets.macro.bearish));
                     }
 
                     // Confidence Score
@@ -2097,6 +2279,10 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('resize', () => {
     chart.resize(chartContainer.clientWidth, 600);
 });
+
+applyChartPriceFormat();
+fetchEurUsdtRate();
+setInterval(fetchEurUsdtRate, 5 * 60 * 1000); // elke 5 minuten verversen
 
 initDashboard();
 setInterval(updateInfoPanel, 1000);
