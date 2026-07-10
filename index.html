@@ -64,17 +64,21 @@
     <small style="color: #888;">Runtime:</small>
     <div id="bot-runtime" style="font-weight: bold; color: #fff;">00:00:00</div>
 </div>
-    
-    <div id="bot-config" style="display: flex; gap: 10px; margin-bottom: 20px;">
-        <div style="flex: 1;">
+
+    <div id="bot-config" style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 140px;">
             <label>Start Kapitaal (€)</label><br>
-            <input type="number" id="start-capital" value="1000" style="width: 100%; padding: 8px;">
+            <input type="number" id="start-capital" value="1000" style="width: 100%; padding: 8px; box-sizing: border-box;">
         </div>
-        <div style="flex: 1;">
-            <label>Risico % per trade</label><br>
-            <input type="number" id="risk-per-trade" value="1" style="width: 100%; padding: 8px;">
+        <div style="flex: 1; min-width: 140px;">
+            <label>Max % per trade</label><br>
+            <input type="number" id="max-allocation-pct" value="70" style="width: 100%; padding: 8px; box-sizing: border-box;">
         </div>
-        <div style="display: flex; align-items: flex-end;">
+        <div style="flex: 1; min-width: 140px;">
+            <label>Stop-loss %</label><br>
+            <input type="number" id="stop-loss-pct" value="2" style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div style="display: flex; align-items: flex-end; gap: 5px;">
             <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold;">🚀 START BOT</button>
             <button id="btn-stop-bot" onclick="stopAutonomousBot()" style="display:none; padding: 10px 20px; background: #ff4444; border: none; cursor: pointer; font-weight: bold;">🛑 STOP BOT</button>
         </div>
@@ -86,11 +90,11 @@
             <div id="bot-status" style="font-weight: bold; color: #00ffcc;">STANDBY</div>
         </div>
         <div style="background: #1a1a1a; padding: 10px;">
-            <small style="color: #888;">Live P/L:</small>
+            <small style="color: #888;">Live P/L (%):</small>
             <div id="bot-pnl" style="font-weight: bold;">0.00%</div>
         </div>
         <div style="background: #1a1a1a; padding: 10px;">
-            <small style="color: #888;">Huidige Positie:</small>
+            <small style="color: #888;">Open Posities:</small>
             <div id="bot-position">Geen</div>
         </div>
         <div style="background: #1a1a1a; padding: 10px;">
@@ -99,9 +103,47 @@
         </div>
     </div>
 
+    <!-- WALLET STATUS -->
+    <div id="wallet-status" style="background: #1a1a1a; border: 1px solid #00ffcc; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 style="margin: 0; font-size: 0.9em; color: #00ffcc;">💰 Wallet Status</h3>
+            <button onclick="resetWallet()" style="padding: 5px 10px; font-size: 11px; background: #444; color: #fff; border: none; cursor: pointer; border-radius: 4px;">♻️ Reset Wallet</button>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; font-family: monospace;">
+            <div><small style="color:#888;">Equity</small><div id="wallet-equity" style="font-weight:bold;">€1000.00</div></div>
+            <div><small style="color:#888;">Gerealiseerd P/L</small><div id="wallet-realized-pnl" style="font-weight:bold;">€0.00</div></div>
+            <div><small style="color:#888;">Open P/L (unrealized)</small><div id="wallet-unrealized-pnl" style="font-weight:bold;">€0.00</div></div>
+            <div><small style="color:#888;">Allocatie</small><div id="wallet-allocated-pct" style="font-weight:bold;">0.0%</div></div>
+            <div><small style="color:#888;">Open Posities</small><div id="wallet-open-count" style="font-weight:bold;">0</div></div>
+            <div><small style="color:#888;">Win Rate</small><div id="wallet-winrate" style="font-weight:bold;">--</div></div>
+        </div>
+    </div>
+
+    <!-- OPEN POSITIONS (hedging: kan LONG + SHORT tegelijk tonen) -->
+    <div style="margin-bottom: 20px;">
+        <h3 style="font-size: 0.9em; color: #fff;">📊 Open Posities</h3>
+        <table style="width:100%; color:white; border-collapse: collapse; text-align: left; font-family: monospace; font-size: 0.85em;">
+            <thead>
+                <tr style="border-bottom: 1px solid #444;">
+                    <th style="padding: 5px;">Side</th><th>Entry</th><th>Size (BTC)</th><th>Alloc %</th><th>P/L %</th><th>P/L €</th>
+                </tr>
+            </thead>
+            <tbody id="open-positions-body">
+                <tr><td colspan="6" style="text-align:center; color:#888; padding: 8px;">Geen open posities</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- PENDING ORDERS: Osiris' zelfgekozen instapniveaus -->
+    <div style="margin-bottom: 20px;">
+        <h3 style="font-size: 0.9em; color: #fff;">⏳ Pending Orders (Osiris wacht op instapprijs)</h3>
+        <div id="pending-orders-list" style="font-family: monospace; font-size: 0.85em; color: #d1d4dc;">
+            <span style="color:#888;">Geen pending orders</span>
+        </div>
+    </div>
+
     <div style="text-align: right;">
-        <button onclick="exportOsirisData()" style="padding: 5px 10px; font-size: 10px; background: #333; color: white; border: none; cursor: pointer;">📥 Export Systeemdata</button>
-        <button onclick="exportBotTradeLog()" style="padding: 5px 10px; font-size: 10px; background: #333; color: white; border: none; cursor: pointer;">📥 Export Trade Log</button>
+        <button onclick="downloadAllData()" style="padding: 8px 16px; font-size: 12px; background: #00ffcc; color: #131722; border: none; cursor: pointer; font-weight: bold; border-radius: 4px;">📥 Download All Data</button>
     </div>
 </div>
         <div class="card" style="margin-top: 20px; padding: 15px; background: #1f2233; border-radius: 8px;">
