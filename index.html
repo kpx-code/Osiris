@@ -43,6 +43,20 @@
     <button onclick="toggleFibScale('MES')" id="btn-toggle-MES" style="padding: 5px 12px; background: #131722; color: #ffff00; border: 1px solid #ffff00; cursor: pointer; border-radius: 4px;">Toggle Meso</button>
     <button onclick="toggleFibScale('MAC')" id="btn-toggle-MAC" style="padding: 5px 12px; background: #131722; color: #ff00ff; border: 1px solid #ff00ff; cursor: pointer; border-radius: 4px;">Toggle Macro</button>
     </div>
+    <div class="position-toggle-container" style="margin: 10px 0; display: flex; gap: 10px;">
+    <button onclick="togglePositionLines()" id="btn-toggle-POSITIONS" style="padding: 5px 12px; background: #131722; color: #ff9900; border: 1px solid #ff9900; cursor: pointer; border-radius: 4px; opacity: 0.5;">Toggle Posities</button>
+    </div>
+    </div>
+    <div class="node-toggle-selector" style="margin: 10px 0 20px 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+    <span style="color: #d1d4dc; font-size: 0.8em;">NODE TYPES:</span>
+    <div class="node-toggle-container" style="display: flex; gap: 8px; flex-wrap: wrap;">
+    <button onclick="toggleNodeType('RESET')" id="btn-toggle-node-RESET" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #ffffff; border: 1px solid #ffffff; cursor: pointer; border-radius: 4px;">RESET</button>
+    <button onclick="toggleNodeType('VOLA')" id="btn-toggle-node-VOLA" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #ffff00; border: 1px solid #ffff00; cursor: pointer; border-radius: 4px;">VOLA</button>
+    <button onclick="toggleNodeType('VORTEX3')" id="btn-toggle-node-VORTEX3" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #00ffcc; border: 1px solid #00ffcc; cursor: pointer; border-radius: 4px;">CORE 3</button>
+    <button onclick="toggleNodeType('VORTEX6')" id="btn-toggle-node-VORTEX6" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #00ffcc; border: 1px solid #00ffcc; cursor: pointer; border-radius: 4px;">CORE 6</button>
+    <button onclick="toggleNodeType('OSC')" id="btn-toggle-node-OSC" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #888888; border: 1px solid #888888; cursor: pointer; border-radius: 4px;">OSC</button>
+    <button onclick="toggleNodeType('MIDPULSE')" id="btn-toggle-node-MIDPULSE" style="padding: 4px 10px; font-size: 12px; background: #131722; color: #ffcc00; border: 1px solid #ffcc00; cursor: pointer; border-radius: 4px;">MID PULSE</button>
+    </div>
     </div>
     <div id="chart-container"></div>
 
@@ -110,7 +124,8 @@
             <button onclick="resetWallet()" style="padding: 5px 10px; font-size: 11px; background: #444; color: #fff; border: none; cursor: pointer; border-radius: 4px;">♻️ Reset Wallet</button>
         </div>
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; font-family: monospace;">
-            <div><small style="color:#888;">Equity</small><div id="wallet-equity" style="font-weight:bold;">€1000.00</div></div>
+            <div><small style="color:#888;">Equity (dynamisch)</small><div id="wallet-equity" style="font-weight:bold;">€1000.00</div></div>
+            <div><small style="color:#888;">Balance (gerealiseerd)</small><div id="wallet-balance" style="font-weight:bold;">€1000.00</div></div>
             <div><small style="color:#888;">Gerealiseerd P/L</small><div id="wallet-realized-pnl" style="font-weight:bold;">€0.00</div></div>
             <div><small style="color:#888;">Open P/L (unrealized)</small><div id="wallet-unrealized-pnl" style="font-weight:bold;">€0.00</div></div>
             <div><small style="color:#888;">Allocatie</small><div id="wallet-allocated-pct" style="font-weight:bold;">0.0%</div></div>
@@ -120,16 +135,16 @@
     </div>
 
     <!-- OPEN POSITIONS (hedging: kan LONG + SHORT tegelijk tonen) -->
-    <div style="margin-bottom: 20px;">
+    <div style="margin-bottom: 20px; overflow-x: auto;">
         <h3 style="font-size: 0.9em; color: #fff;">📊 Open Posities</h3>
         <table style="width:100%; color:white; border-collapse: collapse; text-align: left; font-family: monospace; font-size: 0.85em;">
             <thead>
                 <tr style="border-bottom: 1px solid #444;">
-                    <th style="padding: 5px;">Side</th><th>Entry</th><th>Size (BTC)</th><th>Alloc %</th><th>P/L %</th><th>P/L €</th>
+                    <th style="padding: 5px;">Side</th><th>Entry</th><th>Entry tijd</th><th>Size (BTC)</th><th>Size (€)</th><th>Alloc %</th><th>P/L %</th><th>P/L €</th>
                 </tr>
             </thead>
             <tbody id="open-positions-body">
-                <tr><td colspan="6" style="text-align:center; color:#888; padding: 8px;">Geen open posities</td></tr>
+                <tr><td colspan="8" style="text-align:center; color:#888; padding: 8px;">Geen open posities</td></tr>
             </tbody>
         </table>
     </div>
@@ -146,12 +161,12 @@
         <button onclick="downloadAllData()" style="padding: 8px 16px; font-size: 12px; background: #00ffcc; color: #131722; border: none; cursor: pointer; font-weight: bold; border-radius: 4px;">📥 Download All Data</button>
     </div>
 </div>
-        <div class="card" style="margin-top: 20px; padding: 15px; background: #1f2233; border-radius: 8px;">
+        <div class="card" style="margin-top: 20px; padding: 15px; background: #1f2233; border-radius: 8px; overflow-x: auto;">
     <h3>Laatste 10 Posities</h3>
     <table id="trade-history" style="width:100%; color:white; border-collapse: collapse; text-align: left;">
         <thead>
             <tr style="border-bottom: 1px solid #444;">
-                <th>Tijd</th><th>Side</th><th>Prijs</th><th>Amount</th><th>P/L</th>
+                <th>Datum/Tijd</th><th>Side</th><th>Prijs</th><th>Amount (BTC)</th><th>Size (€)</th><th>P/L</th>
             </tr>
         </thead>
         <tbody id="history-body">
