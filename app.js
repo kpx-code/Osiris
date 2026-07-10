@@ -27,8 +27,37 @@ let activeFibScales = {
 let livePrice = 0;
 let liveVol = 0;
 let isBullish = true;
-let botSettings = { capital: 1000, riskPerTrade: 0.01, isRunning: false };
-let botState = { active: false, entryPrice: 0, side: null };
+
+// --- BOT INSTELLINGEN ---
+// maxAllocationPct/stopLossPct zijn fracties (0.70 = 70%). minProbabilityPct/
+// minProjectedProfitPct zijn percentages (90 = 90%, 1 = 1%).
+let botSettings = {
+    maxAllocationPct: 0.70,      // max 70% van de equity per trade
+    stopLossPct: 0.02,           // -2% harde stop, niet onderhandelbaar
+    profitHoldTriggerPct: 0.02,  // vanaf +2% winst mag Osiris zelf beslissen: houden of innen
+    trailBufferPct: 0.01,        // trailing-marge zodra we boven de trigger houden
+    minProjectedProfitPct: 1,    // alleen openen als het verwachte doel >1% winst oplevert
+    minProbabilityPct: 90,       // alleen openen als Osiris' zekerheids-score >=90%
+    isRunning: false
+};
+
+// --- WALLET (persistente staat, los van botSettings.startingCapital-invoer) ---
+let walletState = {
+    startingCapital: 1000,
+    realizedPnL: 0,   // cumulatieve gerealiseerde winst/verlies in EUR
+    wins: 0,
+    losses: 0
+};
+
+// Meerdere posities tegelijk = hedging (LONG + SHORT naast elkaar toegestaan)
+let openPositions = [];   // { id, side, entryPrice, amount, notional, sizePct, targetPrice, openTime, peakPnlPct, trailingStopPct }
+let pendingOrders = [];   // { id, side, triggerPrice, direction, targetPrice, projectedProfitPct, probabilityPct, createdAt, expiresAt }
+
+// Cache van de laatste (elke 10s) Osiris-berekening, gebruikt door de per-seconde
+// hold/close-beslissing zodat we niet elke seconde alles hoeven te herberekenen.
+let lastOsirisDecision = null;
+let lastOsirisMetrics = null;
+
 let botTradeLog = [];
 let osirisSystemLog = [];
 let botInterval = null; // FIX: was nooit gedeclareerd, liep als impliciete global (breekt in strict mode)
@@ -121,15 +150,16 @@ chart.subscribeCrosshairMove(param => {
     }
 });
 
-function logSystemState(metrics, targets, currentPrice, chaos, db, isBullish) {
+function logSystemState(metrics, targets, currentPrice, liveVolume, chaosVal, dbVal, bullish) {
     const logEntry = {
         timestamp: new Date().toISOString(),
         price: currentPrice,
+        liveVolume: liveVolume || 0,
         // Kern-indicatoren
         vfm: metrics.vfm || 0,
         er: metrics.er || 0,
-        db: db || 0,
-        chaos: chaos || 0,
+        db: dbVal || 0,
+        chaos: chaosVal || 0,
         // Context-data
         volRate: metrics.rate || 0,
         volScore: metrics.score || 0,
@@ -141,7 +171,7 @@ function logSystemState(metrics, targets, currentPrice, chaos, db, isBullish) {
         macroBull: targets.macro.bullish,
         macroBear: targets.macro.bearish,
         // Besluitvorming
-        isBullish: isBullish
+        isBullish: bullish
     };
     
     osirisSystemLog.push(logEntry);
@@ -164,8 +194,31 @@ function exportOsirisData() {
 let botStartTime = localStorage.getItem('botStartTime') ? parseInt(localStorage.getItem('botStartTime')) : null;
 let isBotRunning = localStorage.getItem('botIsRunning') === 'true';
 
+function savePersistentState() {
+    try {
+        localStorage.setItem('osirisWalletState', JSON.stringify(walletState));
+        localStorage.setItem('osirisOpenPositions', JSON.stringify(openPositions));
+        localStorage.setItem('osirisPendingOrders', JSON.stringify(pendingOrders));
+    } catch (e) { console.warn("Kon wallet/positie-status niet opslaan:", e); }
+}
+
+function loadPersistentState() {
+    try {
+        const w = localStorage.getItem('osirisWalletState');
+        const p = localStorage.getItem('osirisOpenPositions');
+        const q = localStorage.getItem('osirisPendingOrders');
+        if (w) walletState = JSON.parse(w);
+        if (p) openPositions = JSON.parse(p);
+        if (q) pendingOrders = JSON.parse(q);
+    } catch (e) { console.warn("Kon wallet/positie-status niet laden:", e); }
+}
+
+loadPersistentState();
+
 // Auto-start bij laden
 window.addEventListener('load', () => {
+    updateWalletUI();
+    updatePendingOrdersUI();
     if (isBotRunning) {
         startAutonomousBot(true); // true = herstart
     }
@@ -181,15 +234,23 @@ function startAutonomousBot(isAutoRestart = false) {
     // engine altijd oversloeg (bot deed nooit iets, ook al stond hij "ACTIEF").
     botSettings.isRunning = true;
 
-    // FIX: lees de door de gebruiker ingevulde waarden uit de UI in plaats van
-    // de hardcoded defaults (1000 / 1%) te blijven gebruiken.
+    // Lees de door de gebruiker ingevulde waarden uit de UI.
+    // Start Kapitaal wordt alleen toegepast als de wallet nog nooit gebruikt is
+    // (anders zou elke herstart de opgebouwde equity overschrijven).
     const capitalInput = document.getElementById('start-capital');
-    const riskInput = document.getElementById('risk-per-trade');
-    if (capitalInput && !isNaN(parseFloat(capitalInput.value))) {
-        botSettings.capital = parseFloat(capitalInput.value);
+    const allocInput = document.getElementById('max-allocation-pct');
+    const stopLossInput = document.getElementById('stop-loss-pct');
+
+    if (!isAutoRestart && walletState.realizedPnL === 0 && openPositions.length === 0) {
+        if (capitalInput && !isNaN(parseFloat(capitalInput.value)) && parseFloat(capitalInput.value) > 0) {
+            walletState.startingCapital = parseFloat(capitalInput.value);
+        }
     }
-    if (riskInput && !isNaN(parseFloat(riskInput.value))) {
-        botSettings.riskPerTrade = parseFloat(riskInput.value) / 100;
+    if (allocInput && !isNaN(parseFloat(allocInput.value))) {
+        botSettings.maxAllocationPct = Math.min(Math.max(parseFloat(allocInput.value) / 100, 0), 1);
+    }
+    if (stopLossInput && !isNaN(parseFloat(stopLossInput.value))) {
+        botSettings.stopLossPct = Math.max(parseFloat(stopLossInput.value) / 100, 0.001);
     }
 
     if (!isAutoRestart) {
@@ -200,12 +261,13 @@ function startAutonomousBot(isAutoRestart = false) {
     botInterval = setInterval(botHeartbeat, 1000); 
     document.getElementById('bot-status').innerText = "ACTIEF";
 
-    // FIX: knoppen wisselen (dit gebeurde alleen in stopAutonomousBot,
-    // waardoor START zichtbaar bleef staan na het starten).
     const startBtn = document.getElementById('btn-start-bot');
     const stopBtn = document.getElementById('btn-stop-bot');
     if (startBtn) startBtn.style.display = 'none';
     if (stopBtn) stopBtn.style.display = 'inline-block';
+
+    savePersistentState();
+    updateWalletUI();
 }
 
 function stopAutonomousBot() {
@@ -231,148 +293,433 @@ function stopAutonomousBot() {
     document.getElementById('bot-runtime').innerText = "Runtime: 00:00:00";
 }
 
-function logBotAction(action, price, side, pnl = 0, amount = 0) {
-    // 1. Maak een leesbare tijdstempel
-    const timestamp = new Date().toLocaleTimeString(); 
+// ============================================================
+// WALLET / POSITIE HELPERS
+// ============================================================
+function getEquity() {
+    return walletState.startingCapital + walletState.realizedPnL;
+}
 
-    // 2. Sla de volledige data op in je log-array
+function getAllocatedPct() {
+    return openPositions.reduce((sum, p) => sum + p.sizePct, 0);
+}
+
+function getUnrealizedPnL() {
+    if (!livePrice) return 0;
+    return openPositions.reduce((sum, p) => {
+        const pnlPct = p.side === 'LONG'
+            ? (livePrice - p.entryPrice) / p.entryPrice
+            : (p.entryPrice - livePrice) / p.entryPrice;
+        return sum + (p.notional * pnlPct);
+    }, 0);
+}
+
+function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.innerText = text;
+}
+
+function resetWallet() {
+    if (!confirm("Weet je zeker dat je de wallet wilt resetten? Alle open posities, pending orders en logs worden gewist.")) return;
+
+    const capitalInput = document.getElementById('start-capital');
+    const newCapital = capitalInput ? parseFloat(capitalInput.value) : 1000;
+
+    walletState = {
+        startingCapital: (!isNaN(newCapital) && newCapital > 0) ? newCapital : 1000,
+        realizedPnL: 0,
+        wins: 0,
+        losses: 0
+    };
+    openPositions = [];
+    pendingOrders = [];
+    botTradeLog = [];
+    osirisSystemLog = [];
+
+    localStorage.removeItem('osirisWalletState');
+    localStorage.removeItem('osirisOpenPositions');
+    localStorage.removeItem('osirisPendingOrders');
+
+    const histBody = document.getElementById('history-body');
+    if (histBody) histBody.innerHTML = '';
+
+    updateWalletUI();
+    updatePendingOrdersUI();
+    console.log("Wallet gereset naar €" + walletState.startingCapital);
+}
+
+// ============================================================
+// UI UPDATES
+// ============================================================
+function updateWalletUI() {
+    const equity = getEquity();
+    const unrealized = getUnrealizedPnL();
+    const allocatedPct = getAllocatedPct() * 100;
+    const totalTrades = walletState.wins + walletState.losses;
+    const winRate = totalTrades > 0 ? ((walletState.wins / totalTrades) * 100).toFixed(1) : null;
+
+    setText('wallet-equity', `€${equity.toFixed(2)}`);
+    setText('wallet-realized-pnl', `€${walletState.realizedPnL.toFixed(2)}`);
+    const realizedEl = document.getElementById('wallet-realized-pnl');
+    if (realizedEl) realizedEl.style.color = walletState.realizedPnL >= 0 ? '#00ffcc' : '#ef5350';
+
+    setText('wallet-unrealized-pnl', `€${unrealized.toFixed(2)}`);
+    const unrealizedEl = document.getElementById('wallet-unrealized-pnl');
+    if (unrealizedEl) unrealizedEl.style.color = unrealized >= 0 ? '#00ffcc' : '#ef5350';
+
+    setText('wallet-allocated-pct', `${allocatedPct.toFixed(1)}%`);
+    setText('wallet-open-count', `${openPositions.length}`);
+    setText('wallet-winrate', winRate !== null ? `${winRate}% (${walletState.wins}W / ${walletState.losses}L)` : '--');
+
+    // Backwards-compatible aggregate P/L veld (bovenin de bot-monitor tegel)
+    const aggPct = equity !== 0 ? (unrealized / equity) * 100 : 0;
+    setText('bot-pnl', `${aggPct >= 0 ? '+' : ''}${aggPct.toFixed(2)}%`);
+    const pnlEl = document.getElementById('bot-pnl');
+    if (pnlEl) pnlEl.style.color = unrealized >= 0 ? '#00ffcc' : '#ef5350';
+
+    // Open-posities tabel
+    const posBody = document.getElementById('open-positions-body');
+    if (posBody) {
+        if (openPositions.length === 0) {
+            posBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#888; padding:8px;">Geen open posities</td></tr>`;
+            setText('bot-position', 'Geen');
+        } else {
+            posBody.innerHTML = openPositions.map(p => {
+                const pnlPct = livePrice ? (p.side === 'LONG'
+                    ? (livePrice - p.entryPrice) / p.entryPrice
+                    : (p.entryPrice - livePrice) / p.entryPrice) : 0;
+                const color = pnlPct >= 0 ? '#00ffcc' : '#ef5350';
+                return `<tr>
+                    <td style="padding:4px; color:${p.side === 'LONG' ? '#26a69a' : '#ef5350'}; font-weight:bold;">${p.side}</td>
+                    <td>${p.entryPrice.toFixed(2)}</td>
+                    <td>${p.amount}</td>
+                    <td>${(p.sizePct * 100).toFixed(1)}%</td>
+                    <td style="color:${color};">${(pnlPct * 100).toFixed(2)}%</td>
+                    <td style="color:${color};">€${(p.notional * pnlPct).toFixed(2)}</td>
+                </tr>`;
+            }).join('');
+            setText('bot-position', openPositions.map(p => p.side).join(' + '));
+        }
+    }
+}
+
+function updatePendingOrdersUI() {
+    const el = document.getElementById('pending-orders-list');
+    if (!el) return;
+    if (pendingOrders.length === 0) {
+        el.innerHTML = `<span style="color:#888;">Geen pending orders</span>`;
+        return;
+    }
+    el.innerHTML = pendingOrders.map(o =>
+        `<div>${o.side === 'LONG' ? '🟢' : '🔴'} ${o.side} wacht op €${o.triggerPrice.toFixed(2)} (kans ${o.probabilityPct.toFixed(0)}%, verwacht +${o.projectedProfitPct.toFixed(2)}%)</div>`
+    ).join('');
+}
+
+function updateHistoryUI(entry) {
+    const body = document.getElementById('history-body');
+    if (!body) return;
+    const pnlColor = entry.pnl >= 0 ? '#00ffcc' : '#ef5350';
+    const row = document.createElement('tr');
+    row.style.borderBottom = '1px solid #222';
+    row.innerHTML = `
+        <td style="padding:5px; color:#888;">${entry.timestamp}</td>
+        <td style="color:${entry.side === 'LONG' ? '#26a69a' : '#ef5350'};">${entry.side || '-'}</td>
+        <td>${typeof entry.price === 'number' ? entry.price.toFixed(2) : entry.price}</td>
+        <td>${entry.amount}</td>
+        <td style="color:${pnlColor}; font-weight:bold;">${(entry.pnl * 100).toFixed(2)}% (€${(entry.pnlAmount || 0).toFixed(2)})</td>
+    `;
+    body.insertBefore(row, body.firstChild);
+
+    // Houd de tabel beperkt tot de laatste 10 rijen
+    while (body.children.length > 10) {
+        body.removeChild(body.lastChild);
+    }
+}
+
+// ============================================================
+// LOGGING
+// ============================================================
+function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0) {
+    const timestamp = new Date().toLocaleTimeString();
+
     const entry = {
         timestamp,
         action,
         price,
         side,
         pnl,
-        amount, // Nieuwe parameter toegevoegd
-        capital: botSettings.capital
+        pnlAmount,
+        amount,
+        reason,
+        equity: getEquity()
     };
     botTradeLog.push(entry);
-    
-    // 3. Update UI: Laatste Actie
+
     const actionEl = document.getElementById('bot-last-action');
     if (actionEl) {
-        actionEl.innerText = `${action} ${side ? side : ''} @ ${price} (Amt: ${amount}) (${timestamp})`;
+        const priceTxt = typeof price === 'number' ? price.toFixed(2) : price;
+        actionEl.innerText = `${action} ${side || ''} @ ${priceTxt} ${amount ? `(Amt: ${amount})` : ''} ${reason ? `[${reason}]` : ''} (${timestamp})`.replace(/\s+/g, ' ');
     }
 
-    // 4. Update UI: Huidige Positie (gebruikt bot-position uit jouw HTML)
-    const posEl = document.getElementById('bot-position');
-    if (posEl) {
-        posEl.innerText = botState.active 
-            ? `${botState.side} @ ${botState.entryPrice} (Size: ${amount})` 
-            : "Geen actieve positie";
-    }
-
-    // 5. Update PnL in UI (alleen bij EXIT)
     if (action === "EXIT") {
-        const pnlEl = document.getElementById('bot-pnl');
-        if (pnlEl) {
-            pnlEl.innerText = (pnl * 100).toFixed(2) + "%";
-            pnlEl.style.color = pnl >= 0 ? "#00ffcc" : "#ef5350";
-        }
-        // Voeg toe aan je geschiedenis tabel
         updateHistoryUI(entry);
     }
+
+    updateWalletUI();
 }
 
+// ============================================================
+// OSIRIS OPPORTUNITY & PROBABILITY ENGINE
+// ============================================================
 
-
-
-function openPosition(side, price) {
-    botState = { active: true, entryPrice: price, side: side };
-    logBotAction("ENTRY", price, side); // <--- HIER LOGGEN
+// Heuristische zekerheids-score (GEEN gevalideerde statistische win-rate!).
+// Gebaseerd op de bestaande confluence-telling (0-5, zie getOrisisDecisionData)
+// plus chaos/ER als betrouwbaarheids-correctie. Dit is een instelbare proxy —
+// kalibreer 'm met de gedownloade data (Download All Data-knop).
+function calculateProbabilityScore(confluence, chaosVal, erVal) {
+    let score = 50 + (confluence * 9); // confluence 0-5 -> 50-95
+    if (chaosVal > 15) score -= 15;    // extreme volatiliteit = onbetrouwbaarder
+    else if (chaosVal < 5) score += 5; // rustige markt = betrouwbaarder
+    if (erVal > 1.5) score += 5;       // sterke volume-deelname = betrouwbaarder
+    return Math.max(0, Math.min(100, score));
 }
 
-function checkEntries(decision, price) {
-    // 1. Check op confluence EN of de bot nog niet actief is
-    if (decision.confluence >= 4 && !botState.active) {
-        
-        // 2. Bereken de positiegrootte (amount)
-        // Risico per trade (in euro's) / instapprijs = aantal tokens/BTC
-        const riskAmount = (botSettings.capital * botSettings.riskPerTrade) / price;
-        const amountToTrade = parseFloat(riskAmount.toFixed(4)); 
+// Bepaalt het niveau waarop Osiris autonoom wil instappen: een pullback-zone
+// op basis van de micro (9-candle) Fibonacci-retracement, in plaats van
+// blind op de huidige live prijs in te stappen.
+function calculateEntryTrigger(side, currentPrice) {
+    if (!rawData || rawData.length < 9) return currentPrice;
 
-        // 3. Update de bot status
-        botState.active = true;
-        botState.entryPrice = price;
-        botState.side = decision.decision.includes("BULLISH") ? "LONG" : "SHORT";
-        botState.amount = amountToTrade; // Opslaan voor de UI en toekomstige berekeningen
-        
-        // 4. Log de actie MET amount
-        logBotAction("ENTRY", price, botState.side, 0, amountToTrade);
+    const recent = rawData.slice(-9);
+    const rangeHigh = Math.max(...recent.map(d => parseFloat(d[2])));
+    const rangeLow = Math.min(...recent.map(d => parseFloat(d[3])));
+    if (!isFinite(rangeHigh) || !isFinite(rangeLow) || rangeHigh === rangeLow) return currentPrice;
+
+    const levels = calculateFibLevels(rangeHigh, rangeLow);
+
+    // LONG: wacht op een pullback naar de 0.618-retracement ("koop de dip")
+    // SHORT: wacht op een opleving naar de 0.382-retracement ("verkoop de rally")
+    const level = side === 'LONG' ? levels['0.618'] : levels['0.382'];
+
+    // Als dat niveau te ver van de huidige prijs afligt (>1.5%) is wachten
+    // niet realistisch binnen een redelijke tijd -> gebruik de live prijs.
+    const distancePct = Math.abs(currentPrice - level) / currentPrice;
+    if (!isFinite(level) || distancePct > 0.015) return currentPrice;
+
+    return level;
+}
+
+// Evalueert of een kans (nieuwe entry, of het vasthouden van een lopende
+// positie) voldoet aan Osiris' eisen: kans >= minProbabilityPct EN
+// verwachte winst > minProjectedProfitPct.
+function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
+    const triggerPrice = calculateEntryTrigger(side, currentPrice);
+    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er);
+
+    const targetPrice = side === 'LONG'
+        ? parseFloat(decision.targets.meso.bullish)
+        : parseFloat(decision.targets.meso.bearish);
+
+    const projectedProfitPct = side === 'LONG'
+        ? ((targetPrice - triggerPrice) / triggerPrice) * 100
+        : ((triggerPrice - targetPrice) / triggerPrice) * 100;
+
+    const eligible = probabilityPct >= botSettings.minProbabilityPct &&
+                      projectedProfitPct > botSettings.minProjectedProfitPct;
+
+    return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct };
+}
+
+// Elke 10 seconden: scan of er een nieuwe kans is voor LONG en/of SHORT.
+// Hedging is toegestaan (beide kanten tegelijk), maar niet dubbel op dezelfde kant.
+function scanForOpportunities(decision, metrics) {
+    ['LONG', 'SHORT'].forEach(side => {
+        const hasOpen = openPositions.some(p => p.side === side);
+        const hasPending = pendingOrders.some(p => p.side === side);
+        if (hasOpen || hasPending) return;
+
+        const evalResult = evaluateEntryOpportunity(side, decision, metrics, livePrice);
+        if (!evalResult.eligible) return;
+
+        const direction = evalResult.triggerPrice < livePrice ? 'below'
+            : (evalResult.triggerPrice > livePrice ? 'above' : 'touch');
+
+        const order = {
+            id: `pend_${Date.now()}_${side}`,
+            side,
+            triggerPrice: evalResult.triggerPrice,
+            direction,
+            targetPrice: evalResult.targetPrice,
+            projectedProfitPct: evalResult.projectedProfitPct,
+            probabilityPct: evalResult.probabilityPct,
+            createdAt: new Date().toISOString(),
+            expiresAt: Date.now() + (30 * 60 * 1000) // 30 min geldig
+        };
+        pendingOrders.push(order);
+        logBotAction("PENDING", evalResult.triggerPrice, side, 0, 0, `kans ${evalResult.probabilityPct.toFixed(0)}%`);
+    });
+    savePersistentState();
+    updatePendingOrdersUI();
+}
+
+// ============================================================
+// ENTRY / EXIT UITVOERING
+// ============================================================
+function openPositionFromOrder(order) {
+    const price = livePrice;
+    const confluence = lastOsirisDecision ? lastOsirisDecision.confluence : 0;
+    const maxConfluence = 5; // zie getOrisisDecisionData: vfm(2)+db(1)+chaos(1)+er(1)
+
+    // Grootte schaalt met signaalsterkte, tot maximaal maxAllocationPct
+    const desiredSizePct = Math.min((confluence / maxConfluence) * botSettings.maxAllocationPct, botSettings.maxAllocationPct);
+
+    // Nooit meer dan 100% van de equity alloceren, ook niet met hedging op beide kanten
+    const availablePct = Math.max(0, 1 - getAllocatedPct());
+    const finalSizePct = Math.min(desiredSizePct, availablePct);
+
+    if (finalSizePct <= 0.001) {
+        logBotAction("SKIPPED", price, order.side, 0, 0, "onvoldoende beschikbare allocatie");
+        return;
+    }
+
+    const equity = getEquity();
+    const notional = equity * finalSizePct;
+    const amount = parseFloat((notional / price).toFixed(6));
+
+    const position = {
+        id: `pos_${Date.now()}_${order.side}`,
+        side: order.side,
+        entryPrice: price,
+        amount,
+        notional,
+        sizePct: finalSizePct,
+        targetPrice: order.targetPrice,
+        probabilityPct: order.probabilityPct,
+        openTime: Date.now(),
+        peakPnlPct: 0,
+        trailingStopPct: null
+    };
+
+    openPositions.push(position);
+    logBotAction("ENTRY", price, order.side, 0, amount, `alloc ${(finalSizePct * 100).toFixed(1)}%`);
+    savePersistentState();
+    updateWalletUI();
+}
+
+function closePosition(pos, pnlPct, reason) {
+    const pnlAmount = pos.notional * pnlPct;
+    walletState.realizedPnL += pnlAmount;
+    if (pnlPct >= 0) walletState.wins++; else walletState.losses++;
+
+    openPositions = openPositions.filter(p => p.id !== pos.id);
+
+    logBotAction("EXIT", livePrice, pos.side, pnlPct, pos.amount, reason, pnlAmount);
+    savePersistentState();
+    updateWalletUI();
+}
+
+function isTargetReached(pos) {
+    if (!pos.targetPrice || !livePrice) return false;
+    return pos.side === 'LONG' ? livePrice >= pos.targetPrice : livePrice <= pos.targetPrice;
+}
+
+// Elke seconde: check of een pending order geraakt is door de live prijs.
+function checkPendingTriggers() {
+    if (pendingOrders.length === 0 || !livePrice) return;
+    const now = Date.now();
+    let changed = false;
+
+    pendingOrders = pendingOrders.filter(order => {
+        if (order.expiresAt && now > order.expiresAt) {
+            logBotAction("CANCELLED", order.triggerPrice, order.side, 0, 0, "verlopen (30 min)");
+            changed = true;
+            return false;
+        }
+        const triggered = order.direction === 'below' ? livePrice <= order.triggerPrice
+            : order.direction === 'above' ? livePrice >= order.triggerPrice
+            : true;
+        if (triggered) {
+            openPositionFromOrder(order);
+            changed = true;
+            return false;
+        }
+        return true;
+    });
+
+    if (changed) {
+        savePersistentState();
+        updatePendingOrdersUI();
     }
 }
 
-function checkExits(decision, price) {
-    // Beveiliging: als er geen targets zijn, kun je ook niet op targets exit-en
-    if (!decision || !decision.targets) return; 
+// Elke seconde: stop-loss (-2%, hard) + de "houden of innen"-beslissing vanaf +2% winst.
+function checkOpenPositionsExits() {
+    if (openPositions.length === 0 || !livePrice) return;
 
-    const pnl = botState.side === 'LONG' ? ((price - botState.entryPrice) / botState.entryPrice) : ((botState.entryPrice - price) / botState.entryPrice);
+    const survivors = [];
+    openPositions.forEach(pos => {
+        const pnlPct = pos.side === 'LONG'
+            ? (livePrice - pos.entryPrice) / pos.entryPrice
+            : (pos.entryPrice - livePrice) / pos.entryPrice;
 
-    if (pnl <= -0.01) {
-        executeExit("STOP_LOSS", pnl);
-    } 
-    else if (pnl > 0 && isTargetReached(decision.targets, botState.side, price)) {
-        executeExit("MESO_TARGET", pnl);
-    }
+        // 1. Harde stop-loss: -2%, niet onderhandelbaar
+        if (pnlPct <= -botSettings.stopLossPct) {
+            closePosition(pos, pnlPct, "STOP_LOSS");
+            return;
+        }
+
+        // 2. Winst >= 2%: Osiris mag zelf beslissen om te blijven zitten
+        // als de kans op méér winst nog steeds goed is (>=90% & >1% extra).
+        // Een trailing stop borgt de winst zodat "laten lopen" niet alsnog
+        // in een verlies kan eindigen.
+        if (pnlPct >= botSettings.profitHoldTriggerPct) {
+            pos.peakPnlPct = Math.max(pos.peakPnlPct || 0, pnlPct);
+            const floorPct = botSettings.profitHoldTriggerPct - botSettings.trailBufferPct;
+            pos.trailingStopPct = Math.max(pos.trailingStopPct ?? floorPct, pos.peakPnlPct - botSettings.trailBufferPct);
+
+            if (pnlPct <= pos.trailingStopPct) {
+                closePosition(pos, pnlPct, "TRAILING_STOP");
+                return;
+            }
+
+            if (lastOsirisDecision) {
+                const continuation = evaluateEntryOpportunity(pos.side, lastOsirisDecision, lastOsirisMetrics, livePrice);
+                if (!continuation.eligible) {
+                    closePosition(pos, pnlPct, "PROFIT_LOCKED");
+                    return;
+                }
+                // eligible -> Osiris kiest ervoor de winnaar te laten lopen
+            }
+            survivors.push(pos);
+            return;
+        }
+
+        // 3. Onder de 2%-drempel: gewoon het oorspronkelijk berekende doel gebruiken
+        if (pnlPct > 0 && isTargetReached(pos)) {
+            closePosition(pos, pnlPct, "TARGET");
+            return;
+        }
+
+        survivors.push(pos);
+    });
+
+    openPositions = survivors;
 }
 
-function executeExit(reason, pnl) {
-    logBotAction("EXIT", livePrice, botState.side, pnl);
-    
-    // Pas de eigenschappen individueel aan in plaats van het hele object te overschrijven
-    botState.active = false;
-    botState.entryPrice = 0;
-    botState.side = null;
-}
-
-function updateBotUI() {
-    const posEl = document.getElementById('bot-position');
-    const pnlEl = document.getElementById('bot-pnl');
-    
-    if (botState.active) {
-        // 1. Update Positie met de opgeslagen amount
-        posEl.innerText = `${botState.side} @ ${botState.entryPrice} (Size: ${botState.amount})`;
-        
-        // 2. Bereken live P/L
-        const livePnl = botState.side === 'LONG' 
-            ? ((livePrice - botState.entryPrice) / botState.entryPrice) 
-            : ((botState.entryPrice - livePrice) / botState.entryPrice);
-        
-        // 3. Update P/L text en kleur
-        pnlEl.innerText = (livePnl * 100).toFixed(2) + "%";
-        pnlEl.style.color = livePnl >= 0 ? "#00ffcc" : "#ef5350";
-    } else {
-        // Reset naar de standaard "STANDBY" staat
-        posEl.innerText = "Geen";
-        pnlEl.innerText = "0.00%";
-        pnlEl.style.color = "#fff"; // Of jouw standaard tekstkleur
-    }
-}
-
-
+// ============================================================
+// EXPORT
+// ============================================================
 function exportBotTradeLog() {
     if (botTradeLog.length === 0) {
         alert("Geen trade data beschikbaar om te exporteren.");
         return;
     }
-
-    // 1. Headers aangepast met 'Amount'
-    const headers = ["Timestamp", "Action", "Price", "Side", "Amount", "PnL_Percent", "Capital"];
-    
-    // 2. Rijen formatteren (let op de volgorde van de array)
+    const headers = ["Timestamp", "Action", "Price", "Side", "Amount", "PnL_Percent", "PnL_EUR", "Reason", "Equity"];
     const rows = botTradeLog.map(t => [
-        t.timestamp,
-        t.action,
-        t.price,
-        t.side,
-        t.amount, // Nu correct toegevoegd
-        (t.pnl * 100).toFixed(2),
-        t.capital
+        t.timestamp, t.action, t.price, t.side, t.amount,
+        (t.pnl * 100).toFixed(2), (t.pnlAmount || 0).toFixed(2), t.reason || '', (t.equity || 0).toFixed(2)
     ].join(","));
-
-    // 3. Samenvoegen tot CSV
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
-    
-    // 4. Download trigger
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -382,79 +729,90 @@ function exportBotTradeLog() {
     document.body.removeChild(link);
 }
 
-function isTargetReached(targetMatrix, side, price) {
-    // 1. Veiligheidscheck: bestaat de matrix en de nodige data wel?
-    if (!targetMatrix || !price) return false;
+// Eén centrale download-knop: bundelt trade log, systeemlog (vfm/er/db/chaos/
+// volume/scores), open posities/pending orders, wallet-status en de volledige
+// prijs/volume-historie in één JSON-bestand, zodat je de bot achteraf kunt
+// kalibreren met alle data uit de eerste testperiode.
+function downloadAllData() {
+    const payload = {
+        exportedAt: new Date().toISOString(),
+        wallet: {
+            startingCapital: walletState.startingCapital,
+            realizedPnL: walletState.realizedPnL,
+            equity: getEquity(),
+            unrealizedPnL: getUnrealizedPnL(),
+            wins: walletState.wins,
+            losses: walletState.losses
+        },
+        botSettings,
+        openPositions,
+        pendingOrders,
+        tradeLog: botTradeLog,
+        systemLog: osirisSystemLog, // vfm, er, db, chaos, live volume, volRate, volScore, fractale targets - elke 10s
+        priceVolumeHistory: rawData.map(d => ({
+            time: new Date(d[0]).toISOString(),
+            open: parseFloat(d[1]),
+            high: parseFloat(d[2]),
+            low: parseFloat(d[3]),
+            close: parseFloat(d[4]),
+            volume: parseFloat(d[5])
+        }))
+    };
 
-    // 2. Jouw logica (aangepast aan jouw specifieke variabelen)
-    if (side === 'LONG' && targetMatrix.mesoBull) {
-        return price >= targetMatrix.mesoBull;
-    } 
-    
-    if (side === 'SHORT' && targetMatrix.mesoBear) {
-        return price <= targetMatrix.mesoBear;
-    }
-    
-    return false;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `osiris_full_export_${Date.now()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 }
 
+// ============================================================
+// HEARTBEAT
+// ============================================================
 // Globale variabele om de 10-seconden cyclus bij te houden
 let botTickCounter = 0;
 
 function botHeartbeat() {
-    // 1. Runtime UI Update (Elke seconde)
+    // 1. Runtime UI Update (elke seconde)
     if (botStartTime) {
         const diff = Date.now() - botStartTime;
         const h = Math.floor(diff / 3600000).toString().padStart(2, '0');
         const m = Math.floor((diff % 3600000) / 60000).toString().padStart(2, '0');
         const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
-        
+
         const runtimeEl = document.getElementById('bot-runtime');
         if (runtimeEl) runtimeEl.innerText = `Runtime: ${h}:${m}:${s}`;
     }
 
-    // 2. Live P/L Berekening (Elke seconde)
-    const pnlEl = document.getElementById('bot-pnl');
-    if (botState.active) {
-        const pnl = botState.side === 'LONG' 
-            ? ((livePrice - botState.entryPrice) / botState.entryPrice) 
-            : ((botState.entryPrice - livePrice) / botState.entryPrice);
-        
-        if (pnlEl) {
-            pnlEl.innerText = (pnl * 100).toFixed(2) + "%";
-            pnlEl.style.color = pnl >= 0 ? "#00ffcc" : "#ef5350";
-        }
-    } else {
-        if (pnlEl) pnlEl.innerText = "0.00%";
+    if (!botSettings.isRunning) {
+        updateWalletUI();
+        return;
     }
 
-    // 3. Trading Engine (Elke 10 seconden)
+    // 2. Elke seconde: reageer direct op prijsbewegingen
+    //    (pending orders raken, stop-loss/trailing-stop/hold-beslissing)
+    checkPendingTriggers();
+    checkOpenPositionsExits();
+    updateWalletUI();
+
+    // 3. Elke 10 seconden: zwaardere Osiris-berekening + scan naar nieuwe kansen
     botTickCounter++;
     if (botTickCounter >= 10) {
-        botTickCounter = 0; // Reset teller
-        
-        // Check of bot actief is volgens settings
-        if (!botSettings.isRunning) return;
+        botTickCounter = 0;
 
-        // Bereken metrics en beslissing
-        // FIX: calculateVolumeMetrics verwacht (currentVol, priceDelta, isBullish, harmonic).
-        // Hier werden maar 2 argumenten meegegeven, waardoor 'isBullish' in de
-        // 'priceDelta' slot terechtkwam en de rest 'undefined' was (harmonic -> NaN venster).
         const metrics = calculateVolumeMetrics(liveVol, db, isBullish, 9);
         const decision = getOrisisDecisionData(metrics, livePrice, vfm, er, db, chaos, isBullish);
-        
-        // Log naar systeem
-        // FIX: logSystemState verwacht (metrics, targets, currentPrice, chaos, db, isBullish) -
-        // 6 parameters. Er werden 7 argumenten meegegeven (incl. liveVol), waardoor alles na
-        // currentPrice met 1 plek opschoof en chaos/db/isBullish verkeerd gelogd werden.
-        logSystemState(metrics, decision.targets, livePrice, chaos, db, isBullish);
-        
-        // Voer trade actie uit
-        if (botState.active) {
-            checkExits(decision, livePrice);
-        } else {
-            checkEntries(decision, livePrice);
-        }
+
+        lastOsirisDecision = decision;
+        lastOsirisMetrics = metrics;
+
+        logSystemState(metrics, decision.targets, livePrice, liveVol, chaos, db, isBullish);
+
+        scanForOpportunities(decision, metrics);
     }
 }
 
