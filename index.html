@@ -5,6 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KPX is my hero</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { margin: 0; }
+        #dashboard { padding: 20px; max-width: 1400px; margin: 0 auto; }
+
+        /* Generieke responsieve grid voor knoppenrijen/instellingen-rijen:
+           elke kolom is min. 140px breed, en vult netjes de resterende ruimte
+           op i.p.v. flex-wrap's ongelijke laatste-item-rekt-uit-gedrag. */
+        .grid-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 10px;
+            align-items: end;
+        }
+        .grid-row > div { min-width: 0; } /* voorkomt overflow bij lange labels/inputs */
+        .grid-row input, .grid-row select { width: 100%; padding: 8px; }
+
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; }
+
+        @media (max-width: 768px) {
+            #dashboard { padding: 10px; }
+            header h1 { font-size: 1.2em; }
+            header h2 { font-size: 0.85em; }
+            .grid-row { grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); gap: 8px; }
+            .metrics-container { flex-direction: column !important; }
+            .metrics-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+            .orisis-3col { grid-template-columns: 1fr !important; }
+            #info-panel { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important; gap: 8px !important; }
+            table { font-size: 0.75em; }
+            #bot-control-hub, .card { padding: 12px !important; }
+        }
+
+        @media (max-width: 420px) {
+            .metrics-grid { grid-template-columns: 1fr !important; }
+        }
+    </style>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
     <script>
@@ -36,7 +73,7 @@
         L: <span id="ohlc-low">-</span> | 
         C: <span id="ohlc-close">-</span>
     </div>
-    <div class="chart-controls" style="margin: 15px 0 20px 0; display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap;">
+    <div class="chart-controls grid-row" style="margin: 15px 0 20px 0;">
     <div>
         <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">FIBONACCI SCHAAL</label>
         <select id="fib-scale-select" onchange="handleFibScaleSelect(this.value)" style="background: #131722; color: #00ffcc; border: 1px solid #00ffcc; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
@@ -96,50 +133,50 @@
     <div id="bot-runtime" style="font-weight: bold; color: #fff;">00:00:00</div>
 </div>
 
-    <div id="bot-config" style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
-        <div style="flex: 1; min-width: 140px;">
+    <div id="bot-config" class="grid-row" style="margin-bottom: 20px;">
+        <div>
             <label>Start Kapitaal (€)</label><br>
-            <input type="number" id="start-capital" value="1000" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            <input type="number" id="start-capital" value="1000">
         </div>
-        <div style="flex: 1; min-width: 140px;">
+        <div>
             <label>Max % per trade</label><br>
-            <input type="number" id="max-allocation-pct" value="70" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            <input type="number" id="max-allocation-pct" value="70">
         </div>
-        <div style="flex: 1; min-width: 140px;">
+        <div>
             <label>Stop-loss %</label><br>
-            <input type="number" id="stop-loss-pct" value="2" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            <input type="number" id="stop-loss-pct" value="2">
         </div>
-        <div style="flex: 1; min-width: 140px;">
+        <div>
             <label>Min. kans % (entry)</label><br>
-            <input type="number" id="min-probability-pct" value="70" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            <input type="number" id="min-probability-pct" value="70">
         </div>
-        <div style="flex: 1; min-width: 140px;">
+        <div>
             <label>Min. kans % (doorlopen &gt;2%)</label><br>
-            <input type="number" id="hold-continuation-probability-pct" value="85" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            <input type="number" id="hold-continuation-probability-pct" value="85">
         </div>
-        <div style="flex: 1; min-width: 140px;">
+        <div>
             <label>Min. verwacht rendement %</label><br>
-            <input type="number" id="min-projected-profit-pct" value="1" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            <input type="number" id="min-projected-profit-pct" value="1">
         </div>
-        <div style="flex: 1; min-width: 140px;">
+        <div>
             <label>Max open posities (max 4)</label><br>
-            <input type="number" id="max-open-positions" value="3" min="1" max="4" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            <input type="number" id="max-open-positions" value="3" min="1" max="4">
         </div>
-        <div style="flex: 1; min-width: 140px;">
+        <div>
             <label>Hedge-reserve %</label><br>
-            <input type="number" id="hedge-reserve-pct" value="15" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            <input type="number" id="hedge-reserve-pct" value="15">
         </div>
-        <div style="flex: 1; min-width: 140px;">
+        <div>
             <label>Pending order geldig (min)</label><br>
-            <input type="number" id="pending-order-ttl" value="30" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            <input type="number" id="pending-order-ttl" value="30">
         </div>
-        <div style="flex: 1; min-width: 140px;">
+        <div>
             <label>Min. verlies % voor vroege exit</label><br>
-            <input type="number" id="min-loss-early-exit" value="0.3" step="0.1" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            <input type="number" id="min-loss-early-exit" value="0.3" step="0.1">
         </div>
         <div style="display: flex; align-items: flex-end; gap: 5px;">
-            <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold;">🚀 START BOT</button>
-            <button id="btn-stop-bot" onclick="stopAutonomousBot()" style="display:none; padding: 10px 20px; background: #ff4444; border: none; cursor: pointer; font-weight: bold;">🛑 STOP BOT</button>
+            <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold; flex: 1;">🚀 START BOT</button>
+            <button id="btn-stop-bot" onclick="stopAutonomousBot()" style="display:none; padding: 10px 20px; background: #ff4444; border: none; cursor: pointer; font-weight: bold; flex: 1;">🛑 STOP BOT</button>
         </div>
     </div>
 
@@ -218,7 +255,7 @@
             </tbody>
     </table>
 </div>
-<div class="orisis-container" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px;">
+<div class="orisis-container orisis-3col" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px;">
     <div style="padding: 10px; background: #1f2233; border: 1px solid #00ffcc; border-radius: 5px; text-align: center;">
         <h4 style="margin:0; font-size: 0.7em; color:#00ffcc;">MICRO (9)</h4>
         <small>Bull: <span id="mic-bull">--</span></small><br>
