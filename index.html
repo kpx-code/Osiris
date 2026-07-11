@@ -57,7 +57,7 @@
 <body>
     <div id="dashboard">
         <header>
-    <h1>OSIRIS INTELLIGENCE V1.3.14 <span class="live-dot"></span></h1>
+    <h1>OSIRIS INTELLIGENCE V1.3.16 <span class="live-dot"></span></h1>
     <h2>QUANTUM PRECISION LIVE MARKET TRACKING</h2>
     <p>This project is currently under construction by KPX</p>
     <nav style="display: block; margin-top: 10px;">
@@ -121,26 +121,11 @@
         </select>
     </div>
     <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">MA Fast / Slow</label>
-        <div style="display:flex; gap:4px;">
-            <input type="number" id="ma-fast-period" value="9" onchange="applyMASettings()" style="width: 50%; background: #131722; color: #ffa500; border: 1px solid #ffa500; padding: 6px; border-radius: 4px;">
-            <input type="number" id="ma-slow-period" value="21" onchange="applyMASettings()" style="width: 50%; background: #131722; color: #4287f5; border: 1px solid #4287f5; padding: 6px; border-radius: 4px;">
-        </div>
-    </div>
-    <div>
         <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">RSI</label>
         <select id="rsi-select" onchange="handleRSISelect(this.value)" style="background: #131722; color: #c678dd; border: 1px solid #c678dd; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
             <option value="HIDDEN" selected>Verborgen</option>
             <option value="VISIBLE">Zichtbaar</option>
         </select>
-    </div>
-    <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">RSI periode / OB / OS</label>
-        <div style="display:flex; gap:3px;">
-            <input type="number" id="rsi-period" value="14" onchange="applyRSISettings()" style="width: 34%; background: #131722; color: #c678dd; border: 1px solid #c678dd; padding: 6px 2px; border-radius: 4px;">
-            <input type="number" id="rsi-overbought" value="70" onchange="applyRSISettings()" style="width: 33%; background: #131722; color: #ef5350; border: 1px solid #ef5350; padding: 6px 2px; border-radius: 4px;">
-            <input type="number" id="rsi-oversold" value="30" onchange="applyRSISettings()" style="width: 33%; background: #131722; color: #26a69a; border: 1px solid #26a69a; padding: 6px 2px; border-radius: 4px;">
-        </div>
     </div>
     <div>
         <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">LINEAIRE VOORSPELLING</label>
@@ -176,7 +161,7 @@
     </div>
 </div>
 <div id="bot-control-hub" style="background: #121212; padding: 20px; border: 1px solid #333; border-radius: 12px; color: #fff; font-family: sans-serif;">
-    <h2 style="margin-top: 0; color: #ff00ff;">🤖 Osiris Autonomous Agent</h2>
+    <h2 style="margin-top: 0; color: #ff00ff;">🤖 Osiris Engine</h2>
     <div style="background: #1a1a1a; padding: 10px;">
     <small style="color: #888;">Runtime:</small>
     <div id="bot-runtime" style="font-weight: bold; color: #fff;">00:00:00</div>
@@ -251,6 +236,21 @@
             <div style="display:flex; gap:4px;">
                 <input type="number" id="chase-probability-pct" value="90" style="width:50%;">
                 <input type="number" id="chase-after-minutes" value="10" style="width:50%;">
+            </div>
+        </div>
+        <div>
+            <label>MA Fast / Slow periode</label><br>
+            <div style="display:flex; gap:4px;">
+                <input type="number" id="ma-fast-period" value="9" onchange="applyMASettings()" style="width: 50%; background: #131722; color: #ffa500; border: 1px solid #ffa500; padding: 8px; border-radius: 4px;">
+                <input type="number" id="ma-slow-period" value="21" onchange="applyMASettings()" style="width: 50%; background: #131722; color: #4287f5; border: 1px solid #4287f5; padding: 8px; border-radius: 4px;">
+            </div>
+        </div>
+        <div>
+            <label>RSI periode / OB / OS</label><br>
+            <div style="display:flex; gap:3px;">
+                <input type="number" id="rsi-period" value="14" onchange="applyRSISettings()" style="width: 34%; background: #131722; color: #c678dd; border: 1px solid #c678dd; padding: 8px 2px; border-radius: 4px;">
+                <input type="number" id="rsi-overbought" value="70" onchange="applyRSISettings()" style="width: 33%; background: #131722; color: #ef5350; border: 1px solid #ef5350; padding: 8px 2px; border-radius: 4px;">
+                <input type="number" id="rsi-oversold" value="30" onchange="applyRSISettings()" style="width: 33%; background: #131722; color: #26a69a; border: 1px solid #26a69a; padding: 8px 2px; border-radius: 4px;">
             </div>
         </div>
         <div style="display: flex; align-items: flex-end; gap: 5px;">
