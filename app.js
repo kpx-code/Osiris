@@ -63,6 +63,14 @@ let botSettings = {
     maxOpenPositions: 3,         // totaal aantal posities dat tegelijk open mag staan (over beide kanten samen), hard begrensd op 4
     minHedgeReservePct: 0.15,    // gereserveerde allocatie voor een eventuele hedge op de andere kant, ALLEEN als die kant nog geen positie heeft
     pendingOrderTtlMinutes: 30,  // hoe lang een pending order geldig blijft als hij niet eerder triggert of wordt herbeoordeeld (zie revalidatePendingOrders)
+    continuationConfirmationSeconds: 20, // hoeveel seconden een "niet langer gunstig"-signaal moet aanhouden vóórdat PROFIT_LOCKED/TREND_REVERSAL_EXIT/EARLY_STOP_TREND daadwerkelijk sluit - voorkomt sluiten op een enkele, kortstondige meting die toevallig op het omslagpunt zelf valt
+    // --- RANGE-SCALP: aparte, altijd-actieve modus naast de trend-logica ---
+    // Verkoopt bij de top van een recente zijwaartse range, koopt bij de bodem -
+    // andersom dan de trend-volgende logica hierboven, met een klein vast doel
+    // i.p.v. de log-gedempte meso-target.
+    rangeScalpProfitTargetPct: 0.3,  // klein, vast winstdoel (kan ook 0.2 zijn, instelbaar)
+    rangeScalpStopLossPct: 0.5,      // eigen, krappere stop-loss dan de normale 2% - past bij het kleinere doel
+    rangeScalpAllocationPct: 0.10,   // vaste, kleine allocatie per scalp (i.p.v. confluence-geschaald zoals trend-trades)
     isRunning: false
 };
 
@@ -405,6 +413,10 @@ function startAutonomousBot(isAutoRestart = false) {
     const hedgeReserveInput = document.getElementById('hedge-reserve-pct');
     const pendingTtlInput = document.getElementById('pending-order-ttl');
     const minLossEarlyExitInput = document.getElementById('min-loss-early-exit');
+    const confirmationSecInput = document.getElementById('continuation-confirmation-sec');
+    const rangeScalpTargetInput = document.getElementById('range-scalp-target-pct');
+    const rangeScalpStopInput = document.getElementById('range-scalp-stop-pct');
+    const rangeScalpAllocInput = document.getElementById('range-scalp-alloc-pct');
 
     if (!isAutoRestart && walletState.realizedPnL === 0 && openPositions.length === 0) {
         if (capitalInput && !isNaN(parseFloat(capitalInput.value)) && parseFloat(capitalInput.value) > 0) {
@@ -440,6 +452,18 @@ function startAutonomousBot(isAutoRestart = false) {
     }
     if (minLossEarlyExitInput && !isNaN(parseFloat(minLossEarlyExitInput.value))) {
         botSettings.minLossForEarlyExit = Math.max(parseFloat(minLossEarlyExitInput.value) / 100, 0);
+    }
+    if (confirmationSecInput && !isNaN(parseFloat(confirmationSecInput.value))) {
+        botSettings.continuationConfirmationSeconds = Math.max(parseFloat(confirmationSecInput.value), 0);
+    }
+    if (rangeScalpTargetInput && !isNaN(parseFloat(rangeScalpTargetInput.value))) {
+        botSettings.rangeScalpProfitTargetPct = Math.max(parseFloat(rangeScalpTargetInput.value), 0.05);
+    }
+    if (rangeScalpStopInput && !isNaN(parseFloat(rangeScalpStopInput.value))) {
+        botSettings.rangeScalpStopLossPct = Math.max(parseFloat(rangeScalpStopInput.value), 0.05);
+    }
+    if (rangeScalpAllocInput && !isNaN(parseFloat(rangeScalpAllocInput.value))) {
+        botSettings.rangeScalpAllocationPct = Math.min(Math.max(parseFloat(rangeScalpAllocInput.value) / 100, 0), 1);
     }
 
     if (!isAutoRestart) {
@@ -554,6 +578,68 @@ function resetWallet() {
 // ============================================================
 // UI UPDATES
 // ============================================================
+// ============================================================
+// LIVE BEREDENERING: laat continu zien HOE de bot elke open positie
+// beoordeelt - welke fase van de exit-boom hij zit, en waar hij precies op
+// wacht. Puur weergave; herhaalt (goedkoop) de logica uit
+// checkOpenPositionsExits() om een leesbare uitleg te genereren zonder die
+// functie zelf te hoeven ombouwen.
+// ============================================================
+function getPositionReasoning(pos) {
+    if (!livePrice) return `${pos.side} @ ${formatChartPrice(pos.entryPrice)} | wacht op live data...`;
+
+    const pnlPct = pos.side === 'LONG'
+        ? (livePrice - pos.entryPrice) / pos.entryPrice
+        : (pos.entryPrice - livePrice) / pos.entryPrice;
+    const activeStopLossPct = pos.customStopLossPct ?? botSettings.stopLossPct;
+
+    let zone, detail = '';
+    if (pnlPct <= -activeStopLossPct) {
+        zone = '🔴 STOP-LOSS geraakt'; detail = 'sluit nu';
+    } else if (pnlPct >= botSettings.profitHoldTriggerPct) {
+        zone = `🟢 Winst-hold (\u2265+${(botSettings.profitHoldTriggerPct * 100).toFixed(1)}%)`;
+        const trail = pos.trailingStopPct != null ? `${(pos.trailingStopPct * 100).toFixed(2)}%` : '-';
+        detail = `trailing stop @ ${trail} | drempel ${botSettings.holdContinuationMinProbabilityPct}%`;
+    } else if (pnlPct > 0 && isTargetReached(pos)) {
+        zone = '🎯 Doel geraakt'; detail = 'sluit nu';
+    } else if (pnlPct >= botSettings.minProfitForTrendExit) {
+        zone = '🟡 Winst < drempel'; detail = pos.isScalp ? 'wacht op scalp-doel' : `trend-check actief (drempel ${botSettings.minProbabilityPct}%)`;
+    } else if (pnlPct < 0 && Math.abs(pnlPct) >= botSettings.minLossForEarlyExit) {
+        zone = '🟠 Verlies - trend-check actief'; detail = `drempel ${botSettings.minProbabilityPct}%`;
+    } else {
+        zone = '⚪ Neutraal'; detail = `wacht tot > ${(botSettings.minLossForEarlyExit * 100).toFixed(1)}% verlies of ${(botSettings.minProfitForTrendExit * 100).toFixed(1)}% winst`;
+    }
+
+    let confirmTxt = '';
+    if (pos.continuationIneligibleSince) {
+        const elapsed = Math.floor((Date.now() - pos.continuationIneligibleSince) / 1000);
+        confirmTxt = ` | bevestiging: ${elapsed}/${botSettings.continuationConfirmationSeconds}s`;
+    }
+
+    return `${pos.side}${pos.isScalp ? ' [SCALP]' : ''} @ ${formatChartPrice(pos.entryPrice)} | P/L ${(pnlPct * 100).toFixed(2)}% | ${zone}${detail ? ': ' + detail : ''}${confirmTxt}`;
+}
+
+function updateReasoningPanel() {
+    const el = document.getElementById('bot-reasoning');
+    if (!el) return;
+
+    if (openPositions.length === 0) {
+        let scanTxt = 'Geen open posities.';
+        if (lastOsirisDecision) {
+            scanTxt += ` Confluence: ${lastOsirisDecision.confluence}/5 | Status: ${lastOsirisDecision.decision}`;
+        }
+        if (pendingOrders.length > 0) {
+            scanTxt += ` | ${pendingOrders.length} pending order(s) actief.`;
+        }
+        el.innerHTML = `<div style="color:#888; font-size:0.85em;">${scanTxt}</div>`;
+        return;
+    }
+
+    el.innerHTML = openPositions.map(pos =>
+        `<div style="margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid #222; font-size:0.8em;">${getPositionReasoning(pos)}</div>`
+    ).join('');
+}
+
 function updateWalletUI() {
     const equity = getEquity();
     const balance = getBalance();
@@ -611,6 +697,7 @@ function updateWalletUI() {
     }
 
     updatePositionLines();
+    updateReasoningPanel();
 }
 
 function updatePendingOrdersUI() {
@@ -875,6 +962,35 @@ function evaluateContinuation(side, thresholdOverride = null) {
     };
 }
 
+// FIX (echte data uit een Download All Data-export liet zien dat dit nodig
+// was): evaluateContinuation() werd voorheen direct uitgevoerd op elke check,
+// waardoor één enkele, kortstondig "niet-gunstige" meting - die toevallig
+// precies op een lokaal omslagpunt viel - meteen een positie sloot. In de
+// geanalyseerde data gebeurde dit twee keer: posities werden op het exacte
+// dieptepunt/hoogtepunt gestopt, vlak vóór een scherpe ommekeer die net in hun
+// voordeel zou zijn geweest. Momentum-bevestiging is inherent een lagging
+// signaal - tegen de tijd dat "genoeg" candles op een rij bevestigen, is de
+// beweging vaak al bijna uitgeput. Deze wrapper eist dat het signaal
+// continu "niet gunstig" blijft voor minstens continuationConfirmationSeconds
+// (standaard 20s) vóórdat er daadwerkelijk gesloten wordt - lang genoeg om een
+// enkele ruis-meting te negeren, kort genoeg om nog steeds "vroeg" te zijn.
+function evaluateContinuationWithConfirmation(pos, side, thresholdOverride = null) {
+    const result = evaluateContinuation(side, thresholdOverride);
+
+    if (result.eligible) {
+        pos.continuationIneligibleSince = null; // signaal is weer gunstig - reset de teller
+        return { ...result, confirmed: false };
+    }
+
+    if (!pos.continuationIneligibleSince) {
+        pos.continuationIneligibleSince = Date.now();
+    }
+    const ineligibleForMs = Date.now() - pos.continuationIneligibleSince;
+    const confirmed = ineligibleForMs >= (botSettings.continuationConfirmationSeconds * 1000);
+
+    return { ...result, confirmed };
+}
+
 // Elke 10 seconden: scan of er een nieuwe kans is voor LONG en/of SHORT.
 // Hedging is toegestaan (beide kanten tegelijk), maar niet dubbel op dezelfde kant.
 // Herbeoordeelt bestaande pending orders elke 10s (dynamische geldigheid i.p.v.
@@ -956,7 +1072,120 @@ function scanForOpportunities(decision, metrics) {
 }
 
 // ============================================================
-// ENTRY / EXIT UITVOERING
+// RANGE-SCALP: verkoopt bij de top van een recente range, koopt bij de bodem.
+// Altijd actief NAAST de trend-logica hierboven (niet gated achter een
+// gedetecteerde consolidatie) - beide mogen tegelijk posities openen. Anders
+// dan de trend-trades wordt hier direct tegen de live prijs geopend (geen
+// pending order), met een klein vast winstdoel en een eigen, krappere stop.
+// ============================================================
+function evaluateRangeScalpOpportunity(side) {
+    if (!rawData || rawData.length < 20 || !livePrice) return { eligible: false };
+
+    const lookback = 20; // candles - houdt de "range" recent en relevant
+    const recent = rawData.slice(-lookback);
+    const rangeHigh = Math.max(...recent.map(d => parseFloat(d[2])));
+    const rangeLow = Math.min(...recent.map(d => parseFloat(d[3])));
+    const range = rangeHigh - rangeLow;
+    if (range <= 0) return { eligible: false };
+
+    const rangePct = (range / livePrice) * 100;
+    // De range moet minstens 2x het winstdoel breed zijn - anders is er
+    // simpelweg geen ruimte om de scalp te laten slagen.
+    if (rangePct < botSettings.rangeScalpProfitTargetPct * 2) return { eligible: false };
+
+    const positionInRange = (livePrice - rangeLow) / range; // 0 = bodem, 1 = top
+    const nearTop = positionInRange >= 0.8;
+    const nearBottom = positionInRange <= 0.2;
+
+    if (side === 'SHORT' && !nearTop) return { eligible: false };
+    if (side === 'LONG' && !nearBottom) return { eligible: false };
+
+    // VFM/ER/Chaos moeten de scalp ook inhoudelijk ondersteunen, niet alleen de
+    // kale prijspositie in de range - anders scalp je zomaar tegen een echte
+    // uitbraak in i.p.v. tegen uitputting. VFM (=ER*DB) codeert al zowel de
+    // richtingskracht (DB) als het volume erachter (ER) in één getal:
+    // - chaos > 12: te wild/expansief voor een scalp, dit lijkt eerder op een
+    //   trending markt dan op een range.
+    // - er > 2.0: een volumepiek op dit moment wijst eerder op een echte
+    //   uitbraak dan op uitputting aan het einde van de range.
+    // - SHORT bij de top: vfm mag niet nog sterk positief zijn (>1.0) - dat
+    //   betekent de bullish kracht is nog springlevend, geen omslag in zicht.
+    // - LONG bij de bodem: vfm mag niet nog sterk negatief zijn (<-1.0) -
+    //   dezelfde logica omgekeerd.
+    if (chaos > 12) return { eligible: false };
+    if (er > 2.0) return { eligible: false };
+    if (side === 'SHORT' && vfm > 1.0) return { eligible: false };
+    if (side === 'LONG' && vfm < -1.0) return { eligible: false };
+
+    // Niet tegen een sterk bevestigde trend in scalpen (confluence >= 4 in de
+    // "verkeerde" richting voor deze scalp) - dat is precies het domein van de
+    // trend-logica hierboven, niet van een range-scalp.
+    if (lastOsirisDecision && lastOsirisDecision.confluence >= 4) {
+        if (side === 'SHORT' && isBullish) return { eligible: false };
+        if (side === 'LONG' && !isBullish) return { eligible: false };
+    }
+
+    const targetPrice = side === 'SHORT'
+        ? livePrice * (1 - botSettings.rangeScalpProfitTargetPct / 100)
+        : livePrice * (1 + botSettings.rangeScalpProfitTargetPct / 100);
+
+    return { eligible: true, targetPrice, rangeHigh, rangeLow, positionInRange, vfmAtEntry: vfm, erAtEntry: er, chaosAtEntry: chaos };
+}
+
+function openRangeScalpPosition(side, evalResult) {
+    const price = livePrice;
+    const oppositeSide = side === 'LONG' ? 'SHORT' : 'LONG';
+    const oppositeHasPosition = openPositions.some(p => p.side === oppositeSide);
+    const hedgeReserve = oppositeHasPosition ? 0 : botSettings.minHedgeReservePct;
+    const availablePct = Math.max(0, 1 - getAllocatedPct() - hedgeReserve);
+    const finalSizePct = Math.min(botSettings.rangeScalpAllocationPct, availablePct);
+    if (finalSizePct <= 0.001) return; // geen ruimte - stil overslaan, geen SKIPPED-log-ruis voor iedere scan
+
+    const balance = getBalance();
+    const notional = balance * finalSizePct;
+    const notionalUSD = walletState.currency === 'USD' ? notional : (eurUsdtRate ? notional * eurUsdtRate : notional);
+    const amount = parseFloat((notionalUSD / price).toFixed(6));
+
+    const position = {
+        id: `scalp_${Date.now()}_${side}`,
+        side,
+        entryPrice: price,
+        amount,
+        notional,
+        sizePct: finalSizePct,
+        targetPrice: evalResult.targetPrice,
+        probabilityPct: null,
+        nodeInfluence: 0,
+        openTime: Date.now(),
+        closeTime: null,
+        peakPnlPct: 0,
+        trailingStopPct: null,
+        isScalp: true,
+        customStopLossPct: botSettings.rangeScalpStopLossPct
+    };
+
+    openPositions.push(position);
+    logBotAction("ENTRY", price, side, 0, amount, `RANGE-SCALP alloc ${(finalSizePct * 100).toFixed(1)}%`, 0, notional);
+    savePersistentState();
+    updateWalletUI();
+    updatePositionLines();
+}
+
+function scanForRangeScalps() {
+    ['LONG', 'SHORT'].forEach(side => {
+        if (openPositions.length >= botSettings.maxOpenPositions) return;
+        const hasScalpOnSide = openPositions.some(p => p.side === side && p.isScalp);
+        if (hasScalpOnSide) return; // niet twee keer op dezelfde kant stapelen
+
+        const evalResult = evaluateRangeScalpOpportunity(side);
+        if (evalResult.eligible) {
+            openRangeScalpPosition(side, evalResult);
+        }
+    });
+}
+
+// ============================================================
+// ENTRY / EXIT UITVOERING (trend-trades via pending orders)
 // ============================================================
 function openPositionFromOrder(order) {
     const price = livePrice;
@@ -1094,8 +1323,10 @@ function checkOpenPositionsExits() {
             ? (livePrice - pos.entryPrice) / pos.entryPrice
             : (pos.entryPrice - livePrice) / pos.entryPrice;
 
-        // 1. Harde stop-loss: -2%, niet onderhandelbaar
-        if (pnlPct <= -botSettings.stopLossPct) {
+        // 1. Harde stop-loss: -2% (of, voor een range-scalp, de eigen krappere
+        // stop) - niet onderhandelbaar.
+        const activeStopLossPct = pos.customStopLossPct ?? botSettings.stopLossPct;
+        if (pnlPct <= -activeStopLossPct) {
             closePosition(pos, pnlPct, "STOP_LOSS");
             return;
         }
@@ -1116,8 +1347,8 @@ function checkOpenPositionsExits() {
                 return;
             }
 
-            const continuation = evaluateContinuation(pos.side, botSettings.holdContinuationMinProbabilityPct);
-            if (!continuation.eligible) {
+            const continuation = evaluateContinuationWithConfirmation(pos, pos.side, botSettings.holdContinuationMinProbabilityPct);
+            if (continuation.confirmed) {
                 closePosition(pos, pnlPct, "PROFIT_LOCKED");
                 return;
             }
@@ -1137,8 +1368,8 @@ function checkOpenPositionsExits() {
             return;
         }
         if (pnlPct >= botSettings.minProfitForTrendExit) {
-            const continuation = evaluateContinuation(pos.side);
-            if (!continuation.eligible) {
+            const continuation = evaluateContinuationWithConfirmation(pos, pos.side);
+            if (continuation.confirmed) {
                 closePosition(pos, pnlPct, "TREND_REVERSAL_EXIT");
                 return;
             }
@@ -1151,8 +1382,8 @@ function checkOpenPositionsExits() {
         // vanaf een kleine ondergrens (minLossForEarlyExit) om niet op elke
         // kleine, ruis-achtige dip te reageren die net zo goed kan herstellen.
         if (pnlPct < 0 && Math.abs(pnlPct) >= botSettings.minLossForEarlyExit) {
-            const continuation = evaluateContinuation(pos.side);
-            if (!continuation.eligible) {
+            const continuation = evaluateContinuationWithConfirmation(pos, pos.side);
+            if (continuation.confirmed) {
                 closePosition(pos, pnlPct, "EARLY_STOP_TREND");
                 return;
             }
@@ -1191,6 +1422,45 @@ function exportBotTradeLog() {
 // volume/scores), open posities/pending orders, wallet-status en de volledige
 // prijs/volume-historie in één JSON-bestand, zodat je de bot achteraf kunt
 // kalibreren met alle data uit de eerste testperiode.
+// Losse download van alleen de prijs/volume-historie (CSV), zonder de rest
+// van de Download All Data-bundel.
+function downloadPriceVolumeHistory() {
+    if (!rawData || rawData.length === 0) {
+        alert("Geen prijs/volume-data beschikbaar om te exporteren.");
+        return;
+    }
+    const headers = ["Datum/Tijd (UTC)", "Open", "High", "Low", "Close", "Volume"];
+    const rows = rawData.map(d => [
+        new Date(d[0]).toISOString(), d[1], d[2], d[3], d[4], d[5]
+    ].join(","));
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
+    const link = document.createElement("a");
+    link.setAttribute("href", encodeURI(csvContent));
+    link.setAttribute("download", "osiris_price_volume_history.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+// Losse download van alleen de huidige bot-instellingen (JSON).
+function downloadBotSettings() {
+    const payload = {
+        exportedAt: new Date().toISOString(),
+        botSettings,
+        walletCurrency: walletState.currency,
+        startingCapital: walletState.startingCapital
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `osiris_bot_settings_${Date.now()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
 function downloadAllData() {
     const nodeCtx = getNodeContext();
     const payload = {
@@ -1303,6 +1573,7 @@ function botHeartbeat() {
         logSystemState(metrics, decision.targets, livePrice, liveVol, chaos, db, isBullish);
 
         scanForOpportunities(decision, metrics);
+        scanForRangeScalps();
     }
 }
 
