@@ -77,6 +77,10 @@ let botSettings = {
     rangeScalpProfitTargetPct: 0.3,  // klein, vast winstdoel (kan ook 0.2 zijn, instelbaar)
     rangeScalpStopLossPct: 0.5,      // eigen, krappere stop-loss dan de normale 2% - past bij het kleinere doel
     rangeScalpAllocationPct: 0.10,   // vaste, kleine allocatie per scalp (i.p.v. confluence-geschaald zoals trend-trades)
+    // --- CHASE: pending order eerder invullen als het signaal heel sterk blijft ---
+    chaseEnabled: true,
+    chaseProbabilityThreshold: 90,  // pas chasen bij een duidelijk hogere kans dan de gewone entry-drempel
+    chaseAfterMinutes: 10,          // hoe lang een order eerst gewoon op de pullback mag wachten voordat chasen mag
     isRunning: false
 };
 
@@ -174,9 +178,18 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
 // MOVING AVERAGE (SMA) - toggelbaar zoals de fib/node-lagen, en meewegend
 // in de bot-redenering (trend-bevestiging: ligt de prijs boven/onder de MA?)
 // ============================================================
-const MA_PERIOD = 20;
-let maSeries = null;
+// MOVING AVERAGE (SMA) - twee lijnen (fast/slow), zoals bij een normale MA-
+// crossover-strategie. Standaard 9/21 - een gangbare, veelgebruikte combinatie
+// voor kortetermijn-signalen op een 15m-chart. Instelbaar via UI. Een
+// "golden cross" (fast kruist slow omhoog) of "death cross" (omlaag) wordt
+// gedetecteerd en telt mee in de redenering.
+// ============================================================
+let maFastPeriod = 9;
+let maSlowPeriod = 21;
+let maFastSeries = null;
+let maSlowSeries = null;
 let showMovingAverage = false;
+let lastMACrossoverState = null; // 'above' | 'below' | null - om een NIEUWE kruising te detecteren
 
 function calculateSMA(closes, period) {
     if (!closes || closes.length < period) return [];
@@ -189,36 +202,81 @@ function calculateSMA(closes, period) {
     return result;
 }
 
-// Actuele MA-waarde voor gebruik in de beslislogica (niet afhankelijk van of
-// de lijn zichtbaar staat op de chart).
+// Actuele MA-waarden voor gebruik in de beslislogica (niet afhankelijk van of
+// de lijnen zichtbaar staan op de chart).
+function getCurrentMAValues() {
+    if (!rawData || rawData.length < Math.max(maFastPeriod, maSlowPeriod)) return { fast: null, slow: null };
+    const closesFast = rawData.slice(-maFastPeriod).map(d => parseFloat(d[4]));
+    const closesSlow = rawData.slice(-maSlowPeriod).map(d => parseFloat(d[4]));
+    return {
+        fast: closesFast.reduce((a, b) => a + b, 0) / closesFast.length,
+        slow: closesSlow.reduce((a, b) => a + b, 0) / closesSlow.length
+    };
+}
+
+// Backwards-compatible alias (elders in de code gebruikt als "de" MA-waarde)
 function getCurrentMAValue() {
-    if (!rawData || rawData.length < MA_PERIOD) return null;
-    const closes = rawData.slice(-MA_PERIOD).map(d => parseFloat(d[4]));
-    return closes.reduce((a, b) => a + b, 0) / closes.length;
+    return getCurrentMAValues().fast;
+}
+
+// Detecteert een VERSE kruising (golden/death cross) t.o.v. de vorige check -
+// geeft alleen 'bullish'/'bearish' terug op het moment van de kruising zelf,
+// niet zolang de ene lijn simpelweg boven/onder de andere blijft liggen.
+function detectMACrossover() {
+    const { fast, slow } = getCurrentMAValues();
+    if (fast === null || slow === null) return null;
+
+    const state = fast > slow ? 'above' : 'below';
+    let crossover = null;
+    if (lastMACrossoverState !== null && state !== lastMACrossoverState) {
+        crossover = state === 'above' ? 'bullish' : 'bearish'; // golden cross / death cross
+    }
+    lastMACrossoverState = state;
+    return crossover;
 }
 
 function renderMovingAverage() {
     if (!showMovingAverage) {
-        if (maSeries) { chart.removeSeries(maSeries); maSeries = null; }
+        if (maFastSeries) { chart.removeSeries(maFastSeries); maFastSeries = null; }
+        if (maSlowSeries) { chart.removeSeries(maSlowSeries); maSlowSeries = null; }
         return;
     }
-    if (!rawData || rawData.length < MA_PERIOD) return;
+    if (!rawData || rawData.length < Math.max(maFastPeriod, maSlowPeriod)) return;
 
     const closes = rawData.map(d => parseFloat(d[4]));
     const times = rawData.map(d => Math.floor(d[0] / 1000));
-    const smaValues = calculateSMA(closes, MA_PERIOD);
-    const data = smaValues.map((v, i) => ({ time: times[i + MA_PERIOD - 1], value: v }));
 
-    if (!maSeries) {
-        maSeries = chart.addSeries(LightweightCharts.LineSeries, {
-            color: '#ffa500', lineWidth: 2, priceLineVisible: false, lastValueVisible: true
+    const smaFast = calculateSMA(closes, maFastPeriod);
+    const dataFast = smaFast.map((v, i) => ({ time: times[i + maFastPeriod - 1], value: v }));
+    const smaSlow = calculateSMA(closes, maSlowPeriod);
+    const dataSlow = smaSlow.map((v, i) => ({ time: times[i + maSlowPeriod - 1], value: v }));
+
+    if (!maFastSeries) {
+        maFastSeries = chart.addSeries(LightweightCharts.LineSeries, {
+            color: '#ffa500', lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: `MA${maFastPeriod}`
         });
     }
-    maSeries.setData(data);
+    if (!maSlowSeries) {
+        maSlowSeries = chart.addSeries(LightweightCharts.LineSeries, {
+            color: '#4287f5', lineWidth: 2, priceLineVisible: false, lastValueVisible: true, title: `MA${maSlowPeriod}`
+        });
+    }
+    maFastSeries.setData(dataFast);
+    maSlowSeries.setData(dataSlow);
 }
 
 function handleMovingAverageSelect(value) {
     showMovingAverage = (value === 'VISIBLE');
+    renderMovingAverage();
+}
+
+function applyMASettings() {
+    const fastInput = document.getElementById('ma-fast-period');
+    const slowInput = document.getElementById('ma-slow-period');
+    if (fastInput && !isNaN(parseInt(fastInput.value))) maFastPeriod = Math.max(2, parseInt(fastInput.value));
+    if (slowInput && !isNaN(parseInt(slowInput.value))) maSlowPeriod = Math.max(3, parseInt(slowInput.value));
+    if (maFastPeriod >= maSlowPeriod) maSlowPeriod = maFastPeriod + 1; // fast moet echt sneller zijn dan slow
+    lastMACrossoverState = null; // reset kruisings-tracking bij periode-wijziging
     renderMovingAverage();
 }
 
@@ -227,9 +285,22 @@ function handleMovingAverageSelect(value) {
 // toggelbaar, en gebruikt door de range-scalp-engine als extra bevestiging
 // (overbought/oversold aan de randen van een range).
 // ============================================================
-const RSI_PERIOD = 14;
+// Standaard 14/70/30 - de klassieke Wilder-combinatie, instelbaar via UI.
+let rsiPeriod = 14;
+let rsiOverbought = 70;
+let rsiOversold = 30;
 let rsiSeries = null;
 let showRSI = false;
+
+function applyRSISettings() {
+    const periodInput = document.getElementById('rsi-period');
+    const obInput = document.getElementById('rsi-overbought');
+    const osInput = document.getElementById('rsi-oversold');
+    if (periodInput && !isNaN(parseInt(periodInput.value))) rsiPeriod = Math.max(2, parseInt(periodInput.value));
+    if (obInput && !isNaN(parseInt(obInput.value))) rsiOverbought = Math.min(99, Math.max(51, parseInt(obInput.value)));
+    if (osInput && !isNaN(parseInt(osInput.value))) rsiOversold = Math.min(49, Math.max(1, parseInt(osInput.value)));
+    renderRSI();
+}
 
 function calculateRSISeries(closes, period) {
     if (!closes || closes.length < period + 1) return [];
@@ -257,9 +328,9 @@ function calculateRSISeries(closes, period) {
 // Actuele RSI-waarde voor gebruik in de beslislogica (niet afhankelijk van of
 // de lijn zichtbaar staat op de chart).
 function getCurrentRSIValue() {
-    if (!rawData || rawData.length < RSI_PERIOD + 1) return null;
+    if (!rawData || rawData.length < rsiPeriod + 1) return null;
     const closes = rawData.map(d => parseFloat(d[4]));
-    const series = calculateRSISeries(closes, RSI_PERIOD);
+    const series = calculateRSISeries(closes, rsiPeriod);
     if (series.length === 0) return null;
     return series[series.length - 1].rsi;
 }
@@ -269,11 +340,11 @@ function renderRSI() {
         if (rsiSeries) { chart.removeSeries(rsiSeries); rsiSeries = null; }
         return;
     }
-    if (!rawData || rawData.length < RSI_PERIOD + 1) return;
+    if (!rawData || rawData.length < rsiPeriod + 1) return;
 
     const closes = rawData.map(d => parseFloat(d[4]));
     const times = rawData.map(d => Math.floor(d[0] / 1000));
-    const series = calculateRSISeries(closes, RSI_PERIOD);
+    const series = calculateRSISeries(closes, rsiPeriod);
     const data = series.map(s => ({ time: times[s.index], value: s.rsi }));
 
     if (!rsiSeries) {
@@ -291,6 +362,90 @@ function renderRSI() {
 function handleRSISelect(value) {
     showRSI = (value === 'VISIBLE');
     renderRSI();
+}
+
+// ============================================================
+// LINEAIRE VOORSPELLING - een simpele lineaire regressie over de recente
+// candles, doorgetrokken naar een gekozen horizon in de toekomst. Puur een
+// extrapolatie van de recente trend (geen node/vfm-input), bedoeld als extra,
+// onafhankelijke bevestiging naast de rest - niet als losstaand handelssignaal.
+// ============================================================
+const PREDICTION_HORIZONS_MIN = { '15m': 15, '30m': 30, '1h': 60, '2h': 120, '4h': 240, '24h': 1440 };
+let predictionSeries = null;
+let showPrediction = false;
+let predictionHorizonMinutes = 60;
+
+function linearRegressionFit(points) {
+    const n = points.length;
+    const sumX = points.reduce((a, p) => a + p.x, 0);
+    const sumY = points.reduce((a, p) => a + p.y, 0);
+    const sumXY = points.reduce((a, p) => a + p.x * p.y, 0);
+    const sumXX = points.reduce((a, p) => a + p.x * p.x, 0);
+    const denom = (n * sumXX - sumX * sumX);
+    if (denom === 0) return { slope: 0, intercept: sumY / n };
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+    return { slope, intercept };
+}
+
+// Berekent de voorspelling; niet afhankelijk van of de lijn zichtbaar staat,
+// zodat de bot 'm ook kan gebruiken als extra confluence-input.
+function computeLinearPrediction(horizonMinutes) {
+    if (!rawData || rawData.length < 20) return null;
+
+    const lookback = 30; // candles - recent genoeg om actuele trend te vangen
+    const recent = rawData.slice(-lookback);
+    const points = recent.map((d, i) => ({ x: i, y: parseFloat(d[4]) }));
+    const { slope, intercept } = linearRegressionFit(points);
+
+    const lastIndex = points.length - 1;
+    const lastTimeSec = Math.floor(recent[recent.length - 1][0] / 1000);
+    const candleIntervalSec = 15 * 60; // 15m candles
+    const stepsForward = Math.max(1, Math.round((horizonMinutes * 60) / candleIntervalSec));
+    const futureIndex = lastIndex + stepsForward;
+    const futureTimeSec = lastTimeSec + stepsForward * candleIntervalSec;
+    const futurePrice = slope * futureIndex + intercept;
+
+    return {
+        startTime: lastTimeSec,
+        startPrice: livePrice || (slope * lastIndex + intercept),
+        endTime: futureTimeSec,
+        endPrice: futurePrice,
+        slope,
+        direction: slope > 0.01 ? 'bullish' : (slope < -0.01 ? 'bearish' : 'neutral')
+    };
+}
+
+function renderPrediction() {
+    if (!showPrediction) {
+        if (predictionSeries) { chart.removeSeries(predictionSeries); predictionSeries = null; }
+        return;
+    }
+    const pred = computeLinearPrediction(predictionHorizonMinutes);
+    if (!pred) return;
+
+    const data = [{ time: pred.startTime, value: pred.startPrice }, { time: pred.endTime, value: pred.endPrice }];
+    const color = pred.direction === 'bullish' ? '#26a69a' : (pred.direction === 'bearish' ? '#ef5350' : '#888888');
+
+    if (!predictionSeries) {
+        predictionSeries = chart.addSeries(LightweightCharts.LineSeries, {
+            color, lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed,
+            priceLineVisible: false, lastValueVisible: false, title: 'Voorspelling'
+        });
+    } else {
+        predictionSeries.applyOptions({ color });
+    }
+    predictionSeries.setData(data);
+}
+
+function handlePredictionSelect(value) {
+    showPrediction = (value === 'VISIBLE');
+    renderPrediction();
+}
+
+function handlePredictionHorizonSelect(value) {
+    predictionHorizonMinutes = PREDICTION_HORIZONS_MIN[value] || 60;
+    renderPrediction();
 }
 
 // VALUTA-WEERGAVE (USD/EUR) - puur cosmetisch voor de chart, raakt de
@@ -546,6 +701,8 @@ function startAutonomousBot(isAutoRestart = false) {
     const rangeScalpTargetInput = document.getElementById('range-scalp-target-pct');
     const rangeScalpStopInput = document.getElementById('range-scalp-stop-pct');
     const rangeScalpAllocInput = document.getElementById('range-scalp-alloc-pct');
+    const chaseProbInput = document.getElementById('chase-probability-pct');
+    const chaseAfterInput = document.getElementById('chase-after-minutes');
 
     if (!isAutoRestart && walletState.realizedPnL === 0 && openPositions.length === 0) {
         if (capitalInput && !isNaN(parseFloat(capitalInput.value)) && parseFloat(capitalInput.value) > 0) {
@@ -594,6 +751,12 @@ function startAutonomousBot(isAutoRestart = false) {
     if (rangeScalpAllocInput && !isNaN(parseFloat(rangeScalpAllocInput.value))) {
         botSettings.rangeScalpAllocationPct = Math.min(Math.max(parseFloat(rangeScalpAllocInput.value) / 100, 0), 1);
     }
+    if (chaseProbInput && !isNaN(parseFloat(chaseProbInput.value))) {
+        botSettings.chaseProbabilityThreshold = Math.min(Math.max(parseFloat(chaseProbInput.value), 0), 100);
+    }
+    if (chaseAfterInput && !isNaN(parseFloat(chaseAfterInput.value))) {
+        botSettings.chaseAfterMinutes = Math.max(parseFloat(chaseAfterInput.value), 0);
+    }
 
     if (!isAutoRestart) {
         botStartTime = Date.now();
@@ -640,6 +803,9 @@ function renderActiveSettingsPanel() {
         ['Min. verlies % vroege exit', `${(s.minLossForEarlyExit * 100).toFixed(1)}%`],
         ['Bevestigingstijd exit', `${s.continuationConfirmationSeconds}s`],
         ['Range-scalp doel / stop / alloc', `${s.rangeScalpProfitTargetPct}% / ${s.rangeScalpStopLossPct}% / ${(s.rangeScalpAllocationPct * 100).toFixed(0)}%`],
+        ['Chase (aan >kans / na min)', `${s.chaseEnabled ? 'aan' : 'uit'} / ${s.chaseProbabilityThreshold}% / ${s.chaseAfterMinutes}min`],
+        ['MA fast / slow', `${maFastPeriod} / ${maSlowPeriod}`],
+        ['RSI periode / OB / OS', `${rsiPeriod} / ${rsiOverbought} / ${rsiOversold}`],
     ];
 
     el.innerHTML = `<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:4px 12px; font-size:0.8em;">` +
@@ -792,12 +958,16 @@ function updateReasoningPanel() {
     if (openPositions.length === 0) {
         let scanTxt = 'Geen open posities.';
         if (lastOsirisDecision) {
-            scanTxt += ` Confluence: ${lastOsirisDecision.confluence}/7 | Status: ${lastOsirisDecision.decision}`;
+            scanTxt += ` Confluence: ${lastOsirisDecision.confluence}/9 | Status: ${lastOsirisDecision.decision}`;
         }
         const maVal = getCurrentMAValue();
         const rsiVal = getCurrentRSIValue();
         if (maVal !== null) scanTxt += ` | MA20: ${formatChartPrice(maVal)}`;
-        if (rsiVal !== null) scanTxt += ` | RSI14: ${rsiVal.toFixed(0)}`;
+        if (rsiVal !== null) scanTxt += ` | RSI${rsiPeriod}: ${rsiVal.toFixed(0)}`;
+        if (showPrediction) {
+            const pred = computeLinearPrediction(predictionHorizonMinutes);
+            if (pred) scanTxt += ` | Voorspelling (${document.getElementById('prediction-horizon-select')?.value || '1h'}): ${pred.direction}`;
+        }
         if (pendingOrders.length > 0) {
             scanTxt += ` | ${pendingOrders.length} pending order(s) actief.`;
         }
@@ -1193,7 +1363,7 @@ function evaluateContinuationWithConfirmation(pos, side, thresholdOverride = nul
 // procentpunt onder de entry-drempel als buffer tegen ruis), zonder de
 // oorspronkelijke triggerPrice/targetPrice van de order opnieuw te herschrijven.
 function isPendingOrderStillValid(order) {
-    if (!lastOsirisDecision) return true; // geen recente scan - wees niet te snel met cancelen
+    if (!lastOsirisDecision) return { valid: true, probabilityPct: null }; // geen recente scan - wees niet te snel met cancelen
 
     const nodeContext = getNodeContext();
     const nodeInfluence = calculateNodeInfluence(nodeContext);
@@ -1203,17 +1373,37 @@ function isPendingOrderStillValid(order) {
     const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence);
 
     const cancelThreshold = Math.max(0, botSettings.minProbabilityPct - 10);
-    return probabilityPct >= cancelThreshold;
+    return { valid: probabilityPct >= cancelThreshold, probabilityPct };
 }
 
+// Elke 10 seconden herbeoordeeld: annuleert orders waarvan het signaal is
+// weggevallen, EN kan een order die al een tijd wacht en nog steeds heel
+// sterk staat, naar voren halen ("chase") - meteen tegen de huidige prijs
+// instappen i.p.v. te blijven wachten op de oorspronkelijke pullback-trigger.
+// Zo kan de bot bijvoorbeeld een LONG pending order eerder invullen als de
+// kans intussen nog verder is opgelopen, i.p.v. de kans te missen omdat de
+// prijs nooit meer terugzakt naar het originele niveau.
 function revalidatePendingOrders(decision, metrics) {
     let changed = false;
+    const now = Date.now();
+
     pendingOrders = pendingOrders.filter(order => {
-        if (!isPendingOrderStillValid(order)) {
+        const check = isPendingOrderStillValid(order);
+        if (!check.valid) {
             logBotAction("CANCELLED", order.triggerPrice, order.side, 0, 0, "niet langer geldig (herbeoordeeld)");
             changed = true;
             return false;
         }
+
+        if (botSettings.chaseEnabled && check.probabilityPct !== null && check.probabilityPct >= botSettings.chaseProbabilityThreshold) {
+            const ageMinutes = (now - new Date(order.createdAt).getTime()) / 60000;
+            if (ageMinutes >= botSettings.chaseAfterMinutes) {
+                openPositionFromOrder(order, "CHASE_ENTRY");
+                changed = true;
+                return false;
+            }
+        }
+
         return true;
     });
     if (changed) updatePendingOrdersUI();
@@ -1307,13 +1497,12 @@ function evaluateRangeScalpOpportunity(side) {
 
     // NIEUW: RSI als extra bevestiging voor de mean-reversion-thesis. Een
     // range-top is een veel sterker short-signaal als RSI ook daadwerkelijk
-    // overbought staat (>65); een range-bodem sterker als RSI oversold staat
-    // (<35). Geen RSI-data (te weinig candles) blokkeert de scalp niet - het
-    // is een bevestiging, geen harde eis.
+    // overbought staat; een range-bodem sterker als RSI oversold staat.
+    // Gebruikt de instelbare rsiOverbought/rsiOversold-drempels (standaard 70/30).
     const rsiValue = getCurrentRSIValue();
     if (rsiValue !== null) {
-        if (side === 'SHORT' && rsiValue < 65) return { eligible: false };
-        if (side === 'LONG' && rsiValue > 35) return { eligible: false };
+        if (side === 'SHORT' && rsiValue < rsiOverbought) return { eligible: false };
+        if (side === 'LONG' && rsiValue > rsiOversold) return { eligible: false };
     }
 
     // Niet tegen een sterk bevestigde trend in scalpen (confluence >= 4 in de
@@ -1386,10 +1575,10 @@ function scanForRangeScalps() {
 // ============================================================
 // ENTRY / EXIT UITVOERING (trend-trades via pending orders)
 // ============================================================
-function openPositionFromOrder(order) {
+function openPositionFromOrder(order, entryTag = '') {
     const price = livePrice;
     const confluence = lastOsirisDecision ? lastOsirisDecision.confluence : 0;
-    const maxConfluence = 7; // zie getOrisisDecisionData: vfm(2)+db(1)+chaos(1)+er(1)+volumeScore(1)+MA(1)
+    const maxConfluence = 9; // zie getOrisisDecisionData: vfm(2)+db(1)+chaos(1)+er(1)+volumeScore(1)+MA(1)+crossover(1)+voorspelling(1)
 
     // Grootte schaalt met signaalsterkte, tot maximaal maxAllocationPct
     let desiredSizePct = Math.min((confluence / maxConfluence) * botSettings.maxAllocationPct, botSettings.maxAllocationPct);
@@ -1458,7 +1647,8 @@ function openPositionFromOrder(order) {
     };
 
     openPositions.push(position);
-    logBotAction("ENTRY", price, order.side, 0, amount, `alloc ${(finalSizePct * 100).toFixed(1)}% | node-inv ${(order.nodeInfluence || 0).toFixed(1)}`, 0, notional);
+    const tagTxt = entryTag ? `${entryTag} | ` : '';
+    logBotAction("ENTRY", price, order.side, 0, amount, `${tagTxt}alloc ${(finalSizePct * 100).toFixed(1)}% | node-inv ${(order.nodeInfluence || 0).toFixed(1)}`, 0, notional);
     savePersistentState();
     updateWalletUI();
     updatePositionLines();
@@ -1693,7 +1883,10 @@ function downloadAllData() {
             momentumContext: getMomentumContext(),
             volumeShiftPct: calculateVolumeShift(6),
             movingAverage20: getCurrentMAValue(),
+            maValues: getCurrentMAValues(),
             rsi14: getCurrentRSIValue(),
+            rsiSettings: { period: rsiPeriod, overbought: rsiOverbought, oversold: rsiOversold },
+            linearPrediction: computeLinearPrediction(predictionHorizonMinutes),
             fibConfluenceInfluence: calculateFibConfluenceInfluence(livePrice)
         },
         // De echte MIC/MES/MAC fib-niveaus zoals ook op de chart getekend worden
@@ -1745,7 +1938,7 @@ function botHeartbeat() {
         const s = Math.floor((diff % 60000) / 1000).toString().padStart(2, '0');
 
         const runtimeEl = document.getElementById('bot-runtime');
-        if (runtimeEl) runtimeEl.innerText = `Runtime: ${h}:${m}:${s}`;
+        if (runtimeEl) runtimeEl.innerText = `Runtime: ${h}:${m}:${s}  (gestart: ${formatFullDateTime(botStartTime)})`;
     }
 
     if (!botSettings.isRunning) {
@@ -1780,6 +1973,7 @@ function botHeartbeat() {
         scanForRangeScalps();
         renderMovingAverage();
         renderRSI();
+        renderPrediction();
     }
 }
 
@@ -2769,14 +2963,24 @@ function getOrisisDecisionData(metrics, currentPrice, vfm, er, db, chaos, isBull
     // verleden" - nu telt een duidelijk verhoogde score (>65) mee als extra
     // confluence-punt.
     if (metrics && metrics.score > 65) confluence += 1;
-    // NIEUW: Moving Average (SMA-20) trend-bevestiging. Ligt de prijs aan de
-    // kant van de MA die overeenkomt met de gedetecteerde richting, dan is
-    // dat een extra, onafhankelijke bevestiging.
-    const maValue = getCurrentMAValue();
-    if (maValue !== null) {
-        if ((isBullish && currentPrice > maValue) || (!isBullish && currentPrice < maValue)) confluence += 1;
+    // Moving Average (fast/slow) trend-bevestiging. Ligt de prijs aan de kant
+    // van de fast-MA die overeenkomt met de gedetecteerde richting, dan is dat
+    // een extra bevestiging. Een VERSE crossover (golden/death cross) in de
+    // juiste richting weegt zwaarder (+1 extra) - dat is precies het moment
+    // waarop MA-crossover-strategieën normaliter een omslag signaleren.
+    const maValues = getCurrentMAValues();
+    if (maValues.fast !== null) {
+        if ((isBullish && currentPrice > maValues.fast) || (!isBullish && currentPrice < maValues.fast)) confluence += 1;
     }
-    // Max confluence is nu 7 (vfm 2 + db 1 + chaos 1 + er 1 + volume 1 + MA 1)
+    const crossover = detectMACrossover();
+    if ((isBullish && crossover === 'bullish') || (!isBullish && crossover === 'bearish')) confluence += 1;
+    // NIEUW: lineaire voorspelling (huidige horizon-instelling) als extra,
+    // onafhankelijke bevestiging van de richting.
+    const prediction = computeLinearPrediction(predictionHorizonMinutes);
+    if (prediction && ((isBullish && prediction.direction === 'bullish') || (!isBullish && prediction.direction === 'bearish'))) {
+        confluence += 1;
+    }
+    // Max confluence is nu 9 (vfm 2 + db 1 + chaos 1 + er 1 + volume 1 + MA 1 + crossover 1 + voorspelling 1)
 
     // Gegradeerd niveau i.p.v. platte WAIT/TREND-FOLLOW/BREAKOUT (zie classifyMarketStatus)
     const momentumContext = getMomentumContext();
