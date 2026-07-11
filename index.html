@@ -57,7 +57,7 @@
 <body>
     <div id="dashboard">
         <header>
-    <h1>OSIRIS INTELLIGENCE V1.311 <span class="live-dot"></span></h1>
+    <h1>OSIRIS INTELLIGENCE V1.3.14 <span class="live-dot"></span></h1>
     <h2>QUANTUM PRECISION LIVE MARKET TRACKING</h2>
     <p>This project is currently under construction by KPX</p>
     <nav style="display: block; margin-top: 10px;">
@@ -114,17 +114,50 @@
         </select>
     </div>
     <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">MOVING AVERAGE (20)</label>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">MOVING AVERAGE</label>
         <select id="ma-select" onchange="handleMovingAverageSelect(this.value)" style="background: #131722; color: #ffa500; border: 1px solid #ffa500; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
             <option value="HIDDEN" selected>Verborgen</option>
             <option value="VISIBLE">Zichtbaar</option>
         </select>
     </div>
     <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">RSI (14)</label>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">MA Fast / Slow</label>
+        <div style="display:flex; gap:4px;">
+            <input type="number" id="ma-fast-period" value="9" onchange="applyMASettings()" style="width: 50%; background: #131722; color: #ffa500; border: 1px solid #ffa500; padding: 6px; border-radius: 4px;">
+            <input type="number" id="ma-slow-period" value="21" onchange="applyMASettings()" style="width: 50%; background: #131722; color: #4287f5; border: 1px solid #4287f5; padding: 6px; border-radius: 4px;">
+        </div>
+    </div>
+    <div>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">RSI</label>
         <select id="rsi-select" onchange="handleRSISelect(this.value)" style="background: #131722; color: #c678dd; border: 1px solid #c678dd; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
             <option value="HIDDEN" selected>Verborgen</option>
             <option value="VISIBLE">Zichtbaar</option>
+        </select>
+    </div>
+    <div>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">RSI periode / OB / OS</label>
+        <div style="display:flex; gap:3px;">
+            <input type="number" id="rsi-period" value="14" onchange="applyRSISettings()" style="width: 34%; background: #131722; color: #c678dd; border: 1px solid #c678dd; padding: 6px 2px; border-radius: 4px;">
+            <input type="number" id="rsi-overbought" value="70" onchange="applyRSISettings()" style="width: 33%; background: #131722; color: #ef5350; border: 1px solid #ef5350; padding: 6px 2px; border-radius: 4px;">
+            <input type="number" id="rsi-oversold" value="30" onchange="applyRSISettings()" style="width: 33%; background: #131722; color: #26a69a; border: 1px solid #26a69a; padding: 6px 2px; border-radius: 4px;">
+        </div>
+    </div>
+    <div>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">LINEAIRE VOORSPELLING</label>
+        <select id="prediction-select" onchange="handlePredictionSelect(this.value)" style="background: #131722; color: #ffffff; border: 1px solid #ffffff; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
+            <option value="HIDDEN" selected>Verborgen</option>
+            <option value="VISIBLE">Zichtbaar</option>
+        </select>
+    </div>
+    <div>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">Horizon</label>
+        <select id="prediction-horizon-select" onchange="handlePredictionHorizonSelect(this.value)" style="background: #131722; color: #ffffff; border: 1px solid #ffffff; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
+            <option value="15m">15 min</option>
+            <option value="30m">30 min</option>
+            <option value="1h" selected>1 uur</option>
+            <option value="2h">2 uur</option>
+            <option value="4h">4 uur</option>
+            <option value="24h">24 uur</option>
         </select>
     </div>
     </div>
@@ -212,6 +245,13 @@
         <div>
             <label>Range-scalp alloc %</label><br>
             <input type="number" id="range-scalp-alloc-pct" value="10">
+        </div>
+        <div>
+            <label>Chase: min. kans % / na (min)</label><br>
+            <div style="display:flex; gap:4px;">
+                <input type="number" id="chase-probability-pct" value="90" style="width:50%;">
+                <input type="number" id="chase-after-minutes" value="10" style="width:50%;">
+            </div>
         </div>
         <div style="display: flex; align-items: flex-end; gap: 5px;">
             <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold; flex: 1;">🚀 START BOT</button>
