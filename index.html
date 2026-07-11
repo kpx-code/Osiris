@@ -267,6 +267,13 @@
                     </select>
                 </div>
                 <div class="toggle-item">
+                    <label>Patronen op chart</label>
+                    <select id="pattern-markers-select" onchange="handlePatternMarkersSelect(this.value)">
+                        <option value="HIDDEN" selected>Verborgen</option>
+                        <option value="VISIBLE">Zichtbaar</option>
+                    </select>
+                </div>
+                <div class="toggle-item">
                     <label>Valuta (chart)</label>
                     <select id="currency-select" onchange="handleCurrencySelect(this.value)">
                         <option value="USD" selected>USD ($)</option>
@@ -389,6 +396,18 @@
                 </div>
             </div>
 
+            <div class="subhead">Patroon &amp; Structuur</div>
+            <div class="target-grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="target-card" style="border-color:rgba(20,241,149,0.3);">
+                    <h4 style="color:var(--teal);">Candlestick-patroon</h4>
+                    <div id="current-pattern" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
+                </div>
+                <div class="target-card" style="border-color:rgba(153,69,255,0.3);">
+                    <h4 style="color:var(--violet);">Markt-structuur</h4>
+                    <div id="current-structure" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
+                </div>
+            </div>
+
             <div class="subhead">Node Countdown</div>
             <div id="info-panel" class="node-grid">
                 <div class="node-card" style="border-color:rgba(255,255,255,0.3);"><h4 style="color:#ffffff;">RESET [Vortex 9]</h4><p id="next-reset">Berekenen...</p></div>
@@ -422,7 +441,7 @@
         <!-- ============ OSIRIS ENGINE SECTION ============ -->
         <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.22<span class="fill"></span></div>
+            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.23<span class="fill"></span></div>
             <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
@@ -445,6 +464,7 @@
                         <label style="font-size: 0.7rem; font-family:'JetBrains Mono',monospace; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);">Preset</label><br>
                         <select id="preset-select" onchange="applyPreset(this.value)" style="margin-top:6px; color:var(--teal); border-color:var(--teal);">
                             <option value="MANUAL" selected>Handmatig</option>
+                            <option value="KPX_MODE_1">KPX Mode 1</option>
                             <option value="CONSERVATIVE">Conservatief</option>
                             <option value="BALANCED">Balanced</option>
                             <option value="AGGRESSIVE">Agressief</option>
@@ -534,6 +554,12 @@
                 <div id="reasoning-body" class="open">
                     <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
                 </div>
+            </div>
+
+            <!-- NIVEAU 1: ADAPTIEVE GEWICHTEN ("leren van fouten") -->
+            <div id="learning-wrap" style="background:rgba(255,255,255,0.02); border:1px solid rgba(153,69,255,0.25); padding:14px 16px; margin-bottom:18px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); margin-bottom:10px;">&#9679; Adaptief Leren — Niveau 1</div>
+                <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
             </div>
 
             <!-- WALLET STATUS: neon rand + icoon -->
