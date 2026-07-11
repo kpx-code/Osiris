@@ -3,65 +3,171 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KPX is my hero</title>
+    <title>OSIRIS INTELLIGENCE</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        *, *::before, *::after { box-sizing: border-box; }
-        body { margin: 0; }
-        #dashboard { padding: 20px; max-width: 1400px; margin: 0 auto; }
-
-        /* Generieke responsieve grid voor knoppenrijen/instellingen-rijen:
-           elke kolom is min. 140px breed, en vult netjes de resterende ruimte
-           op i.p.v. flex-wrap's ongelijke laatste-item-rekt-uit-gedrag. */
-        .grid-row {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 10px;
-            align-items: end;
+        :root{
+            --void:#05060a; --panel:#0d1420; --panel-2:#0a0f1a;
+            --violet:#9945ff; --teal:#14f195; --cyan:#00d9ff; --red:#ff3b5c; --amber:#ffb627;
+            --text-primary:#e9edf6; --text-dim:#5c6478; --text-dimmer:#3a4052; --line:rgba(153,69,255,0.16);
         }
-        .grid-row > div { min-width: 0; } /* voorkomt overflow bij lange labels/inputs */
+        *, *::before, *::after { box-sizing: border-box; }
+        body {
+            margin: 0; background-color: var(--void);
+            background-image:
+                radial-gradient(ellipse 900px 500px at 15% -10%, rgba(153,69,255,0.14), transparent 55%),
+                radial-gradient(ellipse 700px 500px at 95% 5%, rgba(20,241,149,0.09), transparent 50%),
+                radial-gradient(ellipse 700px 500px at 50% 115%, rgba(0,217,255,0.07), transparent 50%);
+            color: var(--text-primary); font-family: 'Chakra Petch', sans-serif;
+        }
+        body::before{
+            content:''; position:fixed; inset:0;
+            background-image:linear-gradient(rgba(255,255,255,0.026) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.026) 1px, transparent 1px);
+            background-size:46px 46px; mask-image:radial-gradient(ellipse 1000px 800px at 50% 0%, black, transparent 75%);
+            pointer-events:none; z-index:0;
+        }
+        #dashboard { padding: 24px; max-width: 1400px; margin: 0 auto; position: relative; z-index: 1; }
+
+        /* ---- HUD panel component ---- */
+        .hud{ position:relative; background:linear-gradient(165deg, rgba(16,24,40,0.92), rgba(9,13,22,0.92)); border:1px solid var(--line); padding:20px 22px; backdrop-filter:blur(6px); margin-bottom:18px; }
+        .corner{ position:absolute; width:11px; height:11px; }
+        .corner-tl{ top:-1px; left:-1px; border-top:2px solid var(--teal); border-left:2px solid var(--teal); }
+        .corner-tr{ top:-1px; right:-1px; border-top:2px solid var(--teal); border-right:2px solid var(--teal); }
+        .corner-bl{ bottom:-1px; left:-1px; border-bottom:2px solid var(--teal); border-left:2px solid var(--teal); }
+        .corner-br{ bottom:-1px; right:-1px; border-bottom:2px solid var(--teal); border-right:2px solid var(--teal); }
+        .hud.violet .corner{ border-color:var(--violet); }
+        .hud.amber .corner{ border-color:var(--amber); }
+        .eyebrow{ font-family:'JetBrains Mono', monospace; font-size:0.66rem; letter-spacing:0.2em; text-transform:uppercase; color:var(--text-dim); margin-bottom:14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+        .eyebrow::before{ content:''; width:5px; height:5px; background:var(--violet); box-shadow:0 0 6px var(--violet); flex-shrink:0; }
+        .eyebrow .fill{ flex:1; height:1px; background:var(--line); min-width:20px; }
+        .subhead{ font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-dim); margin:22px 0 10px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; gap:8px; justify-content:space-between; flex-wrap:wrap; }
+        .subhead:first-of-type{ border-top:none; padding-top:0; margin-top:14px; }
+
+        /* ---- header (plain, per verzoek: witte tekst, zwarte achtergrond) ---- */
+        header{ background:#000; padding:18px 22px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:0; border:1px solid var(--line); }
+        header h1{ font-family:'Orbitron', sans-serif; font-weight:800; font-size:1.5rem; letter-spacing:0.06em; color:#ffffff; margin:0; }
+        .live-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--teal); box-shadow:0 0 6px var(--teal), 0 0 14px var(--teal); margin-left:10px; animation:pulse 2s ease-in-out infinite; }
+        @keyframes pulse{ 0%,100%{opacity:1; transform:scale(1);} 50%{opacity:.35; transform:scale(.65);} }
+        header nav a{ color:#ffffff; text-decoration:none; font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:0.06em; border:1px solid rgba(255,255,255,0.25); padding:8px 14px; }
+        .scan-line{ height:2px; margin:0 0 20px; background:linear-gradient(90deg, transparent, var(--violet), var(--teal), var(--cyan), transparent); background-size:250% 100%; animation:sweep 5s linear infinite; opacity:0.8; }
+        @keyframes sweep{ 0%{background-position:250% 0;} 100%{background-position:-250% 0;} }
+
+        /* ---- generic responsive grid ---- */
+        .grid-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; align-items: end; }
+        .grid-row > div { min-width: 0; }
+        .grid-row label{ display:block; font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.08em; color:var(--text-dim); text-transform:uppercase; margin-bottom:5px; }
         .grid-row input, .grid-row select { width: 100%; padding: 8px; }
 
+        input[type=number], select {
+            background:var(--panel-2); color:var(--teal); border:1px solid rgba(20,241,149,0.3);
+            font-family:'JetBrains Mono',monospace; font-size:0.75rem; padding:8px; appearance:none;
+        }
+        input[type=number]:focus, select:focus{ outline:none; border-color:var(--teal); }
+
         .table-wrap { overflow-x: auto; }
-        table { width: 100%; }
+        .table-wrap.scrollable{ max-height: 340px; overflow-y: auto; }
+        table { width: 100%; border-collapse:collapse; }
+        th{ text-align:left; font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-dim); padding:0 10px 8px; border-bottom:1px solid var(--line); white-space:nowrap; position:sticky; top:0; background:#0d1420; }
+        td{ font-family:'JetBrains Mono',monospace; font-size:0.76rem; padding:9px 10px; border-bottom:1px solid rgba(255,255,255,0.05); white-space:nowrap; }
         img, svg, canvas { max-width: 100%; }
 
-        /* Tablet / grote telefoon */
+        /* ---- toggle dropdown grid (chart controls) ---- */
+        .toggle-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
+        .toggle-item label{ display:block; font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.1em; color:var(--text-dimmer); margin-bottom:5px; text-transform:uppercase; }
+
+        /* ---- inline indicator settings panels (bij MA/RSI "Zichtbaar") ---- */
+        .inline-settings-panel{ display:none; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin:-4px 0 14px; padding:12px; background:rgba(255,255,255,0.02); border:1px dashed rgba(255,255,255,0.15); }
+        .inline-settings-panel .hint{ grid-column:1/-1; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--text-dimmer); margin-top:2px; }
+
+        .ohlc-strip{ display:flex; gap:20px; flex-wrap:wrap; font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--text-dim); margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.06); }
+        .ohlc-strip b{ color:var(--text-primary); font-weight:600; }
+        #chart-container{ min-height: 400px; }
+
+        /* ---- data section meters ---- */
+        .data-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+        .meter-card h3{ font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-dim); margin:0 0 8px 0; font-weight:500; }
+        .meter-card p{ font-family:'JetBrains Mono',monospace; font-size:1.3rem; font-weight:700; margin:0 0 4px 0; }
+        .meter-card small{ font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--text-dimmer); }
+
+        .status-banner{ display:flex; justify-content:space-between; align-items:center; padding:14px 18px; margin-bottom:14px; background:linear-gradient(90deg, rgba(20,241,149,0.08), rgba(153,69,255,0.05)); border:1px solid rgba(20,241,149,0.25); flex-wrap:wrap; gap:10px; }
+        .status-banner p{ margin:0; }
+        #market-status-main{ font-family:'Orbitron',sans-serif; font-weight:700; font-size:1rem; letter-spacing:0.03em; color:var(--teal); }
+        #probability-score{ font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--text-dim); }
+
+        .target-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:14px; }
+        .target-card{ padding:12px 14px; border:1px solid var(--line); text-align:left; background:transparent; }
+        .target-card h4{ font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--text-dim); margin:0 0 8px 0; }
+        .target-card small{ display:block; font-family:'JetBrains Mono',monospace; font-size:0.76rem; padding:2px 0; }
+
+        .node-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:4px; }
+        .node-card{ padding:12px 14px; border:1px solid rgba(255,255,255,0.08); }
+        .node-card h4{ font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.08em; margin:0 0 8px 0; }
+        .node-card p{ font-family:'JetBrains Mono',monospace; font-size:0.92rem; color:#fff; margin:0; }
+
+        .volrow{ display:grid; grid-template-columns:1.3fr 1fr; gap:12px; margin-top:4px; }
+        #sentiment-bar-container{ width:100%; height:10px; background:var(--panel-2); overflow:hidden; display:flex; margin-top:10px; }
+
+        /* ---- engine config collapsible ---- */
+        #config-header{ display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none; padding:12px 15px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.1); }
+        #config-header .title{ font-family:'Orbitron',sans-serif; font-size:0.78rem; letter-spacing:0.06em; color:var(--text-primary); }
+        #config-chevron{ font-family:'JetBrains Mono',monospace; color:var(--teal); transition:transform 0.25s ease; font-size:0.9rem; }
+        #config-chevron.open{ transform:rotate(180deg); }
+        #config-body{ max-height:0; overflow:hidden; transition:max-height 0.35s ease; border-left:1px solid rgba(255,255,255,0.1); border-right:1px solid rgba(255,255,255,0.1); }
+        #config-body.open{ max-height:1400px; border-bottom:1px solid rgba(255,255,255,0.1); }
+        #config-body .config-inner{ padding:16px 15px 4px; }
+        #active-settings-panel{ padding:12px 15px; border:1px solid rgba(255,255,255,0.1); border-top:none; font-size:0.8em; }
+
+        /* ---- wallet: neon rand + icoon ---- */
+        .wallet-panel{ border:1px solid var(--teal); box-shadow:0 0 14px rgba(20,241,149,0.4), inset 0 0 24px rgba(20,241,149,0.05); background:rgba(20,241,149,0.02); padding:16px; margin:18px 0; }
+        .wallet-header{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:14px; }
+        .wallet-header .titlewrap{ display:flex; align-items:center; gap:8px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--teal); text-shadow:0 0 8px rgba(20,241,149,0.5); }
+
+        /* ---- buttons ---- */
+        .btn{ font-family:'Chakra Petch', sans-serif; font-weight:600; font-size:0.76rem; letter-spacing:0.08em; text-transform:uppercase; padding:12px 26px; border:none; cursor:pointer; clip-path:polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+        .btn-primary{ background:linear-gradient(90deg, var(--violet), var(--teal)); color:#04060a; box-shadow:0 0 24px rgba(153,69,255,0.35); }
+        .btn-danger{ background:linear-gradient(90deg, var(--red), #ff7a90); color:#170006; box-shadow:0 0 24px rgba(255,59,92,0.3); }
+        .btn-ghost{ background:rgba(255,255,255,0.02); color:var(--text-primary); border:1px solid rgba(255,255,255,0.16); }
+        .btn-mini{ padding:7px 14px; font-size:0.62rem; clip-path:polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px); text-transform:none; letter-spacing:0.04em; cursor:pointer; }
+
+        /* ---- bot status strip + reasoning ---- */
+        #bot-monitor{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:18px 0; }
+        #bot-monitor .stat{ padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); }
+        #bot-monitor .stat small{ display:block; font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px; }
+        #bot-monitor .stat div{ font-family:'JetBrains Mono',monospace; font-weight:700; font-size:0.85rem; }
+        #bot-reasoning-wrap{ background:rgba(153,69,255,0.03); border:1px solid rgba(153,69,255,0.25); padding:14px 16px; margin-bottom:18px; max-height:340px; overflow-y:auto; }
+        #bot-reasoning-wrap .rlabel{ font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); margin-bottom:10px; }
+
+        .wallet-grid{ display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+        .wallet-grid .wlabel{ font-size:0.6rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px; font-family:'JetBrains Mono',monospace; }
+        .wallet-grid .wvalue{ font-family:'JetBrains Mono',monospace; font-size:0.98rem; font-weight:700; }
+
+        .side-long{ color:var(--teal); text-shadow:0 0 8px rgba(20,241,149,0.4); font-weight:600; }
+        .side-short{ color:var(--red); text-shadow:0 0 8px rgba(255,59,92,0.4); font-weight:600; }
+
+        /* ---- Tablet / grote telefoon ---- */
         @media (max-width: 768px) {
             #dashboard { padding: 10px; }
-            header h1 { font-size: 1.2em; }
-            header h2 { font-size: 0.85em; }
-            .grid-row { grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); gap: 8px; }
-            .metrics-container { flex-direction: column !important; }
-            .metrics-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
-            #bot-monitor { grid-template-columns: 1fr !important; }
-            #bot-monitor > div[style*="span 2"] { max-height: 160px !important; }
-            .orisis-3col { grid-template-columns: 1fr !important; }
-            #info-panel { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important; gap: 8px !important; }
-            table { font-size: 0.75em; }
-            #bot-control-hub, .card { padding: 12px !important; }
-            #wallet-status > div[style*="grid-template-columns"] { grid-template-columns: repeat(auto-fit, minmax(100px,1fr)) !important; }
-            #active-settings-panel > div { grid-template-columns: repeat(auto-fit, minmax(130px,1fr)) !important; }
+            header h1{ font-size:1.1rem; }
+            .grid-row, .toggle-grid, .inline-settings-panel { grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); gap: 8px; }
+            .data-grid{ grid-template-columns:repeat(2,1fr); }
+            .target-grid{ grid-template-columns:1fr; }
+            .wallet-grid{ grid-template-columns:repeat(3,1fr); }
+            .volrow{ grid-template-columns:1fr; }
+            #bot-monitor{ grid-template-columns:repeat(2,1fr); }
+            table { font-size: 0.72em; }
+            .hud { padding: 14px !important; }
         }
-
-        /* Kleine telefoon */
         @media (max-width: 480px) {
             #dashboard { padding: 6px; }
-            header h1 { font-size: 1em; }
-            header h2 { font-size: 0.7em; }
-            .grid-row { grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 6px; }
-            .grid-row label { font-size: 0.75em; }
-            .grid-row input, .grid-row select { padding: 6px; font-size: 0.85em; }
-            .metrics-grid { grid-template-columns: 1fr !important; }
-            table { font-size: 0.65em; }
-            h3 { font-size: 0.85em !important; }
-            h4 { font-size: 0.72em !important; }
-            #bot-control-hub h2 { font-size: 1.1em; }
-            /* Start/Stop knoppen onder elkaar i.p.v. naast elkaar op een smal scherm */
-            #bot-control-hub > div[style*="flex"][style*="align-items: center"][style*="margin-top: 10px"] {
-                flex-direction: column;
-            }
-            .card, #bot-control-hub, #wallet-status, #active-settings-panel { padding: 8px !important; }
+            header{ padding:12px 14px; }
+            header h1{ font-size:0.95rem; }
+            .grid-row label, .toggle-item label { font-size: 0.68em; }
+            .data-grid, #bot-monitor { grid-template-columns: 1fr; }
+            .wallet-grid{ grid-template-columns:repeat(2,1fr); }
+            table { font-size: 0.64em; }
         }
     </style>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
@@ -70,426 +176,362 @@
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
       gtag('js', new Date());
-    
       gtag('config', 'G-0KTV089ZWE');
     </script>
 </head>
 <body>
     <div id="dashboard">
+
         <header>
-    <h1>OSIRIS INTELLIGENCE V1.3.18 <span class="live-dot"></span></h1>
-    <h2>QUANTUM PRECISION LIVE MARKET TRACKING</h2>
-    <p>This project is currently under construction by KPX</p>
-    <nav style="display: block; margin-top: 10px;">
-        <a href="about.html" style="color: #00ffcc; text-decoration: none; font-weight: bold;">About & Disclaimer →</a>
-    </nav>
-    </header>
-        <div class="timeframe-selector" style="margin: 20px 0; display: flex; gap: 10px;">
-        <button onclick="changeTimeframe('15m')" id="btn-15m" style="padding: 8px 16px; background: #00ffcc; color: #131722; border: 1px solid #00ffcc; cursor: pointer; border-radius: 4px; font-weight: bold;">15m</button>
+            <h1>OSIRIS INTELLIGENCE<span class="live-dot"></span></h1>
+            <nav><a href="about.html">About &amp; Disclaimer &rarr;</a></nav>
+        </header>
+        <div class="scan-line"></div>
+
+        <!-- ============ CHART SECTION ============ -->
+        <div class="hud">
+            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
+            <div class="eyebrow">MARKET CHART<span class="fill"></span></div>
+
+            <div class="timeframe-selector" style="margin-bottom: 14px; display: flex; gap: 10px;">
+                <button onclick="changeTimeframe('15m')" id="btn-15m" class="btn btn-mini" style="background:var(--teal); color:#04060a;">15m</button>
+            </div>
+
+            <div class="toggle-grid">
+                <div class="toggle-item">
+                    <label>Fibonacci schaal</label>
+                    <select id="fib-scale-select" onchange="handleFibScaleSelect(this.value)">
+                        <option value="ALL">Alle schalen</option>
+                        <option value="MIC" selected>Micro</option>
+                        <option value="MES">Meso</option>
+                        <option value="MAC">Macro</option>
+                        <option value="NONE">Geen</option>
+                    </select>
+                </div>
+                <div class="toggle-item">
+                    <label>Node type</label>
+                    <select id="node-type-select" onchange="handleNodeTypeSelect(this.value)">
+                        <option value="ALL" selected>Alle nodes</option>
+                        <option value="RESET">RESET</option>
+                        <option value="VOLA">VOLA</option>
+                        <option value="VORTEX3">CORE 3</option>
+                        <option value="VORTEX6">CORE 6</option>
+                        <option value="OSC">OSC</option>
+                        <option value="MIDPULSE">MID PULSE</option>
+                        <option value="NONE">Geen</option>
+                    </select>
+                </div>
+                <div class="toggle-item">
+                    <label>Posities op chart</label>
+                    <select id="position-lines-select" onchange="handlePositionLinesSelect(this.value)">
+                        <option value="HIDDEN" selected>Verborgen</option>
+                        <option value="VISIBLE">Zichtbaar</option>
+                    </select>
+                </div>
+                <div class="toggle-item">
+                    <label>Valuta (chart)</label>
+                    <select id="currency-select" onchange="handleCurrencySelect(this.value)">
+                        <option value="USD" selected>USD ($)</option>
+                        <option value="EUR">EUR (€)</option>
+                    </select>
+                </div>
+                <div class="toggle-item">
+                    <label>Moving average</label>
+                    <select id="ma-select" onchange="handleMovingAverageSelect(this.value)">
+                        <option value="HIDDEN" selected>Verborgen</option>
+                        <option value="VISIBLE">Zichtbaar</option>
+                    </select>
+                </div>
+                <div class="toggle-item">
+                    <label>RSI</label>
+                    <select id="rsi-select" onchange="handleRSISelect(this.value)">
+                        <option value="HIDDEN" selected>Verborgen</option>
+                        <option value="VISIBLE">Zichtbaar</option>
+                    </select>
+                </div>
+                <div class="toggle-item">
+                    <label>Voorspelling</label>
+                    <select id="prediction-select" onchange="handlePredictionSelect(this.value)">
+                        <option value="HIDDEN" selected>Verborgen</option>
+                        <option value="VISIBLE">Zichtbaar</option>
+                    </select>
+                </div>
+                <div class="toggle-item">
+                    <label>Horizon</label>
+                    <select id="prediction-horizon-select" onchange="handlePredictionHorizonSelect(this.value)">
+                        <option value="15m">15 min</option>
+                        <option value="30m">30 min</option>
+                        <option value="1h" selected>1 uur</option>
+                        <option value="2h">2 uur</option>
+                        <option value="4h">4 uur</option>
+                        <option value="24h">24 uur</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Inline MA-instellingen: verschijnt zodra MA op Zichtbaar staat -->
+            <div id="ma-inline-settings" class="inline-settings-panel">
+                <div>
+                    <label style="color:var(--amber);">MA Fast periode</label>
+                    <input type="number" id="ma-fast-period" value="9" onchange="applyMASettings()">
+                </div>
+                <div>
+                    <label style="color:var(--cyan);">MA Slow periode</label>
+                    <input type="number" id="ma-slow-period" value="21" onchange="applyMASettings()">
+                </div>
+                <div class="hint">Direct instelbaar hier bij de chart - past ook meteen de bot-berekening aan, ook tijdens het draaien.</div>
+            </div>
+
+            <!-- Inline RSI-instellingen: verschijnt zodra RSI op Zichtbaar staat -->
+            <div id="rsi-inline-settings" class="inline-settings-panel">
+                <div>
+                    <label style="color:var(--violet);">RSI periode</label>
+                    <input type="number" id="rsi-period" value="14" onchange="applyRSISettings()">
+                </div>
+                <div>
+                    <label style="color:var(--red);">Overbought</label>
+                    <input type="number" id="rsi-overbought" value="70" onchange="applyRSISettings()">
+                </div>
+                <div>
+                    <label style="color:var(--teal);">Oversold</label>
+                    <input type="number" id="rsi-oversold" value="30" onchange="applyRSISettings()">
+                </div>
+                <div class="hint">Direct instelbaar hier bij de chart - past ook meteen de range-scalp-engine aan, ook tijdens het draaien.</div>
+            </div>
+
+            <div id="ohlc-overlay" class="ohlc-strip">
+                <span style="color:var(--teal); font-weight:700;">BTC/USDT</span>
+                <span>O <b id="ohlc-open">-</b></span>
+                <span>H <b id="ohlc-high">-</b></span>
+                <span>L <b id="ohlc-low">-</b></span>
+                <span>C <b id="ohlc-close">-</b></span>
+            </div>
+
+            <div id="chart-container"></div>
         </div>
 
-    <div id="ohlc-overlay" style="margin-bottom: 10px; padding: 10px; background: #131722; border: 1px solid #1f2233; border-radius: 4px; color: #d1d4dc; font-family: monospace; font-size: 14px;">
-        <span style="color: #00ffcc; font-weight: bold;">BTC/USDT</span> | 
-        O: <span id="ohlc-open">-</span> | 
-        H: <span id="ohlc-high">-</span> | 
-        L: <span id="ohlc-low">-</span> | 
-        C: <span id="ohlc-close">-</span>
-    </div>
-    <div class="chart-controls grid-row" style="margin: 15px 0 20px 0;">
-    <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">FIBONACCI SCHAAL</label>
-        <select id="fib-scale-select" onchange="handleFibScaleSelect(this.value)" style="background: #131722; color: #00ffcc; border: 1px solid #00ffcc; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
-            <option value="ALL">Alle schalen</option>
-            <option value="MIC" selected>Micro</option>
-            <option value="MES">Meso</option>
-            <option value="MAC">Macro</option>
-            <option value="NONE">Geen</option>
-        </select>
-    </div>
-    <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">NODE TYPE</label>
-        <select id="node-type-select" onchange="handleNodeTypeSelect(this.value)" style="background: #131722; color: #ffcc00; border: 1px solid #ffcc00; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
-            <option value="ALL" selected>Alle nodes</option>
-            <option value="RESET">RESET</option>
-            <option value="VOLA">VOLA</option>
-            <option value="VORTEX3">CORE 3</option>
-            <option value="VORTEX6">CORE 6</option>
-            <option value="OSC">OSC</option>
-            <option value="MIDPULSE">MID PULSE</option>
-            <option value="NONE">Geen</option>
-        </select>
-    </div>
-    <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">OPEN POSITIES OP CHART</label>
-        <select id="position-lines-select" onchange="handlePositionLinesSelect(this.value)" style="background: #131722; color: #ff9900; border: 1px solid #ff9900; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
-            <option value="HIDDEN" selected>Verborgen</option>
-            <option value="VISIBLE">Zichtbaar</option>
-        </select>
-    </div>
-    <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">VALUTA (chart)</label>
-        <select id="currency-select" onchange="handleCurrencySelect(this.value)" style="background: #131722; color: #26a69a; border: 1px solid #26a69a; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
-            <option value="USD" selected>USD ($)</option>
-            <option value="EUR">EUR (€)</option>
-        </select>
-    </div>
-    <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">MOVING AVERAGE</label>
-        <select id="ma-select" onchange="handleMovingAverageSelect(this.value)" style="background: #131722; color: #ffa500; border: 1px solid #ffa500; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
-            <option value="HIDDEN" selected>Verborgen</option>
-            <option value="VISIBLE">Zichtbaar</option>
-        </select>
-    </div>
-    <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">RSI</label>
-        <select id="rsi-select" onchange="handleRSISelect(this.value)" style="background: #131722; color: #c678dd; border: 1px solid #c678dd; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
-            <option value="HIDDEN" selected>Verborgen</option>
-            <option value="VISIBLE">Zichtbaar</option>
-        </select>
-    </div>
-    <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">VOORSPELLING (bullish + bearish)</label>
-        <select id="prediction-select" onchange="handlePredictionSelect(this.value)" style="background: #131722; color: #ffffff; border: 1px solid #ffffff; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
-            <option value="HIDDEN" selected>Verborgen</option>
-            <option value="VISIBLE">Zichtbaar</option>
-        </select>
-    </div>
-    <div>
-        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">Horizon</label>
-        <select id="prediction-horizon-select" onchange="handlePredictionHorizonSelect(this.value)" style="background: #131722; color: #ffffff; border: 1px solid #ffffff; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
-            <option value="15m">15 min</option>
-            <option value="30m">30 min</option>
-            <option value="1h" selected>1 uur</option>
-            <option value="2h">2 uur</option>
-            <option value="4h">4 uur</option>
-            <option value="24h">24 uur</option>
-        </select>
-    </div>
-    </div>
-    <div id="chart-container"></div>
+        <!-- ============ SYSTEM DATA SECTION ============ -->
+        <div class="hud violet">
+            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
+            <div class="eyebrow">SYSTEM DATA<span class="fill"></span></div>
 
-     <div class="orisis-container" style="margin-top: 40px; padding: 15px; background: #1f2233; border: 1px solid #00ffcc; border-radius: 8px;">
-    <h3 style="margin: 0 0 10px 0; font-size: 0.8em; color: #888; text-align: center;">ORISIS MARKET STATUS</h3>
-    <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-        <div style="flex: 1; text-align: center;">
-            <p id="market-status-main" style="font-size: 1.2em; font-weight: bold; color: #00ffcc; margin: 0;">--</p>
-        </div>
-        <div style="width: 1px; height: 30px; background: #333;"></div>
-        <div style="flex: 1; text-align: center;">
-            <p id="probability-score" style="font-size: 0.9em; color: #aaa; margin: 0;">Confidence: --</p>
-        </div>
-    </div>
-</div>
-<div id="bot-control-hub" style="background: #121212; padding: 20px; border: 1px solid #333; border-radius: 12px; color: #fff; font-family: sans-serif;">
-    <h2 style="margin-top: 0; color: #ff00ff;">🤖 Osiris Autonomous Agent</h2>
-    <div style="background: #1a1a1a; padding: 10px;">
-    <small style="color: #888;">Runtime:</small>
-    <div id="bot-runtime" style="font-weight: bold; color: #fff;">00:00:00</div>
-</div>
+            <div class="subhead" style="margin-top:0;">VFM &middot; ER &middot; DB &middot; Chaos Index</div>
+            <div class="data-grid">
+                <div class="meter-card"><h3>VFM</h3><p id="vfm-display">0.00</p><small id="vfm-status">Wachten...</small></div>
+                <div class="meter-card"><h3>ER (Energy Ratio)</h3><p id="er-display">0.00</p><small id="er-status">Ref: 1.0</small></div>
+                <div class="meter-card"><h3>DB (Delta Balance)</h3><p id="db-display">0.00</p><small id="db-status">Bereik: -1 tot 1</small></div>
+                <div class="meter-card"><h3>Chaos Index</h3><p id="chaos-display">0.00%</p><small id="chaos-status">Limit: 8% / 15%</small></div>
+            </div>
 
-    <!-- PRESET -->
-    <div style="margin: 15px 0; padding: 12px 15px; background: #1a1a1a; border: 1px solid #555; border-radius: 8px;">
-        <label style="font-size: 0.85em;">PRESET</label><br>
-        <select id="preset-select" onchange="applyPreset(this.value)" style="padding: 8px; background: #131722; color: #00ffcc; border: 1px solid #00ffcc; border-radius: 4px; margin-top: 4px;">
-            <option value="MANUAL" selected>Handmatig</option>
-            <option value="CONSERVATIVE">Conservatief</option>
-            <option value="BALANCED">Balanced</option>
-            <option value="AGGRESSIVE">Agressief</option>
-        </select>
-        <small style="display:block; color:#888; margin-top:6px;">Vult alle velden hieronder in één keer in (zie de tabel in de User Manual §5). Je kunt daarna nog los tweaken - dat verandert dit dropdown terug naar "Handmatig" niet automatisch, het is puur een startpunt.</small>
-    </div>
+            <div class="subhead">Osiris Market Status</div>
+            <div class="status-banner">
+                <p id="market-status-main">--</p>
+                <p id="probability-score">Confidence: --</p>
+            </div>
+            <div class="target-grid">
+                <div class="target-card" style="border-color:var(--teal);">
+                    <h4 style="color:var(--teal);">Micro (9)</h4>
+                    <small>Bull: <span id="mic-bull">--</span></small>
+                    <small>Bear: <span id="mic-bear">--</span></small>
+                </div>
+                <div class="target-card" style="border-color:var(--amber);">
+                    <h4 style="color:var(--amber);">Meso (36)</h4>
+                    <small>Bull: <span id="mes-bull">--</span></small>
+                    <small>Bear: <span id="mes-bear">--</span></small>
+                </div>
+                <div class="target-card" style="border-color:var(--violet);">
+                    <h4 style="color:var(--violet);">Macro (144)</h4>
+                    <small>Bull: <span id="mac-bull">--</span></small>
+                    <small>Bear: <span id="mac-bear">--</span></small>
+                </div>
+            </div>
 
-    <div class="grid-row" style="margin-bottom: 14px;">
-        <div>
-            <label>Start Kapitaal</label><br>
-            <input type="number" id="start-capital" value="1000">
-        </div>
-        <div>
-            <label>Wallet valuta (bij Reset)</label><br>
-            <select id="wallet-currency-select" style="width: 100%; padding: 8px; background: #131722; color: #d1d4dc; border: 1px solid #555; border-radius: 4px;">
-                <option value="EUR" selected>EUR (€)</option>
-                <option value="USD">USD ($)</option>
-            </select>
-        </div>
-    </div>
+            <div class="subhead">Node Countdown</div>
+            <div id="info-panel" class="node-grid">
+                <div class="node-card" style="border-color:rgba(255,255,255,0.3);"><h4 style="color:#fff;">RESET [Vortex 9]</h4><p id="next-reset">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(255,182,39,0.4);"><h4 style="color:var(--amber);">VOLA [Node 1]</h4><p id="next-vola">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(0,217,255,0.4);"><h4 style="color:var(--cyan);">CORE [Vortex 3/6]</h4><p id="next-core">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(255,255,255,0.15);"><h4 style="color:var(--text-dim);">OSC [Node 2/4/5/7]</h4><p id="next-osc">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(255,204,0,0.4);"><h4 style="color:#ffcc00;">MID PULSE</h4><p id="mid-pulse-display">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(20,241,149,0.4);"><h4 style="color:var(--teal);">NEXT NODE</h4><p id="next-node-display">Berekenen...</p></div>
+            </div>
 
-    <h4 style="color: #4287f5; font-size: 0.8em; margin: 16px 0 8px 0; border-bottom: 1px solid #333; padding-bottom: 4px;">🎯 TREND ENGINE</h4>
-    <div id="bot-config" class="grid-row" style="margin-bottom: 14px;">
-        <div>
-            <label>Max % per trade</label><br>
-            <input type="number" id="max-allocation-pct" value="70">
-        </div>
-        <div>
-            <label>Stop-loss %</label><br>
-            <input type="number" id="stop-loss-pct" value="2">
-        </div>
-        <div>
-            <label>Min. kans % (entry)</label><br>
-            <input type="number" id="min-probability-pct" value="70">
-        </div>
-        <div>
-            <label>Min. kans % (doorlopen &gt;2%)</label><br>
-            <input type="number" id="hold-continuation-probability-pct" value="85">
-        </div>
-        <div>
-            <label>Min. verwacht rendement %</label><br>
-            <input type="number" id="min-projected-profit-pct" value="1">
-        </div>
-        <div>
-            <label>Pending order geldig (min)</label><br>
-            <input type="number" id="pending-order-ttl" value="30">
-        </div>
-        <div>
-            <label>Min. verlies % voor vroege exit</label><br>
-            <input type="number" id="min-loss-early-exit" value="0.3" step="0.1">
-        </div>
-        <div>
-            <label>Bevestigingstijd exit (sec)</label><br>
-            <input type="number" id="continuation-confirmation-sec" value="20">
-        </div>
-        <div>
-            <label>Chase: min. kans % / na (min)</label><br>
-            <div style="display:flex; gap:4px;">
-                <input type="number" id="chase-probability-pct" value="90" style="width:50%;">
-                <input type="number" id="chase-after-minutes" value="10" style="width:50%;">
+            <div class="subhead">Live Volume &amp; Market Pressure</div>
+            <div class="volrow">
+                <div class="meter-card">
+                    <h3>Live Volume (BTC)</h3>
+                    <p id="live-volume" style="color:var(--amber);">Wachten...</p>
+                </div>
+                <div class="meter-card">
+                    <h3>Volume Rate / Score</h3>
+                    <p style="font-size:0.95rem;">Rate: <span id="vol-rate">0%</span> &middot; Score: <span id="vol-score" style="color:var(--amber);">0/100</span></p>
+                </div>
+            </div>
+            <div id="sentiment-bar-container">
+                <div id="sentiment-bar-green" style="width: 50%; height: 100%; background: var(--teal); transition: width 0.3s ease;"></div>
+                <div id="sentiment-bar-red" style="width: 50%; height: 100%; background: var(--red); transition: width 0.3s ease;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-family:'JetBrains Mono',monospace; font-size: 0.62rem; margin-top: 6px; color: var(--text-dim);">
+                <span>BUYERS</span><span>SELLERS</span>
             </div>
         </div>
-    </div>
 
-    <h4 style="color: #c678dd; font-size: 0.8em; margin: 16px 0 8px 0; border-bottom: 1px solid #333; padding-bottom: 4px;">⚡ RANGE-SCALP ENGINE</h4>
-    <div class="grid-row" style="margin-bottom: 14px;">
-        <div>
-            <label>Range-scalp doel %</label><br>
-            <input type="number" id="range-scalp-target-pct" value="0.3" step="0.1">
-        </div>
-        <div>
-            <label>Range-scalp stop %</label><br>
-            <input type="number" id="range-scalp-stop-pct" value="0.5" step="0.1">
-        </div>
-        <div>
-            <label>Range-scalp alloc %</label><br>
-            <input type="number" id="range-scalp-alloc-pct" value="10">
-        </div>
-    </div>
+        <!-- ============ OSIRIS ENGINE SECTION ============ -->
+        <div id="bot-control-hub" class="hud amber">
+            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
+            <div class="eyebrow">OSIRIS ENGINE V1.3.19<span class="fill"></span></div>
 
-    <h4 style="color: #ffcc00; font-size: 0.8em; margin: 16px 0 8px 0; border-bottom: 1px solid #333; padding-bottom: 4px;">🔗 GEDEELD (BEIDE ENGINES)</h4>
-    <div class="grid-row" style="margin-bottom: 14px;">
-        <div>
-            <label>Max open posities (max 4)</label><br>
-            <input type="number" id="max-open-positions" value="3" min="1" max="4">
-        </div>
-        <div>
-            <label>Hedge-reserve %</label><br>
-            <input type="number" id="hedge-reserve-pct" value="15">
-        </div>
-    </div>
+            <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
+                <small style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);">Runtime</small>
+                <div id="bot-runtime" style="font-family:'JetBrains Mono',monospace; font-weight:700;">00:00:00</div>
+            </div>
 
-    <h4 style="color: #ffa500; font-size: 0.8em; margin: 16px 0 8px 0; border-bottom: 1px solid #333; padding-bottom: 4px;">📊 INDICATOREN (live-instelbaar, ook tijdens draaien)</h4>
-    <div class="grid-row" style="margin-bottom: 14px;">
-        <div>
-            <label>MA Fast / Slow periode</label><br>
-            <div style="display:flex; gap:4px;">
-                <input type="number" id="ma-fast-period" value="9" onchange="applyMASettings()" style="width: 50%; background: #131722; color: #ffa500; border: 1px solid #ffa500; padding: 8px; border-radius: 4px;">
-                <input type="number" id="ma-slow-period" value="21" onchange="applyMASettings()" style="width: 50%; background: #131722; color: #4287f5; border: 1px solid #4287f5; padding: 8px; border-radius: 4px;">
+            <!-- PRESET -->
+            <div style="margin-bottom: 14px; padding: 12px 15px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.1);">
+                <label style="font-size: 0.7rem; font-family:'JetBrains Mono',monospace; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);">Preset</label><br>
+                <select id="preset-select" onchange="applyPreset(this.value)" style="margin-top:6px; color:var(--teal); border-color:var(--teal);">
+                    <option value="MANUAL" selected>Handmatig</option>
+                    <option value="CONSERVATIVE">Conservatief</option>
+                    <option value="BALANCED">Balanced</option>
+                    <option value="AGGRESSIVE">Agressief</option>
+                </select>
+                <small style="display:block; color:var(--text-dimmer); margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.64rem; line-height:1.5;">Vult alle velden hieronder in één keer in. Je kunt daarna nog los tweaken - dat verandert dit dropdown terug naar "Handmatig" niet automatisch, het is puur een startpunt.</small>
+            </div>
+
+            <!-- COLLAPSIBLE ENGINE CONFIGURATION -->
+            <div id="config-header" onclick="toggleConfigPanel()">
+                <span class="title">&#9881; ENGINE CONFIGURATION</span>
+                <span id="config-chevron" class="open">&#9662;</span>
+            </div>
+            <div id="active-settings-panel">
+                <span style="color:var(--text-dim);">Bot staat stil - geen actieve sessie-instellingen.</span>
+            </div>
+            <div id="config-body" class="open">
+                <div class="config-inner">
+                    <div class="grid-row" style="margin-bottom: 14px;">
+                        <div>
+                            <label>Start Kapitaal</label>
+                            <input type="number" id="start-capital" value="1000">
+                        </div>
+                        <div>
+                            <label>Wallet valuta (bij Reset)</label>
+                            <select id="wallet-currency-select">
+                                <option value="EUR" selected>EUR (€)</option>
+                                <option value="USD">USD ($)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <h4 style="color: var(--cyan); font-size: 0.7rem; letter-spacing:0.1em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin: 16px 0 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;">Trend Engine</h4>
+                    <div id="bot-config" class="grid-row" style="margin-bottom: 14px;">
+                        <div><label>Max % per trade</label><input type="number" id="max-allocation-pct" value="70"></div>
+                        <div><label>Stop-loss %</label><input type="number" id="stop-loss-pct" value="2"></div>
+                        <div><label>Min. kans % (entry)</label><input type="number" id="min-probability-pct" value="70"></div>
+                        <div><label>Min. kans % (doorlopen &gt;2%)</label><input type="number" id="hold-continuation-probability-pct" value="85"></div>
+                        <div><label>Min. verwacht rendement %</label><input type="number" id="min-projected-profit-pct" value="1"></div>
+                        <div><label>Pending order geldig (min)</label><input type="number" id="pending-order-ttl" value="30"></div>
+                        <div><label>Min. verlies % vroege exit</label><input type="number" id="min-loss-early-exit" value="0.3" step="0.1"></div>
+                        <div><label>Bevestigingstijd exit (sec)</label><input type="number" id="continuation-confirmation-sec" value="20"></div>
+                        <div>
+                            <label>Chase: min. kans % / na (min)</label>
+                            <div style="display:flex; gap:4px;">
+                                <input type="number" id="chase-probability-pct" value="90" style="width:50%;">
+                                <input type="number" id="chase-after-minutes" value="10" style="width:50%;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <h4 style="color: var(--violet); font-size: 0.7rem; letter-spacing:0.1em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin: 16px 0 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;">Range-Scalp Engine</h4>
+                    <div class="grid-row" style="margin-bottom: 14px;">
+                        <div><label>Range-scalp doel %</label><input type="number" id="range-scalp-target-pct" value="0.3" step="0.1"></div>
+                        <div><label>Range-scalp stop %</label><input type="number" id="range-scalp-stop-pct" value="0.5" step="0.1"></div>
+                        <div><label>Range-scalp alloc %</label><input type="number" id="range-scalp-alloc-pct" value="10"></div>
+                    </div>
+
+                    <h4 style="color: var(--amber); font-size: 0.7rem; letter-spacing:0.1em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin: 16px 0 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;">Gedeeld (beide engines)</h4>
+                    <div class="grid-row" style="margin-bottom: 4px;">
+                        <div><label>Max open posities (max 4)</label><input type="number" id="max-open-positions" value="3" min="1" max="4"></div>
+                        <div><label>Hedge-reserve %</label><input type="number" id="hedge-reserve-pct" value="15"></div>
+                    </div>
+                    <small style="display:block; margin-top:12px; color:var(--text-dimmer); font-family:'JetBrains Mono',monospace; font-size:0.62rem;">MA- en RSI-parameters stel je nu direct bij de chart in (bij de MOVING AVERAGE / RSI-dropdowns hierboven in de Market Chart-sectie) - die gelden meteen, ook tijdens het draaien.</small>
+                </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap:wrap;">
+                <button id="btn-start-bot" onclick="startAutonomousBot()" class="btn btn-primary">Start Bot</button>
+                <button id="btn-stop-bot" onclick="stopAutonomousBot()" class="btn btn-danger" style="display:none;">Stop Bot</button>
+                <button onclick="updateLiveSettings()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);" title="Werkt de instellingen van de draaiende bot live bij. Let op: raakt ook al open posities. Voor schone data-evaluatie is Stop → Reset Wallet → Start meestal beter.">&#8635; Instellingen Live Bijwerken</button>
+                <span style="flex:1;"></span>
+                <button onclick="downloadBotSettings()" class="btn btn-ghost btn-mini">&#9881; Download Instellingen</button>
+                <button onclick="downloadAllData()" class="btn btn-ghost btn-mini" style="color:var(--teal); border-color:rgba(20,241,149,0.4);">&darr; Download All Data</button>
+            </div>
+
+            <!-- BOT STATUS STRIP -->
+            <div id="bot-monitor">
+                <div class="stat"><small>Status</small><div id="bot-status" style="color:var(--teal);">STANDBY</div></div>
+                <div class="stat"><small>Live P/L</small><div id="bot-pnl">0.00%</div></div>
+                <div class="stat"><small>Open Posities</small><div id="bot-position">Geen</div></div>
+                <div class="stat"><small>Laatste Actie</small><div id="bot-last-action" style="font-size:0.7rem; font-weight:500; line-height:1.4;">-</div></div>
+            </div>
+
+            <!-- LIVE REASONING PANEL -->
+            <div id="bot-reasoning-wrap">
+                <div class="rlabel">&#9679; Beredenering (live) — continue unpacking van elke berekeningsstap</div>
+                <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
+            </div>
+
+            <!-- WALLET STATUS: neon rand + icoon -->
+            <div class="wallet-panel">
+                <div class="wallet-header">
+                    <div class="titlewrap">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><circle cx="17" cy="14" r="1.3" fill="currentColor" stroke="none"/></svg>
+                        Wallet Status
+                    </div>
+                    <button onclick="resetWallet()" class="btn btn-ghost btn-mini">&#9851; Reset Wallet</button>
+                </div>
+                <div class="wallet-grid">
+                    <div><div class="wlabel">Equity (dynamisch)</div><div id="wallet-equity" class="wvalue">€1000.00</div></div>
+                    <div><div class="wlabel">Balance (gerealiseerd)</div><div id="wallet-balance" class="wvalue">€1000.00</div></div>
+                    <div><div class="wlabel">Gerealiseerd P/L</div><div id="wallet-realized-pnl" class="wvalue">€0.00</div></div>
+                    <div><div class="wlabel">Open P/L (unrealized)</div><div id="wallet-unrealized-pnl" class="wvalue">€0.00</div></div>
+                    <div><div class="wlabel">Allocatie</div><div id="wallet-allocated-pct" class="wvalue">0.0%</div></div>
+                    <div><div class="wlabel">Open Posities</div><div id="wallet-open-count" class="wvalue">0</div></div>
+                    <div><div class="wlabel">Win Rate</div><div id="wallet-winrate" class="wvalue">--</div></div>
+                </div>
+            </div>
+
+            <div class="subhead" style="margin-top:8px;">Open Posities</div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Type</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size (BTC)</th><th>Size (€)</th><th>Alloc %</th><th>P/L %</th><th>P/L €</th></tr></thead>
+                    <tbody id="open-positions-body">
+                        <tr><td colspan="9" style="text-align:center; color:var(--text-dim); padding: 8px;">Geen open posities</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="subhead">Pending Orders <span style="font-weight:400; color:var(--text-dimmer); font-size:0.85em; text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
+            <div id="pending-orders-list" style="font-family: 'JetBrains Mono',monospace; font-size: 0.8em; color: var(--text-primary);">
+                <span style="color:var(--text-dim);">Geen pending orders</span>
+            </div>
+
+            <div class="subhead">Gesloten Posities — Huidige Sessie</div>
+            <div class="table-wrap scrollable">
+                <table>
+                    <thead><tr><th>Datum/Tijd</th><th>Type</th><th>Side</th><th>Prijs</th><th>Amount (BTC)</th><th>Size (€)</th><th>P/L</th></tr></thead>
+                    <tbody id="history-body"></tbody>
+                </table>
             </div>
         </div>
-        <div>
-            <label>RSI periode / OB / OS</label><br>
-            <div style="display:flex; gap:3px;">
-                <input type="number" id="rsi-period" value="14" onchange="applyRSISettings()" style="width: 34%; background: #131722; color: #c678dd; border: 1px solid #c678dd; padding: 8px 2px; border-radius: 4px;">
-                <input type="number" id="rsi-overbought" value="70" onchange="applyRSISettings()" style="width: 33%; background: #131722; color: #ef5350; border: 1px solid #ef5350; padding: 8px 2px; border-radius: 4px;">
-                <input type="number" id="rsi-oversold" value="30" onchange="applyRSISettings()" style="width: 33%; background: #131722; color: #26a69a; border: 1px solid #26a69a; padding: 8px 2px; border-radius: 4px;">
-            </div>
+
+        <!-- ============ PRICE & VOLUME HISTORY SECTION ============ -->
+        <div class="hud">
+            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
+            <div class="eyebrow">PRIJS &amp; VOLUME HISTORIE — 15M<span class="fill"></span><button onclick="downloadPriceVolumeHistory()" class="btn btn-ghost btn-mini">&darr; Download Historie</button></div>
+            <div id="history-list"></div>
         </div>
-    </div>
 
-    <div style="display: flex; align-items: center; gap: 5px; margin-top: 10px;">
-        <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold; flex: 1;">🚀 START BOT</button>
-        <button id="btn-stop-bot" onclick="stopAutonomousBot()" style="display:none; padding: 10px 20px; background: #ff4444; border: none; cursor: pointer; font-weight: bold; flex: 1;">🛑 STOP BOT</button>
     </div>
-
-    <div id="bot-monitor" style="display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 10px; margin-bottom: 20px; border-top: 1px solid #333; padding-top: 15px;">
-        <div style="background: #1a1a1a; padding: 10px;">
-            <small style="color: #888;">Status:</small>
-            <div id="bot-status" style="font-weight: bold; color: #00ffcc;">STANDBY</div>
-        </div>
-        <div style="background: #1a1a1a; padding: 10px; grid-row: span 2; overflow-y: auto; max-height: 220px;">
-            <small style="color: #888;">Beredenering (live):</small>
-            <div id="bot-reasoning" style="margin-top: 6px;"><span style="color:#888; font-size:0.85em;">Geen open posities.</span></div>
-        </div>
-        <div style="background: #1a1a1a; padding: 10px;">
-            <small style="color: #888;">Live P/L:</small>
-            <div id="bot-pnl" style="font-weight: bold;">0.00%</div>
-        </div>
-        <div style="background: #1a1a1a; padding: 10px;">
-            <small style="color: #888;">Open Posities:</small>
-            <div id="bot-position">Geen</div>
-        </div>
-        <div style="background: #1a1a1a; padding: 10px;">
-            <small style="color: #888;">Laatste Actie:</small>
-            <div id="bot-last-action">-</div>
-        </div>
-    </div>
-
-    <!-- ACTIEVE SESSIE-INSTELLINGEN -->
-    <div style="background: #1a1a1a; border: 1px solid #555; border-radius: 8px; padding: 12px 15px; margin-bottom: 20px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom: 8px;">
-            <h3 style="margin: 0; font-size: 0.85em; color: #d1d4dc;">⚙️ Actieve Sessie-Instellingen</h3>
-            <button onclick="updateLiveSettings()" style="padding: 5px 10px; font-size: 11px; background: #444; color: #ffcc00; border: 1px solid #ffcc00; cursor: pointer; border-radius: 4px;" title="Werkt de instellingen van de draaiende bot live bij. Let op: raakt ook al open posities. Voor schone data-evaluatie is Stop → Reset Wallet → Start meestal beter.">🔄 Instellingen Live Bijwerken</button>
-        </div>
-        <div id="active-settings-panel"><span style="color:#888;">Bot staat stil - geen actieve sessie-instellingen.</span></div>
-    </div>
-
-    <!-- WALLET STATUS -->
-    <div id="wallet-status" style="background: #1a1a1a; border: 1px solid #00ffcc; border-radius: 8px; padding: 15px; margin-bottom: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <h3 style="margin: 0; font-size: 0.9em; color: #00ffcc;">💰 Wallet Status</h3>
-            <button onclick="resetWallet()" style="padding: 5px 10px; font-size: 11px; background: #444; color: #fff; border: none; cursor: pointer; border-radius: 4px;">♻️ Reset Wallet</button>
-        </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; font-family: monospace;">
-            <div><small style="color:#888;">Equity (dynamisch)</small><div id="wallet-equity" style="font-weight:bold;">€1000.00</div></div>
-            <div><small style="color:#888;">Balance (gerealiseerd)</small><div id="wallet-balance" style="font-weight:bold;">€1000.00</div></div>
-            <div><small style="color:#888;">Gerealiseerd P/L</small><div id="wallet-realized-pnl" style="font-weight:bold;">€0.00</div></div>
-            <div><small style="color:#888;">Open P/L (unrealized)</small><div id="wallet-unrealized-pnl" style="font-weight:bold;">€0.00</div></div>
-            <div><small style="color:#888;">Allocatie</small><div id="wallet-allocated-pct" style="font-weight:bold;">0.0%</div></div>
-            <div><small style="color:#888;">Open Posities</small><div id="wallet-open-count" style="font-weight:bold;">0</div></div>
-            <div><small style="color:#888;">Win Rate</small><div id="wallet-winrate" style="font-weight:bold;">--</div></div>
-        </div>
-    </div>
-
-    <!-- OPEN POSITIONS (hedging: kan LONG + SHORT tegelijk tonen) -->
-    <div style="margin-bottom: 20px; overflow-x: auto;">
-        <h3 style="font-size: 0.9em; color: #fff;">📊 Open Posities</h3>
-        <table style="width:100%; color:white; border-collapse: collapse; text-align: left; font-family: monospace; font-size: 0.85em;">
-            <thead>
-                <tr style="border-bottom: 1px solid #444;">
-                    <th style="padding: 5px;">Type</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size (BTC)</th><th>Size (€)</th><th>Alloc %</th><th>P/L %</th><th>P/L €</th>
-                </tr>
-            </thead>
-            <tbody id="open-positions-body">
-                <tr><td colspan="9" style="text-align:center; color:#888; padding: 8px;">Geen open posities</td></tr>
-            </tbody>
-        </table>
-    </div>
-
-    <!-- PENDING ORDERS: Osiris' zelfgekozen instapniveaus -->
-    <div style="margin-bottom: 20px;">
-        <h3 style="font-size: 0.9em; color: #fff;">⏳ Pending Orders (Osiris wacht op instapprijs)</h3>
-        <div id="pending-orders-list" style="font-family: monospace; font-size: 0.85em; color: #d1d4dc;">
-            <span style="color:#888;">Geen pending orders</span>
-        </div>
-    </div>
-
-    <div style="text-align: right;">
-        <button onclick="downloadBotSettings()" style="padding: 8px 16px; font-size: 12px; background: #444; color: #fff; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; margin-right: 8px;">⚙️ Download Instellingen</button>
-        <button onclick="downloadAllData()" style="padding: 8px 16px; font-size: 12px; background: #00ffcc; color: #131722; border: none; cursor: pointer; font-weight: bold; border-radius: 4px;">📥 Download All Data</button>
-    </div>
-</div>
-        <div class="card" style="margin-top: 20px; padding: 15px; background: #1f2233; border-radius: 8px; overflow-x: auto;">
-    <h3>Laatste 10 Posities</h3>
-    <table id="trade-history" style="width:100%; color:white; border-collapse: collapse; text-align: left;">
-        <thead>
-            <tr style="border-bottom: 1px solid #444;">
-                <th>Datum/Tijd</th><th>Side</th><th>Prijs</th><th>Amount (BTC)</th><th>Size (€)</th><th>P/L</th>
-            </tr>
-        </thead>
-        <tbody id="history-body">
-            </tbody>
-    </table>
-</div>
-<div class="orisis-container orisis-3col" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px;">
-    <div style="padding: 10px; background: #1f2233; border: 1px solid #00ffcc; border-radius: 5px; text-align: center;">
-        <h4 style="margin:0; font-size: 0.7em; color:#00ffcc;">MICRO (9)</h4>
-        <small>Bull: <span id="mic-bull">--</span></small><br>
-        <small>Bear: <span id="mic-bear">--</span></small>
-    </div>
-    <div style="padding: 10px; background: #1f2233; border: 1px solid #ffff00; border-radius: 5px; text-align: center;">
-        <h4 style="margin:0; font-size: 0.7em; color:#ffff00;">MESO (36)</h4>
-        <small>Bull: <span id="mes-bull">--</span></small><br>
-        <small>Bear: <span id="mes-bear">--</span></small>
-    </div>
-    <div style="padding: 10px; background: #1f2233; border: 1px solid #ff00ff; border-radius: 5px; text-align: center;">
-        <h4 style="margin:0; font-size: 0.7em; color:#ff00ff;">MACRO (144)</h4>
-        <small>Bull: <span id="mac-bull">--</span></small><br>
-        <small>Bear: <span id="mac-bear">--</span></small>
-    </div>
-</div>
-
-    <div id="info-panel" style="margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
-        <h3 style="font-size: 0.9em; color: #ffffff;">RESET [Vortex 9]</h3>
-        <p id="next-reset" style="font-family: monospace; font-size: 1.1em; color: #ffffff;">Berekenen...</p>
-    </div>
-    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
-        <h3 style="font-size: 0.9em; color: #ffff00;">VOLA [Node 1]</h3>
-        <p id="next-vola" style="font-family: monospace; font-size: 1.1em; color: #ffff00;">Berekenen...</p>
-    </div>
-    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
-        <h3 style="font-size: 0.9em; color: #00ffcc;">CORE [Vortex 3/6]</h3>
-        <p id="next-core" style="font-family: monospace; font-size: 1.1em; color: #00ffcc;">Berekenen...</p>
-    </div>
-    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
-        <h3 style="font-size: 0.9em; color: #888888;">OSC [Node 2/4/5/7]</h3>
-        <p id="next-osc" style="font-family: monospace; font-size: 1.1em; color: #888888;">Berekenen...</p>
-    </div>
-        <div class="card" style="padding: 15px; background: #1f2233; border: 1px solid #ffcc00; border-radius: 8px;">
-        <h3 style="font-size: 0.9em; color: #ffcc00;">MID PULSE</h3>
-        <p id="mid-pulse-display" style="font-family: monospace; font-size: 1.1em; color: #fff;">Berekenen...</p>
-    </div>
-    <div class="card" style="padding: 15px; background: #1f2233; border: 1px solid #00ffcc; border-radius: 8px;">
-        <h3 style="font-size: 0.9em; color: #00ffcc;">NEXT NODE</h3>
-        <p id="next-node-display" style="font-family: monospace; font-size: 1.1em; color: #fff;">Berekenen...</p>
-    </div>
-</div>
-
-<div class="metrics-container" style="display: flex; gap: 15px; margin-top: 20px;">
-    <div class="card" style="flex: 1; padding: 20px; text-align: center; background: #1f2233; border-radius: 8px;">
-        <h3 style="margin: 0 0 10px 0; font-size: 0.9em; opacity: 0.7;">LIVE VOLUME (BTC)</h3>
-        <p id="live-volume" style="font-size: 2em; color: #ff9900; margin: 0; font-weight: bold;">Wachten...</p>
-    </div>
-    <div class="card" style="flex: 1; padding: 20px; text-align: center; background: #1f2233; border-radius: 8px; display: flex; flex-direction: column; justify-content: center;">
-        <p style="margin: 5px 0; font-weight: bold;">Volume Rate: <span id="vol-rate" style="color: #fff;">0%</span></p>
-        <p style="margin: 5px 0; font-weight: bold;">Score: <span id="vol-score" style="color: #ff9900;">0/100</span></p>
-    </div>
-</div>
-
-<div class="metrics-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 20px;">
-    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
-        <h3>VFM</h3><p id="vfm-display">0.00</p><small id="vfm-status">Wachten...</small>
-    </div>
-    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
-        <h3>ER (Energy Ratio)</h3><p id="er-display">0.00</p><small id="er-status">Ref: 1.0</small>
-    </div>
-    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
-        <h3>DB (Delta Balance)</h3><p id="db-display">0.00</p><small id="db-status">Bereik: -1 tot 1</small>
-    </div>
-    <div class="card" style="padding: 15px; background: #1f2233; border-radius: 8px;">
-        <h3>Chaos Index</h3><p id="chaos-display">0.00%</p><small id="chaos-status">Limit: 8% / 15%</small>
-    </div>
-</div>
-
-<div class="card" style="margin-top: 20px; padding: 15px; background: #1f2233; border-radius: 8px;">
-    <h3>Market Pressure (Buyers vs Sellers)</h3>
-    
-    <div id="sentiment-bar-container" style="width: 100%; height: 20px; background: #131722; border-radius: 10px; overflow: hidden; display: flex; position: relative; margin-top: 10px;">
-        <div id="sentiment-bar-green" style="width: 50%; height: 100%; background: #00ffcc; transition: width 0.3s ease;"></div>
-        <div id="sentiment-bar-red" style="width: 50%; height: 100%; background: #ef5350; transition: width 0.3s ease;"></div>
-    </div>
-    
-    <div style="display: flex; justify-content: space-between; font-size: 0.7em; margin-top: 5px; color: #888; padding: 0 5px;">
-        <span>BUYERS</span>
-        <span>SELLERS</span>
-    </div>
-</div>
-
-<div class="card" style="margin-top: 20px; padding: 15px; background: #1f2233; border-radius: 8px;">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="margin: 0;">Prijs & Volume Historie (Laatste 10)</h3>
-        <button onclick="downloadPriceVolumeHistory()" style="padding: 5px 10px; font-size: 11px; background: #444; color: #fff; border: none; cursor: pointer; border-radius: 4px;">📥 Download Historie</button>
-    </div>
-    <div id="history-list"></div>
-</div>
-</div>
-    <script src="/Osiris/app.js?v=20260711-1"></script>
+    <script src="/Osiris/app.js?v=20260711-2"></script>
 </body>
 </html>
