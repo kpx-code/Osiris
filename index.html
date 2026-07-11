@@ -24,7 +24,9 @@
 
         .table-wrap { overflow-x: auto; }
         table { width: 100%; }
+        img, svg, canvas { max-width: 100%; }
 
+        /* Tablet / grote telefoon */
         @media (max-width: 768px) {
             #dashboard { padding: 10px; }
             header h1 { font-size: 1.2em; }
@@ -38,10 +40,28 @@
             #info-panel { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important; gap: 8px !important; }
             table { font-size: 0.75em; }
             #bot-control-hub, .card { padding: 12px !important; }
+            #wallet-status > div[style*="grid-template-columns"] { grid-template-columns: repeat(auto-fit, minmax(100px,1fr)) !important; }
+            #active-settings-panel > div { grid-template-columns: repeat(auto-fit, minmax(130px,1fr)) !important; }
         }
 
-        @media (max-width: 420px) {
+        /* Kleine telefoon */
+        @media (max-width: 480px) {
+            #dashboard { padding: 6px; }
+            header h1 { font-size: 1em; }
+            header h2 { font-size: 0.7em; }
+            .grid-row { grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 6px; }
+            .grid-row label { font-size: 0.75em; }
+            .grid-row input, .grid-row select { padding: 6px; font-size: 0.85em; }
             .metrics-grid { grid-template-columns: 1fr !important; }
+            table { font-size: 0.65em; }
+            h3 { font-size: 0.85em !important; }
+            h4 { font-size: 0.72em !important; }
+            #bot-control-hub h2 { font-size: 1.1em; }
+            /* Start/Stop knoppen onder elkaar i.p.v. naast elkaar op een smal scherm */
+            #bot-control-hub > div[style*="flex"][style*="align-items: center"][style*="margin-top: 10px"] {
+                flex-direction: column;
+            }
+            .card, #bot-control-hub, #wallet-status, #active-settings-panel { padding: 8px !important; }
         }
     </style>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
@@ -57,7 +77,7 @@
 <body>
     <div id="dashboard">
         <header>
-    <h1>OSIRIS INTELLIGENCE V1.3.16 <span class="live-dot"></span></h1>
+    <h1>OSIRIS INTELLIGENCE V1.3.17 <span class="live-dot"></span></h1>
     <h2>QUANTUM PRECISION LIVE MARKET TRACKING</h2>
     <p>This project is currently under construction by KPX</p>
     <nav style="display: block; margin-top: 10px;">
@@ -161,13 +181,25 @@
     </div>
 </div>
 <div id="bot-control-hub" style="background: #121212; padding: 20px; border: 1px solid #333; border-radius: 12px; color: #fff; font-family: sans-serif;">
-    <h2 style="margin-top: 0; color: #ff00ff;">🤖 Osiris Engine</h2>
+    <h2 style="margin-top: 0; color: #ff00ff;">🤖 Osiris Autonomous Agent</h2>
     <div style="background: #1a1a1a; padding: 10px;">
     <small style="color: #888;">Runtime:</small>
     <div id="bot-runtime" style="font-weight: bold; color: #fff;">00:00:00</div>
 </div>
 
-    <div id="bot-config" class="grid-row" style="margin-bottom: 20px;">
+    <!-- PRESET -->
+    <div style="margin: 15px 0; padding: 12px 15px; background: #1a1a1a; border: 1px solid #555; border-radius: 8px;">
+        <label style="font-size: 0.85em;">PRESET</label><br>
+        <select id="preset-select" onchange="applyPreset(this.value)" style="padding: 8px; background: #131722; color: #00ffcc; border: 1px solid #00ffcc; border-radius: 4px; margin-top: 4px;">
+            <option value="MANUAL" selected>Handmatig</option>
+            <option value="CONSERVATIVE">Conservatief</option>
+            <option value="BALANCED">Balanced</option>
+            <option value="AGGRESSIVE">Agressief</option>
+        </select>
+        <small style="display:block; color:#888; margin-top:6px;">Vult alle velden hieronder in één keer in (zie de tabel in de User Manual §5). Je kunt daarna nog los tweaken - dat verandert dit dropdown terug naar "Handmatig" niet automatisch, het is puur een startpunt.</small>
+    </div>
+
+    <div class="grid-row" style="margin-bottom: 14px;">
         <div>
             <label>Start Kapitaal</label><br>
             <input type="number" id="start-capital" value="1000">
@@ -179,6 +211,10 @@
                 <option value="USD">USD ($)</option>
             </select>
         </div>
+    </div>
+
+    <h4 style="color: #4287f5; font-size: 0.8em; margin: 16px 0 8px 0; border-bottom: 1px solid #333; padding-bottom: 4px;">🎯 TREND ENGINE</h4>
+    <div id="bot-config" class="grid-row" style="margin-bottom: 14px;">
         <div>
             <label>Max % per trade</label><br>
             <input type="number" id="max-allocation-pct" value="70">
@@ -200,14 +236,6 @@
             <input type="number" id="min-projected-profit-pct" value="1">
         </div>
         <div>
-            <label>Max open posities (max 4)</label><br>
-            <input type="number" id="max-open-positions" value="3" min="1" max="4">
-        </div>
-        <div>
-            <label>Hedge-reserve %</label><br>
-            <input type="number" id="hedge-reserve-pct" value="15">
-        </div>
-        <div>
             <label>Pending order geldig (min)</label><br>
             <input type="number" id="pending-order-ttl" value="30">
         </div>
@@ -220,6 +248,17 @@
             <input type="number" id="continuation-confirmation-sec" value="20">
         </div>
         <div>
+            <label>Chase: min. kans % / na (min)</label><br>
+            <div style="display:flex; gap:4px;">
+                <input type="number" id="chase-probability-pct" value="90" style="width:50%;">
+                <input type="number" id="chase-after-minutes" value="10" style="width:50%;">
+            </div>
+        </div>
+    </div>
+
+    <h4 style="color: #c678dd; font-size: 0.8em; margin: 16px 0 8px 0; border-bottom: 1px solid #333; padding-bottom: 4px;">⚡ RANGE-SCALP ENGINE</h4>
+    <div class="grid-row" style="margin-bottom: 14px;">
+        <div>
             <label>Range-scalp doel %</label><br>
             <input type="number" id="range-scalp-target-pct" value="0.3" step="0.1">
         </div>
@@ -231,13 +270,22 @@
             <label>Range-scalp alloc %</label><br>
             <input type="number" id="range-scalp-alloc-pct" value="10">
         </div>
+    </div>
+
+    <h4 style="color: #ffcc00; font-size: 0.8em; margin: 16px 0 8px 0; border-bottom: 1px solid #333; padding-bottom: 4px;">🔗 GEDEELD (BEIDE ENGINES)</h4>
+    <div class="grid-row" style="margin-bottom: 14px;">
         <div>
-            <label>Chase: min. kans % / na (min)</label><br>
-            <div style="display:flex; gap:4px;">
-                <input type="number" id="chase-probability-pct" value="90" style="width:50%;">
-                <input type="number" id="chase-after-minutes" value="10" style="width:50%;">
-            </div>
+            <label>Max open posities (max 4)</label><br>
+            <input type="number" id="max-open-positions" value="3" min="1" max="4">
         </div>
+        <div>
+            <label>Hedge-reserve %</label><br>
+            <input type="number" id="hedge-reserve-pct" value="15">
+        </div>
+    </div>
+
+    <h4 style="color: #ffa500; font-size: 0.8em; margin: 16px 0 8px 0; border-bottom: 1px solid #333; padding-bottom: 4px;">📊 INDICATOREN (live-instelbaar, ook tijdens draaien)</h4>
+    <div class="grid-row" style="margin-bottom: 14px;">
         <div>
             <label>MA Fast / Slow periode</label><br>
             <div style="display:flex; gap:4px;">
@@ -253,10 +301,11 @@
                 <input type="number" id="rsi-oversold" value="30" onchange="applyRSISettings()" style="width: 33%; background: #131722; color: #26a69a; border: 1px solid #26a69a; padding: 8px 2px; border-radius: 4px;">
             </div>
         </div>
-        <div style="display: flex; align-items: flex-end; gap: 5px;">
-            <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold; flex: 1;">🚀 START BOT</button>
-            <button id="btn-stop-bot" onclick="stopAutonomousBot()" style="display:none; padding: 10px 20px; background: #ff4444; border: none; cursor: pointer; font-weight: bold; flex: 1;">🛑 STOP BOT</button>
-        </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 5px; margin-top: 10px;">
+        <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold; flex: 1;">🚀 START BOT</button>
+        <button id="btn-stop-bot" onclick="stopAutonomousBot()" style="display:none; padding: 10px 20px; background: #ff4444; border: none; cursor: pointer; font-weight: bold; flex: 1;">🛑 STOP BOT</button>
     </div>
 
     <div id="bot-monitor" style="display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 10px; margin-bottom: 20px; border-top: 1px solid #333; padding-top: 15px;">
@@ -284,7 +333,10 @@
 
     <!-- ACTIEVE SESSIE-INSTELLINGEN -->
     <div style="background: #1a1a1a; border: 1px solid #555; border-radius: 8px; padding: 12px 15px; margin-bottom: 20px;">
-        <h3 style="margin: 0 0 8px 0; font-size: 0.85em; color: #d1d4dc;">⚙️ Actieve Sessie-Instellingen</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom: 8px;">
+            <h3 style="margin: 0; font-size: 0.85em; color: #d1d4dc;">⚙️ Actieve Sessie-Instellingen</h3>
+            <button onclick="updateLiveSettings()" style="padding: 5px 10px; font-size: 11px; background: #444; color: #ffcc00; border: 1px solid #ffcc00; cursor: pointer; border-radius: 4px;" title="Werkt de instellingen van de draaiende bot live bij. Let op: raakt ook al open posities. Voor schone data-evaluatie is Stop → Reset Wallet → Start meestal beter.">🔄 Instellingen Live Bijwerken</button>
+        </div>
         <div id="active-settings-panel"><span style="color:#888;">Bot staat stil - geen actieve sessie-instellingen.</span></div>
     </div>
 
@@ -311,11 +363,11 @@
         <table style="width:100%; color:white; border-collapse: collapse; text-align: left; font-family: monospace; font-size: 0.85em;">
             <thead>
                 <tr style="border-bottom: 1px solid #444;">
-                    <th style="padding: 5px;">Side</th><th>Entry</th><th>Entry tijd</th><th>Size (BTC)</th><th>Size (€)</th><th>Alloc %</th><th>P/L %</th><th>P/L €</th>
+                    <th style="padding: 5px;">Type</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size (BTC)</th><th>Size (€)</th><th>Alloc %</th><th>P/L %</th><th>P/L €</th>
                 </tr>
             </thead>
             <tbody id="open-positions-body">
-                <tr><td colspan="8" style="text-align:center; color:#888; padding: 8px;">Geen open posities</td></tr>
+                <tr><td colspan="9" style="text-align:center; color:#888; padding: 8px;">Geen open posities</td></tr>
             </tbody>
         </table>
     </div>
@@ -438,6 +490,6 @@
     <div id="history-list"></div>
 </div>
 </div>
-    <script src="/Osiris/app.js?v=20260710-3"></script>
+    <script src="/Osiris/app.js?v=20260711-1"></script>
 </body>
 </html>
