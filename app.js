@@ -969,6 +969,17 @@ function toggleConfigPanel() {
     const nowOpen = body.classList.toggle('open');
     if (chevron) chevron.classList.toggle('open', nowOpen);
 }
+
+function toggleReasoningPanel() {
+    const body = document.getElementById('reasoning-body');
+    const chevron = document.getElementById('reasoning-chevron');
+    if (!body) return;
+    const willBeOpen = !body.classList.contains('open');
+    body.classList.toggle('open', willBeOpen);
+    body.style.maxHeight = willBeOpen ? '320px' : '0px';
+    body.style.overflowY = willBeOpen ? 'scroll' : 'hidden';
+    if (chevron) chevron.classList.toggle('open', willBeOpen);
+}
 function collapseConfigPanel() {
     const body = document.getElementById('config-body');
     const chevron = document.getElementById('config-chevron');
@@ -2658,7 +2669,7 @@ function updateInfoPanel() {
         }
         
         const nextMidTime = ANCHOR_TIME + (targetMidIndex * T_PI_MS);
-        midPulseEl.innerText = formatCountdown(nextMidTime);
+        midPulseEl.innerText = `${formatDateTime(nextMidTime)} (${formatCountdown(nextMidTime)})`;
     }
 
     // Next Node: De absolute eerstvolgende node (Reset/Vola/Vortex/etc)
@@ -2670,7 +2681,7 @@ function updateInfoPanel() {
         let relIdx = ((nextIdx % 8) + 8) % 8;
         let type = ['RESET', 'VOLA', 'OSC', 'VORTEX 3', 'OSC', 'OSC', 'VORTEX 6', 'OSC'][relIdx];
         
-        nextNodeEl.innerText = `${formatCountdown(nextTime)} | ${type}`;
+        nextNodeEl.innerText = `${formatDateTime(nextTime)} (${formatCountdown(nextTime)}) | ${type}`;
     }
 }
 
