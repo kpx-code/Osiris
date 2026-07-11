@@ -1328,7 +1328,7 @@ function getPositionReasoning(pos) {
     let chanceTxt = '';
     if (pos.probabilityPct !== null && pos.probabilityPct !== undefined) {
         const liveCheck = evaluateContinuation(pos.side);
-        chanceTxt = ` | winkans nu ~${liveCheck.probabilityPct.toFixed(0)}% (bij entry ~${pos.probabilityPct.toFixed(0)}%) / verlieskans nu ~${(100 - liveCheck.probabilityPct).toFixed(0)}%`;
+        chanceTxt = ` | winkans nu ${formatConfidencePct(liveCheck.probabilityPct)} (bij entry ${formatConfidencePct(pos.probabilityPct)}) / verlieskans nu ${formatConfidencePct(100 - liveCheck.probabilityPct)}`;
     }
 
     return `[${pos.isScalp ? 'SCALP' : 'TREND'}] ${pos.side} @ ${formatChartPrice(pos.entryPrice)} | P/L ${(pnlPct * 100).toFixed(2)}% | ${zone}${detail ? ': ' + detail : ''}${confirmTxt}${chanceTxt}`;
@@ -1376,7 +1376,7 @@ function generateLiveNarration() {
     lines.push(indicatorTxt);
 
     const confDirs = getDirectionalConfidences();
-    lines.push(`EINDSCORE · LONG ${confDirs.bullish.toFixed(0)}% vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bullish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'}) \u00b7 SHORT ${confDirs.bearish.toFixed(0)}% vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bearish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'})`);
+    lines.push(`EINDSCORE \u00b7 LONG ${formatConfidencePct(confDirs.bullish)} vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bullish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'}) \u00b7 SHORT ${formatConfidencePct(confDirs.bearish)} vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bearish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'})`);
 
     lines.push(`STATUS · ${lastOsirisDecision.decision}`);
 
@@ -1481,9 +1481,9 @@ function updatePendingOrdersUI() {
     // engine opent altijd meteen tegen de live prijs, dus deze lijst is per
     // definitie nooit een scalp. Vandaar de vaste [TREND]-tag hier.
     el.innerHTML = pendingOrders.map(o => {
-        const winChance = o.probabilityPct.toFixed(0);
-        const lossChance = (100 - o.probabilityPct).toFixed(0);
-        return `<div>${o.side === 'LONG' ? '🟢' : '🔴'} [TREND] ${o.side} wacht op ${formatChartPrice(o.triggerPrice)} (winkans ~${winChance}% / verlieskans ~${lossChance}%, verwacht +${o.projectedProfitPct.toFixed(2)}%)</div>`;
+        const winChance = formatConfidencePct(o.probabilityPct);
+        const lossChance = formatConfidencePct(100 - o.probabilityPct);
+        return `<div>${o.side === 'LONG' ? '🟢' : '🔴'} [TREND] ${o.side} wacht op ${formatChartPrice(o.triggerPrice)} (winkans ${winChance} / verlieskans ${lossChance}, verwacht +${o.projectedProfitPct.toFixed(2)}%)</div>`;
     }).join('');
 }
 
@@ -1642,6 +1642,17 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
 // richting-specifiek waren. Nu telt confluence alleen mee als steun wanneer
 // de kant van de positie overeenkomt met de waargenomen marktrichting; bij
 // een tegengestelde richting trekt het er juist fors vanaf.
+// FIX: calculateProbabilityScore clampt de ruwe score altijd naar [0,100] -
+// een ruwe score van 101.81 en eentje van 180 zien er dus BEIDE identiek uit
+// als "100%", wat een schijnzekerheid wekt die de heuristiek niet heeft. Exact
+// 100 (of 0) raken is vrijwel altijd een teken dat de score geclampt is, niet
+// dat er letterlijk 100% zekerheid is. Toon dat eerlijk i.p.v. een harde 100%.
+function formatConfidencePct(pct) {
+    if (pct >= 100) return '\u2265 99%';
+    if (pct <= 0) return '\u2264 1%';
+    return `~${pct.toFixed(0)}%`;
+}
+
 function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0, momentumInfluence = 0, fibConfluenceInfluence = 0, side = null, isBullishNow = null) {
     let confluenceContribution = confluence * 9; // default (oud gedrag) als side/isBullishNow niet zijn meegegeven
     if (side !== null && isBullishNow !== null) {
