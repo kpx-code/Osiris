@@ -68,7 +68,11 @@
         input[type=number]:focus, select:focus{ outline:none; border-color:var(--teal); }
 
         .table-wrap { overflow-x: auto; }
-        .table-wrap.scrollable{ max-height: 340px; overflow-y: auto; }
+        .table-wrap.scrollable{ max-height: 340px; overflow-y: scroll; border: 1px solid rgba(255,255,255,0.08); }
+        .table-wrap.scrollable::-webkit-scrollbar{ width: 8px; }
+        .table-wrap.scrollable::-webkit-scrollbar-track{ background: var(--panel-2); }
+        .table-wrap.scrollable::-webkit-scrollbar-thumb{ background: var(--teal); }
+        .table-wrap.scrollable{ scrollbar-width: thin; scrollbar-color: var(--teal) var(--panel-2); }
         table { width: 100%; border-collapse:collapse; }
         th{ text-align:left; font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-dim); padding:0 10px 8px; border-bottom:1px solid var(--line); white-space:nowrap; position:sticky; top:0; background:#0d1420; }
         td{ font-family:'JetBrains Mono',monospace; font-size:0.76rem; padding:9px 10px; border-bottom:1px solid rgba(255,255,255,0.05); white-space:nowrap; }
@@ -84,7 +88,7 @@
 
         .ohlc-strip{ display:flex; gap:20px; flex-wrap:wrap; font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--text-dim); margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.06); }
         .ohlc-strip b{ color:var(--text-primary); font-weight:600; }
-        #chart-container{ min-height: 400px; }
+        #chart-container{ min-height: 400px; width: 100%; max-width: 100%; overflow: hidden; }
 
         /* ---- data section meters ---- */
         .data-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
@@ -137,8 +141,14 @@
         #bot-monitor .stat{ padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); }
         #bot-monitor .stat small{ display:block; font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px; }
         #bot-monitor .stat div{ font-family:'JetBrains Mono',monospace; font-weight:700; font-size:0.85rem; }
-        #bot-reasoning-wrap{ background:rgba(153,69,255,0.03); border:1px solid rgba(153,69,255,0.25); padding:14px 16px; margin-bottom:18px; max-height:340px; overflow-y:auto; }
-        #bot-reasoning-wrap .rlabel{ font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); margin-bottom:10px; }
+        #bot-reasoning-wrap{ background:#000000; border:1px solid #00ff41; padding:14px 16px; margin-bottom:18px; max-height:340px; overflow-y:scroll; box-shadow: inset 0 0 30px rgba(0,255,65,0.08); }
+        #bot-reasoning-wrap::-webkit-scrollbar{ width: 8px; }
+        #bot-reasoning-wrap::-webkit-scrollbar-track{ background: #000; }
+        #bot-reasoning-wrap::-webkit-scrollbar-thumb{ background: #00ff41; }
+        #bot-reasoning-wrap{ scrollbar-width: thin; scrollbar-color: #00ff41 #000; }
+        #bot-reasoning-wrap .rlabel{ font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:#00ff41; margin-bottom:10px; text-shadow:0 0 6px rgba(0,255,65,0.6); }
+        #bot-reasoning-wrap, #bot-reasoning-wrap * { color:#00ff41 !important; font-family:'JetBrains Mono',monospace !important; }
+        #bot-reasoning-wrap div { text-shadow:0 0 4px rgba(0,255,65,0.35); }
 
         .wallet-grid{ display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
         .wallet-grid .wlabel{ font-size:0.6rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px; font-family:'JetBrains Mono',monospace; }
@@ -256,17 +266,6 @@
                         <option value="VISIBLE">Zichtbaar</option>
                     </select>
                 </div>
-                <div class="toggle-item">
-                    <label>Horizon</label>
-                    <select id="prediction-horizon-select" onchange="handlePredictionHorizonSelect(this.value)">
-                        <option value="15m">15 min</option>
-                        <option value="30m">30 min</option>
-                        <option value="1h" selected>1 uur</option>
-                        <option value="2h">2 uur</option>
-                        <option value="4h">4 uur</option>
-                        <option value="24h">24 uur</option>
-                    </select>
-                </div>
             </div>
 
             <!-- Inline MA-instellingen: verschijnt zodra MA op Zichtbaar staat -->
@@ -297,6 +296,22 @@
                     <input type="number" id="rsi-oversold" value="30" onchange="applyRSISettings()">
                 </div>
                 <div class="hint">Direct instelbaar hier bij de chart - past ook meteen de range-scalp-engine aan, ook tijdens het draaien.</div>
+            </div>
+
+            <!-- Inline voorspelling-instellingen: verschijnt zodra Voorspelling op Zichtbaar staat -->
+            <div id="prediction-inline-settings" class="inline-settings-panel">
+                <div>
+                    <label style="color:#fff;">Horizon</label>
+                    <select id="prediction-horizon-select" onchange="handlePredictionHorizonSelect(this.value)">
+                        <option value="15m">15 min</option>
+                        <option value="30m">30 min</option>
+                        <option value="1h" selected>1 uur</option>
+                        <option value="2h">2 uur</option>
+                        <option value="4h">4 uur</option>
+                        <option value="24h">24 uur</option>
+                    </select>
+                </div>
+                <div class="hint">Bepaalt hoe ver de bullish/bearish-projectielijnen op de chart vooruitkijken.</div>
             </div>
 
             <div id="ohlc-overlay" class="ohlc-strip">
@@ -379,23 +394,11 @@
         <!-- ============ OSIRIS ENGINE SECTION ============ -->
         <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow">OSIRIS ENGINE V1.3.19<span class="fill"></span></div>
+            <div class="eyebrow">OSIRIS ENGINE<span class="fill"></span></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
                 <small style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);">Runtime</small>
                 <div id="bot-runtime" style="font-family:'JetBrains Mono',monospace; font-weight:700;">00:00:00</div>
-            </div>
-
-            <!-- PRESET -->
-            <div style="margin-bottom: 14px; padding: 12px 15px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.1);">
-                <label style="font-size: 0.7rem; font-family:'JetBrains Mono',monospace; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);">Preset</label><br>
-                <select id="preset-select" onchange="applyPreset(this.value)" style="margin-top:6px; color:var(--teal); border-color:var(--teal);">
-                    <option value="MANUAL" selected>Handmatig</option>
-                    <option value="CONSERVATIVE">Conservatief</option>
-                    <option value="BALANCED">Balanced</option>
-                    <option value="AGGRESSIVE">Agressief</option>
-                </select>
-                <small style="display:block; color:var(--text-dimmer); margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.64rem; line-height:1.5;">Vult alle velden hieronder in één keer in. Je kunt daarna nog los tweaken - dat verandert dit dropdown terug naar "Handmatig" niet automatisch, het is puur een startpunt.</small>
             </div>
 
             <!-- COLLAPSIBLE ENGINE CONFIGURATION -->
@@ -408,6 +411,18 @@
             </div>
             <div id="config-body" class="open">
                 <div class="config-inner">
+                    <!-- PRESET -->
+                    <div style="margin-bottom: 14px; padding: 12px 15px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.1);">
+                        <label style="font-size: 0.7rem; font-family:'JetBrains Mono',monospace; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);">Preset</label><br>
+                        <select id="preset-select" onchange="applyPreset(this.value)" style="margin-top:6px; color:var(--teal); border-color:var(--teal);">
+                            <option value="MANUAL" selected>Handmatig</option>
+                            <option value="CONSERVATIVE">Conservatief</option>
+                            <option value="BALANCED">Balanced</option>
+                            <option value="AGGRESSIVE">Agressief</option>
+                        </select>
+                        <small style="display:block; color:var(--text-dimmer); margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.64rem; line-height:1.5;">Vult alle velden hieronder in één keer in. Je kunt daarna nog los tweaken - dat verandert dit dropdown terug naar "Handmatig" niet automatisch, het is puur een startpunt.</small>
+                    </div>
+
                     <div class="grid-row" style="margin-bottom: 14px;">
                         <div>
                             <label>Start Kapitaal</label>
@@ -452,8 +467,15 @@
                     <div class="grid-row" style="margin-bottom: 4px;">
                         <div><label>Max open posities (max 4)</label><input type="number" id="max-open-positions" value="3" min="1" max="4"></div>
                         <div><label>Hedge-reserve %</label><input type="number" id="hedge-reserve-pct" value="15"></div>
+                        <div><label>Reallocatie aan/uit</label>
+                            <select id="reallocation-enabled">
+                                <option value="true" selected>Aan</option>
+                                <option value="false">Uit</option>
+                            </select>
+                        </div>
+                        <div><label>Reallocatie marge %</label><input type="number" id="reallocation-margin-pct" value="15"></div>
                     </div>
-                    <small style="display:block; margin-top:12px; color:var(--text-dimmer); font-family:'JetBrains Mono',monospace; font-size:0.62rem;">MA- en RSI-parameters stel je nu direct bij de chart in (bij de MOVING AVERAGE / RSI-dropdowns hierboven in de Market Chart-sectie) - die gelden meteen, ook tijdens het draaien.</small>
+                    <small style="display:block; margin-top:12px; color:var(--text-dimmer); font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.6;">Reallocatie: als er geen ruimte meer is (positie-cap vol, of hedge-reserve laat &lt;3% vrij), sluit de bot de zwakste bestaande positie (nog niet in de winst-hold-zone) vervroegd als een nieuwe kans minstens deze marge hoger scoort.<br>MA- en RSI-parameters stel je nu direct bij de chart in (bij de MOVING AVERAGE / RSI-dropdowns hierboven in de Market Chart-sectie) - die gelden meteen, ook tijdens het draaien.</small>
                 </div>
             </div>
 
