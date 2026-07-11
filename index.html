@@ -57,7 +57,7 @@
 <body>
     <div id="dashboard">
         <header>
-    <h1>OSIRIS INTELLIGENCE V1.308 <span class="live-dot"></span></h1>
+    <h1>OSIRIS INTELLIGENCE V1.2.77 <span class="live-dot"></span></h1>
     <h2>QUANTUM PRECISION LIVE MARKET TRACKING</h2>
     <p>This project is currently under construction by KPX</p>
     <nav style="display: block; margin-top: 10px;">
@@ -111,6 +111,20 @@
         <select id="currency-select" onchange="handleCurrencySelect(this.value)" style="background: #131722; color: #26a69a; border: 1px solid #26a69a; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
             <option value="USD" selected>USD ($)</option>
             <option value="EUR">EUR (€)</option>
+        </select>
+    </div>
+    <div>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">MOVING AVERAGE (20)</label>
+        <select id="ma-select" onchange="handleMovingAverageSelect(this.value)" style="background: #131722; color: #ffa500; border: 1px solid #ffa500; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
+            <option value="HIDDEN" selected>Verborgen</option>
+            <option value="VISIBLE">Zichtbaar</option>
+        </select>
+    </div>
+    <div>
+        <label style="color: #d1d4dc; font-size: 0.75em; display: block; margin-bottom: 4px;">RSI (14)</label>
+        <select id="rsi-select" onchange="handleRSISelect(this.value)" style="background: #131722; color: #c678dd; border: 1px solid #c678dd; padding: 6px 10px; border-radius: 4px; cursor: pointer;">
+            <option value="HIDDEN" selected>Verborgen</option>
+            <option value="VISIBLE">Zichtbaar</option>
         </select>
     </div>
     </div>
@@ -226,6 +240,12 @@
             <small style="color: #888;">Laatste Actie:</small>
             <div id="bot-last-action">-</div>
         </div>
+    </div>
+
+    <!-- ACTIEVE SESSIE-INSTELLINGEN -->
+    <div style="background: #1a1a1a; border: 1px solid #555; border-radius: 8px; padding: 12px 15px; margin-bottom: 20px;">
+        <h3 style="margin: 0 0 8px 0; font-size: 0.85em; color: #d1d4dc;">⚙️ Actieve Sessie-Instellingen</h3>
+        <div id="active-settings-panel"><span style="color:#888;">Bot staat stil - geen actieve sessie-instellingen.</span></div>
     </div>
 
     <!-- WALLET STATUS -->
