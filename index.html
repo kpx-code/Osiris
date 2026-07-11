@@ -32,6 +32,8 @@
             .grid-row { grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); gap: 8px; }
             .metrics-container { flex-direction: column !important; }
             .metrics-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+            #bot-monitor { grid-template-columns: 1fr !important; }
+            #bot-monitor > div[style*="span 2"] { max-height: 160px !important; }
             .orisis-3col { grid-template-columns: 1fr !important; }
             #info-panel { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important; gap: 8px !important; }
             table { font-size: 0.75em; }
@@ -55,7 +57,7 @@
 <body>
     <div id="dashboard">
         <header>
-    <h1>OSIRIS INTELLIGENCE V1.2.77 <span class="live-dot"></span></h1>
+    <h1>OSIRIS INTELLIGENCE V1.308 <span class="live-dot"></span></h1>
     <h2>QUANTUM PRECISION LIVE MARKET TRACKING</h2>
     <p>This project is currently under construction by KPX</p>
     <nav style="display: block; margin-top: 10px;">
@@ -181,16 +183,36 @@
             <label>Min. verlies % voor vroege exit</label><br>
             <input type="number" id="min-loss-early-exit" value="0.3" step="0.1">
         </div>
+        <div>
+            <label>Bevestigingstijd exit (sec)</label><br>
+            <input type="number" id="continuation-confirmation-sec" value="20">
+        </div>
+        <div>
+            <label>Range-scalp doel %</label><br>
+            <input type="number" id="range-scalp-target-pct" value="0.3" step="0.1">
+        </div>
+        <div>
+            <label>Range-scalp stop %</label><br>
+            <input type="number" id="range-scalp-stop-pct" value="0.5" step="0.1">
+        </div>
+        <div>
+            <label>Range-scalp alloc %</label><br>
+            <input type="number" id="range-scalp-alloc-pct" value="10">
+        </div>
         <div style="display: flex; align-items: flex-end; gap: 5px;">
             <button id="btn-start-bot" onclick="startAutonomousBot()" style="padding: 10px 20px; background: #00ffcc; border: none; cursor: pointer; font-weight: bold; flex: 1;">🚀 START BOT</button>
             <button id="btn-stop-bot" onclick="stopAutonomousBot()" style="display:none; padding: 10px 20px; background: #ff4444; border: none; cursor: pointer; font-weight: bold; flex: 1;">🛑 STOP BOT</button>
         </div>
     </div>
 
-    <div id="bot-monitor" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; border-top: 1px solid #333; padding-top: 15px;">
+    <div id="bot-monitor" style="display: grid; grid-template-columns: 1fr 1.6fr 1fr; gap: 10px; margin-bottom: 20px; border-top: 1px solid #333; padding-top: 15px;">
         <div style="background: #1a1a1a; padding: 10px;">
             <small style="color: #888;">Status:</small>
             <div id="bot-status" style="font-weight: bold; color: #00ffcc;">STANDBY</div>
+        </div>
+        <div style="background: #1a1a1a; padding: 10px; grid-row: span 2; overflow-y: auto; max-height: 220px;">
+            <small style="color: #888;">Beredenering (live):</small>
+            <div id="bot-reasoning" style="margin-top: 6px;"><span style="color:#888; font-size:0.85em;">Geen open posities.</span></div>
         </div>
         <div style="background: #1a1a1a; padding: 10px;">
             <small style="color: #888;">Live P/L:</small>
@@ -247,6 +269,7 @@
     </div>
 
     <div style="text-align: right;">
+        <button onclick="downloadBotSettings()" style="padding: 8px 16px; font-size: 12px; background: #444; color: #fff; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; margin-right: 8px;">⚙️ Download Instellingen</button>
         <button onclick="downloadAllData()" style="padding: 8px 16px; font-size: 12px; background: #00ffcc; color: #131722; border: none; cursor: pointer; font-weight: bold; border-radius: 4px;">📥 Download All Data</button>
     </div>
 </div>
@@ -348,7 +371,10 @@
 </div>
 
 <div class="card" style="margin-top: 20px; padding: 15px; background: #1f2233; border-radius: 8px;">
-    <h3>Prijs & Volume Historie (Laatste 10)</h3>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0;">Prijs & Volume Historie (Laatste 10)</h3>
+        <button onclick="downloadPriceVolumeHistory()" style="padding: 5px 10px; font-size: 11px; background: #444; color: #fff; border: none; cursor: pointer; border-radius: 4px;">📥 Download Historie</button>
+    </div>
     <div id="history-list"></div>
 </div>
 </div>
