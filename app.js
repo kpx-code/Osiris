@@ -103,6 +103,23 @@ let pendingOrders = [];   // { id, side, triggerPrice, direction, targetPrice, p
 // Cache van de laatste (elke 10s) Osiris-berekening, gebruikt door de per-seconde
 // hold/close-beslissing zodat we niet elke seconde alles hoeven te herberekenen.
 let lastOsirisDecision = null;
+
+// ============================================================
+// NIVEAU 1 - ADAPTIEVE GEWICHTEN ("leren van fouten")
+// Geen neuraal netwerk, geen black box: elke factor die meeweegt in de
+// kans-score (confluence, node-invloed, momentum-invloed, fib-confluentie)
+// heeft een eigen vermenigvuldigingsfactor die langzaam bijstelt op basis van
+// hoe goed die factor in de PRAKTIJK voorspelde bij afgesloten trades. Begint
+// altijd op 1.0 (= exact het oorspronkelijke gedrag) en beweegt nooit verder
+// dan 0.5x-1.5x, en nooit met minder dan MIN_SAMPLE_SIZE trades per groep -
+// bewust traag en behoudend, om niet te "leren" van ruis bij te weinig data
+// (zie de node-correlatie-les eerder: te weinig samples geeft schijnpatronen).
+// ============================================================
+let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0 };
+let learningLog = []; // { timestampMs, side, factors: {confluence, nodeInfluence, momentumInfluence, fibConfluenceInfluence, probabilityPct}, outcome: 'win'|'loss', pnlPct }
+const MIN_SAMPLE_SIZE = 20; // minimaal aantal trades per groep voordat een gewicht wordt aangepast
+let lastCalibrationSummary = null; // voor het transparantie-paneel
+
 let lastOsirisMetrics = null;
 
 let botTradeLog = [];
@@ -316,6 +333,32 @@ function applyRSISettings() {
 // kan gewoon - dit is een startpunt, geen vergrendeling.
 // ============================================================
 const PROFILE_PRESETS = {
+    // KPX Mode 1: gebaseerd op de door de gebruiker geteste, agressieve setup,
+    // met de eerder besproken fixes toegepast:
+    // - hold-continuation 50%->70% (was LAGER dan entry-drempel 60%, exact
+    //   averechts - een vastgelegde winst vasthouden moet meer overtuiging
+    //   vergen dan een nieuwe trade openen, niet minder)
+    // - bevestigingstijd 5s->10s (was korter dan de 10s meetcyclus zelf,
+    //   daardoor grotendeels tandeloos)
+    // - range-scalp doel 0.1%->0.5% + stop 0.8%->2% (was 1:8 risk:reward
+    //   tegen de gebruiker, vereiste 88.9% win rate; nu 1:4, vereist 80%)
+    // - range-scalp allocatie 60%->20% (één scalp mocht 60% van de balance
+    //   innemen - dat is geen "klein en vaak" scalpen meer, dat is bijna
+    //   all-in op een trade zonder confluence-toetsing)
+    // Alles wat niet als probleem was aangemerkt (entry-drempel 60%, chase
+    // 82%/5min, reallocatie-marge 50%, stop-loss 1%) is ongewijzigd gelaten -
+    // dat zijn agressieve maar interne-consistente keuzes, geen logicafouten.
+    KPX_MODE_1: {
+        'max-allocation-pct': 70, 'stop-loss-pct': 1, 'min-probability-pct': 60,
+        'hold-continuation-probability-pct': 70, 'min-projected-profit-pct': 0.1,
+        'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10,
+        'range-scalp-target-pct': 0.5, 'range-scalp-stop-pct': 2, 'range-scalp-alloc-pct': 20,
+        'chase-probability-pct': 82, 'chase-after-minutes': 5,
+        'reallocation-enabled': 'true', 'reallocation-margin-pct': 50,
+        'ma-fast-period': 9, 'ma-slow-period': 21,
+        'rsi-period': 14, 'rsi-overbought': 70, 'rsi-oversold': 30
+    },
     CONSERVATIVE: {
         'max-allocation-pct': 40, 'stop-loss-pct': 1.5, 'min-probability-pct': 80,
         'hold-continuation-probability-pct': 90, 'min-projected-profit-pct': 1.5,
@@ -504,9 +547,11 @@ function getDirectionalConfidences() {
 
     const momentumInfluenceLong = calculateMomentumInfluence('LONG', momentumContext);
     const momentumInfluenceShort = calculateMomentumInfluence('SHORT', momentumContext);
+    const patternInfluenceLong = calculatePatternInfluence('LONG');
+    const patternInfluenceShort = calculatePatternInfluence('SHORT');
 
-    const bullish = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluenceLong, fibConfluenceInfluence, 'LONG', isBullish);
-    const bearish = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluenceShort, fibConfluenceInfluence, 'SHORT', isBullish);
+    const bullish = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluenceLong, fibConfluenceInfluence, 'LONG', isBullish, patternInfluenceLong);
+    const bearish = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluenceShort, fibConfluenceInfluence, 'SHORT', isBullish, patternInfluenceShort);
 
     return { bullish, bearish };
 }
@@ -837,6 +882,9 @@ function savePersistentState() {
         localStorage.setItem('osirisIndicatorSettings', JSON.stringify({
             maFastPeriod, maSlowPeriod, rsiPeriod, rsiOverbought, rsiOversold
         }));
+        // NIVEAU 1: leer-log en adaptieve gewichten - de kern van "leren van fouten"
+        localStorage.setItem('osirisLearningLog', JSON.stringify(learningLog));
+        localStorage.setItem('osirisAdaptiveWeights', JSON.stringify(adaptiveWeights));
     } catch (e) { console.warn("Kon wallet/positie-status niet opslaan:", e); }
 }
 
@@ -849,6 +897,8 @@ function loadPersistentState() {
         const bs = localStorage.getItem('osirisBotSettings');
         const ind = localStorage.getItem('osirisIndicatorSettings');
         const sl = localStorage.getItem('osirisSessionLog');
+        const ll = localStorage.getItem('osirisLearningLog');
+        const aw = localStorage.getItem('osirisAdaptiveWeights');
         if (w) walletState = JSON.parse(w);
         if (p) openPositions = JSON.parse(p);
         if (q) pendingOrders = JSON.parse(q);
@@ -867,6 +917,8 @@ function loadPersistentState() {
             if (restoredInd.rsiOversold) rsiOversold = restoredInd.rsiOversold;
         }
         if (sl) sessionLog = JSON.parse(sl);
+        if (ll) learningLog = JSON.parse(ll);
+        if (aw) adaptiveWeights = JSON.parse(aw);
     } catch (e) { console.warn("Kon wallet/positie-status niet laden:", e); }
 }
 
@@ -939,6 +991,7 @@ function initializeOnReady() {
     updatePendingOrdersUI();
     rebuildHistoryUIFromLog();
     renderActiveSettingsPanel();
+    renderLearningPanel();
     if (isBotRunning) {
         startAutonomousBot(true); // true = herstart
     }
@@ -1150,6 +1203,51 @@ function startAutonomousBot(isAutoRestart = false) {
 // instellingen worden alleen bij Start ingelezen (zie hierboven), dus dit
 // laat precies zien "op basis waarvan" de bot nu draait, ongeacht wat er
 // intussen in de invoervelden veranderd is.
+// NIVEAU 1 - toont de huidige gewichten, hoeveel data elke factor heeft, en
+// (zodra er genoeg is) de laatst gemeten win rate per groep. Volledig
+// transparant: dit IS letterlijk wat het systeem "geleerd" heeft, in platte
+// tekst, geen black box.
+function renderLearningPanel() {
+    const el = document.getElementById('learning-panel');
+    if (!el) return;
+
+    const labels = {
+        confluence: 'Confluence', nodeInfluence: 'Node-invloed',
+        momentumInfluence: 'Momentum-invloed', fibConfluenceInfluence: 'Fib-confluentie',
+        patternInfluence: 'Patroon/structuur'
+    };
+    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern' };
+
+    const totalTrades = learningLog.length;
+    let html = `<div style="font-size:0.72em; color:var(--text-dim); margin-bottom:10px;">Gebaseerd op ${totalTrades} afgesloten trend-trade(s) sinds deze instellingen zijn gaan loggen (minimaal ${MIN_SAMPLE_SIZE} per groep nodig voordat een gewicht verandert).</div>`;
+    html += `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;">`;
+
+    Object.keys(labels).forEach(fk => {
+        const wKey = weightKeys[fk];
+        const weight = adaptiveWeights[wKey];
+        const s = lastCalibrationSummary ? lastCalibrationSummary.summary[fk] : null;
+        const nPresent = s ? s.nPresent : learningLog.filter(l => l.factors[fk] > 1).length;
+        const nAbsent = s ? s.nAbsent : learningLog.filter(l => l.factors[fk] !== null && l.factors[fk] <= 1).length;
+        const weightColor = weight > 1.02 ? 'var(--teal)' : (weight < 0.98 ? 'var(--red)' : 'var(--text-primary)');
+
+        html += `<div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); padding:10px 12px;">
+            <div style="font-size:0.7em; color:var(--text-dim); margin-bottom:4px;">${labels[fk]}</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-weight:700; color:${weightColor};">${weight.toFixed(2)}x</div>
+            <div style="font-size:0.62em; color:var(--text-dimmer); margin-top:4px;">n=${nPresent} aanwezig / ${nAbsent} zwak`;
+        if (s && s.adjusted) {
+            html += `<br>win rate: ${(s.winRatePresent * 100).toFixed(0)}% vs ${(s.winRateAbsent * 100).toFixed(0)}%`;
+        } else {
+            html += ` (nog &lt; ${MIN_SAMPLE_SIZE} - geen aanpassing)`;
+        }
+        html += `</div></div>`;
+    });
+    html += `</div>`;
+    if (lastCalibrationSummary) {
+        html += `<div style="font-size:0.62em; color:var(--text-dimmer); margin-top:10px;">Laatst herijkt: ${lastCalibrationSummary.timestamp}</div>`;
+    }
+    el.innerHTML = html;
+}
+
 function renderActiveSettingsPanel() {
     const el = document.getElementById('active-settings-panel');
     if (!el) return;
@@ -1378,6 +1476,11 @@ function generateLiveNarration() {
 
     const fibInf = calculateFibConfluenceInfluence(livePrice);
     lines.push(`FIB-CONFLUENTIE · ${fibInf > 0 ? `+${fibInf} (${fibInf / 3} extra schaal${fibInf > 3 ? 'en' : ''} MES/MAC dichtbij)` : 'geen extra schaal-bevestiging dichtbij'}`);
+
+    const cp = detectCandlestickPattern();
+    const ms = detectMarketStructure();
+    const patternLabels = { hammer: 'Hamer', shooting_star: 'Shooting star', doji: 'Doji', bullish_engulfing: 'Bullish engulfing', bearish_engulfing: 'Bearish engulfing', morning_star: 'Morning star', evening_star: 'Evening star', marubozu_bull: 'Marubozu (bullish)', marubozu_bear: 'Marubozu (bearish)' };
+    lines.push(`PATROON/STRUCTUUR · ${cp.pattern ? patternLabels[cp.pattern] + ` (${cp.bias})` : 'geen duidelijk candlestick-patroon'} \u00b7 ${ms.structure}`);
 
     const maVals = getCurrentMAValues();
     const rsiVal = getCurrentRSIValue();
@@ -1664,12 +1767,22 @@ function formatConfidencePct(pct) {
     return `~${pct.toFixed(0)}%`;
 }
 
-function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0, momentumInfluence = 0, fibConfluenceInfluence = 0, side = null, isBullishNow = null) {
+function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0, momentumInfluence = 0, fibConfluenceInfluence = 0, side = null, isBullishNow = null, patternInfluence = 0) {
     let confluenceContribution = confluence * 9; // default (oud gedrag) als side/isBullishNow niet zijn meegegeven
     if (side !== null && isBullishNow !== null) {
         const directionAligned = (side === 'LONG' && isBullishNow) || (side === 'SHORT' && !isBullishNow);
         confluenceContribution = directionAligned ? confluence * 9 : -(confluence * 5);
     }
+    // NIVEAU 1 - ADAPTIEVE GEWICHTEN: elke bijdrage wordt vermenigvuldigd met
+    // een factor die begint op 1.0 en langzaam bijstelt op basis van hoe goed
+    // die factor in de PRAKTIJK (afgesloten trades) daadwerkelijk voorspelde.
+    // Zie recalibrateAdaptiveWeights() - blijft te allen tijde transparant en
+    // inspecteerbaar, geen black box.
+    confluenceContribution *= adaptiveWeights.confluence;
+    nodeInfluence *= adaptiveWeights.nodeInfluence;
+    momentumInfluence *= adaptiveWeights.momentumInfluence;
+    fibConfluenceInfluence *= adaptiveWeights.fibConfluence;
+    patternInfluence *= adaptiveWeights.pattern;
 
     let score = 50 + confluenceContribution; // confluence 0-9 -> tot 50-131 (aligned) of omlaag (tegengesteld), geclamped naar [0,100]
     if (chaosVal > 15) score -= 15;    // extreme volatiliteit = onbetrouwbaarder
@@ -1678,6 +1791,7 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     score += nodeInfluence;            // node-timing: VOLA/CORE verhogen, RESET verlaagt (zie calculateNodeInfluence)
     score += momentumInfluence;        // "geheugen": trend uit metricsHistory bevestigt of ontkracht het signaal
     score += fibConfluenceInfluence;   // MES/MAC fib-niveaus (dezelfde lijnen als op de chart) die de MIC-trigger bevestigen
+    score += patternInfluence;         // candlestick-patronen (hamer/engulfing/etc.) + markt-structuur (HH/HL vs LH/LL)
     return Math.max(0, Math.min(100, score));
 }
 
@@ -1730,6 +1844,135 @@ function calculateEntryTrigger(side, currentPrice) {
 // (dezelfde lijnen als op de chart) - meerdere schalen die tegelijk
 // bevestigen is een sterker signaal dan alleen de MIC-lijn. Elke extra
 // bevestigende schaal levert +3 op, dus max +6 (MES én MAC allebei dichtbij).
+// ============================================================
+// PATROONHERKENNING: candlestick-patronen (hamer, engulfing, doji, etc.) en
+// markt-structuur (higher-highs/higher-lows vs. lower-highs/lower-lows).
+// Werkt op dezelfde rawData-candles als de rest van de engine. Voegt een
+// begrensde "patternInfluence" toe aan de kans-score, net als node/momentum/
+// fib - en telt mee in het adaptieve leersysteem (niveau 1).
+// ============================================================
+
+// ---- Losse candlestick-patronen (laatste 1-3 candles) ----
+function detectCandlestickPattern(index = null) {
+    if (!rawData || rawData.length < 3) return { pattern: null, bias: 'neutral' };
+    const i = index === null ? rawData.length - 1 : index;
+    if (i < 2) return { pattern: null, bias: 'neutral' };
+
+    const c = [rawData[i - 2], rawData[i - 1], rawData[i]].map(d => ({
+        open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4])
+    }));
+    const [c2, c1, c0] = c; // c0 = de candle op index i, c1 = ervoor, c2 = twee ervoor
+
+    function metrics(k) {
+        const body = Math.abs(k.close - k.open);
+        const range = k.high - k.low || 0.0001;
+        const upperWick = k.high - Math.max(k.open, k.close);
+        const lowerWick = Math.min(k.open, k.close) - k.low;
+        const isBull = k.close >= k.open;
+        return { body, range, upperWick, lowerWick, isBull, bodyPct: body / range };
+    }
+    const m0 = metrics(c0);
+
+    // Marubozu: nagenoeg geen pitten, sterke overtuiging in één richting
+    if (m0.bodyPct > 0.92) {
+        return { pattern: m0.isBull ? 'marubozu_bull' : 'marubozu_bear', bias: m0.isBull ? 'bullish' : 'bearish' };
+    }
+    // Doji: open en close nagenoeg gelijk - besluiteloosheid, geen richting
+    if (m0.bodyPct < 0.08) {
+        return { pattern: 'doji', bias: 'neutral' };
+    }
+    // Hamer: kleine body, lange onderpit (>=2x body), nauwelijks bovenpit
+    if (m0.lowerWick >= m0.body * 2 && m0.upperWick < m0.body * 0.5 && m0.bodyPct < 0.35) {
+        return { pattern: 'hammer', bias: 'bullish' };
+    }
+    // Inverted hammer / shooting star: kleine body, lange bovenpit, nauwelijks onderpit
+    if (m0.upperWick >= m0.body * 2 && m0.lowerWick < m0.body * 0.5 && m0.bodyPct < 0.35) {
+        return { pattern: 'shooting_star', bias: 'bearish' };
+    }
+    // Bullish/bearish engulfing (2 candles): de body van c0 "omsluit" volledig de body van c1
+    const m1 = metrics(c1);
+    if (!m1.isBull && m0.isBull && c0.open < c1.close && c0.close > c1.open) {
+        return { pattern: 'bullish_engulfing', bias: 'bullish' };
+    }
+    if (m1.isBull && !m0.isBull && c0.open > c1.close && c0.close < c1.open) {
+        return { pattern: 'bearish_engulfing', bias: 'bearish' };
+    }
+    // Morning/evening star (3 candles): grote candle, kleine (besluiteloze) candle, grote candle terug de andere kant op
+    const m2 = metrics(c2);
+    if (!m2.isBull && m2.bodyPct > 0.5 && m1.bodyPct < 0.35 && m0.isBull && m0.bodyPct > 0.5 && c0.close > (c2.open + c2.close) / 2) {
+        return { pattern: 'morning_star', bias: 'bullish' };
+    }
+    if (m2.isBull && m2.bodyPct > 0.5 && m1.bodyPct < 0.35 && !m0.isBull && m0.bodyPct > 0.5 && c0.close < (c2.open + c2.close) / 2) {
+        return { pattern: 'evening_star', bias: 'bearish' };
+    }
+
+    return { pattern: null, bias: 'neutral' };
+}
+
+// ---- Markt-structuur: higher-highs/higher-lows vs. lower-highs/lower-lows ----
+// Vindt swing-highs/swing-lows (lokale pieken/dalen, candle hoger/lager dan
+// SWING_ORDER candles ervoor en erna) over de laatste LOOKBACK candles, en
+// kijkt of de laatste paar zwaaien consistent stijgen of dalen.
+function detectMarketStructure() {
+    const SWING_ORDER = 3, LOOKBACK = 60;
+    if (!rawData || rawData.length < LOOKBACK) return { structure: 'onvoldoende data', swingHighs: [], swingLows: [] };
+
+    const candles = rawData.slice(-LOOKBACK).map(d => ({ high: parseFloat(d[2]), low: parseFloat(d[3]) }));
+    const swingHighs = [], swingLows = [];
+
+    for (let i = SWING_ORDER; i < candles.length - SWING_ORDER; i++) {
+        const windowHigh = candles.slice(i - SWING_ORDER, i + SWING_ORDER + 1);
+        if (candles[i].high === Math.max(...windowHigh.map(w => w.high))) swingHighs.push(candles[i].high);
+        const windowLow = candles.slice(i - SWING_ORDER, i + SWING_ORDER + 1);
+        if (candles[i].low === Math.min(...windowLow.map(w => w.low))) swingLows.push(candles[i].low);
+    }
+
+    const lastHighs = swingHighs.slice(-3);
+    const lastLows = swingLows.slice(-3);
+    if (lastHighs.length < 2 || lastLows.length < 2) return { structure: 'onvoldoende swings', swingHighs, swingLows };
+
+    const highsRising = lastHighs.every((v, i) => i === 0 || v >= lastHighs[i - 1]);
+    const highsFalling = lastHighs.every((v, i) => i === 0 || v <= lastHighs[i - 1]);
+    const lowsRising = lastLows.every((v, i) => i === 0 || v >= lastLows[i - 1]);
+    const lowsFalling = lastLows.every((v, i) => i === 0 || v <= lastLows[i - 1]);
+
+    let structure = 'range-bound / geen duidelijke structuur';
+    if (highsRising && lowsRising) structure = 'HH/HL (opwaartse structuur)';
+    else if (highsFalling && lowsFalling) structure = 'LH/LL (neerwaartse structuur)';
+
+    return { structure, swingHighs: lastHighs, swingLows: lastLows };
+}
+
+// Combineert beide tot één begrensde bijdrage (-4..+4) aan de kans-score,
+// afhankelijk van of het gedetecteerde patroon/structuur de gekozen kant steunt.
+function calculatePatternInfluence(side) {
+    let influence = 0;
+    const cp = detectCandlestickPattern();
+    if (cp.bias === 'bullish') influence += (side === 'LONG' ? 2 : -2);
+    else if (cp.bias === 'bearish') influence += (side === 'SHORT' ? 2 : -2);
+
+    const ms = detectMarketStructure();
+    if (ms.structure.startsWith('HH/HL')) influence += (side === 'LONG' ? 2 : -2);
+    else if (ms.structure.startsWith('LH/LL')) influence += (side === 'SHORT' ? 2 : -2);
+
+    return Math.max(-4, Math.min(4, influence));
+}
+
+// Vult het "Patroon & Structuur"-kaartje in System Data - dezelfde detectie
+// als hierboven, puur voor het snelle overzicht zonder het beredeneringspaneel te hoeven openen.
+function updatePatternStructureCard() {
+    const patternEl = document.getElementById('current-pattern');
+    const structureEl = document.getElementById('current-structure');
+    if (!patternEl || !structureEl) return;
+
+    const patternLabels = { hammer: '\u{1F528} Hamer (bullish)', shooting_star: '\u2604 Shooting Star (bearish)', doji: '\u2716 Doji (neutraal)', bullish_engulfing: '\u25B2 Bullish Engulfing', bearish_engulfing: '\u25BC Bearish Engulfing', morning_star: '\u2600 Morning Star (bullish)', evening_star: '\u{1F319} Evening Star (bearish)', marubozu_bull: '\u25A0 Marubozu (bullish)', marubozu_bear: '\u25A0 Marubozu (bearish)' };
+    const cp = detectCandlestickPattern();
+    patternEl.innerText = cp.pattern ? patternLabels[cp.pattern] : 'Geen duidelijk patroon';
+
+    const ms = detectMarketStructure();
+    structureEl.innerText = ms.structure;
+}
+
 function calculateFibConfluenceInfluence(price) {
     let influence = 0;
     ['MES', 'MAC'].forEach(scaleId => {
@@ -1751,7 +1994,8 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const momentumContext = getMomentumContext();
     const momentumInfluence = calculateMomentumInfluence(side, momentumContext);
     const fibConfluenceInfluence = calculateFibConfluenceInfluence(currentPrice);
-    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, side, isBullish);
+    const patternInfluence = calculatePatternInfluence(side);
+    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, side, isBullish, patternInfluence);
 
     const targetPrice = side === 'LONG'
         ? parseFloat(decision.targets.meso.bullish)
@@ -1764,7 +2008,7 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const eligible = probabilityPct >= botSettings.minProbabilityPct &&
                       projectedProfitPct > botSettings.minProjectedProfitPct;
 
-    return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence };
+    return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence, fibConfluenceInfluence, confluence: decision.confluence, patternInfluence };
 }
 
 // FIX: dit was voorheen evaluateEntryOpportunity() (zie hierboven) die óók een
@@ -1788,7 +2032,8 @@ function evaluateContinuation(side, thresholdOverride = null) {
     const momentumContext = getMomentumContext();
     const momentumInfluence = calculateMomentumInfluence(side, momentumContext);
     const fibConfluenceInfluence = calculateFibConfluenceInfluence(livePrice);
-    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, side, isBullish);
+    const patternInfluence = calculatePatternInfluence(side);
+    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, side, isBullish, patternInfluence);
 
     return {
         eligible: probabilityPct >= threshold,
@@ -1847,7 +2092,8 @@ function isPendingOrderStillValid(order) {
     const momentumContext = getMomentumContext();
     const momentumInfluence = calculateMomentumInfluence(order.side, momentumContext);
     const fibConfluenceInfluence = calculateFibConfluenceInfluence(livePrice);
-    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, order.side, isBullish);
+    const patternInfluence = calculatePatternInfluence(order.side);
+    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, order.side, isBullish, patternInfluence);
 
     const cancelThreshold = Math.max(0, botSettings.minProbabilityPct - 10);
     return { valid: probabilityPct >= cancelThreshold, probabilityPct };
@@ -1968,6 +2214,10 @@ function scanForOpportunities(decision, metrics) {
             projectedProfitPct: evalResult.projectedProfitPct,
             probabilityPct: evalResult.probabilityPct,
             nodeInfluence: evalResult.nodeInfluence,
+            momentumInfluence: evalResult.momentumInfluence,
+            fibConfluenceInfluence: evalResult.fibConfluenceInfluence,
+            confluence: evalResult.confluence,
+            patternInfluence: evalResult.patternInfluence,
             createdAt: new Date().toISOString(),
             expiresAt: Date.now() + (botSettings.pendingOrderTtlMinutes * 60 * 1000)
         };
@@ -2172,7 +2422,16 @@ function openPositionFromOrder(order, entryTag = '') {
         openTime: Date.now(),
         closeTime: null,
         peakPnlPct: 0,
-        trailingStopPct: null
+        trailingStopPct: null,
+        // NIVEAU 1 - vastgelegd voor recalibrateAdaptiveWeights() zodra deze positie sluit
+        factorsAtEntry: {
+            confluence: order.confluence ?? null,
+            nodeInfluence: order.nodeInfluence ?? 0,
+            momentumInfluence: order.momentumInfluence ?? 0,
+            fibConfluenceInfluence: order.fibConfluenceInfluence ?? 0,
+            patternInfluence: order.patternInfluence ?? 0,
+            probabilityPct: order.probabilityPct ?? null
+        }
     };
 
     openPositions.push(position);
@@ -2191,10 +2450,62 @@ function closePosition(pos, pnlPct, reason) {
 
     openPositions = openPositions.filter(p => p.id !== pos.id);
 
+    // NIVEAU 1: alleen trend-posities met een vastgelegde factor-uitsplitsing
+    // doen mee (range-scalps gebruiken een ander, regel-gebaseerd systeem
+    // zonder confluence-score, dus die vallen hier terecht buiten).
+    if (pos.factorsAtEntry && pos.factorsAtEntry.confluence !== null) {
+        learningLog.push({
+            timestampMs: Date.now(),
+            side: pos.side,
+            factors: pos.factorsAtEntry,
+            outcome: pnlPct > 0 ? 'win' : 'loss',
+            pnlPct
+        });
+        if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
+        recalibrateAdaptiveWeights();
+    }
+
     logBotAction("EXIT", livePrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional, pos.isScalp || false);
     savePersistentState();
     updateWalletUI();
     updatePositionLines();
+}
+
+// NIVEAU 1 - kalibratie: voor elke factor wordt de groep "factor duidelijk
+// aanwezig" (waarde > 1) vergeleken met de groep "factor zwak/afwezig"
+// (waarde <= 1) op werkelijke win rate. Is de aanwezige-groep NIET beter
+// (of slechter) dan verwacht, dan zakt het gewicht van die factor iets;
+// presteert hij duidelijk beter, dan mag het gewicht iets stijgen. Elke
+// aanpassing is klein (max 5% per kalibratie) en pas bij >= MIN_SAMPLE_SIZE
+// trades PER GROEP - bij te weinig data verandert er bewust niets.
+function recalibrateAdaptiveWeights() {
+    const factorKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluenceInfluence', 'patternInfluence'];
+    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern' };
+    const summary = {};
+
+    factorKeys.forEach(fk => {
+        const present = learningLog.filter(l => l.factors[fk] !== null && l.factors[fk] > 1);
+        const absent = learningLog.filter(l => l.factors[fk] !== null && l.factors[fk] <= 1);
+
+        summary[fk] = { nPresent: present.length, nAbsent: absent.length, adjusted: false };
+
+        if (present.length < MIN_SAMPLE_SIZE || absent.length < MIN_SAMPLE_SIZE) return; // te weinig data - niets aanpassen
+
+        const winRatePresent = present.filter(l => l.outcome === 'win').length / present.length;
+        const winRateAbsent = absent.filter(l => l.outcome === 'win').length / absent.length;
+        summary[fk].winRatePresent = winRatePresent;
+        summary[fk].winRateAbsent = winRateAbsent;
+
+        const wKey = weightKeys[fk];
+        const diff = winRatePresent - winRateAbsent; // positief = factor werkt zoals bedoeld
+        const step = Math.max(-0.05, Math.min(0.05, diff * 0.3)); // kleine, voorzichtige stap
+        adaptiveWeights[wKey] = Math.max(0.5, Math.min(1.5, adaptiveWeights[wKey] + step));
+        summary[fk].adjusted = true;
+        summary[fk].newWeight = adaptiveWeights[wKey];
+    });
+
+    lastCalibrationSummary = { timestamp: formatFullDateTime(), summary };
+    renderLearningPanel();
 }
 
 function isTargetReached(pos) {
@@ -2424,6 +2735,11 @@ function downloadAllData() {
         // gebruik dit om de trade log te segmenteren per configuratie, ook als
         // je tussendoor live hebt bijgewerkt i.p.v. Reset Wallet gebruikt.
         sessionLog,
+        // NIVEAU 1: leer-log (elke afgesloten trend-trade + factoren + uitkomst)
+        // en de huidige adaptieve gewichten - dit is de basis voor toekomstige
+        // kalibratie-analyse buiten de app om, mocht je dat willen.
+        learningLog,
+        adaptiveWeights,
         // Meest recente volledige Osiris-beslissing (targets, confluence, status, momentum)
         lastDecision: lastOsirisDecision,
         lastVolumeMetrics: lastOsirisMetrics,
@@ -2507,6 +2823,8 @@ function botHeartbeat() {
         renderMovingAverage();
         renderRSI();
         renderPrediction();
+        renderPatternMarkers();
+        updatePatternStructureCard();
     }
 }
 
@@ -2568,6 +2886,7 @@ async function initDashboard() {
         applyUOTAMGrid(chartData);
         renderMovingAverage();
         renderRSI();
+        renderPatternMarkers();
         startLiveUpdates();
         startSentimentStream();
         
@@ -3040,8 +3359,62 @@ function setChartMarkers(markers) {
 }
 
 function renderNodeMarkers() {
-    const visibleMarkers = gridMarkers.filter(m => activeNodeTypes[m.nodeTypeKey] !== false);
-    setChartMarkers(visibleMarkers);
+    updateAllChartMarkers();
+}
+
+// NIEUW: patroon-markers en node-markers delen hetzelfde onderliggende
+// marker-systeem (nodeMarkersPlugin.setMarkers() vervangt de VORIGE set
+// volledig) - dus moeten ze samengevoegd worden vóór het tekenen, anders
+// overschrijft de een de ander.
+let patternMarkers = [];
+let showPatternMarkers = false;
+const PATTERN_MARKER_STYLE = {
+    hammer: { text: '\u{1F528} Hamer', color: '#14f195' },
+    shooting_star: { text: '\u2604 Shooting Star', color: '#ff3b5c' },
+    doji: { text: '\u2716 Doji', color: '#ffb627' },
+    bullish_engulfing: { text: '\u25B2 Bull. Engulfing', color: '#14f195' },
+    bearish_engulfing: { text: '\u25BC Bear. Engulfing', color: '#ff3b5c' },
+    morning_star: { text: '\u2600 Morning Star', color: '#14f195' },
+    evening_star: { text: '\u{1F319} Evening Star', color: '#ff3b5c' },
+    marubozu_bull: { text: '\u25A0 Marubozu', color: '#14f195' },
+    marubozu_bear: { text: '\u25A0 Marubozu', color: '#ff3b5c' }
+};
+
+function updateAllChartMarkers() {
+    const visibleNodeMarkers = gridMarkers.filter(m => activeNodeTypes[m.nodeTypeKey] !== false);
+    const combined = showPatternMarkers ? [...visibleNodeMarkers, ...patternMarkers] : visibleNodeMarkers;
+    // Lightweight Charts vereist markers gesorteerd op tijd
+    combined.sort((a, b) => a.time - b.time);
+    setChartMarkers(combined);
+}
+
+// Scant de laatste SCAN_WINDOW candles op candlestick-patronen en zet voor
+// elke treffer een marker onderaan de betreffende candle (nodes staan
+// 'aboveBar', patronen bewust 'belowBar' zodat ze elkaar nooit overlappen).
+function renderPatternMarkers() {
+    patternMarkers = [];
+    if (!showPatternMarkers || !rawData || rawData.length < 3) { updateAllChartMarkers(); return; }
+
+    const SCAN_WINDOW = 150;
+    const start = Math.max(2, rawData.length - SCAN_WINDOW);
+    for (let i = start; i < rawData.length; i++) {
+        const result = detectCandlestickPattern(i);
+        if (!result.pattern) continue;
+        const style = PATTERN_MARKER_STYLE[result.pattern];
+        patternMarkers.push({
+            time: Math.floor(rawData[i][0] / 1000),
+            position: 'belowBar',
+            color: style.color,
+            shape: 'circle',
+            text: style.text
+        });
+    }
+    updateAllChartMarkers();
+}
+
+function handlePatternMarkersSelect(value) {
+    showPatternMarkers = (value === 'VISIBLE');
+    renderPatternMarkers();
 }
 
 // Schakelt een node-type aan/uit op de chart, net als handleFibScaleSelect()
