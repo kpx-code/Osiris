@@ -21,6 +21,12 @@ let nodeMarkersPlugin = null;
 let uotamHarmonicSetting = 3; 
 // Houd een referentie bij van de actieve lijnen zodat we ze kunnen verwijderen
 let activeFibLines = [];
+// FIX: de MIC/MES/MAC-fibs werden voorheen alleen berekend als die schaal
+// zichtbaar stond via de dropdown - de bot kon er dus niet bij als de
+// gebruiker bijvoorbeeld alleen "Micro" had aangevinkt. Nu wordt dit altijd
+// berekend (computeFibScaleLevels), losstaand van wat er getekend wordt, en
+// gebruikt de bot's eigen entry-logica DEZELFDE waarden als de chart.
+let currentFibLevels = { MIC: null, MES: null, MAC: null };
 let lastProcessedNodeId = null;
 let sentimentWs = null;
 let activeFibScales = {
@@ -165,6 +171,128 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
 });
 
 // ============================================================
+// MOVING AVERAGE (SMA) - toggelbaar zoals de fib/node-lagen, en meewegend
+// in de bot-redenering (trend-bevestiging: ligt de prijs boven/onder de MA?)
+// ============================================================
+const MA_PERIOD = 20;
+let maSeries = null;
+let showMovingAverage = false;
+
+function calculateSMA(closes, period) {
+    if (!closes || closes.length < period) return [];
+    const result = [];
+    for (let i = period - 1; i < closes.length; i++) {
+        const window = closes.slice(i - period + 1, i + 1);
+        const avg = window.reduce((a, b) => a + b, 0) / period;
+        result.push(avg);
+    }
+    return result;
+}
+
+// Actuele MA-waarde voor gebruik in de beslislogica (niet afhankelijk van of
+// de lijn zichtbaar staat op de chart).
+function getCurrentMAValue() {
+    if (!rawData || rawData.length < MA_PERIOD) return null;
+    const closes = rawData.slice(-MA_PERIOD).map(d => parseFloat(d[4]));
+    return closes.reduce((a, b) => a + b, 0) / closes.length;
+}
+
+function renderMovingAverage() {
+    if (!showMovingAverage) {
+        if (maSeries) { chart.removeSeries(maSeries); maSeries = null; }
+        return;
+    }
+    if (!rawData || rawData.length < MA_PERIOD) return;
+
+    const closes = rawData.map(d => parseFloat(d[4]));
+    const times = rawData.map(d => Math.floor(d[0] / 1000));
+    const smaValues = calculateSMA(closes, MA_PERIOD);
+    const data = smaValues.map((v, i) => ({ time: times[i + MA_PERIOD - 1], value: v }));
+
+    if (!maSeries) {
+        maSeries = chart.addSeries(LightweightCharts.LineSeries, {
+            color: '#ffa500', lineWidth: 2, priceLineVisible: false, lastValueVisible: true
+        });
+    }
+    maSeries.setData(data);
+}
+
+function handleMovingAverageSelect(value) {
+    showMovingAverage = (value === 'VISIBLE');
+    renderMovingAverage();
+}
+
+// ============================================================
+// RSI (14-periode, standaard formule) - eigen paneel onderaan de chart,
+// toggelbaar, en gebruikt door de range-scalp-engine als extra bevestiging
+// (overbought/oversold aan de randen van een range).
+// ============================================================
+const RSI_PERIOD = 14;
+let rsiSeries = null;
+let showRSI = false;
+
+function calculateRSISeries(closes, period) {
+    if (!closes || closes.length < period + 1) return [];
+    const result = [];
+    let gains = 0, losses = 0;
+    for (let i = 1; i <= period; i++) {
+        const delta = closes[i] - closes[i - 1];
+        if (delta >= 0) gains += delta; else losses -= delta;
+    }
+    let avgGain = gains / period, avgLoss = losses / period;
+    result.push({ index: period, rsi: avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss)) });
+
+    for (let i = period + 1; i < closes.length; i++) {
+        const delta = closes[i] - closes[i - 1];
+        const gain = delta >= 0 ? delta : 0;
+        const loss = delta < 0 ? -delta : 0;
+        avgGain = (avgGain * (period - 1) + gain) / period;
+        avgLoss = (avgLoss * (period - 1) + loss) / period;
+        const rsi = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+        result.push({ index: i, rsi });
+    }
+    return result;
+}
+
+// Actuele RSI-waarde voor gebruik in de beslislogica (niet afhankelijk van of
+// de lijn zichtbaar staat op de chart).
+function getCurrentRSIValue() {
+    if (!rawData || rawData.length < RSI_PERIOD + 1) return null;
+    const closes = rawData.map(d => parseFloat(d[4]));
+    const series = calculateRSISeries(closes, RSI_PERIOD);
+    if (series.length === 0) return null;
+    return series[series.length - 1].rsi;
+}
+
+function renderRSI() {
+    if (!showRSI) {
+        if (rsiSeries) { chart.removeSeries(rsiSeries); rsiSeries = null; }
+        return;
+    }
+    if (!rawData || rawData.length < RSI_PERIOD + 1) return;
+
+    const closes = rawData.map(d => parseFloat(d[4]));
+    const times = rawData.map(d => Math.floor(d[0] / 1000));
+    const series = calculateRSISeries(closes, RSI_PERIOD);
+    const data = series.map(s => ({ time: times[s.index], value: s.rsi }));
+
+    if (!rsiSeries) {
+        rsiSeries = chart.addSeries(LightweightCharts.LineSeries, {
+            color: '#c678dd', lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
+            priceScaleId: 'rsi-scale'
+        });
+        chart.priceScale('rsi-scale').applyOptions({
+            scaleMargins: { top: 0.85, bottom: 0 } // klein paneeltje onderaan de chart
+        });
+    }
+    rsiSeries.setData(data);
+}
+
+function handleRSISelect(value) {
+    showRSI = (value === 'VISIBLE');
+    renderRSI();
+}
+
 // VALUTA-WEERGAVE (USD/EUR) - puur cosmetisch voor de chart, raakt de
 // trading-logica/wallet NIET (die blijft intern altijd correct rekenen,
 // zie de EUR->USD-conversie in openPositionFromOrder voor de échte fix).
@@ -378,6 +506,7 @@ function initializeOnReady() {
     updateWalletUI();
     updatePendingOrdersUI();
     rebuildHistoryUIFromLog();
+    renderActiveSettingsPanel();
     if (isBotRunning) {
         startAutonomousBot(true); // true = herstart
     }
@@ -481,7 +610,43 @@ function startAutonomousBot(isAutoRestart = false) {
 
     savePersistentState();
     updateWalletUI();
+    renderActiveSettingsPanel();
 }
+
+// Toont de daadwerkelijk vergrendelde instellingen van de huidige sessie -
+// instellingen worden alleen bij Start ingelezen (zie hierboven), dus dit
+// laat precies zien "op basis waarvan" de bot nu draait, ongeacht wat er
+// intussen in de invoervelden veranderd is.
+function renderActiveSettingsPanel() {
+    const el = document.getElementById('active-settings-panel');
+    if (!el) return;
+
+    if (!botSettings.isRunning) {
+        el.innerHTML = `<span style="color:#888;">Bot staat stil - geen actieve sessie-instellingen.</span>`;
+        return;
+    }
+
+    const s = botSettings;
+    const rows = [
+        ['Wallet valuta', walletState.currency],
+        ['Max % per trade', `${(s.maxAllocationPct * 100).toFixed(0)}%`],
+        ['Stop-loss %', `${(s.stopLossPct * 100).toFixed(1)}%`],
+        ['Min. kans % (entry)', `${s.minProbabilityPct}%`],
+        ['Min. kans % (doorlopen >2%)', `${s.holdContinuationMinProbabilityPct}%`],
+        ['Min. verwacht rendement %', `${s.minProjectedProfitPct}%`],
+        ['Max open posities', `${s.maxOpenPositions}`],
+        ['Hedge-reserve %', `${(s.minHedgeReservePct * 100).toFixed(0)}%`],
+        ['Pending order geldig', `${s.pendingOrderTtlMinutes} min`],
+        ['Min. verlies % vroege exit', `${(s.minLossForEarlyExit * 100).toFixed(1)}%`],
+        ['Bevestigingstijd exit', `${s.continuationConfirmationSeconds}s`],
+        ['Range-scalp doel / stop / alloc', `${s.rangeScalpProfitTargetPct}% / ${s.rangeScalpStopLossPct}% / ${(s.rangeScalpAllocationPct * 100).toFixed(0)}%`],
+    ];
+
+    el.innerHTML = `<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:4px 12px; font-size:0.8em;">` +
+        rows.map(([k, v]) => `<div><span style="color:#888;">${k}:</span> <b>${v}</b></div>`).join('') +
+        `</div>`;
+}
+
 
 function stopAutonomousBot() {
     // 1. Stop de bot-logica
@@ -504,6 +669,7 @@ function stopAutonomousBot() {
     
     // Optioneel: Reset runtime naar 0
     document.getElementById('bot-runtime').innerText = "Runtime: 00:00:00";
+    renderActiveSettingsPanel();
 }
 
 // ============================================================
@@ -626,8 +792,12 @@ function updateReasoningPanel() {
     if (openPositions.length === 0) {
         let scanTxt = 'Geen open posities.';
         if (lastOsirisDecision) {
-            scanTxt += ` Confluence: ${lastOsirisDecision.confluence}/5 | Status: ${lastOsirisDecision.decision}`;
+            scanTxt += ` Confluence: ${lastOsirisDecision.confluence}/7 | Status: ${lastOsirisDecision.decision}`;
         }
+        const maVal = getCurrentMAValue();
+        const rsiVal = getCurrentRSIValue();
+        if (maVal !== null) scanTxt += ` | MA20: ${formatChartPrice(maVal)}`;
+        if (rsiVal !== null) scanTxt += ` | RSI14: ${rsiVal.toFixed(0)}`;
         if (pendingOrders.length > 0) {
             scanTxt += ` | ${pendingOrders.length} pending order(s) actief.`;
         }
@@ -853,13 +1023,14 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
 // Gebaseerd op de bestaande confluence-telling (0-5, zie getOrisisDecisionData)
 // plus chaos/ER als betrouwbaarheids-correctie. Dit is een instelbare proxy —
 // kalibreer 'm met de gedownloade data (Download All Data-knop).
-function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0, momentumInfluence = 0) {
-    let score = 50 + (confluence * 9); // confluence 0-5 -> 50-95
+function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0, momentumInfluence = 0, fibConfluenceInfluence = 0) {
+    let score = 50 + (confluence * 9); // confluence 0-6 -> 50-104, geclamped naar 100
     if (chaosVal > 15) score -= 15;    // extreme volatiliteit = onbetrouwbaarder
     else if (chaosVal < 5) score += 5; // rustige markt = betrouwbaarder
     if (erVal > 1.5) score += 5;       // sterke volume-deelname = betrouwbaarder
     score += nodeInfluence;            // node-timing: VOLA/CORE verhogen, RESET verlaagt (zie calculateNodeInfluence)
     score += momentumInfluence;        // "geheugen": trend uit metricsHistory bevestigt of ontkracht het signaal
+    score += fibConfluenceInfluence;   // MES/MAC fib-niveaus (dezelfde lijnen als op de chart) die de MIC-trigger bevestigen
     return Math.max(0, Math.min(100, score));
 }
 
@@ -887,26 +1058,40 @@ function calculateMomentumInfluence(side, momentumContext) {
 // Bepaalt het niveau waarop Osiris autonoom wil instappen: een pullback-zone
 // op basis van de micro (9-candle) Fibonacci-retracement, in plaats van
 // blind op de huidige live prijs in te stappen.
+// FIX: dit gebruikte een eigen, losse 9-candle fib-berekening die NIETS te
+// maken had met de MIC-lijn die je daadwerkelijk op de chart ziet (die is
+// node-tijd-gedreven, zie computeFibScaleLevels). Nu leest de bot exact
+// dezelfde currentFibLevels.MIC uit die ook de chart tekent.
 function calculateEntryTrigger(side, currentPrice) {
-    if (!rawData || rawData.length < 9) return currentPrice;
+    const micData = currentFibLevels.MIC;
+    if (!micData) return currentPrice; // node-grid fib nog niet berekend - val terug op live prijs
 
-    const recent = rawData.slice(-9);
-    const rangeHigh = Math.max(...recent.map(d => parseFloat(d[2])));
-    const rangeLow = Math.min(...recent.map(d => parseFloat(d[3])));
-    if (!isFinite(rangeHigh) || !isFinite(rangeLow) || rangeHigh === rangeLow) return currentPrice;
-
-    const levels = calculateFibLevels(rangeHigh, rangeLow);
-
-    // LONG: wacht op een pullback naar de 0.618-retracement ("koop de dip")
-    // SHORT: wacht op een opleving naar de 0.382-retracement ("verkoop de rally")
-    const level = side === 'LONG' ? levels['0.618'] : levels['0.382'];
+    // LONG: wacht op een pullback naar de 0.618-retracement van de echte MIC-lijn
+    // SHORT: wacht op een opleving naar de 0.382-retracement van de echte MIC-lijn
+    const level = side === 'LONG' ? micData.levels['0.618'] : micData.levels['0.382'];
+    if (!isFinite(level)) return currentPrice;
 
     // Als dat niveau te ver van de huidige prijs afligt (>1.5%) is wachten
     // niet realistisch binnen een redelijke tijd -> gebruik de live prijs.
     const distancePct = Math.abs(currentPrice - level) / currentPrice;
-    if (!isFinite(level) || distancePct > 0.015) return currentPrice;
+    if (distancePct > 0.015) return currentPrice;
 
     return level;
+}
+
+// NIEUW: checkt of de live prijs ook dicht bij een MES- of MAC-fib-niveau zit
+// (dezelfde lijnen als op de chart) - meerdere schalen die tegelijk
+// bevestigen is een sterker signaal dan alleen de MIC-lijn. Elke extra
+// bevestigende schaal levert +3 op, dus max +6 (MES én MAC allebei dichtbij).
+function calculateFibConfluenceInfluence(price) {
+    let influence = 0;
+    ['MES', 'MAC'].forEach(scaleId => {
+        const data = currentFibLevels[scaleId];
+        if (!data) return;
+        const nearAnyLevel = Object.values(data.levels).some(lvl => isFinite(lvl) && Math.abs(price - lvl) / price < 0.003);
+        if (nearAnyLevel) influence += 3;
+    });
+    return influence;
 }
 
 // Evalueert of een kans (nieuwe entry, of het vasthouden van een lopende
@@ -918,7 +1103,8 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const nodeInfluence = calculateNodeInfluence(nodeContext);
     const momentumContext = getMomentumContext();
     const momentumInfluence = calculateMomentumInfluence(side, momentumContext);
-    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence, momentumInfluence);
+    const fibConfluenceInfluence = calculateFibConfluenceInfluence(currentPrice);
+    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence);
 
     const targetPrice = side === 'LONG'
         ? parseFloat(decision.targets.meso.bullish)
@@ -954,7 +1140,8 @@ function evaluateContinuation(side, thresholdOverride = null) {
     const nodeInfluence = calculateNodeInfluence(nodeContext);
     const momentumContext = getMomentumContext();
     const momentumInfluence = calculateMomentumInfluence(side, momentumContext);
-    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence);
+    const fibConfluenceInfluence = calculateFibConfluenceInfluence(livePrice);
+    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence);
 
     return {
         eligible: probabilityPct >= threshold,
@@ -1012,7 +1199,8 @@ function isPendingOrderStillValid(order) {
     const nodeInfluence = calculateNodeInfluence(nodeContext);
     const momentumContext = getMomentumContext();
     const momentumInfluence = calculateMomentumInfluence(order.side, momentumContext);
-    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence);
+    const fibConfluenceInfluence = calculateFibConfluenceInfluence(livePrice);
+    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence);
 
     const cancelThreshold = Math.max(0, botSettings.minProbabilityPct - 10);
     return probabilityPct >= cancelThreshold;
@@ -1117,6 +1305,17 @@ function evaluateRangeScalpOpportunity(side) {
     if (side === 'SHORT' && vfm > 1.0) return { eligible: false };
     if (side === 'LONG' && vfm < -1.0) return { eligible: false };
 
+    // NIEUW: RSI als extra bevestiging voor de mean-reversion-thesis. Een
+    // range-top is een veel sterker short-signaal als RSI ook daadwerkelijk
+    // overbought staat (>65); een range-bodem sterker als RSI oversold staat
+    // (<35). Geen RSI-data (te weinig candles) blokkeert de scalp niet - het
+    // is een bevestiging, geen harde eis.
+    const rsiValue = getCurrentRSIValue();
+    if (rsiValue !== null) {
+        if (side === 'SHORT' && rsiValue < 65) return { eligible: false };
+        if (side === 'LONG' && rsiValue > 35) return { eligible: false };
+    }
+
     // Niet tegen een sterk bevestigde trend in scalpen (confluence >= 4 in de
     // "verkeerde" richting voor deze scalp) - dat is precies het domein van de
     // trend-logica hierboven, niet van een range-scalp.
@@ -1129,7 +1328,7 @@ function evaluateRangeScalpOpportunity(side) {
         ? livePrice * (1 - botSettings.rangeScalpProfitTargetPct / 100)
         : livePrice * (1 + botSettings.rangeScalpProfitTargetPct / 100);
 
-    return { eligible: true, targetPrice, rangeHigh, rangeLow, positionInRange, vfmAtEntry: vfm, erAtEntry: er, chaosAtEntry: chaos };
+    return { eligible: true, targetPrice, rangeHigh, rangeLow, positionInRange, vfmAtEntry: vfm, erAtEntry: er, chaosAtEntry: chaos, rsiAtEntry: rsiValue };
 }
 
 function openRangeScalpPosition(side, evalResult) {
@@ -1190,7 +1389,7 @@ function scanForRangeScalps() {
 function openPositionFromOrder(order) {
     const price = livePrice;
     const confluence = lastOsirisDecision ? lastOsirisDecision.confluence : 0;
-    const maxConfluence = 5; // zie getOrisisDecisionData: vfm(2)+db(1)+chaos(1)+er(1)
+    const maxConfluence = 7; // zie getOrisisDecisionData: vfm(2)+db(1)+chaos(1)+er(1)+volumeScore(1)+MA(1)
 
     // Grootte schaalt met signaalsterkte, tot maximaal maxAllocationPct
     let desiredSizePct = Math.min((confluence / maxConfluence) * botSettings.maxAllocationPct, botSettings.maxAllocationPct);
@@ -1492,8 +1691,13 @@ function downloadAllData() {
             nodeContext: nodeCtx,
             nodeInfluence: calculateNodeInfluence(nodeCtx),
             momentumContext: getMomentumContext(),
-            volumeShiftPct: calculateVolumeShift(6)
+            volumeShiftPct: calculateVolumeShift(6),
+            movingAverage20: getCurrentMAValue(),
+            rsi14: getCurrentRSIValue(),
+            fibConfluenceInfluence: calculateFibConfluenceInfluence(livePrice)
         },
+        // De echte MIC/MES/MAC fib-niveaus zoals ook op de chart getekend worden
+        currentFibLevels,
         // Meest recente volledige Osiris-beslissing (targets, confluence, status, momentum)
         lastDecision: lastOsirisDecision,
         lastVolumeMetrics: lastOsirisMetrics,
@@ -1574,6 +1778,8 @@ function botHeartbeat() {
 
         scanForOpportunities(decision, metrics);
         scanForRangeScalps();
+        renderMovingAverage();
+        renderRSI();
     }
 }
 
@@ -1633,6 +1839,8 @@ async function initDashboard() {
         
         candlestickSeries.setData(chartData);
         applyUOTAMGrid(chartData);
+        renderMovingAverage();
+        renderRSI();
         startLiveUpdates();
         startSentimentStream();
         
@@ -2340,6 +2548,27 @@ function calculateFibLevels(high, low, isBullish) {
 
 // Standaard instelling (kan later via UI veranderd worden)
 
+function computeFibScaleLevels(targetNodes, processedData) {
+    const allScalesConfig = [
+        { id: 'MIC', harmonic: 9 },
+        { id: 'MES', harmonic: 12 },
+        { id: 'MAC', harmonic: 49 }
+    ];
+    allScalesConfig.forEach(scale => {
+        if (!targetNodes || targetNodes.length < 2) { currentFibLevels[scale.id] = null; return; }
+        const nodesInRange = targetNodes.slice(-scale.harmonic);
+        const startTime = nodesInRange[0].time;
+        const endTime = nodesInRange[nodesInRange.length - 1].time;
+        const candlesInPeriod = processedData.filter(c => c.time >= startTime && c.time <= endTime);
+        if (candlesInPeriod.length === 0) { currentFibLevels[scale.id] = null; return; }
+
+        const rangeHigh = Math.max(...candlesInPeriod.map(c => c.high));
+        const rangeLow = Math.min(...candlesInPeriod.map(c => c.low));
+        const levels = calculateFibLevels(rangeHigh, rangeLow, nodesInRange[nodesInRange.length - 1].isBullish);
+        currentFibLevels[scale.id] = { levels, rangeHigh, rangeLow };
+    });
+}
+
 function updateActiveNodeFibLines(targetNodes, chartData = null) {
     // 1. Data voorbereiding
     let processedData = (chartData && Array.isArray(chartData)) ? chartData : rawData.map(d => ({
@@ -2350,67 +2579,32 @@ function updateActiveNodeFibLines(targetNodes, chartData = null) {
 
     if (!Array.isArray(processedData) || processedData.length === 0) return;
 
-    // 2. Wis oude lijnen
+    // 2. Bereken ALLE schalen altijd (nodig voor de bot), ongeacht wat er
+    // straks daadwerkelijk getekend wordt.
+    computeFibScaleLevels(targetNodes, processedData);
+
+    // 3. Wis oude lijnen
     activeFibLines.forEach(line => candlestickSeries.removePriceLine(line));
     activeFibLines = [];
 
-    // 3. Definieer de schaal-configuratie (stijlen gescheiden van kleuren)
+    // 4. Definieer de schaal-configuratie (stijlen gescheiden van kleuren)
     const fibPalettes = {
         MIC: { width: 1, style: LightweightCharts.LineStyle.Dotted },
         MES: { width: 2, style: LightweightCharts.LineStyle.Dashed },
         MAC: { width: 3, style: LightweightCharts.LineStyle.Solid }
     };
 
-    const allScales = [
-    // Micro: 9-candle cyclus. 
-    // We filteren niet op type, maar we kijken naar de laatste 9.
-    { id: 'MIC', harmonic: 9, width: 1 }, 
-    
-    // Meso: 12.25-dag cyclus. 
-    // Hier kijken we naar 12 nodes terug voor de swing-structuur.
-    { id: 'MES', harmonic: 12, width: 1 }, 
-    
-    // Macro: 49-dag cyclus (Quarterly Scaffolding).
-    // Hier kijken we naar 49 nodes terug voor de structurele marktlaag.
-    { id: 'MAC', harmonic: 49, width: 1 }
-];
-   // const allScales = [
-   //     { id: 'MIC', harmonic: 9 },  // 9-candle Micro
-   //     { id: 'MES', harmonic: 12 }, // 12.25-dag Meso
-   //     { id: 'MAC', harmonic: 49 }  // 49-dag Macro
-   // ];
-
-    // 4. Teken alleen wat actief is (Fractaal TAM model)
-    allScales.forEach(scale => {
+    // 5. Teken alleen wat actief is (Fractaal TAM model)
+    ['MIC', 'MES', 'MAC'].forEach(scaleId => {
         // Check of de gebruiker deze schaal aan heeft staan via de UI
-        if (!activeFibScales[scale.id]) return;
+        if (!activeFibScales[scaleId]) return;
 
-        // GEEN harde filter op 'type' meer: 
-        // We gebruiken ALLE beschikbare nodes als ankerpunten.
-        // Dit respecteert de fractale natuur van het TAM-model.
-        const relevantNodes = targetNodes; 
-        
-        if (relevantNodes.length < 2) return;
+        const data = currentFibLevels[scaleId];
+        if (!data) return;
 
-        // Pak de laatste X nodes op basis van de harmonische waarde (9, 12, of 49)
-        const nodesInRange = relevantNodes.slice(-scale.harmonic);
-        
-        // Bepaal het tijdsbereik op basis van deze nodes
-        const startTime = nodesInRange[0].time;
-        const endTime = nodesInRange[nodesInRange.length - 1].time;
-        
-        const candlesInPeriod = processedData.filter(c => c.time >= startTime && c.time <= endTime);
-        if (candlesInPeriod.length === 0) return;
+        const palette = fibPalettes[scaleId];
 
-        const rangeHigh = Math.max(...candlesInPeriod.map(c => c.high));
-        const rangeLow = Math.min(...candlesInPeriod.map(c => c.low));
-        
-        // Bereken Fibonacci niveaus (isBullish gebaseerd op de laatste node in de reeks)
-        const levels = calculateFibLevels(rangeHigh, rangeLow, nodesInRange[nodesInRange.length - 1].isBullish);
-        
-        const palette = fibPalettes[scale.id];
-
-        Object.entries(levels).forEach(([ratio, price]) => {
+        Object.entries(data.levels).forEach(([ratio, price]) => {
             const levelStyle = fibStyles[ratio] || { color: '#cccccc', label: ratio };
             
             if (!isNaN(price)) {
@@ -2420,7 +2614,7 @@ function updateActiveNodeFibLines(targetNodes, chartData = null) {
                     lineWidth: palette.width, // Dikte per schaal
                     lineStyle: palette.style, // Stijl (dotted/dashed/solid) per schaal
                     axisLabelVisible: true,
-                    title: `${scale.id} ${levelStyle.label}` 
+                    title: `${scaleId} ${levelStyle.label}` 
                 });
                 activeFibLines.push(line);
             }
@@ -2568,6 +2762,21 @@ function getOrisisDecisionData(metrics, currentPrice, vfm, er, db, chaos, isBull
     if (Math.abs(db) > 0.3) confluence += 1;
     if (chaos < 10) confluence += 1;
     if (er > 1.2) confluence += 1;
+    // FIX: Volume Score (metrics.score, 0-100) werd voorheen alleen getoond,
+    // nooit gebruikt in de beslissing - ondanks dat het al berekend werd hoe
+    // huidig volume zich verhoudt tot zijn eigen recente geschiedenis
+    // (z-score). Dat is precies "hoe volume live verandert t.o.v. het
+    // verleden" - nu telt een duidelijk verhoogde score (>65) mee als extra
+    // confluence-punt.
+    if (metrics && metrics.score > 65) confluence += 1;
+    // NIEUW: Moving Average (SMA-20) trend-bevestiging. Ligt de prijs aan de
+    // kant van de MA die overeenkomt met de gedetecteerde richting, dan is
+    // dat een extra, onafhankelijke bevestiging.
+    const maValue = getCurrentMAValue();
+    if (maValue !== null) {
+        if ((isBullish && currentPrice > maValue) || (!isBullish && currentPrice < maValue)) confluence += 1;
+    }
+    // Max confluence is nu 7 (vfm 2 + db 1 + chaos 1 + er 1 + volume 1 + MA 1)
 
     // Gegradeerd niveau i.p.v. platte WAIT/TREND-FOLLOW/BREAKOUT (zie classifyMarketStatus)
     const momentumContext = getMomentumContext();
