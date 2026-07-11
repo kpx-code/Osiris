@@ -7,11 +7,11 @@
     <link rel="stylesheet" href="style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root{
             --void:#05060a; --panel:#0d1420; --panel-2:#0a0f1a;
-            --violet:#9945ff; --teal:#14f195; --cyan:#00d9ff; --red:#ff3b5c; --amber:#ffb627;
+            --violet:#9945ff; --teal:#14f195; --cyan:#00d9ff; --red:#ff3b5c; --amber:#ffb627; --primary:#6366f1;
             --text-primary:#e9edf6; --text-dim:#5c6478; --text-dimmer:#3a4052; --line:rgba(153,69,255,0.16);
         }
         *, *::before, *::after { box-sizing: border-box; }
@@ -33,6 +33,11 @@
 
         /* ---- HUD panel component ---- */
         .hud{ position:relative; background:linear-gradient(165deg, rgba(16,24,40,0.92), rgba(9,13,22,0.92)); border:1px solid var(--line); padding:20px 22px; backdrop-filter:blur(6px); margin-bottom:18px; }
+        .hud.amber{ border-color:rgba(255,182,39,0.4); animation:engineBreathe 3.5s ease-in-out infinite; }
+        @keyframes engineBreathe{
+            0%,100%{ box-shadow:0 0 14px rgba(255,182,39,0.08); }
+            50%{ box-shadow:0 0 26px rgba(255,182,39,0.22); }
+        }
         .corner{ position:absolute; width:11px; height:11px; }
         .corner-tl{ top:-1px; left:-1px; border-top:2px solid var(--teal); border-left:2px solid var(--teal); }
         .corner-tr{ top:-1px; right:-1px; border-top:2px solid var(--teal); border-right:2px solid var(--teal); }
@@ -40,15 +45,34 @@
         .corner-br{ bottom:-1px; right:-1px; border-bottom:2px solid var(--teal); border-right:2px solid var(--teal); }
         .hud.violet .corner{ border-color:var(--violet); }
         .hud.amber .corner{ border-color:var(--amber); }
-        .eyebrow{ font-family:'JetBrains Mono', monospace; font-size:0.66rem; letter-spacing:0.2em; text-transform:uppercase; color:var(--text-dim); margin-bottom:14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-        .eyebrow::before{ content:''; width:5px; height:5px; background:var(--violet); box-shadow:0 0 6px var(--violet); flex-shrink:0; }
+        .eyebrow{ font-family:'JetBrains Mono', monospace; font-size:0.95rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-primary); margin-bottom:16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+        .eyebrow.engine-title{ font-family:'Orbitron', sans-serif; font-size:1.1rem; font-weight:800; letter-spacing:0.08em; color:#ffffff; text-transform:none; margin-bottom:18px; }
+        .eyebrow.engine-title::before{ width:8px; height:8px; box-shadow:0 0 10px var(--amber); background:var(--amber); }
+        .engine-scanline{ height:2px; margin:-8px 0 20px; background:linear-gradient(90deg, transparent, var(--violet), var(--teal), var(--cyan), transparent); background-size:250% 100%; animation:engineSweep 4s linear infinite; opacity:0.9; }
+        @keyframes engineSweep{ 0%{background-position:250% 0;} 100%{background-position:-250% 0;} }
+        .hud.chart-clean{ border:1px solid rgba(255,255,255,0.08); background:#101216; box-shadow:none; backdrop-filter:none; }
+        .hud.chart-clean{ border:1px solid rgba(255,255,255,0.08); background:#141519; border-radius:14px; padding:24px; box-shadow:none; backdrop-filter:none; }
+        .hud.chart-clean select, .hud.chart-clean input[type=number]{
+            background:#1c1e23; color:var(--text-primary); border:1px solid rgba(255,255,255,0.08); border-radius:8px;
+            font-family:'Inter',sans-serif; font-size:0.82rem; padding:9px 10px;
+        }
+        .hud.chart-clean select:focus, .hud.chart-clean input:focus{ outline:none; border-color:var(--primary); }
+        .hud.chart-clean .toggle-item label{ font-family:'Inter',sans-serif; font-weight:500; font-size:0.7rem; color:var(--text-dim); text-transform:none; letter-spacing:normal; }
+        .hud.chart-clean .ohlc-strip{ font-family:'Inter',sans-serif; border-bottom:1px solid rgba(255,255,255,0.08); }
+        .hud.chart-clean .ohlc-strip b{ font-family:'Roboto Mono',monospace; }
+        .hud.chart-clean #chart-container{ border-radius:10px; background:#101216; }
+        .eyebrow.chart-title{ font-family:'Inter', sans-serif; font-size:1.2rem; font-weight:700; letter-spacing:-0.01em; text-transform:none; color:var(--text-primary); }
+        .eyebrow.chart-title::before{ display:none; }
+        .chart-bar{ width:4px; height:26px; border-radius:2px; background:var(--primary, #6366f1); flex-shrink:0; }
+        .hud.chart-clean .corner{ display:none; }
+        .eyebrow::before{ content:''; width:7px; height:7px; background:var(--violet); box-shadow:0 0 8px var(--violet); flex-shrink:0; }
         .eyebrow .fill{ flex:1; height:1px; background:var(--line); min-width:20px; }
         .subhead{ font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-dim); margin:22px 0 10px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.06); display:flex; align-items:center; gap:8px; justify-content:space-between; flex-wrap:wrap; }
         .subhead:first-of-type{ border-top:none; padding-top:0; margin-top:14px; }
 
         /* ---- header (plain, per verzoek: witte tekst, zwarte achtergrond) ---- */
         header{ background:#000; padding:18px 22px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:0; border:1px solid var(--line); }
-        header h1{ font-family:'Orbitron', sans-serif; font-weight:800; font-size:1.5rem; letter-spacing:0.06em; color:#ffffff; margin:0; }
+        header h1{ font-family:'Orbitron', sans-serif; font-weight:800; font-size:1.5rem; letter-spacing:0.08em; color:#ffffff; margin:0; }
         .live-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--teal); box-shadow:0 0 6px var(--teal), 0 0 14px var(--teal); margin-left:10px; animation:pulse 2s ease-in-out infinite; }
         @keyframes pulse{ 0%,100%{opacity:1; transform:scale(1);} 50%{opacity:.35; transform:scale(.65);} }
         header nav a{ color:#ffffff; text-decoration:none; font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:0.06em; border:1px solid rgba(255,255,255,0.25); padding:8px 14px; }
@@ -141,12 +165,17 @@
         #bot-monitor .stat{ padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); }
         #bot-monitor .stat small{ display:block; font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim); margin-bottom:6px; }
         #bot-monitor .stat div{ font-family:'JetBrains Mono',monospace; font-weight:700; font-size:0.85rem; }
-        #bot-reasoning-wrap{ background:#000000; border:1px solid #00ff41; padding:14px 16px; margin-bottom:18px; max-height:340px; overflow-y:scroll; box-shadow: inset 0 0 30px rgba(0,255,65,0.08); }
-        #bot-reasoning-wrap::-webkit-scrollbar{ width: 8px; }
-        #bot-reasoning-wrap::-webkit-scrollbar-track{ background: #000; }
-        #bot-reasoning-wrap::-webkit-scrollbar-thumb{ background: #00ff41; }
-        #bot-reasoning-wrap{ scrollbar-width: thin; scrollbar-color: #00ff41 #000; }
-        #bot-reasoning-wrap .rlabel{ font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:#00ff41; margin-bottom:10px; text-shadow:0 0 6px rgba(0,255,65,0.6); }
+        #bot-reasoning-wrap{ background:#000000; padding:14px 16px; margin-bottom:18px; box-shadow: inset 0 0 30px rgba(0,255,65,0.08); }
+        #reasoning-header{ cursor:pointer; user-select:none; display:flex; justify-content:space-between; align-items:center; }
+        #reasoning-chevron{ transition:transform 0.25s ease; color:#00ff41; }
+        #reasoning-chevron.open{ transform:rotate(180deg); }
+        #reasoning-body{ max-height:0; overflow:hidden; transition:max-height 0.35s ease; }
+        #reasoning-body.open{ max-height:320px; overflow-y:scroll; margin-top:10px; }
+        #reasoning-body::-webkit-scrollbar{ width: 8px; }
+        #reasoning-body::-webkit-scrollbar-track{ background: #000; }
+        #reasoning-body::-webkit-scrollbar-thumb{ background: #00ff41; }
+        #reasoning-body{ scrollbar-width: thin; scrollbar-color: #00ff41 #000; }
+        #bot-reasoning-wrap .rlabel{ font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:#00ff41; text-shadow:0 0 6px rgba(0,255,65,0.6); display:flex; justify-content:space-between; align-items:center; gap:10px; }
         #bot-reasoning-wrap, #bot-reasoning-wrap * { color:#00ff41 !important; font-family:'JetBrains Mono',monospace !important; }
         #bot-reasoning-wrap div { text-shadow:0 0 4px rgba(0,255,65,0.35); }
 
@@ -199,9 +228,8 @@
         <div class="scan-line"></div>
 
         <!-- ============ CHART SECTION ============ -->
-        <div class="hud">
-            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow">MARKET CHART<span class="fill"></span></div>
+        <div class="hud chart-clean">
+            <div class="eyebrow chart-title"><span class="chart-bar"></span>Market Chart</div>
 
             <div class="timeframe-selector" style="margin-bottom: 14px; display: flex; gap: 10px;">
                 <button onclick="changeTimeframe('15m')" id="btn-15m" class="btn btn-mini" style="background:var(--teal); color:#04060a;">15m</button>
@@ -363,10 +391,10 @@
 
             <div class="subhead">Node Countdown</div>
             <div id="info-panel" class="node-grid">
-                <div class="node-card" style="border-color:rgba(255,255,255,0.3);"><h4 style="color:#fff;">RESET [Vortex 9]</h4><p id="next-reset">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(255,182,39,0.4);"><h4 style="color:var(--amber);">VOLA [Node 1]</h4><p id="next-vola">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(0,217,255,0.4);"><h4 style="color:var(--cyan);">CORE [Vortex 3/6]</h4><p id="next-core">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(255,255,255,0.15);"><h4 style="color:var(--text-dim);">OSC [Node 2/4/5/7]</h4><p id="next-osc">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(255,255,255,0.3);"><h4 style="color:#ffffff;">RESET [Vortex 9]</h4><p id="next-reset">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(255,255,0,0.4);"><h4 style="color:#ffff00;">VOLA [Node 1]</h4><p id="next-vola">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(0,255,204,0.4);"><h4 style="color:#00ffcc;">CORE [Vortex 3/6]</h4><p id="next-core">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(136,136,136,0.4);"><h4 style="color:#888888;">OSC [Node 2/4/5/7]</h4><p id="next-osc">Berekenen...</p></div>
                 <div class="node-card" style="border-color:rgba(255,204,0,0.4);"><h4 style="color:#ffcc00;">MID PULSE</h4><p id="mid-pulse-display">Berekenen...</p></div>
                 <div class="node-card" style="border-color:rgba(20,241,149,0.4);"><h4 style="color:var(--teal);">NEXT NODE</h4><p id="next-node-display">Berekenen...</p></div>
             </div>
@@ -394,7 +422,8 @@
         <!-- ============ OSIRIS ENGINE SECTION ============ -->
         <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow">OSIRIS ENGINE<span class="fill"></span></div>
+            <div class="eyebrow engine-title">OSIRIS ENGINE<span class="fill"></span></div>
+            <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
                 <small style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);">Runtime</small>
@@ -498,8 +527,13 @@
 
             <!-- LIVE REASONING PANEL -->
             <div id="bot-reasoning-wrap">
-                <div class="rlabel">&#9679; Beredenering (live) — continue unpacking van elke berekeningsstap</div>
-                <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
+                <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
+                    <span>&#9679; Beredenering (live) — continue unpacking van elke berekeningsstap</span>
+                    <span id="reasoning-chevron" class="open">&#9662;</span>
+                </div>
+                <div id="reasoning-body" class="open">
+                    <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
+                </div>
             </div>
 
             <!-- WALLET STATUS: neon rand + icoon -->
