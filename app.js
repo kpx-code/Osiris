@@ -278,6 +278,7 @@ function applyMASettings() {
     if (maFastPeriod >= maSlowPeriod) maSlowPeriod = maFastPeriod + 1; // fast moet echt sneller zijn dan slow
     lastMACrossoverState = null; // reset kruisings-tracking bij periode-wijziging
     renderMovingAverage();
+    savePersistentState(); // deze instellingen zijn live-instelbaar, dus meteen opslaan i.p.v. pas bij Start
 }
 
 // ============================================================
@@ -300,6 +301,63 @@ function applyRSISettings() {
     if (obInput && !isNaN(parseInt(obInput.value))) rsiOverbought = Math.min(99, Math.max(51, parseInt(obInput.value)));
     if (osInput && !isNaN(parseInt(osInput.value))) rsiOversold = Math.min(49, Math.max(1, parseInt(osInput.value)));
     renderRSI();
+    savePersistentState(); // deze instellingen zijn live-instelbaar, dus meteen opslaan i.p.v. pas bij Start
+}
+
+// ============================================================
+// PRESETS: Conservatief / Balanced / Agressief - vult in één klik alle
+// velden hieronder in, exact volgens de tabel in de User Manual §5. "Balanced"
+// = de fabrieksinstellingen. Handmatig aanpassen na het kiezen van een preset
+// kan gewoon - dit is een startpunt, geen vergrendeling.
+// ============================================================
+const PROFILE_PRESETS = {
+    CONSERVATIVE: {
+        'max-allocation-pct': 40, 'stop-loss-pct': 1.5, 'min-probability-pct': 80,
+        'hold-continuation-probability-pct': 90, 'min-projected-profit-pct': 1.5,
+        'max-open-positions': 2, 'hedge-reserve-pct': 25, 'pending-order-ttl': 20,
+        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30,
+        'range-scalp-target-pct': 0.2, 'range-scalp-stop-pct': 0.3, 'range-scalp-alloc-pct': 5,
+        'chase-probability-pct': 95, 'chase-after-minutes': 15,
+        'ma-fast-period': 20, 'ma-slow-period': 50,
+        'rsi-period': 14, 'rsi-overbought': 75, 'rsi-oversold': 25
+    },
+    BALANCED: {
+        'max-allocation-pct': 70, 'stop-loss-pct': 2, 'min-probability-pct': 70,
+        'hold-continuation-probability-pct': 85, 'min-projected-profit-pct': 1,
+        'max-open-positions': 3, 'hedge-reserve-pct': 15, 'pending-order-ttl': 30,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20,
+        'range-scalp-target-pct': 0.3, 'range-scalp-stop-pct': 0.5, 'range-scalp-alloc-pct': 10,
+        'chase-probability-pct': 90, 'chase-after-minutes': 10,
+        'ma-fast-period': 9, 'ma-slow-period': 21,
+        'rsi-period': 14, 'rsi-overbought': 70, 'rsi-oversold': 30
+    },
+    AGGRESSIVE: {
+        'max-allocation-pct': 70, 'stop-loss-pct': 2.5, 'min-probability-pct': 60,
+        'hold-continuation-probability-pct': 80, 'min-projected-profit-pct': 0.5,
+        'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
+        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10,
+        'range-scalp-target-pct': 0.5, 'range-scalp-stop-pct': 0.8, 'range-scalp-alloc-pct': 15,
+        'chase-probability-pct': 82, 'chase-after-minutes': 5,
+        'ma-fast-period': 5, 'ma-slow-period': 13,
+        'rsi-period': 14, 'rsi-overbought': 65, 'rsi-oversold': 35
+    }
+};
+
+function applyPreset(name) {
+    if (name === 'MANUAL' || !PROFILE_PRESETS[name]) return; // "Handmatig" doet niets - velden blijven zoals ze staan
+
+    const preset = PROFILE_PRESETS[name];
+    Object.entries(preset).forEach(([id, value]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+    });
+
+    // MA/RSI zijn live-instelbaar (zie applyMASettings/applyRSISettings) - dus
+    // meteen toepassen op de chart, ook als de bot nog niet gestart is.
+    applyMASettings();
+    applyRSISettings();
+
+    console.log(`Preset "${name}" toegepast op alle velden. Klik Start Bot om de trend/scalp-instellingen te activeren.`);
 }
 
 function calculateRSISeries(closes, period) {
@@ -390,35 +448,83 @@ function linearRegressionFit(points) {
 
 // Berekent de voorspelling; niet afhankelijk van of de lijn zichtbaar staat,
 // zodat de bot 'm ook kan gebruiken als extra confluence-input.
+// Uitgebreid t.o.v. de eerste versie: het venster wordt nu geankerd op de
+// laatst gepasseerde node (i.p.v. een vast aantal candles), en de
+// hellingsprojectie wordt bijgesteld op basis van VFM-trend, volume-trend en
+// chaos uit het bestaande geheugen (metricsHistory/calculateVolumeShift).
+// Dit is een engineering-uitbreiding die meer van de al berekende
+// databronnen van de bot gebruikt - GEEN validatie van de backtest-claims
+// uit de bron-documenten, die blijven onbevestigd (zie Technical
+// Documentation §15). De regressie zelf blijft een gewone lineaire fit;
+// alleen de invoer en de bijstelling zijn rijker.
 function computeLinearPrediction(horizonMinutes) {
     if (!rawData || rawData.length < 20) return null;
 
-    const lookback = 30; // candles - recent genoeg om actuele trend te vangen
+    // 1. Venster ankeren op de laatst gepasseerde node i.p.v. een vast getal -
+    // "kijk terug tot het laatste betekenisvolle knooppunt", begrensd tussen
+    // 10 en 60 candles zodat het venster nooit absurd klein/groot wordt.
+    const nodeCtx = getNodeContext();
+    const candlesSinceNode = Math.round(nodeCtx.lastNode.minutesAgo / 15);
+    const lookback = Math.min(60, Math.max(10, candlesSinceNode || 30));
+
     const recent = rawData.slice(-lookback);
     const points = recent.map((d, i) => ({ x: i, y: parseFloat(d[4]) }));
-    const { slope, intercept } = linearRegressionFit(points);
+    const { slope } = linearRegressionFit(points);
 
-    const lastIndex = points.length - 1;
+    // 2. Bijstelling op basis van VFM-trend, volume-trend en chaos - allemaal
+    // al berekend elders in de bot (metricsHistory-gebaseerd geheugen).
+    const momentum = getMomentumContext();
+    const volShift = calculateVolumeShift(6);
+    let adjustmentFactor = 1.0;
+
+    // VFM-trend bevestigt de richting van de prijs-regressie -> versterken
+    if ((slope > 0 && momentum.vfmTrend === 'rising') || (slope < 0 && momentum.vfmTrend === 'falling')) {
+        adjustmentFactor += 0.15;
+    }
+    // VFM-trend spreekt de richting tegen -> afzwakken
+    if ((slope > 0 && momentum.vfmTrend === 'falling') || (slope < 0 && momentum.vfmTrend === 'rising')) {
+        adjustmentFactor -= 0.15;
+    }
+    // Oplopend/aflopend volume bevestigt/verzwakt de beweging
+    if (volShift > 15) adjustmentFactor += 0.1;
+    else if (volShift < -15) adjustmentFactor -= 0.1;
+    // Samengedrukte (consoliderende) range -> voorzichtiger, vlakkere projectie
+    if (momentum.rangeCompressed) adjustmentFactor -= 0.2;
+    // Chaos: hoge chaos = onbetrouwbaardere trend, lage chaos = iets stabieler
+    if (chaos > 15) adjustmentFactor -= 0.15;
+    else if (chaos < 5) adjustmentFactor += 0.05;
+
+    adjustmentFactor = Math.max(0.3, Math.min(1.6, adjustmentFactor));
+    const adjustedSlope = slope * adjustmentFactor;
+
     const lastTimeSec = Math.floor(recent[recent.length - 1][0] / 1000);
     const candleIntervalSec = 15 * 60; // 15m candles
     const stepsForward = Math.max(1, Math.round((horizonMinutes * 60) / candleIntervalSec));
-    const futureIndex = lastIndex + stepsForward;
     const futureTimeSec = lastTimeSec + stepsForward * candleIntervalSec;
-    const futurePrice = slope * futureIndex + intercept;
+    // Projecteer vanaf de daadwerkelijke live prijs (niet vanaf het gefitte
+    // punt, dat door regressie-afwijking net iets anders kan liggen).
+    const anchorPrice = livePrice || (slope * (points.length - 1));
+    const futurePrice = anchorPrice + (adjustedSlope * stepsForward);
 
     return {
         startTime: lastTimeSec,
-        startPrice: livePrice || (slope * lastIndex + intercept),
+        startPrice: anchorPrice,
         endTime: futureTimeSec,
         endPrice: futurePrice,
-        slope,
-        direction: slope > 0.01 ? 'bullish' : (slope < -0.01 ? 'bearish' : 'neutral')
+        slope: adjustedSlope,
+        rawSlope: slope,
+        adjustmentFactor,
+        lookbackCandles: lookback,
+        anchoredToNode: nodeCtx.lastNode.type,
+        direction: adjustedSlope > 0.01 ? 'bullish' : (adjustedSlope < -0.01 ? 'bearish' : 'neutral')
     };
 }
 
 function renderPrediction() {
     if (!showPrediction) {
         if (predictionSeries) { chart.removeSeries(predictionSeries); predictionSeries = null; }
+        // Terug naar een normale, kleine marge zodra de voorspelling uit staat
+        chart.timeScale().applyOptions({ rightOffset: 6 });
         return;
     }
     const pred = computeLinearPrediction(predictionHorizonMinutes);
@@ -436,6 +542,15 @@ function renderPrediction() {
         predictionSeries.applyOptions({ color });
     }
     predictionSeries.setData(data);
+
+    // FIX: de tijdas heeft standaard geen ruimte rechts van de laatste candle
+    // (rightOffset: 0), dus het toekomstige stuk van de lijn viel buiten het
+    // zichtbare venster - de data klopte, maar was niet te zien zonder handmatig
+    // te scrollen. Bereken hoeveel candle-breedtes de gekozen horizon nodig
+    // heeft en zet daar de marge op (met een beetje extra lucht).
+    const candleIntervalSec = 15 * 60;
+    const stepsForward = Math.max(1, Math.round((predictionHorizonMinutes * 60) / candleIntervalSec));
+    chart.timeScale().applyOptions({ rightOffset: stepsForward + 3 });
 }
 
 function handlePredictionSelect(value) {
@@ -618,6 +733,14 @@ function savePersistentState() {
         // 500 entries zodat localStorage niet ongelimiteerd blijft groeien.
         const cappedLog = botTradeLog.length > 500 ? botTradeLog.slice(-500) : botTradeLog;
         localStorage.setItem('osirisTradeLog', JSON.stringify(cappedLog));
+        // FIX: botSettings (en de MA/RSI-instellingen) werden nooit opgeslagen -
+        // bij elke refresh reset dit stilzwijgend naar de harde defaults in de
+        // code, waardoor het "Actieve Sessie-Instellingen"-paneel na een
+        // refresh niet meer klopte met wat er daadwerkelijk was ingesteld.
+        localStorage.setItem('osirisBotSettings', JSON.stringify(botSettings));
+        localStorage.setItem('osirisIndicatorSettings', JSON.stringify({
+            maFastPeriod, maSlowPeriod, rsiPeriod, rsiOverbought, rsiOversold
+        }));
     } catch (e) { console.warn("Kon wallet/positie-status niet opslaan:", e); }
 }
 
@@ -627,14 +750,64 @@ function loadPersistentState() {
         const p = localStorage.getItem('osirisOpenPositions');
         const q = localStorage.getItem('osirisPendingOrders');
         const t = localStorage.getItem('osirisTradeLog');
+        const bs = localStorage.getItem('osirisBotSettings');
+        const ind = localStorage.getItem('osirisIndicatorSettings');
+        const sl = localStorage.getItem('osirisSessionLog');
         if (w) walletState = JSON.parse(w);
         if (p) openPositions = JSON.parse(p);
         if (q) pendingOrders = JSON.parse(q);
         if (t) botTradeLog = JSON.parse(t);
+        if (bs) {
+            const restored = JSON.parse(bs);
+            restored.isRunning = false; // altijd vers starten - startAutonomousBot(true) zet dit zelf weer terug op true indien nodig
+            botSettings = restored;
+        }
+        if (ind) {
+            const restoredInd = JSON.parse(ind);
+            if (restoredInd.maFastPeriod) maFastPeriod = restoredInd.maFastPeriod;
+            if (restoredInd.maSlowPeriod) maSlowPeriod = restoredInd.maSlowPeriod;
+            if (restoredInd.rsiPeriod) rsiPeriod = restoredInd.rsiPeriod;
+            if (restoredInd.rsiOverbought) rsiOverbought = restoredInd.rsiOverbought;
+            if (restoredInd.rsiOversold) rsiOversold = restoredInd.rsiOversold;
+        }
+        if (sl) sessionLog = JSON.parse(sl);
     } catch (e) { console.warn("Kon wallet/positie-status niet laden:", e); }
 }
 
 loadPersistentState();
+
+// FIX: na het herladen moeten de invoervelden zelf ook de herstelde waarden
+// tonen - anders klopt het scherm niet met wat er intern actief is, ook al is
+// de data zelf correct. Dit is puur weergave; leest nergens data uit.
+function populateSettingsInputsFromState() {
+    const setVal = (id, value) => { const el = document.getElementById(id); if (el && value !== undefined && value !== null) el.value = value; };
+
+    setVal('start-capital', walletState.startingCapital);
+    setVal('wallet-currency-select', walletState.currency);
+
+    const s = botSettings;
+    setVal('max-allocation-pct', (s.maxAllocationPct * 100).toFixed(0));
+    setVal('stop-loss-pct', (s.stopLossPct * 100).toFixed(2).replace(/\.00$/, ''));
+    setVal('min-probability-pct', s.minProbabilityPct);
+    setVal('hold-continuation-probability-pct', s.holdContinuationMinProbabilityPct);
+    setVal('min-projected-profit-pct', s.minProjectedProfitPct);
+    setVal('max-open-positions', s.maxOpenPositions);
+    setVal('hedge-reserve-pct', (s.minHedgeReservePct * 100).toFixed(0));
+    setVal('pending-order-ttl', s.pendingOrderTtlMinutes);
+    setVal('min-loss-early-exit', (s.minLossForEarlyExit * 100).toFixed(2).replace(/\.00$/, ''));
+    setVal('continuation-confirmation-sec', s.continuationConfirmationSeconds);
+    setVal('range-scalp-target-pct', s.rangeScalpProfitTargetPct);
+    setVal('range-scalp-stop-pct', s.rangeScalpStopLossPct);
+    setVal('range-scalp-alloc-pct', (s.rangeScalpAllocationPct * 100).toFixed(0));
+    setVal('chase-probability-pct', s.chaseProbabilityThreshold);
+    setVal('chase-after-minutes', s.chaseAfterMinutes);
+
+    setVal('ma-fast-period', maFastPeriod);
+    setVal('ma-slow-period', maSlowPeriod);
+    setVal('rsi-period', rsiPeriod);
+    setVal('rsi-overbought', rsiOverbought);
+    setVal('rsi-oversold', rsiOversold);
+}
 
 // FIX: na het laden de "Laatste 10 Posities" tabel opnieuw opbouwen uit de
 // hersteldeel trade log, zodat gesloten posities niet meer "verdwijnen" bij
@@ -658,6 +831,7 @@ function rebuildHistoryUIFromLog() {
 // de HTML zelf, niet op externe scripts, en is de juiste keuze voor UI-init
 // die geen externe resources nodig heeft.
 function initializeOnReady() {
+    populateSettingsInputsFromState();
     updateWalletUI();
     updatePendingOrdersUI();
     rebuildHistoryUIFromLog();
@@ -676,18 +850,11 @@ if (document.readyState === 'loading') {
 
 
 
-function startAutonomousBot(isAutoRestart = false) {
-    isBotRunning = true;
-    localStorage.setItem('botIsRunning', 'true');
-
-    // FIX: dit was nooit true gezet, waardoor botHeartbeat() de trading
-    // engine altijd oversloeg (bot deed nooit iets, ook al stond hij "ACTIEF").
-    botSettings.isRunning = true;
-
-    // Lees de door de gebruiker ingevulde waarden uit de UI.
-    // Start Kapitaal wordt alleen toegepast als de wallet nog nooit gebruikt is
-    // (anders zou elke herstart de opgebouwde equity overschrijven).
-    const capitalInput = document.getElementById('start-capital');
+// Leest alle trend/scalp/gedeelde instellingen uit de invoervelden in
+// botSettings. Losgetrokken uit startAutonomousBot() zodat dezelfde logica
+// ook gebruikt kan worden voor een live update terwijl de bot al draait (zie
+// updateLiveSettings hieronder) - zonder de runtime/interval/wallet aan te raken.
+function readTradingSettingsFromInputs() {
     const allocInput = document.getElementById('max-allocation-pct');
     const stopLossInput = document.getElementById('stop-loss-pct');
     const minProbInput = document.getElementById('min-probability-pct');
@@ -704,13 +871,6 @@ function startAutonomousBot(isAutoRestart = false) {
     const chaseProbInput = document.getElementById('chase-probability-pct');
     const chaseAfterInput = document.getElementById('chase-after-minutes');
 
-    if (!isAutoRestart && walletState.realizedPnL === 0 && openPositions.length === 0) {
-        if (capitalInput && !isNaN(parseFloat(capitalInput.value)) && parseFloat(capitalInput.value) > 0) {
-            walletState.startingCapital = parseFloat(capitalInput.value);
-        }
-        const currencyInput = document.getElementById('wallet-currency-select');
-        walletState.currency = (currencyInput && currencyInput.value === 'USD') ? 'USD' : 'EUR';
-    }
     if (allocInput && !isNaN(parseFloat(allocInput.value))) {
         botSettings.maxAllocationPct = Math.min(Math.max(parseFloat(allocInput.value) / 100, 0), 1);
     }
@@ -727,7 +887,6 @@ function startAutonomousBot(isAutoRestart = false) {
         botSettings.minProjectedProfitPct = Math.max(parseFloat(minProfitInput.value), 0);
     }
     if (maxPositionsInput && !isNaN(parseInt(maxPositionsInput.value))) {
-        // Harde bovengrens van 4, ongeacht wat er wordt ingevuld
         botSettings.maxOpenPositions = Math.min(Math.max(parseInt(maxPositionsInput.value), 1), 4);
     }
     if (hedgeReserveInput && !isNaN(parseFloat(hedgeReserveInput.value))) {
@@ -757,6 +916,68 @@ function startAutonomousBot(isAutoRestart = false) {
     if (chaseAfterInput && !isNaN(parseFloat(chaseAfterInput.value))) {
         botSettings.chaseAfterMinutes = Math.max(parseFloat(chaseAfterInput.value), 0);
     }
+}
+
+// ============================================================
+// SESSIE-LOG: houdt bij WANNEER welke instellingen actief werden - zowel bij
+// Start als bij een live update terwijl de bot draait. Dit maakt de trade log
+// achteraf te segmenteren per configuratie, ook als je nooit expliciet Reset
+// Wallet gebruikt tussen twee verschillende instellingen-sets in.
+// ============================================================
+let sessionLog = [];
+
+function recordSessionEvent(eventType) {
+    sessionLog.push({
+        timestamp: new Date().toISOString(),
+        event: eventType, // 'START' | 'STOP' | 'SETTINGS_UPDATED'
+        settings: JSON.parse(JSON.stringify(botSettings)),
+        indicatorSettings: { maFastPeriod, maSlowPeriod, rsiPeriod, rsiOverbought, rsiOversold }
+    });
+    if (sessionLog.length > 200) sessionLog = sessionLog.slice(-200);
+    try { localStorage.setItem('osirisSessionLog', JSON.stringify(sessionLog)); } catch (e) { /* niet kritiek */ }
+}
+
+// Werkt de instellingen van de AL DRAAIENDE bot live bij, zonder de runtime,
+// het interval, of open posities aan te raken. Let op: dit verandert
+// meteen de stop-loss/target-drempels waaronder AL OPEN posities worden
+// beoordeeld (die lezen botSettings namelijk live, niet een bevroren kopie
+// van instapmoment) - gebruik dit bewust, en gebruik voor een echt schone
+// nieuwe testsessie liever Stop -> Reset Wallet -> Start.
+function updateLiveSettings() {
+    if (!botSettings.isRunning) {
+        alert("De bot draait niet - gebruik gewoon Start Bot om de huidige instellingen te activeren.");
+        return;
+    }
+    if (!confirm("Weet je zeker dat je de LIVE instellingen wilt bijwerken? Dit verandert meteen de regels waaronder AL OPEN posities worden beoordeeld (stop-loss, doelen, etc.), en je trade log bevat straks trades onder twee verschillende configuraties. Voor schone data-evaluatie is Stop -> Reset Wallet -> Start meestal beter.")) return;
+
+    readTradingSettingsFromInputs();
+    recordSessionEvent('SETTINGS_UPDATED');
+    savePersistentState();
+    renderActiveSettingsPanel();
+    logBotAction("SETTINGS_UPDATED", livePrice || 0, null, 0, 0, "instellingen live bijgewerkt");
+    console.log("Live instellingen bijgewerkt om", formatFullDateTime());
+}
+
+function startAutonomousBot(isAutoRestart = false) {
+    isBotRunning = true;
+    localStorage.setItem('botIsRunning', 'true');
+
+    // FIX: dit was nooit true gezet, waardoor botHeartbeat() de trading
+    // engine altijd oversloeg (bot deed nooit iets, ook al stond hij "ACTIEF").
+    botSettings.isRunning = true;
+
+    // Start Kapitaal/valuta wordt alleen toegepast als de wallet nog nooit
+    // gebruikt is (anders zou elke herstart de opgebouwde equity overschrijven).
+    if (!isAutoRestart && walletState.realizedPnL === 0 && openPositions.length === 0) {
+        const capitalInput = document.getElementById('start-capital');
+        if (capitalInput && !isNaN(parseFloat(capitalInput.value)) && parseFloat(capitalInput.value) > 0) {
+            walletState.startingCapital = parseFloat(capitalInput.value);
+        }
+        const currencyInput = document.getElementById('wallet-currency-select');
+        walletState.currency = (currencyInput && currencyInput.value === 'USD') ? 'USD' : 'EUR';
+    }
+
+    readTradingSettingsFromInputs();
 
     if (!isAutoRestart) {
         botStartTime = Date.now();
@@ -771,6 +992,7 @@ function startAutonomousBot(isAutoRestart = false) {
     if (startBtn) startBtn.style.display = 'none';
     if (stopBtn) stopBtn.style.display = 'inline-block';
 
+    recordSessionEvent(isAutoRestart ? 'AUTO_RESTART' : 'START');
     savePersistentState();
     updateWalletUI();
     renderActiveSettingsPanel();
@@ -788,6 +1010,9 @@ function renderActiveSettingsPanel() {
         el.innerHTML = `<span style="color:#888;">Bot staat stil - geen actieve sessie-instellingen.</span>`;
         return;
     }
+
+    const lastEvent = sessionLog.length > 0 ? sessionLog[sessionLog.length - 1] : null;
+    const startEvent = [...sessionLog].reverse().find(e => e.event === 'START' || e.event === 'AUTO_RESTART');
 
     const s = botSettings;
     const rows = [
@@ -808,7 +1033,12 @@ function renderActiveSettingsPanel() {
         ['RSI periode / OB / OS', `${rsiPeriod} / ${rsiOverbought} / ${rsiOversold}`],
     ];
 
-    el.innerHTML = `<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:4px 12px; font-size:0.8em;">` +
+    const timingInfo = `<div style="margin-bottom:8px; font-size:0.8em; color:#aaa;">` +
+        (startEvent ? `Sessie gestart: <b>${formatFullDateTime(new Date(startEvent.timestamp).getTime())}</b>` : '') +
+        (lastEvent && lastEvent.event === 'SETTINGS_UPDATED' ? ` | Laatst live bijgewerkt: <b>${formatFullDateTime(new Date(lastEvent.timestamp).getTime())}</b>` : '') +
+        `</div>`;
+
+    el.innerHTML = timingInfo + `<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:4px 12px; font-size:0.8em;">` +
         rows.map(([k, v]) => `<div><span style="color:#888;">${k}:</span> <b>${v}</b></div>`).join('') +
         `</div>`;
 }
@@ -817,6 +1047,7 @@ function renderActiveSettingsPanel() {
 function stopAutonomousBot() {
     // 1. Stop de bot-logica
     botSettings.isRunning = false;
+    recordSessionEvent('STOP');
     
     // 2. Stop de 'hartslag' van de bot (belangrijk!)
     if (botInterval) {
@@ -948,7 +1179,15 @@ function getPositionReasoning(pos) {
         confirmTxt = ` | bevestiging: ${elapsed}/${botSettings.continuationConfirmationSeconds}s`;
     }
 
-    return `${pos.side}${pos.isScalp ? ' [SCALP]' : ''} @ ${formatChartPrice(pos.entryPrice)} | P/L ${(pnlPct * 100).toFixed(2)}% | ${zone}${detail ? ': ' + detail : ''}${confirmTxt}`;
+    // Winst-/verlieskans zoals bij entry ingeschat (alleen bekend voor
+    // trend-posities - scalps hebben geen probabilityPct, die worden op
+    // aparte, vaste regels beoordeeld, zie §13 Calculation Reference).
+    let chanceTxt = '';
+    if (pos.probabilityPct !== null && pos.probabilityPct !== undefined) {
+        chanceTxt = ` | winkans bij entry ~${pos.probabilityPct.toFixed(0)}% / verlieskans ~${(100 - pos.probabilityPct).toFixed(0)}%`;
+    }
+
+    return `[${pos.isScalp ? 'SCALP' : 'TREND'}] ${pos.side} @ ${formatChartPrice(pos.entryPrice)} | P/L ${(pnlPct * 100).toFixed(2)}% | ${zone}${detail ? ': ' + detail : ''}${confirmTxt}${chanceTxt}`;
 }
 
 function updateReasoningPanel() {
@@ -966,7 +1205,7 @@ function updateReasoningPanel() {
         if (rsiVal !== null) scanTxt += ` | RSI${rsiPeriod}: ${rsiVal.toFixed(0)}`;
         if (showPrediction) {
             const pred = computeLinearPrediction(predictionHorizonMinutes);
-            if (pred) scanTxt += ` | Voorspelling (${document.getElementById('prediction-horizon-select')?.value || '1h'}): ${pred.direction}`;
+            if (pred) scanTxt += ` | Voorspelling (${document.getElementById('prediction-horizon-select')?.value || '1h'}): ${pred.direction} [venster ${pred.lookbackCandles} candles sinds ${pred.anchoredToNode}, weging ${pred.adjustmentFactor.toFixed(2)}x]`;
         }
         if (pendingOrders.length > 0) {
             scanTxt += ` | ${pendingOrders.length} pending order(s) actief.`;
@@ -1012,7 +1251,7 @@ function updateWalletUI() {
     const posBody = document.getElementById('open-positions-body');
     if (posBody) {
         if (openPositions.length === 0) {
-            posBody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#888; padding:8px;">Geen open posities</td></tr>`;
+            posBody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:#888; padding:8px;">Geen open posities</td></tr>`;
             setText('bot-position', 'Geen');
         } else {
             posBody.innerHTML = openPositions.map(p => {
@@ -1021,8 +1260,11 @@ function updateWalletUI() {
                     : (p.entryPrice - livePrice) / p.entryPrice) : 0;
                 const color = pnlPct >= 0 ? '#00ffcc' : '#ef5350';
                 const entryTijd = p.openTime ? formatFullDateTime(p.openTime) : '-';
+                const typeLabel = p.isScalp ? 'SCALP' : 'TREND';
+                const typeColor = p.isScalp ? '#c678dd' : '#4287f5';
                 return `<tr>
-                    <td style="padding:4px; color:${p.side === 'LONG' ? '#26a69a' : '#ef5350'}; font-weight:bold;">${p.side}</td>
+                    <td style="padding:4px; color:${typeColor}; font-weight:bold; font-size:0.8em;">${typeLabel}</td>
+                    <td style="color:${p.side === 'LONG' ? '#26a69a' : '#ef5350'}; font-weight:bold;">${p.side}</td>
                     <td>${formatChartPrice(p.entryPrice)}</td>
                     <td style="font-size:0.9em; color:#aaa;">${entryTijd}</td>
                     <td>${p.amount}</td>
@@ -1047,9 +1289,14 @@ function updatePendingOrdersUI() {
         el.innerHTML = `<span style="color:#888;">Geen pending orders</span>`;
         return;
     }
-    el.innerHTML = pendingOrders.map(o =>
-        `<div>${o.side === 'LONG' ? '🟢' : '🔴'} ${o.side} wacht op ${formatChartPrice(o.triggerPrice)} (kans ${o.probabilityPct.toFixed(0)}%, verwacht +${o.projectedProfitPct.toFixed(2)}%)</div>`
-    ).join('');
+    // Pending orders komen UITSLUITEND van de trend-engine - de range-scalp-
+    // engine opent altijd meteen tegen de live prijs, dus deze lijst is per
+    // definitie nooit een scalp. Vandaar de vaste [TREND]-tag hier.
+    el.innerHTML = pendingOrders.map(o => {
+        const winChance = o.probabilityPct.toFixed(0);
+        const lossChance = (100 - o.probabilityPct).toFixed(0);
+        return `<div>${o.side === 'LONG' ? '🟢' : '🔴'} [TREND] ${o.side} wacht op ${formatChartPrice(o.triggerPrice)} (winkans ~${winChance}% / verlieskans ~${lossChance}%, verwacht +${o.projectedProfitPct.toFixed(2)}%)</div>`;
+    }).join('');
 }
 
 // ============================================================
@@ -1891,6 +2138,10 @@ function downloadAllData() {
         },
         // De echte MIC/MES/MAC fib-niveaus zoals ook op de chart getekend worden
         currentFibLevels,
+        // Wanneer welke instellingen actief werden (START/STOP/SETTINGS_UPDATED) -
+        // gebruik dit om de trade log te segmenteren per configuratie, ook als
+        // je tussendoor live hebt bijgewerkt i.p.v. Reset Wallet gebruikt.
+        sessionLog,
         // Meest recente volledige Osiris-beslissing (targets, confluence, status, momentum)
         lastDecision: lastOsirisDecision,
         lastVolumeMetrics: lastOsirisMetrics,
