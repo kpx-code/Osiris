@@ -268,6 +268,8 @@ function renderMovingAverage() {
 function handleMovingAverageSelect(value) {
     showMovingAverage = (value === 'VISIBLE');
     renderMovingAverage();
+    const panel = document.getElementById('ma-inline-settings');
+    if (panel) panel.style.display = showMovingAverage ? 'grid' : 'none';
 }
 
 function applyMASettings() {
@@ -420,6 +422,8 @@ function renderRSI() {
 function handleRSISelect(value) {
     showRSI = (value === 'VISIBLE');
     renderRSI();
+    const panel = document.getElementById('rsi-inline-settings');
+    if (panel) panel.style.display = showRSI ? 'grid' : 'none';
 }
 
 // ============================================================
@@ -891,7 +895,12 @@ function rebuildHistoryUIFromLog() {
     const body = document.getElementById('history-body');
     if (!body) return;
     body.innerHTML = '';
-    const exits = botTradeLog.filter(e => e.action === 'EXIT').slice(-10);
+    // FIX: toonde voorheen altijd de laatste 10 EXIT-regels, ongeacht sessie.
+    // Nu: alle gesloten posities van de HUIDIGE bot-sessie (vanaf botStartTime).
+    // Oudere entries zonder timestampMs (van vóór deze fix) worden niet als
+    // "huidige sessie" meegeteld, aangezien dat niet betrouwbaar te bepalen is.
+    const sessionStart = botStartTime || 0;
+    const exits = botTradeLog.filter(e => e.action === 'EXIT' && e.timestampMs && e.timestampMs >= sessionStart);
     exits.forEach(entry => updateHistoryUI(entry));
 }
 
@@ -928,6 +937,31 @@ if (document.readyState === 'loading') {
 // botSettings. Losgetrokken uit startAutonomousBot() zodat dezelfde logica
 // ook gebruikt kan worden voor een live update terwijl de bot al draait (zie
 // updateLiveSettings hieronder) - zonder de runtime/interval/wallet aan te raken.
+// Inklap-gedrag voor het Engine Configuration-paneel: standaard open (voordat
+// de bot draait wil je de instellingen meteen zien), klapt automatisch dicht
+// zodra Start wordt ingedrukt (dan toont de samenvatting - het bestaande
+// active-settings-panel - i.p.v. de volledige invoervelden), en kan altijd
+// handmatig weer open/dicht via de header.
+function toggleConfigPanel() {
+    const body = document.getElementById('config-body');
+    const chevron = document.getElementById('config-chevron');
+    if (!body) return;
+    const nowOpen = body.classList.toggle('open');
+    if (chevron) chevron.classList.toggle('open', nowOpen);
+}
+function collapseConfigPanel() {
+    const body = document.getElementById('config-body');
+    const chevron = document.getElementById('config-chevron');
+    if (body) body.classList.remove('open');
+    if (chevron) chevron.classList.remove('open');
+}
+function expandConfigPanel() {
+    const body = document.getElementById('config-body');
+    const chevron = document.getElementById('config-chevron');
+    if (body) body.classList.add('open');
+    if (chevron) chevron.classList.add('open');
+}
+
 function readTradingSettingsFromInputs() {
     const allocInput = document.getElementById('max-allocation-pct');
     const stopLossInput = document.getElementById('stop-loss-pct');
@@ -1067,6 +1101,7 @@ function startAutonomousBot(isAutoRestart = false) {
     if (stopBtn) stopBtn.style.display = 'inline-block';
 
     recordSessionEvent(isAutoRestart ? 'AUTO_RESTART' : 'START');
+    collapseConfigPanel();
     savePersistentState();
     updateWalletUI();
     renderActiveSettingsPanel();
@@ -1122,6 +1157,7 @@ function stopAutonomousBot() {
     // 1. Stop de bot-logica
     botSettings.isRunning = false;
     recordSessionEvent('STOP');
+    expandConfigPanel();
     
     // 2. Stop de 'hartslag' van de bot (belangrijk!)
     if (botInterval) {
@@ -1264,31 +1300,75 @@ function getPositionReasoning(pos) {
     return `[${pos.isScalp ? 'SCALP' : 'TREND'}] ${pos.side} @ ${formatChartPrice(pos.entryPrice)} | P/L ${(pnlPct * 100).toFixed(2)}% | ${zone}${detail ? ': ' + detail : ''}${confirmTxt}${chanceTxt}`;
 }
 
+// ============================================================
+// LIVE NARRATIE: "continuous unpacking" van de berekening zelf - niet alleen
+// het eindresultaat (kans X%, status Y), maar ELKE stap ertussen: de ruwe
+// inputs, welke confluence-punten wel/niet vuren en waarom, de node/sessie-
+// timing, het momentum-geheugen, de fib-confluentie, de indicatoren, en
+// tot slot de richting-bewuste eindscore voor beide kanten. Ververst elke
+// 10s (dezelfde cadans als de scan zelf).
+// ============================================================
+function generateLiveNarration() {
+    if (!lastOsirisDecision || !livePrice) return ['Wacht op eerste marktdata-scan...'];
+
+    const lines = [];
+    lines.push(`INPUT · VFM ${vfm.toFixed(2)} · ER ${er.toFixed(2)} · DB ${db.toFixed(2)} · Chaos ${chaos.toFixed(2)}% · isBullish ${isBullish}`);
+
+    const checks = [
+        `${Math.abs(vfm) > 1.2 ? '\u2713' : '\u2717'} |VFM|>1.2 (+2)`,
+        `${Math.abs(db) > 0.3 ? '\u2713' : '\u2717'} |DB|>0.3 (+1)`,
+        `${chaos < 10 ? '\u2713' : '\u2717'} Chaos<10 (+1)`,
+        `${er > 1.2 ? '\u2713' : '\u2717'} ER>1.2 (+1)`
+    ];
+    if (lastOsirisMetrics) checks.push(`${lastOsirisMetrics.score > 65 ? '\u2713' : '\u2717'} VolScore>65 (+1)`);
+    lines.push(`CONFLUENCE-OPBOUW · ${checks.join(' \u00b7 ')} \u2192 ${lastOsirisDecision.confluence}/9`);
+
+    const nodeCtx = getNodeContext();
+    const nodeInf = calculateNodeInfluence(nodeCtx);
+    lines.push(`NODE-TIMING · volgende ${nodeCtx.nextNode.type} over ${Math.round(nodeCtx.nextNode.minutesUntil)}min \u00b7 laatste ${nodeCtx.lastNode.type} was ${Math.round(nodeCtx.lastNode.minutesAgo)}min geleden \u2192 invloed ${nodeInf >= 0 ? '+' : ''}${nodeInf.toFixed(2)}`);
+
+    const momentum = getMomentumContext();
+    const streakTxt = momentum.consecutiveBullish > 0 ? `${momentum.consecutiveBullish}x bullish op rij` : (momentum.consecutiveBearish > 0 ? `${momentum.consecutiveBearish}x bearish op rij` : 'geen duidelijke streak');
+    lines.push(`MOMENTUM-GEHEUGEN · ${streakTxt} \u00b7 vfm-trend ${momentum.vfmTrend}${momentum.rangeCompressed ? ' \u00b7 range samengedrukt' : ''}`);
+
+    const fibInf = calculateFibConfluenceInfluence(livePrice);
+    lines.push(`FIB-CONFLUENTIE · ${fibInf > 0 ? `+${fibInf} (${fibInf / 3} extra schaal${fibInf > 3 ? 'en' : ''} MES/MAC dichtbij)` : 'geen extra schaal-bevestiging dichtbij'}`);
+
+    const maVals = getCurrentMAValues();
+    const rsiVal = getCurrentRSIValue();
+    let indicatorTxt = 'INDICATOREN · ';
+    indicatorTxt += maVals.fast !== null ? `MA${maFastPeriod} ${maVals.fast.toFixed(0)} / MA${maSlowPeriod} ${maVals.slow.toFixed(0)} (${maVals.fast > maVals.slow ? 'bullish' : 'bearish'} stand)` : 'MA nog niet beschikbaar';
+    indicatorTxt += rsiVal !== null ? ` \u00b7 RSI${rsiPeriod} ${rsiVal.toFixed(0)}` : '';
+    lines.push(indicatorTxt);
+
+    const confDirs = getDirectionalConfidences();
+    lines.push(`EINDSCORE · LONG ${confDirs.bullish.toFixed(0)}% vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bullish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'}) \u00b7 SHORT ${confDirs.bearish.toFixed(0)}% vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bearish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'})`);
+
+    lines.push(`STATUS · ${lastOsirisDecision.decision}`);
+
+    return lines;
+}
+
 function updateReasoningPanel() {
     const el = document.getElementById('bot-reasoning');
     if (!el) return;
 
+    const narration = generateLiveNarration();
+    const narrationHtml = `<div style="margin-bottom:10px; padding-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.08);">` +
+        `<div style="font-size:0.62rem; letter-spacing:0.1em; text-transform:uppercase; color:#888; margin-bottom:6px;">Live berekening</div>` +
+        narration.map(line => `<div style="font-size:0.72em; color:#9fb3c8; font-family:'JetBrains Mono',monospace; line-height:1.6;">${line}</div>`).join('') +
+        `</div>`;
+
     if (openPositions.length === 0) {
         let scanTxt = 'Geen open posities.';
-        if (lastOsirisDecision) {
-            scanTxt += ` Confluence: ${lastOsirisDecision.confluence}/9 | Status: ${lastOsirisDecision.decision}`;
-        }
-        const maVal = getCurrentMAValue();
-        const rsiVal = getCurrentRSIValue();
-        if (maVal !== null) scanTxt += ` | MA20: ${formatChartPrice(maVal)}`;
-        if (rsiVal !== null) scanTxt += ` | RSI${rsiPeriod}: ${rsiVal.toFixed(0)}`;
-        if (showPrediction) {
-            const pred = computeLinearPrediction(predictionHorizonMinutes);
-            if (pred) scanTxt += ` | Voorspelling (${document.getElementById('prediction-horizon-select')?.value || '1h'}): bullish ${pred.bullishConfidence.toFixed(0)}% vs. bearish ${pred.bearishConfidence.toFixed(0)}% [venster ${pred.lookbackCandles} candles sinds ${pred.anchoredToNode}]`;
-        }
         if (pendingOrders.length > 0) {
-            scanTxt += ` | ${pendingOrders.length} pending order(s) actief.`;
+            scanTxt += ` ${pendingOrders.length} pending order(s) actief.`;
         }
-        el.innerHTML = `<div style="color:#888; font-size:0.85em;">${scanTxt}</div>`;
+        el.innerHTML = narrationHtml + `<div style="color:#888; font-size:0.85em;">${scanTxt}</div>`;
         return;
     }
 
-    el.innerHTML = openPositions.map(pos =>
+    el.innerHTML = narrationHtml + openPositions.map(pos =>
         `<div style="margin-bottom:6px; padding-bottom:6px; border-bottom:1px solid #222; font-size:0.8em;">${getPositionReasoning(pos)}</div>`
     ).join('');
 }
@@ -1436,10 +1516,13 @@ function updateHistoryUI(entry) {
     const body = document.getElementById('history-body');
     if (!body) return;
     const pnlColor = entry.pnl >= 0 ? '#00ffcc' : '#ef5350';
+    const typeLabel = entry.isScalp ? 'SCALP' : 'TREND';
+    const typeColor = entry.isScalp ? '#c678dd' : '#4287f5';
     const row = document.createElement('tr');
     row.style.borderBottom = '1px solid #222';
     row.innerHTML = `
         <td style="padding:5px; color:#888;">${entry.timestamp}</td>
+        <td style="color:${typeColor}; font-weight:bold; font-size:0.85em;">${typeLabel}</td>
         <td style="color:${entry.side === 'LONG' ? '#26a69a' : '#ef5350'};">${entry.side || '-'}</td>
         <td>${typeof entry.price === 'number' ? formatChartPrice(entry.price) : entry.price}</td>
         <td>${entry.amount}</td>
@@ -1447,11 +1530,9 @@ function updateHistoryUI(entry) {
         <td style="color:${pnlColor}; font-weight:bold;">${(entry.pnl * 100).toFixed(2)}% (${formatMoney(entry.pnlAmount || 0)})</td>
     `;
     body.insertBefore(row, body.firstChild);
-
-    // Houd de tabel beperkt tot de laatste 10 rijen
-    while (body.children.length > 10) {
-        body.removeChild(body.lastChild);
-    }
+    // FIX: toonde voorheen alleen de laatste 10 rijen (harde cap). De gebruiker
+    // wil nu ALLE gesloten posities van de huidige bot-sessie kunnen zien - de
+    // tabel-container is scrollbaar gemaakt (zie CSS), dus geen cap meer nodig.
 }
 
 // ============================================================
@@ -1466,7 +1547,7 @@ function formatFullDateTime(ts = Date.now()) {
     return `${date} ${time}`;
 }
 
-function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0, notionalEUR = 0) {
+function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0, notionalEUR = 0, isScalp = false) {
     const timestamp = formatFullDateTime();
     const priceNum = typeof price === 'number' ? price : parseFloat(price);
     // Fallback voor het (zeldzame) geval dat notional niet is meegegeven:
@@ -1480,6 +1561,7 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
 
     const entry = {
         timestamp,
+        timestampMs: Date.now(), // FIX: los van de opgemaakte string, nodig om per-sessie te kunnen filteren
         action,
         price,
         side,
@@ -1488,7 +1570,8 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
         amount,
         notionalEUR: notional,
         reason,
-        equity: getEquity()
+        equity: getEquity(),
+        isScalp
     };
     botTradeLog.push(entry);
 
@@ -1891,7 +1974,7 @@ function openRangeScalpPosition(side, evalResult) {
     };
 
     openPositions.push(position);
-    logBotAction("ENTRY", price, side, 0, amount, `RANGE-SCALP alloc ${(finalSizePct * 100).toFixed(1)}%`, 0, notional);
+    logBotAction("ENTRY", price, side, 0, amount, `RANGE-SCALP alloc ${(finalSizePct * 100).toFixed(1)}%`, 0, notional, true);
     savePersistentState();
     updateWalletUI();
     updatePositionLines();
@@ -2000,7 +2083,7 @@ function closePosition(pos, pnlPct, reason) {
 
     openPositions = openPositions.filter(p => p.id !== pos.id);
 
-    logBotAction("EXIT", livePrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional);
+    logBotAction("EXIT", livePrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional, pos.isScalp || false);
     savePersistentState();
     updateWalletUI();
     updatePositionLines();
@@ -2794,6 +2877,10 @@ function applyUOTAMGrid(chartData) {
         const midTimeMs = ANCHOR_TIME + (midIndex * T_PI_MS);
         const midTimeSec = Math.floor(midTimeMs / 1000);
         const midCandle = chartData.find(c => Math.abs(c.time - midTimeSec) <= 15 * 60);
+        const midDate = new Date(midTimeMs);
+        const midDateStr = `${String(midDate.getUTCDate()).padStart(2, '0')}-${String(midDate.getUTCMonth() + 1).padStart(2, '0')}`;
+        const midTimeStr = `${String(midDate.getUTCHours()).padStart(2, '0')}:${String(midDate.getUTCMinutes()).padStart(2, '0')} UTC`;
+        const midTimeLabel = `${midDateStr} ${midTimeStr}`;
 
         if (midCandle) {
             allNodes.push({
@@ -2809,7 +2896,7 @@ function applyUOTAMGrid(chartData) {
                 position: 'aboveBar',
                 color: '#ffcc00',
                 shape: 'circle',
-                text: `MID PULSE Node ${i}`,
+                text: `MID PULSE Node ${i} | ${midTimeLabel}`,
                 nodeTypeKey: 'MIDPULSE',
             });
         }
