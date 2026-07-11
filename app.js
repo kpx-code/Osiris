@@ -429,7 +429,8 @@ function handleRSISelect(value) {
 // onafhankelijke bevestiging naast de rest - niet als losstaand handelssignaal.
 // ============================================================
 const PREDICTION_HORIZONS_MIN = { '15m': 15, '30m': 30, '1h': 60, '2h': 120, '4h': 240, '24h': 1440 };
-let predictionSeries = null;
+let predictionBullishSeries = null;
+let predictionBearishSeries = null;
 let showPrediction = false;
 let predictionHorizonMinutes = 60;
 
@@ -446,6 +447,31 @@ function linearRegressionFit(points) {
     return { slope, intercept };
 }
 
+// Exponentieel-gewogen variant: recentere candles (hogere x) wegen zwaarder
+// mee dan oudere, net als bij een EMA. Dit is bewust GEEN letterlijke
+// exponentiële groeicurve op de prijs zelf - dat zou bij langere horizons
+// (bijv. 24u) numeriek instabiel worden (een kleine positieve helling
+// "ontploft" al snel bij compounding), en prijsbewegingen over uren gedragen
+// zich sowieso niet echt exponentieel. Gewogen lineaire regressie is de
+// standaard, stabiele manier om "recente data telt zwaarder" te implementeren.
+function exponentialWeightedRegressionFit(points, decay = 0.94) {
+    const n = points.length;
+    let sumW = 0, sumWX = 0, sumWY = 0, sumWXY = 0, sumWXX = 0;
+    points.forEach((p, i) => {
+        const w = Math.pow(decay, n - 1 - i); // i dichtbij het einde -> gewicht dichtbij 1
+        sumW += w;
+        sumWX += w * p.x;
+        sumWY += w * p.y;
+        sumWXY += w * p.x * p.y;
+        sumWXX += w * p.x * p.x;
+    });
+    const denom = sumW * sumWXX - sumWX * sumWX;
+    if (denom === 0) return { slope: 0, intercept: sumWY / sumW };
+    const slope = (sumW * sumWXY - sumWX * sumWY) / denom;
+    const intercept = (sumWY - slope * sumWX) / sumW;
+    return { slope, intercept };
+}
+
 // Berekent de voorspelling; niet afhankelijk van of de lijn zichtbaar staat,
 // zodat de bot 'm ook kan gebruiken als extra confluence-input.
 // Uitgebreid t.o.v. de eerste versie: het venster wordt nu geankerd op de
@@ -457,6 +483,32 @@ function linearRegressionFit(points) {
 // uit de bron-documenten, die blijven onbevestigd (zie Technical
 // Documentation §15). De regressie zelf blijft een gewone lineaire fit;
 // alleen de invoer en de bijstelling zijn rijker.
+// Berekent de richting-bewuste kans voor zowel LONG als SHORT op dit moment,
+// door dezelfde (net gefixte) calculateProbabilityScore twee keer aan te
+// roepen met een verschillende 'side'. Hergebruikt voor de duale bullish/
+// bearish voorspellingslijn hieronder.
+function getDirectionalConfidences() {
+    if (!lastOsirisDecision) return { bullish: 50, bearish: 50 };
+
+    const nodeContext = getNodeContext();
+    const nodeInfluence = calculateNodeInfluence(nodeContext);
+    const momentumContext = getMomentumContext();
+    const fibConfluenceInfluence = calculateFibConfluenceInfluence(livePrice);
+
+    const momentumInfluenceLong = calculateMomentumInfluence('LONG', momentumContext);
+    const momentumInfluenceShort = calculateMomentumInfluence('SHORT', momentumContext);
+
+    const bullish = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluenceLong, fibConfluenceInfluence, 'LONG', isBullish);
+    const bearish = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluenceShort, fibConfluenceInfluence, 'SHORT', isBullish);
+
+    return { bullish, bearish };
+}
+
+// Geeft nu TWEE projecties terug (bullish én bearish), i.p.v. één lijn die
+// koos voor "de" richting. De richting van elke lijn staat vast (omhoog voor
+// bullish, omlaag voor bearish); de STEILHEID van elke lijn wordt geschaald
+// door de eigen (richting-bewuste) kans-score van die kant - een lijn met
+// weinig onderbouwing wordt dus zichtbaar vlakker/korter, niet onderdrukt.
 function computeLinearPrediction(horizonMinutes) {
     if (!rawData || rawData.length < 20) return null;
 
@@ -469,60 +521,66 @@ function computeLinearPrediction(horizonMinutes) {
 
     const recent = rawData.slice(-lookback);
     const points = recent.map((d, i) => ({ x: i, y: parseFloat(d[4]) }));
-    const { slope } = linearRegressionFit(points);
+    // Exponentieel-gewogen i.p.v. gewone OLS - recente candles wegen zwaarder.
+    const { slope } = exponentialWeightedRegressionFit(points);
 
     // 2. Bijstelling op basis van VFM-trend, volume-trend en chaos - allemaal
-    // al berekend elders in de bot (metricsHistory-gebaseerd geheugen).
+    // al berekend elders in de bot (metricsHistory-gebaseerd geheugen). Dit
+    // schaalt de MAGNITUDE (hoe steil), niet de richting.
     const momentum = getMomentumContext();
     const volShift = calculateVolumeShift(6);
     let adjustmentFactor = 1.0;
-
-    // VFM-trend bevestigt de richting van de prijs-regressie -> versterken
-    if ((slope > 0 && momentum.vfmTrend === 'rising') || (slope < 0 && momentum.vfmTrend === 'falling')) {
-        adjustmentFactor += 0.15;
-    }
-    // VFM-trend spreekt de richting tegen -> afzwakken
-    if ((slope > 0 && momentum.vfmTrend === 'falling') || (slope < 0 && momentum.vfmTrend === 'rising')) {
-        adjustmentFactor -= 0.15;
-    }
-    // Oplopend/aflopend volume bevestigt/verzwakt de beweging
+    if (momentum.vfmTrend === 'rising') adjustmentFactor += 0.15;
+    else if (momentum.vfmTrend === 'falling') adjustmentFactor -= 0.15;
     if (volShift > 15) adjustmentFactor += 0.1;
     else if (volShift < -15) adjustmentFactor -= 0.1;
-    // Samengedrukte (consoliderende) range -> voorzichtiger, vlakkere projectie
     if (momentum.rangeCompressed) adjustmentFactor -= 0.2;
-    // Chaos: hoge chaos = onbetrouwbaardere trend, lage chaos = iets stabieler
     if (chaos > 15) adjustmentFactor -= 0.15;
     else if (chaos < 5) adjustmentFactor += 0.05;
-
     adjustmentFactor = Math.max(0.3, Math.min(1.6, adjustmentFactor));
-    const adjustedSlope = slope * adjustmentFactor;
+
+    const baseMagnitude = Math.abs(slope) * adjustmentFactor;
+
+    // 3. Richting-bewuste kans per kant - dezelfde motor die nu ook de
+    // entry/hold/exit-beslissingen aanstuurt (zie de fix hierboven).
+    const confidences = getDirectionalConfidences();
+    const bullishSlope = baseMagnitude * (confidences.bullish / 100);
+    const bearishSlope = -baseMagnitude * (confidences.bearish / 100);
 
     const lastTimeSec = Math.floor(recent[recent.length - 1][0] / 1000);
     const candleIntervalSec = 15 * 60; // 15m candles
     const stepsForward = Math.max(1, Math.round((horizonMinutes * 60) / candleIntervalSec));
     const futureTimeSec = lastTimeSec + stepsForward * candleIntervalSec;
-    // Projecteer vanaf de daadwerkelijke live prijs (niet vanaf het gefitte
-    // punt, dat door regressie-afwijking net iets anders kan liggen).
     const anchorPrice = livePrice || (slope * (points.length - 1));
-    const futurePrice = anchorPrice + (adjustedSlope * stepsForward);
+
+    const bullishEndPrice = anchorPrice + (bullishSlope * stepsForward);
+    const bearishEndPrice = anchorPrice + (bearishSlope * stepsForward);
+
+    const strongerSide = confidences.bullish >= confidences.bearish ? 'bullish' : 'bearish';
 
     return {
         startTime: lastTimeSec,
         startPrice: anchorPrice,
         endTime: futureTimeSec,
-        endPrice: futurePrice,
-        slope: adjustedSlope,
+        bullishEndPrice, bearishEndPrice,
+        bullishConfidence: confidences.bullish,
+        bearishConfidence: confidences.bearish,
+        // Backwards-compatible velden (gebruikt door confluence hierboven):
+        // pakken de kant met de hoogste kans.
+        endPrice: strongerSide === 'bullish' ? bullishEndPrice : bearishEndPrice,
+        slope: strongerSide === 'bullish' ? bullishSlope : bearishSlope,
         rawSlope: slope,
         adjustmentFactor,
         lookbackCandles: lookback,
         anchoredToNode: nodeCtx.lastNode.type,
-        direction: adjustedSlope > 0.01 ? 'bullish' : (adjustedSlope < -0.01 ? 'bearish' : 'neutral')
+        direction: strongerSide
     };
 }
 
 function renderPrediction() {
     if (!showPrediction) {
-        if (predictionSeries) { chart.removeSeries(predictionSeries); predictionSeries = null; }
+        if (predictionBullishSeries) { chart.removeSeries(predictionBullishSeries); predictionBullishSeries = null; }
+        if (predictionBearishSeries) { chart.removeSeries(predictionBearishSeries); predictionBearishSeries = null; }
         // Terug naar een normale, kleine marge zodra de voorspelling uit staat
         chart.timeScale().applyOptions({ rightOffset: 6 });
         return;
@@ -530,18 +588,34 @@ function renderPrediction() {
     const pred = computeLinearPrediction(predictionHorizonMinutes);
     if (!pred) return;
 
-    const data = [{ time: pred.startTime, value: pred.startPrice }, { time: pred.endTime, value: pred.endPrice }];
-    const color = pred.direction === 'bullish' ? '#26a69a' : (pred.direction === 'bearish' ? '#ef5350' : '#888888');
+    const bullishData = [{ time: pred.startTime, value: pred.startPrice }, { time: pred.endTime, value: pred.bullishEndPrice }];
+    const bearishData = [{ time: pred.startTime, value: pred.startPrice }, { time: pred.endTime, value: pred.bearishEndPrice }];
 
-    if (!predictionSeries) {
-        predictionSeries = chart.addSeries(LightweightCharts.LineSeries, {
-            color, lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed,
-            priceLineVisible: false, lastValueVisible: false, title: 'Voorspelling'
+    // De kant met de hoogste kans krijgt een dikkere lijn - zo zie je in één
+    // oogopslag welk scenario de bot zelf sterker onderbouwd vindt, zonder
+    // dat de zwakkere kant helemaal verdwijnt.
+    const bullishWidth = pred.bullishConfidence >= pred.bearishConfidence ? 3 : 1;
+    const bearishWidth = pred.bearishConfidence > pred.bullishConfidence ? 3 : 1;
+
+    if (!predictionBullishSeries) {
+        predictionBullishSeries = chart.addSeries(LightweightCharts.LineSeries, {
+            color: '#26a69a', lineWidth: bullishWidth, lineStyle: LightweightCharts.LineStyle.Dashed,
+            priceLineVisible: false, lastValueVisible: false, title: `Bullish (${pred.bullishConfidence.toFixed(0)}%)`
         });
     } else {
-        predictionSeries.applyOptions({ color });
+        predictionBullishSeries.applyOptions({ lineWidth: bullishWidth, title: `Bullish (${pred.bullishConfidence.toFixed(0)}%)` });
     }
-    predictionSeries.setData(data);
+    predictionBullishSeries.setData(bullishData);
+
+    if (!predictionBearishSeries) {
+        predictionBearishSeries = chart.addSeries(LightweightCharts.LineSeries, {
+            color: '#ef5350', lineWidth: bearishWidth, lineStyle: LightweightCharts.LineStyle.Dashed,
+            priceLineVisible: false, lastValueVisible: false, title: `Bearish (${pred.bearishConfidence.toFixed(0)}%)`
+        });
+    } else {
+        predictionBearishSeries.applyOptions({ lineWidth: bearishWidth, title: `Bearish (${pred.bearishConfidence.toFixed(0)}%)` });
+    }
+    predictionBearishSeries.setData(bearishData);
 
     // FIX: de tijdas heeft standaard geen ruimte rechts van de laatste candle
     // (rightOffset: 0), dus het toekomstige stuk van de lijn viel buiten het
@@ -1205,7 +1279,7 @@ function updateReasoningPanel() {
         if (rsiVal !== null) scanTxt += ` | RSI${rsiPeriod}: ${rsiVal.toFixed(0)}`;
         if (showPrediction) {
             const pred = computeLinearPrediction(predictionHorizonMinutes);
-            if (pred) scanTxt += ` | Voorspelling (${document.getElementById('prediction-horizon-select')?.value || '1h'}): ${pred.direction} [venster ${pred.lookbackCandles} candles sinds ${pred.anchoredToNode}, weging ${pred.adjustmentFactor.toFixed(2)}x]`;
+            if (pred) scanTxt += ` | Voorspelling (${document.getElementById('prediction-horizon-select')?.value || '1h'}): bullish ${pred.bullishConfidence.toFixed(0)}% vs. bearish ${pred.bearishConfidence.toFixed(0)}% [venster ${pred.lookbackCandles} candles sinds ${pred.anchoredToNode}]`;
         }
         if (pendingOrders.length > 0) {
             scanTxt += ` | ${pendingOrders.length} pending order(s) actief.`;
@@ -1440,8 +1514,25 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
 // Gebaseerd op de bestaande confluence-telling (0-5, zie getOrisisDecisionData)
 // plus chaos/ER als betrouwbaarheids-correctie. Dit is een instelbare proxy —
 // kalibreer 'm met de gedownloade data (Download All Data-knop).
-function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0, momentumInfluence = 0, fibConfluenceInfluence = 0) {
-    let score = 50 + (confluence * 9); // confluence 0-6 -> 50-104, geclamped naar 100
+// FIX (aangetoond met echte export-data): confluence wordt maar ÉÉN keer per
+// 10s-scan berekend en meet "hoeveel energie zit er in de huidige,
+// waargenomen richting (isBullish)" - dat is NIET automatisch bewijs vóór een
+// specifieke positie. Zonder richtingscorrectie werd dezelfde confluence van
+// bijvoorbeeld 7/9 identiek bij zowel de LONG- als de SHORT-kansberekening
+// opgeteld, waardoor een SHORT tijdens een sterke BULLISH BREAKOUT alsnog op
+// 100% kans uitkwam - de kleine (±4) momentum-straf werd volledig overstemd
+// door +63 (confluence) +10 (chaos/er) +~1-6 (node/fib), die geen van allen
+// richting-specifiek waren. Nu telt confluence alleen mee als steun wanneer
+// de kant van de positie overeenkomt met de waargenomen marktrichting; bij
+// een tegengestelde richting trekt het er juist fors vanaf.
+function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0, momentumInfluence = 0, fibConfluenceInfluence = 0, side = null, isBullishNow = null) {
+    let confluenceContribution = confluence * 9; // default (oud gedrag) als side/isBullishNow niet zijn meegegeven
+    if (side !== null && isBullishNow !== null) {
+        const directionAligned = (side === 'LONG' && isBullishNow) || (side === 'SHORT' && !isBullishNow);
+        confluenceContribution = directionAligned ? confluence * 9 : -(confluence * 5);
+    }
+
+    let score = 50 + confluenceContribution; // confluence 0-9 -> tot 50-131 (aligned) of omlaag (tegengesteld), geclamped naar [0,100]
     if (chaosVal > 15) score -= 15;    // extreme volatiliteit = onbetrouwbaarder
     else if (chaosVal < 5) score += 5; // rustige markt = betrouwbaarder
     if (erVal > 1.5) score += 5;       // sterke volume-deelname = betrouwbaarder
@@ -1521,7 +1612,7 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const momentumContext = getMomentumContext();
     const momentumInfluence = calculateMomentumInfluence(side, momentumContext);
     const fibConfluenceInfluence = calculateFibConfluenceInfluence(currentPrice);
-    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence);
+    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, side, isBullish);
 
     const targetPrice = side === 'LONG'
         ? parseFloat(decision.targets.meso.bullish)
@@ -1558,7 +1649,7 @@ function evaluateContinuation(side, thresholdOverride = null) {
     const momentumContext = getMomentumContext();
     const momentumInfluence = calculateMomentumInfluence(side, momentumContext);
     const fibConfluenceInfluence = calculateFibConfluenceInfluence(livePrice);
-    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence);
+    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, side, isBullish);
 
     return {
         eligible: probabilityPct >= threshold,
@@ -1617,7 +1708,7 @@ function isPendingOrderStillValid(order) {
     const momentumContext = getMomentumContext();
     const momentumInfluence = calculateMomentumInfluence(order.side, momentumContext);
     const fibConfluenceInfluence = calculateFibConfluenceInfluence(livePrice);
-    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence);
+    const probabilityPct = calculateProbabilityScore(lastOsirisDecision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, order.side, isBullish);
 
     const cancelThreshold = Math.max(0, botSettings.minProbabilityPct - 10);
     return { valid: probabilityPct >= cancelThreshold, probabilityPct };
