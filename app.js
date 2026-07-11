@@ -81,6 +81,9 @@ let botSettings = {
     chaseEnabled: true,
     chaseProbabilityThreshold: 90,  // pas chasen bij een duidelijk hogere kans dan de gewone entry-drempel
     chaseAfterMinutes: 10,          // hoe lang een order eerst gewoon op de pullback mag wachten voordat chasen mag
+    // --- REALLOCATIE: ruimte maken voor een duidelijk betere nieuwe kans ---
+    reallocationEnabled: true,
+    reallocationMarginPct: 15,      // nieuwe kans moet minstens dit veel hoger scoren dan de zwakste bestaande positie
     isRunning: false
 };
 
@@ -634,6 +637,8 @@ function renderPrediction() {
 function handlePredictionSelect(value) {
     showPrediction = (value === 'VISIBLE');
     renderPrediction();
+    const panel = document.getElementById('prediction-inline-settings');
+    if (panel) panel.style.display = showPrediction ? 'grid' : 'none';
 }
 
 function handlePredictionHorizonSelect(value) {
@@ -809,7 +814,20 @@ function savePersistentState() {
         // tabel bij elke refresh/auto-herstart leeg leek (de DOM begint leeg, en
         // werd pas weer gevuld zodra een NIEUWE exit plaatsvond). Cap op de laatste
         // 500 entries zodat localStorage niet ongelimiteerd blijft groeien.
-        const cappedLog = botTradeLog.length > 500 ? botTradeLog.slice(-500) : botTradeLog;
+        // FIX: bij 500 als cap konden EXIT-records (waar de sessie-historie op
+        // filtert) verdrongen worden door PENDING/CANCELLED-ruis - met snelle
+        // instellingen (korte chase/bevestiging/TTL) genereert de bot veel van
+        // die tussenmeldingen. Cap fors verhoogd, en bij het trimmen worden
+        // EXIT-entries als eerste behouden, niet-EXIT-ruis wordt het eerst weggegooid.
+        const CAP = 3000;
+        let cappedLog = botTradeLog;
+        if (botTradeLog.length > CAP) {
+            const exits = botTradeLog.filter(e => e.action === 'EXIT');
+            const nonExits = botTradeLog.filter(e => e.action !== 'EXIT');
+            const roomForNonExits = Math.max(0, CAP - exits.length);
+            cappedLog = [...exits, ...nonExits.slice(-roomForNonExits)]
+                .sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+        }
         localStorage.setItem('osirisTradeLog', JSON.stringify(cappedLog));
         // FIX: botSettings (en de MA/RSI-instellingen) werden nooit opgeslagen -
         // bij elke refresh reset dit stilzwijgend naar de harde defaults in de
@@ -879,6 +897,8 @@ function populateSettingsInputsFromState() {
     setVal('range-scalp-alloc-pct', (s.rangeScalpAllocationPct * 100).toFixed(0));
     setVal('chase-probability-pct', s.chaseProbabilityThreshold);
     setVal('chase-after-minutes', s.chaseAfterMinutes);
+    setVal('reallocation-enabled', s.reallocationEnabled ? 'true' : 'false');
+    setVal('reallocation-margin-pct', s.reallocationMarginPct);
 
     setVal('ma-fast-period', maFastPeriod);
     setVal('ma-slow-period', maSlowPeriod);
@@ -978,6 +998,8 @@ function readTradingSettingsFromInputs() {
     const rangeScalpAllocInput = document.getElementById('range-scalp-alloc-pct');
     const chaseProbInput = document.getElementById('chase-probability-pct');
     const chaseAfterInput = document.getElementById('chase-after-minutes');
+    const reallocationEnabledInput = document.getElementById('reallocation-enabled');
+    const reallocationMarginInput = document.getElementById('reallocation-margin-pct');
 
     if (allocInput && !isNaN(parseFloat(allocInput.value))) {
         botSettings.maxAllocationPct = Math.min(Math.max(parseFloat(allocInput.value) / 100, 0), 1);
@@ -1023,6 +1045,12 @@ function readTradingSettingsFromInputs() {
     }
     if (chaseAfterInput && !isNaN(parseFloat(chaseAfterInput.value))) {
         botSettings.chaseAfterMinutes = Math.max(parseFloat(chaseAfterInput.value), 0);
+    }
+    if (reallocationEnabledInput) {
+        botSettings.reallocationEnabled = reallocationEnabledInput.value === 'true';
+    }
+    if (reallocationMarginInput && !isNaN(parseFloat(reallocationMarginInput.value))) {
+        botSettings.reallocationMarginPct = Math.max(parseFloat(reallocationMarginInput.value), 0);
     }
 }
 
@@ -1138,6 +1166,7 @@ function renderActiveSettingsPanel() {
         ['Bevestigingstijd exit', `${s.continuationConfirmationSeconds}s`],
         ['Range-scalp doel / stop / alloc', `${s.rangeScalpProfitTargetPct}% / ${s.rangeScalpStopLossPct}% / ${(s.rangeScalpAllocationPct * 100).toFixed(0)}%`],
         ['Chase (aan >kans / na min)', `${s.chaseEnabled ? 'aan' : 'uit'} / ${s.chaseProbabilityThreshold}% / ${s.chaseAfterMinutes}min`],
+        ['Reallocatie (aan / marge)', `${s.reallocationEnabled ? 'aan' : 'uit'} / ${s.reallocationMarginPct}%`],
         ['MA fast / slow', `${maFastPeriod} / ${maSlowPeriod}`],
         ['RSI periode / OB / OS', `${rsiPeriod} / ${rsiOverbought} / ${rsiOversold}`],
     ];
@@ -1289,12 +1318,17 @@ function getPositionReasoning(pos) {
         confirmTxt = ` | bevestiging: ${elapsed}/${botSettings.continuationConfirmationSeconds}s`;
     }
 
-    // Winst-/verlieskans zoals bij entry ingeschat (alleen bekend voor
-    // trend-posities - scalps hebben geen probabilityPct, die worden op
-    // aparte, vaste regels beoordeeld, zie §13 Calculation Reference).
+    // FIX: pos.probabilityPct is een BEVROREN momentopname van het moment van
+    // instappen - twee posities op tegenovergestelde kanten kunnen dus allebei
+    // ~100% tonen zonder dat dat tegenstrijdig is, ZOLANG ze op verschillende
+    // momenten zijn geopend (elk toen terecht hoog voor die kant op dat
+    // moment). Dat is op zichzelf geen fout, maar wél verwarrend zonder de
+    // LIVE kans ernaast - die kan nu wél duidelijk uiteenlopen als de markt
+    // sindsdien is gedraaid. Beide worden nu getoond, expliciet onderscheiden.
     let chanceTxt = '';
     if (pos.probabilityPct !== null && pos.probabilityPct !== undefined) {
-        chanceTxt = ` | winkans bij entry ~${pos.probabilityPct.toFixed(0)}% / verlieskans ~${(100 - pos.probabilityPct).toFixed(0)}%`;
+        const liveCheck = evaluateContinuation(pos.side);
+        chanceTxt = ` | winkans nu ~${liveCheck.probabilityPct.toFixed(0)}% (bij entry ~${pos.probabilityPct.toFixed(0)}%) / verlieskans nu ~${(100 - liveCheck.probabilityPct).toFixed(0)}%`;
     }
 
     return `[${pos.isScalp ? 'SCALP' : 'TREND'}] ${pos.side} @ ${formatChartPrice(pos.entryPrice)} | P/L ${(pnlPct * 100).toFixed(2)}% | ${zone}${detail ? ': ' + detail : ''}${confirmTxt}${chanceTxt}`;
@@ -1836,17 +1870,69 @@ function revalidatePendingOrders(decision, metrics) {
 // plafond is het totale aantal open posities (maxOpenPositions). Wel maar
 // één pending order tegelijk per kant, om te voorkomen dat er meerdere
 // wachtende orders op precies hetzelfde signaal stapelen.
+// NIEUW: als er geen ruimte is voor een nieuwe kans (positie-cap bereikt OF
+// nauwelijks vrije allocatie door de hedge-reserve), overweegt de bot een
+// bestaande, zwakkere positie vervroegd te sluiten om ruimte te maken - maar
+// alleen als de nieuwe kans DUIDELIJK beter scoort (reallocationMarginPct)
+// dan de LIVE (niet de bevroren entry-)kans van de zwakste kandidaat. Posities
+// die al in de winst-hold-zone zitten (>=profitHoldTriggerPct) worden bewust
+// buiten beschouwing gelaten - die worden al actief getraild/beschermd en
+// horen niet opgeofferd te worden voor een nieuwe, ongeteste kans.
+function tryReallocateForBetterOpportunity(newSide, newProbabilityPct) {
+    if (!botSettings.reallocationEnabled || openPositions.length === 0 || !livePrice) return false;
+
+    const candidates = openPositions.filter(pos => {
+        const pnlPct = pos.side === 'LONG'
+            ? (livePrice - pos.entryPrice) / pos.entryPrice
+            : (pos.entryPrice - livePrice) / pos.entryPrice;
+        return pnlPct < botSettings.profitHoldTriggerPct;
+    });
+    if (candidates.length === 0) return false;
+
+    let weakest = null, weakestScore = Infinity;
+    candidates.forEach(pos => {
+        const check = evaluateContinuation(pos.side);
+        if (check.probabilityPct < weakestScore) {
+            weakestScore = check.probabilityPct;
+            weakest = pos;
+        }
+    });
+
+    if (weakest && (newProbabilityPct - weakestScore) >= botSettings.reallocationMarginPct) {
+        const pnlPct = weakest.side === 'LONG'
+            ? (livePrice - weakest.entryPrice) / weakest.entryPrice
+            : (weakest.entryPrice - livePrice) / weakest.entryPrice;
+        closePosition(weakest, pnlPct, `REALLOCATED (nieuwe ${newSide}-kans ${newProbabilityPct.toFixed(0)}% vs. ${weakestScore.toFixed(0)}%)`);
+        return true;
+    }
+    return false;
+}
+
 function scanForOpportunities(decision, metrics) {
     revalidatePendingOrders(decision, metrics);
 
     ['LONG', 'SHORT'].forEach(side => {
-        if (openPositions.length >= botSettings.maxOpenPositions) return;
-
         const hasPending = pendingOrders.some(p => p.side === side);
         if (hasPending) return;
 
         const evalResult = evaluateEntryOpportunity(side, decision, metrics, livePrice);
         if (!evalResult.eligible) return;
+
+        if (openPositions.length >= botSettings.maxOpenPositions) {
+            const madeRoom = tryReallocateForBetterOpportunity(side, evalResult.probabilityPct);
+            if (!madeRoom) return; // geen ruimte gemaakt - deze kans overslaan
+        } else {
+            // Er is technisch een vrije slot, maar als de beschikbare allocatie
+            // door de hedge-reserve zo goed als opgesoupeerd is, wordt een
+            // nieuwe positie verwaarloosbaar klein. Ook dan reallocatie overwegen.
+            const oppositeSide = side === 'LONG' ? 'SHORT' : 'LONG';
+            const oppositeHasPosition = openPositions.some(p => p.side === oppositeSide);
+            const hedgeReserve = oppositeHasPosition ? 0 : botSettings.minHedgeReservePct;
+            const availablePct = Math.max(0, 1 - getAllocatedPct() - hedgeReserve);
+            if (availablePct < 0.03) { // <3% beschikbaar - te weinig om nog zinvol te zijn
+                tryReallocateForBetterOpportunity(side, evalResult.probabilityPct);
+            }
+        }
 
         const direction = evalResult.triggerPrice < livePrice ? 'below'
             : (evalResult.triggerPrice > livePrice ? 'above' : 'touch');
@@ -3456,6 +3542,17 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('resize', () => {
     chart.resize(chartContainer.clientWidth, getResponsiveChartHeight());
 });
+
+// FIX: de HUD-lettertypes (Orbitron/Chakra Petch/JetBrains Mono) laden async
+// via Google Fonts - als dat NA de eerste chart.resize() klaar is, kan de
+// tekst-layout van het paneel eromheen nog lichtjes verschuiven zonder dat er
+// een 'resize'-event vuurt, waardoor de chart-canvas net iets buiten zijn
+// container kon uitsteken. Corrigeer de afmeting nog eens zodra fonts klaar zijn.
+if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => {
+        chart.resize(chartContainer.clientWidth, getResponsiveChartHeight());
+    });
+}
 
 applyChartPriceFormat();
 fetchEurUsdtRate();
