@@ -2315,26 +2315,50 @@ function detectCandlestickPattern(index = null) {
 }
 
 // ---- Markt-structuur: higher-highs/higher-lows vs. lower-highs/lower-lows ----
-// Vindt swing-highs/swing-lows (lokale pieken/dalen, candle hoger/lager dan
-// SWING_ORDER candles ervoor en erna) over de laatste LOOKBACK candles, en
-// kijkt of de laatste paar zwaaien consistent stijgen of dalen.
+// FIX (chart 12-07, 15m): de oude detectie telde ELKE order-3 pivot even zwaar,
+// zonder significantiefilter. Gevolg op echte data: de lows stegen perfect
+// (63826 -> 63959 -> 64042), maar één micro-piek van $37 (13:15, minder dan
+// een halve gemiddelde candle-range) brak de "highs stijgend"-keten en
+// veto'de de hele classificatie naar "range-bound" - terwijl elke menselijke
+// blik op de chart een schoolvoorbeeld van HH/HL zag. De detectie werkt nu
+// ZigZag-stijl: pivots moeten alterneren (H-L-H-L; zelfde-kant pivots houden
+// alleen de extreemste) en een omkeer telt pas als hij minstens
+// 1.5x de gemiddelde candle-range groot is - kleinere zwaaien zijn ruis.
+// Gevalideerd op de sessie van 12-07: oud = "range-bound", nieuw = "HH/HL",
+// conform de visuele structuur.
 function detectMarketStructure() {
     const SWING_ORDER = 3, LOOKBACK = 60;
     if (!rawData || rawData.length < LOOKBACK) return { structure: 'onvoldoende data', swingHighs: [], swingLows: [] };
 
-    const candles = rawData.slice(-LOOKBACK).map(d => ({ high: parseFloat(d[2]), low: parseFloat(d[3]) }));
-    const swingHighs = [], swingLows = [];
+    const candles = rawData.slice(-LOOKBACK).map(d => ({ high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]) }));
 
+    // 1. Ruwe order-3 pivots, in tijdsvolgorde
+    const pivots = [];
     for (let i = SWING_ORDER; i < candles.length - SWING_ORDER; i++) {
-        const windowHigh = candles.slice(i - SWING_ORDER, i + SWING_ORDER + 1);
-        if (candles[i].high === Math.max(...windowHigh.map(w => w.high))) swingHighs.push(candles[i].high);
-        const windowLow = candles.slice(i - SWING_ORDER, i + SWING_ORDER + 1);
-        if (candles[i].low === Math.min(...windowLow.map(w => w.low))) swingLows.push(candles[i].low);
+        const win = candles.slice(i - SWING_ORDER, i + SWING_ORDER + 1);
+        if (candles[i].high === Math.max(...win.map(w => w.high))) pivots.push({ type: 'H', val: candles[i].high, i });
+        if (candles[i].low === Math.min(...win.map(w => w.low))) pivots.push({ type: 'L', val: candles[i].low, i });
+    }
+    pivots.sort((a, b) => a.i - b.i);
+
+    // 2. ZigZag-filter: minimale omkeergrootte = 1.5x gemiddelde candle-range
+    const avgRangeFrac = candles.reduce((s, c) => s + (c.high - c.low) / c.close, 0) / candles.length;
+    const minReversal = 1.5 * avgRangeFrac * candles[candles.length - 1].close;
+    const zz = [];
+    for (const p of pivots) {
+        if (zz.length === 0) { zz.push({ ...p }); continue; }
+        const last = zz[zz.length - 1];
+        if (p.type === last.type) {
+            // zelfde kant: alleen de extreemste bewaren
+            if ((p.type === 'H' && p.val > last.val) || (p.type === 'L' && p.val < last.val)) zz[zz.length - 1] = { ...p };
+        } else if (Math.abs(p.val - last.val) >= minReversal) {
+            zz.push({ ...p }); // significante omkeer
+        } // anders: ruiszwaai, negeren
     }
 
-    const lastHighs = swingHighs.slice(-3);
-    const lastLows = swingLows.slice(-3);
-    if (lastHighs.length < 2 || lastLows.length < 2) return { structure: 'onvoldoende swings', swingHighs, swingLows };
+    const lastHighs = zz.filter(p => p.type === 'H').map(p => p.val).slice(-3);
+    const lastLows = zz.filter(p => p.type === 'L').map(p => p.val).slice(-3);
+    if (lastHighs.length < 2 || lastLows.length < 2) return { structure: 'onvoldoende swings', swingHighs: lastHighs, swingLows: lastLows };
 
     const highsRising = lastHighs.every((v, i) => i === 0 || v >= lastHighs[i - 1]);
     const highsFalling = lastHighs.every((v, i) => i === 0 || v <= lastHighs[i - 1]);
