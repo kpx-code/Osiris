@@ -441,7 +441,7 @@
         <!-- ============ OSIRIS ENGINE SECTION ============ -->
         <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.40<span class="fill"></span></div>
+            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.41<span class="fill"></span></div>
             <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
@@ -482,6 +482,7 @@
                             <select id="wallet-currency-select">
                                 <option value="EUR" selected>EUR (€)</option>
                                 <option value="USD">USD ($)</option>
+                                <option value="USDT">USDT (₮, testnet)</option>
                             </select>
                         </div>
                     </div>
@@ -500,6 +501,7 @@
                         <div style="display:flex; align-items:flex-end; gap:8px;">
                             <button type="button" id="testnet-save-keys-btn" class="btn btn-ghost btn-mini">Keys opslaan</button>
                             <button type="button" id="testnet-test-btn" class="btn btn-ghost btn-mini" style="color:var(--teal); border-color:rgba(0,255,204,0.4);">Test verbinding</button>
+                            <button type="button" id="testnet-sync-wallet-btn" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);" title="Zet de walletvaluta op USDT en het startkapitaal op je werkelijke vrije USDT-saldo op het testnet, en reset daarna de wallet (met bevestiging).">Sync wallet ← testnet</button>
                         </div>
                     </div>
                     <div id="testnet-status" style="font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:var(--text-dimmer); margin-bottom:10px; min-height:1.2em;"></div>
