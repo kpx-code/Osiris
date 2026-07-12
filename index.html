@@ -441,7 +441,7 @@
         <!-- ============ OSIRIS ENGINE SECTION ============ -->
         <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.24<span class="fill"></span></div>
+            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.40<span class="fill"></span></div>
             <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
@@ -503,7 +503,7 @@
                         </div>
                     </div>
                     <div id="testnet-status" style="font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:var(--text-dimmer); margin-bottom:10px; min-height:1.2em;"></div>
-                    <small style="display:block; color:var(--text-dimmer); margin-bottom:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.6;">TESTNET stuurt echte market-orders naar testnet.binance.vision (nepgeld, echt orderboek). Keys maak je gratis aan op testnet.binance.vision (inloggen met GitHub). Keys worden ALLEEN lokaal in je browser bewaard en zitten nooit in exports. Gebruik hier NOOIT live Binance-keys. In TESTNET-modus komen fill-prijs en commissie van de exchange zelf; de eigen fee/slippage-simulatie staat dan automatisch uit. SHORT-entries verkopen BTC uit je testnet-saldo (spot kent geen echte shorts) - het testnet geeft je bij elke maandelijkse reset vers BTC en USDT.</small>
+                    <small style="display:block; color:var(--text-dimmer); margin-bottom:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.6;">TESTNET stuurt echte market-orders via de Binance WebSocket API (wss://ws-api.testnet.binance.vision) - nepgeld, echt orderboek, en WebSockets omzeilen de CORS-blokkade die browser-REST-calls tegenhoudt. Keys maak je gratis aan op testnet.binance.vision (inloggen met GitHub). Keys worden ALLEEN lokaal in je browser bewaard en zitten nooit in exports. Gebruik hier NOOIT live Binance-keys. In TESTNET-modus komen fill-prijs en commissie van de exchange zelf; de eigen fee/slippage-simulatie staat dan automatisch uit. SHORT-entries verkopen BTC uit je testnet-saldo (spot kent geen echte shorts) - het testnet geeft je bij elke maandelijkse reset vers BTC en USDT.</small>
 
                     <h4 style="color: var(--cyan); font-size: 0.7rem; letter-spacing:0.1em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin: 16px 0 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;">Trend Engine</h4>
                     <div id="bot-config" class="grid-row" style="margin-bottom: 14px;">
