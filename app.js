@@ -293,6 +293,29 @@ function summarizeTestnetFills(orderResponse) {
     return { avgPrice, executedQty, commissionQuote };
 }
 
+// Zet de interne wallet gelijk aan de werkelijkheid op het testnet: valuta
+// USDT, startkapitaal = vrij USDT-saldo. Zo betekent "Balance" in de UI
+// hetzelfde als wat de exchange je daadwerkelijk laat besteden, en verdwijnt
+// de EUR/USDT-spraakverwarring in TESTNET-modus volledig. Gebruikt de
+// bestaande resetWallet()-flow inclusief de bevestigingsvraag, omdat een
+// wallet-sync per definitie een schone sessie-start is.
+async function syncWalletToTestnetBalance() {
+    try {
+        setTestnetStatus('Testnet-saldo ophalen...');
+        const bal = await getTestnetBalances();
+        const usdt = bal.USDT || 0;
+        if (usdt <= 0) { setTestnetStatus('Geen vrij USDT-saldo gevonden op het testnet.', true); return; }
+        const capitalInput = document.getElementById('start-capital');
+        const currencyInput = document.getElementById('wallet-currency-select');
+        if (capitalInput) capitalInput.value = usdt.toFixed(2);
+        if (currencyInput) currencyInput.value = 'USDT';
+        setTestnetStatus(`Testnet-saldo: ${usdt.toFixed(2)} USDT (en ${(bal.BTC || 0).toFixed(5)} BTC voor shorts).`);
+        resetWallet(); // vraagt zelf om bevestiging en leest de zojuist gezette invoervelden
+    } catch (e) {
+        setTestnetStatus(`Sync mislukt: ${e.message}`, true);
+    }
+}
+
 // Verbindingstest voor de UI-knop: haalt het account op en toont de saldi.
 async function testTestnetConnection() {
     setTestnetStatus('Verbinden met ws-api.testnet.binance.vision...');
@@ -996,9 +1019,22 @@ function formatChartPrice(usdPrice) {
 // bedrag exact zoals ingevoerd, zonder marktkoers-vermenigvuldiging. Dit is
 // volledig los van displayCurrency, dat alleen de chart-prijzen (USD-bron)
 // cosmetisch omrekent.
+// USDT is toegevoegd als derde walletvaluta voor TESTNET-modus. Technisch is
+// het zelfs de zuiverste keuze: BTCUSDT is in USDT genoteerd, dus een
+// USDT-wallet heeft NUL conversie nodig (geen eurUsdtRate, geen aannames).
+// 'USD-achtig' = genoteerd in de quote-valuta van het handelspaar; alleen EUR
+// heeft een koersconversie nodig.
+function isQuoteCurrencyWallet() {
+    return walletState.currency === 'USD' || walletState.currency === 'USDT';
+}
+
+function walletSymbol() {
+    if (walletState.currency === 'USDT') return '₮'; // ₮ - gangbaar informeel USDT-teken
+    return walletState.currency === 'USD' ? '$' : '€';
+}
+
 function formatMoney(amount, decimals = 2) {
-    const sym = walletState.currency === 'USD' ? '$' : '€';
-    return `${sym}${amount.toFixed(decimals)}`;
+    return `${walletSymbol()}${amount.toFixed(decimals)}`;
 }
 
 // Past de as-labels, crosshair-labels EN alle price-line-labels (fib-lijnen,
@@ -1463,7 +1499,7 @@ function startAutonomousBot(isAutoRestart = false) {
             walletState.startingCapital = parseFloat(capitalInput.value);
         }
         const currencyInput = document.getElementById('wallet-currency-select');
-        walletState.currency = (currencyInput && currencyInput.value === 'USD') ? 'USD' : 'EUR';
+        walletState.currency = ['USD', 'USDT'].includes(currencyInput?.value) ? currencyInput.value : 'EUR';
     }
 
     readTradingSettingsFromInputs();
@@ -1651,7 +1687,7 @@ function resetWallet() {
     const capitalInput = document.getElementById('start-capital');
     const newCapital = capitalInput ? parseFloat(capitalInput.value) : 1000;
     const currencyInput = document.getElementById('wallet-currency-select');
-    const newCurrency = (currencyInput && currencyInput.value === 'USD') ? 'USD' : 'EUR';
+    const newCurrency = ['USD', 'USDT'].includes(currencyInput?.value) ? currencyInput.value : 'EUR';
 
     walletState = {
         startingCapital: (!isNaN(newCapital) && newCapital > 0) ? newCapital : 1000,
@@ -1675,7 +1711,7 @@ function resetWallet() {
 
     updateWalletUI();
     updatePendingOrdersUI();
-    console.log(`Wallet gereset naar ${walletState.currency === 'USD' ? '$' : '€'}${walletState.startingCapital}`);
+    console.log(`Wallet gereset naar ${walletSymbol()}${walletState.startingCapital} (${walletState.currency})`);
 }
 
 // ============================================================
@@ -1994,7 +2030,7 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
     // amount*priceNum geeft een USD-bedrag (want price komt van BTCUSDT). Is de
     // wallet zelf USD, dan is dat al goed; is de wallet EUR, dan eerst omrekenen.
     const usdNotionalFallback = (amount && priceNum) ? amount * priceNum : 0;
-    const walletNotionalFallback = walletState.currency === 'USD'
+    const walletNotionalFallback = isQuoteCurrencyWallet()
         ? usdNotionalFallback
         : (eurUsdtRate ? usdNotionalFallback / eurUsdtRate : usdNotionalFallback);
     const notional = notionalEUR || walletNotionalFallback;
@@ -2635,7 +2671,7 @@ function openRangeScalpPosition(side, evalResult) {
 
     const balance = getBalance();
     const notional = balance * finalSizePct;
-    const notionalUSD = walletState.currency === 'USD' ? notional : (eurUsdtRate ? notional * eurUsdtRate : notional);
+    const notionalUSD = isQuoteCurrencyWallet() ? notional : (eurUsdtRate ? notional * eurUsdtRate : notional);
     const amount = parseFloat((notionalUSD / price).toFixed(6));
 
     const position = {
@@ -2720,8 +2756,8 @@ function openPositionFromOrder(order, entryTag = '') {
     // behandeld, ~8-17% fout). Zonder koers (nog niet opgehaald) valt dit terug op
     // de EUR-aanname als noodgreep, met een duidelijke log-vermelding.
     let notionalUSD;
-    if (walletState.currency === 'USD') {
-        notionalUSD = notional;
+    if (isQuoteCurrencyWallet()) {
+        notionalUSD = notional; // USD/USDT-wallet: al in quote-valuta, geen conversie
     } else {
         notionalUSD = eurUsdtRate ? (notional * eurUsdtRate) : notional;
     }
@@ -4386,6 +4422,7 @@ setInterval(updateInfoPanel, 1000);
 // --- Testnet UI-koppeling (knoppen bestaan alleen als index.html up-to-date is) ---
 document.getElementById('testnet-save-keys-btn')?.addEventListener('click', saveTestnetKeysFromInputs);
 document.getElementById('testnet-test-btn')?.addEventListener('click', testTestnetConnection);
+document.getElementById('testnet-sync-wallet-btn')?.addEventListener('click', syncWalletToTestnetBalance);
 // Bij het wisselen naar TESTNET direct een verbindingscheck doen, zodat een
 // ontbrekende key of CORS-blokkade meteen zichtbaar is - niet pas bij de
 // eerste order die de bot probeert te plaatsen.
