@@ -84,8 +84,27 @@ let botSettings = {
     // --- REALLOCATIE: ruimte maken voor een duidelijk betere nieuwe kans ---
     reallocationEnabled: true,
     reallocationMarginPct: 15,      // nieuwe kans moet minstens dit veel hoger scoren dan de zwakste bestaande positie
+    reallocationMinAgeMinutes: 15,  // FIX (data 12-07): een positie moet minimaal zo oud zijn voordat ze wegge-realloceerd mag worden - 29 van 42 exits waren reallocaties (netto -3.86 EUR) die posities gemiddeld na 28 min sloten, precies vóór de trend-reversal-fase (44 min) waar de winst zat
+    reallocationCooldownMinutes: 10, // minimale tijd tussen twee reallocaties - voorkomt kettingreacties van churn binnen enkele scans
+    // --- FEES: gesimuleerde handelskosten per zijde (taker). Binance spot taker = 0.1%.
+    // Zonder dit optimaliseert de bot onbewust voor veel micro-trades: de sessie van
+    // 12-07 pakte 1.45 EUR bruto over 42 trades, terwijl 0.1%/zijde ~25 EUR aan
+    // fees had gekost. Alle PnL en entry-drempels rekenen nu netto-na-fees.
+    feePct: 0.1,                    // percentage per zijde (0.1 = 0.1%); round-trip = 2x
+    // SLIPPAGE: verschil tussen livePrice (waarop de simulatie vult) en de prijs
+    // waarop een echte order gevuld zou worden (halve spread + orderboek-diepte).
+    // Voor BTC/USDT spot bij kleine notionals is dit klein (~0.01-0.05% per
+    // zijde), maar de gemiddelde trade van de sessie 12-07 pakte maar 0.03%
+    // beweging - op die schaal telt zelfs 0.02% per zijde volwaardig mee.
+    slippagePct: 0.02,              // percentage per zijde; 0 = uit
     isRunning: false
 };
+
+// Round-trip TRANSACTIEKOSTEN (fees + slippage, beide zijden) als PERCENTAGE -
+// dit is het getal dat elke trade minimaal moet overwinnen om break-even te zijn.
+function roundTripCostPct() { return ((botSettings.feePct || 0) + (botSettings.slippagePct || 0)) * 2; }
+// Behouden voor bestaande aanroepen/leesbaarheid: alleen de fees, zonder slippage.
+function roundTripFeePct() { return (botSettings.feePct || 0) * 2; }
 
 // --- WALLET (persistente staat, los van botSettings.startingCapital-invoer) ---
 let walletState = {
@@ -117,6 +136,7 @@ let lastOsirisDecision = null;
 // ============================================================
 let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0 };
 let learningLog = []; // { timestampMs, side, factors: {confluence, nodeInfluence, momentumInfluence, fibConfluenceInfluence, probabilityPct}, outcome: 'win'|'loss', pnlPct }
+let lastReallocationAt = 0; // timestamp (ms) van de laatste reallocatie - voor de cooldown-poort in tryReallocateForBetterOpportunity
 const MIN_SAMPLE_SIZE = 20; // minimaal aantal trades per groep voordat een gewicht wordt aangepast
 let lastCalibrationSummary = null; // voor het transparantie-paneel
 
@@ -333,59 +353,87 @@ function applyRSISettings() {
 // kan gewoon - dit is een startpunt, geen vergrendeling.
 // ============================================================
 const PROFILE_PRESETS = {
-    // KPX Mode 1: gebaseerd op de door de gebruiker geteste, agressieve setup,
-    // met de eerder besproken fixes toegepast:
-    // - hold-continuation 50%->70% (was LAGER dan entry-drempel 60%, exact
-    //   averechts - een vastgelegde winst vasthouden moet meer overtuiging
-    //   vergen dan een nieuwe trade openen, niet minder)
-    // - bevestigingstijd 5s->10s (was korter dan de 10s meetcyclus zelf,
-    //   daardoor grotendeels tandeloos)
-    // - range-scalp doel 0.1%->0.5% + stop 0.8%->2% (was 1:8 risk:reward
-    //   tegen de gebruiker, vereiste 88.9% win rate; nu 1:4, vereist 80%)
-    // - range-scalp allocatie 60%->20% (één scalp mocht 60% van de balance
-    //   innemen - dat is geen "klein en vaak" scalpen meer, dat is bijna
-    //   all-in op een trade zonder confluence-toetsing)
-    // Alles wat niet als probleem was aangemerkt (entry-drempel 60%, chase
-    // 82%/5min, reallocatie-marge 50%, stop-loss 1%) is ongewijzigd gelaten -
-    // dat zijn agressieve maar interne-consistente keuzes, geen logicafouten.
+    // KPX Mode 1: gebaseerd op de door de gebruiker geteste, agressieve setup.
+    // HERZIEN na de sessie-analyse van 12-07 (42 trades, +1.45 EUR bruto, maar
+    // ~25 EUR aan fictieve fees bij 0.1%/zijde) en de invoering van netto-na-fees:
+    // - min-projected-profit 0.1%->0.5%: 0.1% doel bij 0.2% round-trip fees
+    //   betekende dat ELKE trade die exact zijn doel haalde netto verlies was.
+    // - range-scalp doel 0.5%->0.8% + stop 2%->1.2%: na fees was 0.5%/2% netto
+    //   0.3% winst tegen 2.2% verlies - dat vereist 88% win rate, erger dan het
+    //   1:8-probleem dat eerder al eens gefixt is. 0.8%/1.2% = netto 0.6/1.4,
+    //   break-even bij 70%.
+    // - reallocatie-guards (nieuw): min. leeftijd 15min + cooldown 10min. De
+    //   sessie-data liet zien dat 29 van 42 exits reallocaties waren (netto
+    //   -3.86 EUR) die posities gemiddeld na 28 min sloten - net vóór de
+    //   trend-reversal-fase (gem. 44 min) waar de winst zat (+4.97 EUR).
+    // - marge 50 blijft: op de nieuwe (logistisch gecomprimeerde) schaal is dat
+    //   weer een betekenisvolle eis i.p.v. een die door de 100%-clamp continu
+    //   triggerde.
+    // Ongewijzigd: entry-drempel 60%, chase 82%/5min, stop-loss 1% - agressief
+    // maar intern consistent.
     KPX_MODE_1: {
         'max-allocation-pct': 70, 'stop-loss-pct': 1, 'min-probability-pct': 60,
-        'hold-continuation-probability-pct': 70, 'min-projected-profit-pct': 0.1,
+        'hold-continuation-probability-pct': 70, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
         'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10,
-        'range-scalp-target-pct': 0.5, 'range-scalp-stop-pct': 2, 'range-scalp-alloc-pct': 20,
+        'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 1.2, 'range-scalp-alloc-pct': 20,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 50,
+        'reallocation-min-age': 15, 'reallocation-cooldown': 10, 'fee-pct': 0.1, 'slippage-pct': 0.02,
         'ma-fast-period': 9, 'ma-slow-period': 21,
         'rsi-period': 14, 'rsi-overbought': 70, 'rsi-oversold': 30
     },
+    // CONSERVATIVE: hoge lat, weinig trades, kapitaalbehoud voorop.
+    // FIX: range-scalp stond op doel 0.2% / stop 0.3% - na 0.2% round-trip fees
+    // is dat netto 0.0% winst tegen 0.5% verlies: wiskundig gegarandeerd
+    // verliesgevend, hoe goed het signaal ook is. Scalpen van micro-ranges kan
+    // simpelweg niet uit bij realistische fees, dus voor dit profiel staat de
+    // scalp-allocatie op 0 (uit). Reallocatie ook uit: churn past niet bij een
+    // conservatief profiel dat winnaars de tijd wil geven.
     CONSERVATIVE: {
         'max-allocation-pct': 40, 'stop-loss-pct': 1.5, 'min-probability-pct': 80,
         'hold-continuation-probability-pct': 90, 'min-projected-profit-pct': 1.5,
         'max-open-positions': 2, 'hedge-reserve-pct': 25, 'pending-order-ttl': 20,
         'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30,
-        'range-scalp-target-pct': 0.2, 'range-scalp-stop-pct': 0.3, 'range-scalp-alloc-pct': 5,
+        'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 0.8, 'range-scalp-alloc-pct': 0,
         'chase-probability-pct': 95, 'chase-after-minutes': 15,
+        'reallocation-enabled': 'false', 'reallocation-margin-pct': 25,
+        'reallocation-min-age': 30, 'reallocation-cooldown': 20, 'fee-pct': 0.1, 'slippage-pct': 0.02,
         'ma-fast-period': 20, 'ma-slow-period': 50,
         'rsi-period': 14, 'rsi-overbought': 75, 'rsi-oversold': 25
     },
+    // BALANCED: de fabrieksinstellingen.
+    // FIX: range-scalp 0.3%/0.5% was na fees netto +0.1% tegen -0.7% (vereiste
+    // 88% win rate). Nu 0.7%/0.7%: netto +0.5% / -0.9%, break-even bij 64% -
+    // haalbaar voor een mean-reversion scalp aan de rand van een range.
     BALANCED: {
         'max-allocation-pct': 70, 'stop-loss-pct': 2, 'min-probability-pct': 70,
         'hold-continuation-probability-pct': 85, 'min-projected-profit-pct': 1,
         'max-open-positions': 3, 'hedge-reserve-pct': 15, 'pending-order-ttl': 30,
         'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20,
-        'range-scalp-target-pct': 0.3, 'range-scalp-stop-pct': 0.5, 'range-scalp-alloc-pct': 10,
+        'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 0.7, 'range-scalp-alloc-pct': 10,
         'chase-probability-pct': 90, 'chase-after-minutes': 10,
+        'reallocation-enabled': 'true', 'reallocation-margin-pct': 20,
+        'reallocation-min-age': 15, 'reallocation-cooldown': 10, 'fee-pct': 0.1, 'slippage-pct': 0.02,
         'ma-fast-period': 9, 'ma-slow-period': 21,
         'rsi-period': 14, 'rsi-overbought': 70, 'rsi-oversold': 30
     },
+    // AGGRESSIVE: veel trades, snelle indicatoren (MA 5/13), lage drempels.
+    // FIX: range-scalp 0.5%/0.8% was na fees netto +0.3% / -1.0% (vereiste 77%
+    // win rate); nu 0.7%/1.0% = netto +0.5% / -1.2%, break-even bij ~71%.
+    // Kortere reallocatie-guards dan de andere profielen (10min/5min) - dit
+    // profiel MAG churnen, maar niet meer binnen dezelfde scan-cyclus.
+    // Let op: MA 5/13 genereert in een zijwaartse markt veel valse crossovers;
+    // dit profiel is bedoeld voor duidelijk trendende periodes.
     AGGRESSIVE: {
         'max-allocation-pct': 70, 'stop-loss-pct': 2.5, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 80, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
         'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10,
-        'range-scalp-target-pct': 0.5, 'range-scalp-stop-pct': 0.8, 'range-scalp-alloc-pct': 15,
+        'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 1.0, 'range-scalp-alloc-pct': 15,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
+        'reallocation-enabled': 'true', 'reallocation-margin-pct': 15,
+        'reallocation-min-age': 10, 'reallocation-cooldown': 5, 'fee-pct': 0.1, 'slippage-pct': 0.02,
         'ma-fast-period': 5, 'ma-slow-period': 13,
         'rsi-period': 14, 'rsi-overbought': 65, 'rsi-oversold': 35
     }
@@ -906,7 +954,12 @@ function loadPersistentState() {
         if (bs) {
             const restored = JSON.parse(bs);
             restored.isRunning = false; // altijd vers starten - startAutonomousBot(true) zet dit zelf weer terug op true indien nodig
-            botSettings = restored;
+            // FIX: `botSettings = restored` verving het HELE object - instellingen
+            // die in een nieuwere codeversie zijn toegevoegd (feePct, reallocatie-
+            // guards, ...) verdwenen dan stilzwijgend zodra een oud opgeslagen
+            // object werd teruggeladen, en waren daarna `undefined`. Mergen over
+            // de defaults heen behoudt nieuwe keys mét hun default.
+            botSettings = { ...botSettings, ...restored };
         }
         if (ind) {
             const restoredInd = JSON.parse(ind);
@@ -951,6 +1004,10 @@ function populateSettingsInputsFromState() {
     setVal('chase-after-minutes', s.chaseAfterMinutes);
     setVal('reallocation-enabled', s.reallocationEnabled ? 'true' : 'false');
     setVal('reallocation-margin-pct', s.reallocationMarginPct);
+    setVal('reallocation-min-age', s.reallocationMinAgeMinutes);
+    setVal('reallocation-cooldown', s.reallocationCooldownMinutes);
+    setVal('fee-pct', s.feePct);
+    setVal('slippage-pct', s.slippagePct);
 
     setVal('ma-fast-period', maFastPeriod);
     setVal('ma-slow-period', maSlowPeriod);
@@ -1116,6 +1173,22 @@ function readTradingSettingsFromInputs() {
     if (reallocationMarginInput && !isNaN(parseFloat(reallocationMarginInput.value))) {
         botSettings.reallocationMarginPct = Math.max(parseFloat(reallocationMarginInput.value), 0);
     }
+    const reallocMinAgeInput = document.getElementById('reallocation-min-age');
+    if (reallocMinAgeInput && !isNaN(parseFloat(reallocMinAgeInput.value))) {
+        botSettings.reallocationMinAgeMinutes = Math.max(parseFloat(reallocMinAgeInput.value), 0);
+    }
+    const reallocCooldownInput = document.getElementById('reallocation-cooldown');
+    if (reallocCooldownInput && !isNaN(parseFloat(reallocCooldownInput.value))) {
+        botSettings.reallocationCooldownMinutes = Math.max(parseFloat(reallocCooldownInput.value), 0);
+    }
+    const feePctInput = document.getElementById('fee-pct');
+    if (feePctInput && !isNaN(parseFloat(feePctInput.value))) {
+        botSettings.feePct = Math.min(Math.max(parseFloat(feePctInput.value), 0), 1); // 0-1% per zijde is realistisch; alles daarbuiten is vrijwel zeker een typefout
+    }
+    const slippagePctInput = document.getElementById('slippage-pct');
+    if (slippagePctInput && !isNaN(parseFloat(slippagePctInput.value))) {
+        botSettings.slippagePct = Math.min(Math.max(parseFloat(slippagePctInput.value), 0), 1);
+    }
 }
 
 // ============================================================
@@ -1276,6 +1349,8 @@ function renderActiveSettingsPanel() {
         ['Range-scalp doel / stop / alloc', `${s.rangeScalpProfitTargetPct}% / ${s.rangeScalpStopLossPct}% / ${(s.rangeScalpAllocationPct * 100).toFixed(0)}%`],
         ['Chase (aan >kans / na min)', `${s.chaseEnabled ? 'aan' : 'uit'} / ${s.chaseProbabilityThreshold}% / ${s.chaseAfterMinutes}min`],
         ['Reallocatie (aan / marge)', `${s.reallocationEnabled ? 'aan' : 'uit'} / ${s.reallocationMarginPct}%`],
+        ['Realloc. min. leeftijd / cooldown', `${s.reallocationMinAgeMinutes ?? 0}min / ${s.reallocationCooldownMinutes ?? 0}min`],
+        ['Fee / slippage per zijde', `${s.feePct ?? 0}% / ${s.slippagePct ?? 0}% (totaal ${(((s.feePct ?? 0) + (s.slippagePct ?? 0)) * 2).toFixed(2)}% r.t.)`],
         ['MA fast / slow', `${maFastPeriod} / ${maSlowPeriod}`],
         ['RSI periode / OB / OS', `${rsiPeriod} / ${rsiOverbought} / ${rsiOversold}`],
     ];
@@ -1762,8 +1837,8 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
 // 100 (of 0) raken is vrijwel altijd een teken dat de score geclampt is, niet
 // dat er letterlijk 100% zekerheid is. Toon dat eerlijk i.p.v. een harde 100%.
 function formatConfidencePct(pct) {
-    if (pct >= 100) return '\u2265 99%';
-    if (pct <= 0) return '\u2264 1%';
+    if (pct >= 99.5) return '\u2265 99%'; // door logisticCompress wordt exact 100 nooit meer bereikt
+    if (pct <= 0.5) return '\u2264 1%';
     return `~${pct.toFixed(0)}%`;
 }
 
@@ -1792,7 +1867,20 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     score += momentumInfluence;        // "geheugen": trend uit metricsHistory bevestigt of ontkracht het signaal
     score += fibConfluenceInfluence;   // MES/MAC fib-niveaus (dezelfde lijnen als op de chart) die de MIC-trigger bevestigen
     score += patternInfluence;         // candlestick-patronen (hamer/engulfing/etc.) + markt-structuur (HH/HL vs LH/LL)
-    return Math.max(0, Math.min(100, score));
+    // FIX (data 12-07): de harde clamp naar [0,100] maakte alle sterke signalen
+    // identiek - 96 van 134 pending orders toonden "kans 100%" terwijl de echte
+    // winrate 55% was. Daardoor filterden minProbabilityPct en de chase/reallocatie-
+    // drempels bovenin de schaal helemaal niets meer. Een logistische compressie
+    // behoudt de volgorde van de ruwe scores maar nadert 100 slechts asymptotisch:
+    //   raw 50 -> 50 | raw 70 -> 75 | raw 90 -> 90 | raw 110 -> 97 | raw 131 -> 99
+    // Zo blijft een ruwe 131 ook zichtbaar sterker dan een ruwe 101, en betekent
+    // een reallocatie-marge van X punten weer echt iets.
+    return logisticCompress(score);
+}
+
+function logisticCompress(rawScore) {
+    const compressed = 100 / (1 + Math.exp(-(rawScore - 50) / 18));
+    return Math.max(0.1, Math.min(99.9, compressed));
 }
 
 // Vertaalt de momentum-context (uit het metrics-geheugen) naar een kleine,
@@ -2005,8 +2093,10 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
         ? ((targetPrice - triggerPrice) / triggerPrice) * 100
         : ((triggerPrice - targetPrice) / triggerPrice) * 100;
 
+    // FIX: het verwachte doel moet de round-trip fees OVERTREFFEN plus de
+    // ingestelde minimumwinst - anders is een "geslaagde" trade netto verlies.
     const eligible = probabilityPct >= botSettings.minProbabilityPct &&
-                      projectedProfitPct > botSettings.minProjectedProfitPct;
+                      projectedProfitPct > (botSettings.minProjectedProfitPct + roundTripCostPct());
 
     return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence, fibConfluenceInfluence, confluence: decision.confluence, patternInfluence };
 }
@@ -2149,11 +2239,28 @@ function revalidatePendingOrders(decision, metrics) {
 function tryReallocateForBetterOpportunity(newSide, newProbabilityPct) {
     if (!botSettings.reallocationEnabled || openPositions.length === 0 || !livePrice) return false;
 
+    // FIX (data 12-07): 29 van de 42 exits waren reallocaties met netto -3.86 EUR,
+    // terwijl de overige exits samen +5.31 EUR opleverden. Drie nieuwe poorten:
+    // 1. COOLDOWN: minimaal reallocationCooldownMinutes tussen twee reallocaties,
+    //    zodat één sterke scan geen kettingreactie van sluitingen veroorzaakt.
+    const now = Date.now();
+    if (lastReallocationAt && (now - lastReallocationAt) < (botSettings.reallocationCooldownMinutes || 0) * 60000) return false;
+
     const candidates = openPositions.filter(pos => {
         const pnlPct = pos.side === 'LONG'
             ? (livePrice - pos.entryPrice) / pos.entryPrice
             : (pos.entryPrice - livePrice) / pos.entryPrice;
-        return pnlPct < botSettings.profitHoldTriggerPct;
+        // 2. LEEFTIJD: de winstgevende exits (TREND_REVERSAL) hielden gem. 44 min
+        //    vast; reallocaties sloten na gem. 28 min - precies te vroeg. Een
+        //    positie krijgt eerst reallocationMinAgeMinutes de tijd om te bewijzen.
+        const ageMinutes = (now - (pos.openTime || 0)) / 60000;
+        if (ageMinutes < (botSettings.reallocationMinAgeMinutes || 0)) return false;
+        // 3. ALLEEN VERLIEZERS: een positie die (na fees) op winst staat wordt
+        //    nooit opgeofferd voor een onbewezen nieuwe kans. De oude drempel
+        //    (< profitHoldTriggerPct = 2%) was bij trades van gemiddeld 0.03%
+        //    beweging effectief géén bescherming.
+        const feeFraction = roundTripCostPct() / 100;
+        return (pnlPct - feeFraction) < 0;
     });
     if (candidates.length === 0) return false;
 
@@ -2170,6 +2277,7 @@ function tryReallocateForBetterOpportunity(newSide, newProbabilityPct) {
         const pnlPct = weakest.side === 'LONG'
             ? (livePrice - weakest.entryPrice) / weakest.entryPrice
             : (weakest.entryPrice - livePrice) / weakest.entryPrice;
+        lastReallocationAt = Date.now();
         closePosition(weakest, pnlPct, `REALLOCATED (nieuwe ${newSide}-kans ${newProbabilityPct.toFixed(0)}% vs. ${weakestScore.toFixed(0)}%)`);
         return true;
     }
@@ -2443,6 +2551,12 @@ function openPositionFromOrder(order, entryTag = '') {
 }
 
 function closePosition(pos, pnlPct, reason) {
+    // FIX: fees meenemen - round-trip (open + sluit) tegen feePct per zijde.
+    // pnlPct wordt NETTO gemaakt zodat wins/losses, learningLog en de tradelog
+    // allemaal dezelfde (eerlijke) waarheid zien. Bruto blijft afleidbaar:
+    // bruto = netto + roundTripCostPct()/100.
+    const feeFraction = roundTripCostPct() / 100;
+    pnlPct = pnlPct - feeFraction;
     const pnlAmount = pos.notional * pnlPct;
     walletState.realizedPnL += pnlAmount;
     if (pnlPct >= 0) walletState.wins++; else walletState.losses++;
@@ -2463,6 +2577,12 @@ function closePosition(pos, pnlPct, reason) {
         });
         if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
         recalibrateAdaptiveWeights();
+    } else if (!pos.isScalp) {
+        // DIAGNOSE: de sessie-export van 12-07 had 42 exits maar een LEGE
+        // learningLog - trend-posities zonder factorsAtEntry (bijv. hersteld uit
+        // localStorage van een oudere versie) vielen stilzwijgend buiten het
+        // leren. Dat mag nooit meer onzichtbaar gebeuren.
+        console.warn(`Level 1: trend-positie ${pos.id} gesloten ZONDER factorsAtEntry - deze trade telt niet mee voor adaptief leren.`);
     }
 
     logBotAction("EXIT", livePrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional, pos.isScalp || false);
