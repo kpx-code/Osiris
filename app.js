@@ -137,6 +137,15 @@ let lastOsirisDecision = null;
 let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0 };
 let learningLog = []; // { timestampMs, side, factors: {confluence, nodeInfluence, momentumInfluence, fibConfluenceInfluence, probabilityPct}, outcome: 'win'|'loss', pnlPct }
 let lastReallocationAt = 0; // timestamp (ms) van de laatste reallocatie - voor de cooldown-poort in tryReallocateForBetterOpportunity
+// FIX (crash 12-07): sessionLog stond gedeclareerd op ~regel 1200, terwijl
+// loadPersistentState() - dat sessionLog herstelt - al op ~regel 978 draait.
+// `let` kent een temporal dead zone: de variabele bestaat vóór zijn declaratie-
+// regel simpelweg nog niet, dus het herstel crashte met "Cannot access
+// 'sessionLog' before initialization". De catch slokte dat op, waardoor OOK
+// learningLog en adaptiveWeights (de regels erna) stilzwijgend nooit werden
+// teruggeladen - elke refresh gooide dus het adaptieve leren weg. De declaratie
+// hoort hier, bij de rest van de persistente state.
+let sessionLog = [];
 const MIN_SAMPLE_SIZE = 20; // minimaal aantal trades per groep voordat een gewicht wordt aangepast
 let lastCalibrationSummary = null; // voor het transparantie-paneel
 
@@ -1197,7 +1206,8 @@ function readTradingSettingsFromInputs() {
 // achteraf te segmenteren per configuratie, ook als je nooit expliciet Reset
 // Wallet gebruikt tussen twee verschillende instellingen-sets in.
 // ============================================================
-let sessionLog = [];
+// sessionLog zelf is bovenin gedeclareerd (bij de persistente state, ~regel 148)
+// omdat loadPersistentState() hem al nodig heeft - zie de FIX-comment daar.
 
 function recordSessionEvent(eventType) {
     sessionLog.push({
