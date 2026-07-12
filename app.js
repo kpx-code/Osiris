@@ -65,6 +65,24 @@ let botSettings = {
     minProbabilityPct: 70,       // alleen openen als Osiris' zekerheids-score >=70% (was 90% - verlaagd voor meer entries/P&L-kansen, instelbaar via UI)
     holdContinuationMinProbabilityPct: 85, // STRENGER dan entries: je zet al zekere winst op het spel om op meer te gokken, dus de lat moet hoger liggen
     minProfitForTrendExit: 0.002, // ondergrens (0.2%) voordat een trendommekeer al winst mag verzilveren - voorkomt churn op ruis
+    // WINST-BESCHERMING (data 12-07): trend-trades piekten gem. +0.18% maar
+    // realiseerden +0.03% - 0.15%-punt weggegeven per trade. Simulatie op de
+    // sessiedata waarschuwde echter: bescherming die al bij 0.3%-pieken
+    // ingrijpt kapt winnaars af (backtest: +0.34 i.p.v. +1.12%-punt), omdat
+    // zulke pieken binnen de ruis+kostenband (~0.24% r.t.) vallen. Daarom:
+    // pas actief vanaf een piek die de kosten ruim overstijgt, en dan een
+    // ruime greep (55% van de piek behouden) i.p.v. een krappe.
+    profitProtectActivationPct: 0.005, // piek (0.5%) waarboven winst-bescherming actief wordt
+    profitProtectKeepPct: 55,          // sluit zodra P/L onder dit % van de piek zakt
+    // KANS-COLLAPS EXIT (screenshot 12-07): positie toonde "winkans nu ~32%
+    // (bij entry ~95%)" maar bleef bevroren in de neutrale zone wachten op de
+    // vaste winst/verlies-drempels. Als de live kans voor de eigen kant
+    // aanhoudend instort, is wachten geen discipline meer maar ontkenning.
+    // De bevestigingstijd (default 120s = "2-3 candles") voorkomt reageren op
+    // één slechte meting - dit is de geformaliseerde versie van het inzicht
+    // dat een omkeer zich vaak 2-3 candles na een node aftekent.
+    probCollapseThresholdPct: 35,      // live winkans waaronder de collaps-teller start
+    probCollapseConfirmSeconds: 120,   // zo lang moet de kans onafgebroken onder de drempel blijven
     minLossForEarlyExit: 0.003,  // ondergrens (0.3%) verlies voordat de bot vroegtijdig mag sluiten op bevestigde tegentrend, vóór de volle stop-loss
     maxOpenPositions: 3,         // totaal aantal posities dat tegelijk open mag staan (over beide kanten samen), hard begrensd op 4
     minHedgeReservePct: 0.15,    // gereserveerde allocatie voor een eventuele hedge op de andere kant, ALLEEN als die kant nog geen positie heeft
@@ -305,11 +323,25 @@ async function syncWalletToTestnetBalance() {
         const bal = await getTestnetBalances();
         const usdt = bal.USDT || 0;
         if (usdt <= 0) { setTestnetStatus('Geen vrij USDT-saldo gevonden op het testnet.', true); return; }
+        // FIX (12-07): de sync zette het startkapitaal stilzwijgend op het VOLLEDIGE
+        // testnet-saldo (10.000 USDT), waardoor posities 10x groter werden dan de
+        // gebruiker met zijn oude 1.000-kapitaal gewend was. Nu vraagt de sync
+        // hoeveel van het saldo de bot mag gebruiken - de rest blijft onaangeroerd
+        // op het testnet staan (de bot sized altijd vanuit zijn eigen interne balance).
+        const input = prompt(
+            `Vrij testnet-saldo: ${usdt.toFixed(2)} USDT (en ${(bal.BTC || 0).toFixed(5)} BTC voor shorts).\n\n` +
+            `Hoeveel USDT mag de bot als startkapitaal gebruiken?`,
+            usdt.toFixed(2)
+        );
+        if (input === null) { setTestnetStatus('Sync geannuleerd.'); return; }
+        const capital = parseFloat(input);
+        if (isNaN(capital) || capital <= 0) { setTestnetStatus('Ongeldig bedrag - sync geannuleerd.', true); return; }
+        if (capital > usdt) { setTestnetStatus(`Bedrag (${capital.toFixed(2)}) is hoger dan je vrije saldo (${usdt.toFixed(2)}) - sync geannuleerd.`, true); return; }
         const capitalInput = document.getElementById('start-capital');
         const currencyInput = document.getElementById('wallet-currency-select');
-        if (capitalInput) capitalInput.value = usdt.toFixed(2);
+        if (capitalInput) capitalInput.value = capital.toFixed(2);
         if (currencyInput) currencyInput.value = 'USDT';
-        setTestnetStatus(`Testnet-saldo: ${usdt.toFixed(2)} USDT (en ${(bal.BTC || 0).toFixed(5)} BTC voor shorts).`);
+        setTestnetStatus(`Startkapitaal: ${capital.toFixed(2)} van ${usdt.toFixed(2)} USDT vrij saldo.`);
         resetWallet(); // vraagt zelf om bevestiging en leest de zojuist gezette invoervelden
     } catch (e) {
         setTestnetStatus(`Sync mislukt: ${e.message}`, true);
@@ -608,7 +640,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 1, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 70, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 55, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 1.2, 'range-scalp-alloc-pct': 20,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 50,
@@ -627,7 +659,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 40, 'stop-loss-pct': 1.5, 'min-probability-pct': 80,
         'hold-continuation-probability-pct': 90, 'min-projected-profit-pct': 1.5,
         'max-open-positions': 2, 'hedge-reserve-pct': 25, 'pending-order-ttl': 20,
-        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30,
+        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 60, 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 0.8, 'range-scalp-alloc-pct': 0,
         'chase-probability-pct': 95, 'chase-after-minutes': 15,
         'reallocation-enabled': 'false', 'reallocation-margin-pct': 25,
@@ -643,7 +675,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2, 'min-probability-pct': 70,
         'hold-continuation-probability-pct': 85, 'min-projected-profit-pct': 1,
         'max-open-positions': 3, 'hedge-reserve-pct': 15, 'pending-order-ttl': 30,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 55, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 0.7, 'range-scalp-alloc-pct': 10,
         'chase-probability-pct': 90, 'chase-after-minutes': 10,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 20,
@@ -662,7 +694,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2.5, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 80, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10,
+        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.4, 'profit-protect-keep': 50, 'prob-collapse-threshold': 40, 'prob-collapse-confirm-sec': 90,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 1.0, 'range-scalp-alloc-pct': 15,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 15,
@@ -1194,7 +1226,17 @@ function loadPersistentState() {
         const ll = localStorage.getItem('osirisLearningLog');
         const aw = localStorage.getItem('osirisAdaptiveWeights');
         if (w) walletState = JSON.parse(w);
-        if (p) openPositions = JSON.parse(p);
+        if (p) {
+            openPositions = JSON.parse(p);
+            // FIX (testnet + refresh): pendingExchangeClose is een tijdelijke
+            // in-flight-vlag ("exit-order is onderweg naar de exchange"). Wordt
+            // de pagina ververst terwijl zo'n vlag toevallig mee-gepersisteerd
+            // was (elke savePersistentState serialiseert de hele positie), dan
+            // zou closePositionOnTestnet de herstelde positie voor eeuwig
+            // overslaan en kon ze NOOIT meer sluiten. Na een refresh is er per
+            // definitie geen order meer in-flight, dus de vlag hoort weg.
+            openPositions.forEach(pos => { delete pos.pendingExchangeClose; });
+        }
         if (q) pendingOrders = JSON.parse(q);
         if (t) botTradeLog = JSON.parse(t);
         if (bs) {
@@ -1242,6 +1284,10 @@ function populateSettingsInputsFromState() {
     setVal('hedge-reserve-pct', (s.minHedgeReservePct * 100).toFixed(0));
     setVal('pending-order-ttl', s.pendingOrderTtlMinutes);
     setVal('min-loss-early-exit', (s.minLossForEarlyExit * 100).toFixed(2).replace(/\.00$/, ''));
+    setVal('profit-protect-activation', (s.profitProtectActivationPct * 100).toFixed(2).replace(/\.00$/, ''));
+    setVal('profit-protect-keep', s.profitProtectKeepPct);
+    setVal('prob-collapse-threshold', s.probCollapseThresholdPct);
+    setVal('prob-collapse-confirm-sec', s.probCollapseConfirmSeconds);
     setVal('continuation-confirmation-sec', s.continuationConfirmationSeconds);
     setVal('range-scalp-target-pct', s.rangeScalpProfitTargetPct);
     setVal('range-scalp-stop-pct', s.rangeScalpStopLossPct);
@@ -1371,6 +1417,22 @@ function readTradingSettingsFromInputs() {
 
     if (allocInput && !isNaN(parseFloat(allocInput.value))) {
         botSettings.maxAllocationPct = Math.min(Math.max(parseFloat(allocInput.value) / 100, 0), 1);
+    }
+    const ppActInput = document.getElementById('profit-protect-activation');
+    if (ppActInput && !isNaN(parseFloat(ppActInput.value))) {
+        botSettings.profitProtectActivationPct = Math.max(parseFloat(ppActInput.value) / 100, 0);
+    }
+    const ppKeepInput = document.getElementById('profit-protect-keep');
+    if (ppKeepInput && !isNaN(parseFloat(ppKeepInput.value))) {
+        botSettings.profitProtectKeepPct = Math.min(Math.max(parseFloat(ppKeepInput.value), 0), 100);
+    }
+    const pcThreshInput = document.getElementById('prob-collapse-threshold');
+    if (pcThreshInput && !isNaN(parseFloat(pcThreshInput.value))) {
+        botSettings.probCollapseThresholdPct = Math.min(Math.max(parseFloat(pcThreshInput.value), 0), 100);
+    }
+    const pcConfirmInput = document.getElementById('prob-collapse-confirm-sec');
+    if (pcConfirmInput && !isNaN(parseFloat(pcConfirmInput.value))) {
+        botSettings.probCollapseConfirmSeconds = Math.max(parseFloat(pcConfirmInput.value), 0);
     }
     if (stopLossInput && !isNaN(parseFloat(stopLossInput.value))) {
         botSettings.stopLossPct = Math.max(parseFloat(stopLossInput.value) / 100, 0.001);
@@ -1597,6 +1659,8 @@ function renderActiveSettingsPanel() {
         ['Hedge-reserve %', `${(s.minHedgeReservePct * 100).toFixed(0)}%`],
         ['Pending order geldig', `${s.pendingOrderTtlMinutes} min`],
         ['Min. verlies % vroege exit', `${(s.minLossForEarlyExit * 100).toFixed(1)}%`],
+        ['Winst-bescherming (piek / greep)', `${(s.profitProtectActivationPct * 100).toFixed(1)}% / ${s.profitProtectKeepPct}%`],
+        ['Kans-collaps (drempel / bevestiging)', `${s.probCollapseThresholdPct}% / ${s.probCollapseConfirmSeconds}s`],
         ['Bevestigingstijd exit', `${s.continuationConfirmationSeconds}s`],
         ['Range-scalp doel / stop / alloc', `${s.rangeScalpProfitTargetPct}% / ${s.rangeScalpStopLossPct}% / ${(s.rangeScalpAllocationPct * 100).toFixed(0)}%`],
         ['Chase (aan >kans / na min)', `${s.chaseEnabled ? 'aan' : 'uit'} / ${s.chaseProbabilityThreshold}% / ${s.chaseAfterMinutes}min`],
@@ -3023,6 +3087,22 @@ function checkOpenPositionsExits() {
             return;
         }
 
+        // 1b. Piek ALTIJD bijhouden - voorheen gebeurde dit pas boven de
+        // profitHoldTriggerPct (2%), waardoor de hele 0.3-0.8%-zone (waar in
+        // de praktijk vrijwel alle winnaars leven) geen piekregistratie en
+        // dus geen giveback-bescherming had.
+        pos.peakPnlPct = Math.max(pos.peakPnlPct || 0, pnlPct);
+
+        // 1c. WINST-BESCHERMING: is de piek ooit boven de activatiedrempel
+        // gekomen, sluit dan zodra de P/L onder profitProtectKeepPct% van die
+        // piek zakt. Bewust NIET krap afgesteld (zie comment bij de settings):
+        // pieken binnen de ruis+kostenband worden met rust gelaten.
+        if (!pos.isScalp && (pos.peakPnlPct || 0) >= botSettings.profitProtectActivationPct &&
+            pnlPct <= pos.peakPnlPct * (botSettings.profitProtectKeepPct / 100)) {
+            closePosition(pos, pnlPct, `PROFIT_PROTECT (piek +${(pos.peakPnlPct * 100).toFixed(2)}%, ${botSettings.profitProtectKeepPct}%-greep)`);
+            return;
+        }
+
         // 2. Winst >= 2%: Osiris mag zelf beslissen om te blijven zitten als
         // trend/momentum/kans nog steeds gunstig zijn (evaluateContinuation,
         // drempel = minProbabilityPct, GEEN "ruimte tot doel"-eis meer - die
@@ -3078,6 +3158,27 @@ function checkOpenPositionsExits() {
             if (continuation.confirmed) {
                 closePosition(pos, pnlPct, "EARLY_STOP_TREND");
                 return;
+            }
+        }
+
+        // 4b. KANS-COLLAPS: de neutrale zone (tussen de vroege-exit- en
+        // trendwinst-drempels) bevroor de bot voorheen volledig, ook als de
+        // live winkans voor de eigen kant was ingestort (gezien in de praktijk:
+        // "winkans nu ~32% bij entry ~95%", positie bleef gewoon staan). Als de
+        // kans onafgebroken >= probCollapseConfirmSeconds onder de drempel
+        // blijft, sluiten we - ongeacht in welke micro-zone de P/L toevallig
+        // zit. De bevestigingstijd is de geformaliseerde "2-3 candles na een
+        // node"-observatie: één slechte meting telt niet, een aanhoudende wel.
+        if (!pos.isScalp) {
+            const liveProb = evaluateContinuation(pos.side).probabilityPct;
+            if (liveProb !== null && liveProb <= botSettings.probCollapseThresholdPct) {
+                if (!pos.probCollapseSince) pos.probCollapseSince = Date.now();
+                if ((Date.now() - pos.probCollapseSince) / 1000 >= botSettings.probCollapseConfirmSeconds) {
+                    closePosition(pos, pnlPct, `PROB_COLLAPSE_EXIT (winkans ${liveProb.toFixed(0)}% al ${botSettings.probCollapseConfirmSeconds}s onder ${botSettings.probCollapseThresholdPct}%)`);
+                    return;
+                }
+            } else {
+                pos.probCollapseSince = null; // kans herstelde - teller reset
             }
         }
 
