@@ -97,6 +97,11 @@ let botSettings = {
     // zijde), maar de gemiddelde trade van de sessie 12-07 pakte maar 0.03%
     // beweging - op die schaal telt zelfs 0.02% per zijde volwaardig mee.
     slippagePct: 0.02,              // percentage per zijde; 0 = uit
+    // EXECUTIE: 'SIM' = interne simulatie (zoals altijd), 'TESTNET' = echte
+    // market-orders naar Binance Spot Testnet (nepgeld, echt orderboek).
+    // In TESTNET-modus komen fill-prijs en commissie van de exchange en staat
+    // de eigen fee/slippage-simulatie automatisch uit.
+    executionMode: 'SIM',
     isRunning: false
 };
 
@@ -105,6 +110,151 @@ let botSettings = {
 function roundTripCostPct() { return ((botSettings.feePct || 0) + (botSettings.slippagePct || 0)) * 2; }
 // Behouden voor bestaande aanroepen/leesbaarheid: alleen de fees, zonder slippage.
 function roundTripFeePct() { return (botSettings.feePct || 0) * 2; }
+
+// ============================================================
+// BINANCE SPOT TESTNET EXECUTIE
+// ============================================================
+// In executionMode 'TESTNET' stuurt de bot echte market-orders naar
+// testnet.binance.vision (nepgeld, echt orderboek met echte matching).
+// Ontwerpkeuzes:
+// - API-keys staan in een EIGEN localStorage-sleutel ('osirisTestnetKeys'),
+//   bewust NIET in botSettings, zodat ze nooit in de full export of de
+//   instellingen-export terechtkomen.
+// - Signing gebeurt met HMAC-SHA256 via de Web Crypto API (crypto.subtle) -
+//   dat werkt alleen op HTTPS, en GitHub Pages serveert HTTPS, dus dat past.
+// - LONG = BUY dan SELL. SHORT = SELL dan BUY ("inventory short"): spot kent
+//   geen echte shorts, maar BTC uit het testnet-saldo verkopen en later
+//   goedkoper terugkopen levert exact dezelfde PnL-dynamiek op. Vereist wel
+//   BTC-saldo; het testnet verstrekt dat bij elke maandelijkse reset.
+// - Interne wallet-boekhouding blijft in EUR/USD zoals ingesteld; orders
+//   worden gesized in USDT via de bestaande eurUsdtRate-conversie. PnL-
+//   percentages zijn valuta-onafhankelijk, dus het grootboek blijft kloppen.
+// - In TESTNET-modus staat de eigen fee/slippage-simulatie uit: de fill-prijs
+//   en commissie komen van de exchange zelf en zijn dus al "echt".
+// ============================================================
+const TESTNET_BASE_URL = 'https://testnet.binance.vision';
+const TESTNET_SYMBOL = 'BTCUSDT';
+let testnetSymbolFilters = null; // { stepSize, minQty, minNotional } - lazy geladen uit exchangeInfo
+
+function getTestnetKeys() {
+    try {
+        const raw = localStorage.getItem('osirisTestnetKeys');
+        return raw ? JSON.parse(raw) : { apiKey: '', secret: '' };
+    } catch (e) { return { apiKey: '', secret: '' }; }
+}
+
+function saveTestnetKeysFromInputs() {
+    const apiKey = (document.getElementById('testnet-api-key')?.value || '').trim();
+    const secret = (document.getElementById('testnet-api-secret')?.value || '').trim();
+    if (!apiKey || !secret) { setTestnetStatus('Vul zowel key als secret in.', true); return; }
+    localStorage.setItem('osirisTestnetKeys', JSON.stringify({ apiKey, secret }));
+    setTestnetStatus('Keys lokaal opgeslagen. Klik "Test verbinding" om te controleren.');
+}
+
+function setTestnetStatus(msg, isError = false) {
+    const el = document.getElementById('testnet-status');
+    if (el) { el.textContent = msg; el.style.color = isError ? '#ff5555' : 'var(--teal, #00ffcc)'; }
+    if (isError) console.warn('Testnet:', msg);
+}
+
+async function hmacSha256Hex(secret, message) {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(message));
+    return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Eén request-functie voor alle testnet-calls. Voor signed endpoints wordt de
+// signature berekend over exact de querystring die verstuurd wordt (volgorde
+// van URLSearchParams blijft behouden; signature komt als laatste parameter).
+async function testnetRequest(method, path, params = {}, signed = false) {
+    const keys = getTestnetKeys();
+    if (signed && (!keys.apiKey || !keys.secret)) throw new Error('Geen testnet API-keys ingesteld.');
+    const qs = new URLSearchParams(params);
+    if (signed) {
+        qs.set('timestamp', Date.now().toString());
+        qs.set('recvWindow', '10000');
+        qs.set('signature', await hmacSha256Hex(keys.secret, qs.toString()));
+    }
+    const url = `${TESTNET_BASE_URL}${path}${qs.toString() ? '?' + qs.toString() : ''}`;
+    const res = await fetch(url, { method, headers: keys.apiKey ? { 'X-MBX-APIKEY': keys.apiKey } : {} });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(`Testnet ${res.status}: ${data?.msg || res.statusText || 'onbekende fout'}`);
+    return data;
+}
+
+// LOT_SIZE (stepSize/minQty) en NOTIONAL-filters ophalen en cachen - nodig om
+// BTC-hoeveelheden correct af te ronden, anders weigert de exchange de order.
+async function getTestnetSymbolFilters() {
+    if (testnetSymbolFilters) return testnetSymbolFilters;
+    const info = await testnetRequest('GET', '/api/v3/exchangeInfo', { symbol: TESTNET_SYMBOL });
+    const sym = info.symbols?.[0];
+    const lot = sym?.filters?.find(f => f.filterType === 'LOT_SIZE');
+    const notional = sym?.filters?.find(f => f.filterType === 'NOTIONAL' || f.filterType === 'MIN_NOTIONAL');
+    testnetSymbolFilters = {
+        stepSize: parseFloat(lot?.stepSize || '0.00001'),
+        minQty: parseFloat(lot?.minQty || '0.00001'),
+        minNotional: parseFloat(notional?.minNotional || '5')
+    };
+    return testnetSymbolFilters;
+}
+
+function roundToStep(qty, stepSize) {
+    const decimals = Math.max(0, (stepSize.toString().split('.')[1] || '').length);
+    return parseFloat((Math.floor(qty / stepSize) * stepSize).toFixed(decimals));
+}
+
+async function getTestnetBalances() {
+    const acc = await testnetRequest('GET', '/api/v3/account', {}, true);
+    const bal = {};
+    (acc.balances || []).forEach(b => { bal[b.asset] = parseFloat(b.free); });
+    return bal;
+}
+
+// Market-order plaatsen. opts: { quoteOrderQty } (USDT-bedrag, voor entries)
+// of { quantity } (BTC-hoeveelheid, voor exits van een bestaande positie).
+async function testnetMarketOrder(orderSide, opts) {
+    const params = { symbol: TESTNET_SYMBOL, side: orderSide, type: 'MARKET' };
+    if (opts.quoteOrderQty != null) params.quoteOrderQty = opts.quoteOrderQty.toFixed(2);
+    if (opts.quantity != null) params.quantity = String(opts.quantity);
+    return testnetRequest('POST', '/api/v3/order', params, true);
+}
+
+// Gewogen gemiddelde fill-prijs + commissie (omgerekend naar USDT) uit een
+// orderrespons. Commissie kan in USDT, BTC of BNB luiden; BNB is op het
+// testnet zeldzaam en wordt conservatief op 0 gezet met een waarschuwing.
+function summarizeTestnetFills(orderResponse) {
+    const fills = orderResponse.fills || [];
+    let qty = 0, cost = 0, commissionQuote = 0;
+    for (const f of fills) {
+        const fQty = parseFloat(f.qty), fPrice = parseFloat(f.price), comm = parseFloat(f.commission || '0');
+        qty += fQty; cost += fQty * fPrice;
+        if (f.commissionAsset === 'USDT') commissionQuote += comm;
+        else if (f.commissionAsset === 'BTC') commissionQuote += comm * fPrice;
+        else if (comm > 0) console.warn(`Testnet: commissie in ${f.commissionAsset} niet omgerekend (${comm}) - PnL telt deze niet mee.`);
+    }
+    const executedQty = parseFloat(orderResponse.executedQty || qty || '0');
+    const avgPrice = qty > 0 ? cost / qty : parseFloat(orderResponse.price || '0');
+    return { avgPrice, executedQty, commissionQuote };
+}
+
+// Verbindingstest voor de UI-knop: haalt het account op en toont de saldi.
+async function testTestnetConnection() {
+    setTestnetStatus('Verbinden met testnet.binance.vision...');
+    try {
+        const bal = await getTestnetBalances();
+        await getTestnetSymbolFilters();
+        setTestnetStatus(`Verbonden. Saldo: ${(bal.USDT || 0).toFixed(2)} USDT | ${(bal.BTC || 0).toFixed(5)} BTC. Klaar voor TESTNET-modus.`);
+        return true;
+    } catch (e) {
+        // CORS-fouten manifesteren zich als TypeError zonder statuscode
+        const hint = (e instanceof TypeError)
+            ? ' (mogelijk een CORS-blokkade van de browser - check de console; signed calls vanuit de browser werken niet bij elke exchange)'
+            : '';
+        setTestnetStatus(`Verbinding mislukt: ${e.message}${hint}`, true);
+        return false;
+    }
+}
 
 // --- WALLET (persistente staat, los van botSettings.startingCapital-invoer) ---
 let walletState = {
@@ -1017,6 +1167,7 @@ function populateSettingsInputsFromState() {
     setVal('reallocation-cooldown', s.reallocationCooldownMinutes);
     setVal('fee-pct', s.feePct);
     setVal('slippage-pct', s.slippagePct);
+    setVal('execution-mode', s.executionMode || 'SIM');
 
     setVal('ma-fast-period', maFastPeriod);
     setVal('ma-slow-period', maSlowPeriod);
@@ -1198,6 +1349,10 @@ function readTradingSettingsFromInputs() {
     if (slippagePctInput && !isNaN(parseFloat(slippagePctInput.value))) {
         botSettings.slippagePct = Math.min(Math.max(parseFloat(slippagePctInput.value), 0), 1);
     }
+    const executionModeInput = document.getElementById('execution-mode');
+    if (executionModeInput && ['SIM', 'TESTNET'].includes(executionModeInput.value)) {
+        botSettings.executionMode = executionModeInput.value;
+    }
 }
 
 // ============================================================
@@ -1360,7 +1515,8 @@ function renderActiveSettingsPanel() {
         ['Chase (aan >kans / na min)', `${s.chaseEnabled ? 'aan' : 'uit'} / ${s.chaseProbabilityThreshold}% / ${s.chaseAfterMinutes}min`],
         ['Reallocatie (aan / marge)', `${s.reallocationEnabled ? 'aan' : 'uit'} / ${s.reallocationMarginPct}%`],
         ['Realloc. min. leeftijd / cooldown', `${s.reallocationMinAgeMinutes ?? 0}min / ${s.reallocationCooldownMinutes ?? 0}min`],
-        ['Fee / slippage per zijde', `${s.feePct ?? 0}% / ${s.slippagePct ?? 0}% (totaal ${(((s.feePct ?? 0) + (s.slippagePct ?? 0)) * 2).toFixed(2)}% r.t.)`],
+        ['Executiemodus', s.executionMode === 'TESTNET' ? 'BINANCE TESTNET (echte orders, nepgeld)' : 'Simulatie (intern)'],
+        ['Fee / slippage per zijde', s.executionMode === 'TESTNET' ? 'echt (van exchange-fills)' : `${s.feePct ?? 0}% / ${s.slippagePct ?? 0}% (totaal ${(((s.feePct ?? 0) + (s.slippagePct ?? 0)) * 2).toFixed(2)}% r.t.)`],
         ['MA fast / slow', `${maFastPeriod} / ${maSlowPeriod}`],
         ['RSI periode / OB / OS', `${rsiPeriod} / ${rsiOverbought} / ${rsiOversold}`],
     ];
@@ -2449,11 +2605,7 @@ function openRangeScalpPosition(side, evalResult) {
         customStopLossPct: botSettings.rangeScalpStopLossPct
     };
 
-    openPositions.push(position);
-    logBotAction("ENTRY", price, side, 0, amount, `RANGE-SCALP alloc ${(finalSizePct * 100).toFixed(1)}%`, 0, notional, true);
-    savePersistentState();
-    updateWalletUI();
-    updatePositionLines();
+    commitPositionEntry(position, `RANGE-SCALP alloc ${(finalSizePct * 100).toFixed(1)}%`);
 }
 
 function scanForRangeScalps() {
@@ -2552,21 +2704,115 @@ function openPositionFromOrder(order, entryTag = '') {
         }
     };
 
-    openPositions.push(position);
     const tagTxt = entryTag ? `${entryTag} | ` : '';
-    logBotAction("ENTRY", price, order.side, 0, amount, `${tagTxt}alloc ${(finalSizePct * 100).toFixed(1)}% | node-inv ${(order.nodeInfluence || 0).toFixed(1)}`, 0, notional);
-    savePersistentState();
-    updateWalletUI();
-    updatePositionLines();
+    commitPositionEntry(position, `${tagTxt}alloc ${(finalSizePct * 100).toFixed(1)}% | node-inv ${(order.nodeInfluence || 0).toFixed(1)}`);
+}
+
+// ============================================================
+// GEDEELDE EXECUTIELAAG: één punt waar posities daadwerkelijk "gecommit"
+// worden. SIM pusht direct (het oude gedrag); TESTNET plaatst eerst een echte
+// market-order en maakt de positie pas aan met de werkelijke fill-prijs,
+// -hoeveelheid en commissie van de exchange. Zowel trend- als scalp-entries
+// lopen hierdoor, zodat de bot in beide modi identiek redeneert en alleen de
+// uitvoering verschilt.
+// ============================================================
+function commitPositionEntry(position, reasonText) {
+    if (botSettings.executionMode !== 'TESTNET') {
+        openPositions.push(position);
+        logBotAction("ENTRY", position.entryPrice, position.side, 0, position.amount, reasonText, 0, position.notional, position.isScalp || false);
+        savePersistentState();
+        updateWalletUI();
+        updatePositionLines();
+        return;
+    }
+    commitPositionEntryOnTestnet(position, reasonText); // async - positie verschijnt pas na een geslaagde fill
+}
+
+async function commitPositionEntryOnTestnet(position, reasonText) {
+    try {
+        const filters = await getTestnetSymbolFilters();
+        const notionalUSD = position.amount * position.entryPrice; // amount is al in USD-termen gesized
+        if (notionalUSD < filters.minNotional) {
+            logBotAction("SKIPPED", position.entryPrice, position.side, 0, 0, `TESTNET: order (${notionalUSD.toFixed(2)} USDT) onder minNotional (${filters.minNotional})`);
+            return;
+        }
+        let res;
+        if (position.side === 'LONG') {
+            res = await testnetMarketOrder('BUY', { quoteOrderQty: notionalUSD });
+        } else {
+            // SHORT op spot = BTC uit het testnet-saldo verkopen ("inventory short").
+            const qty = roundToStep(position.amount, filters.stepSize);
+            const bal = await getTestnetBalances();
+            if ((bal.BTC || 0) < qty) {
+                logBotAction("SKIPPED", position.entryPrice, position.side, 0, 0, `TESTNET: onvoldoende BTC-saldo voor SHORT (nodig ${qty}, vrij ${(bal.BTC || 0).toFixed(5)}) - wacht op maandelijkse testnet-reset of koop eerst BTC`);
+                return;
+            }
+            if (qty < filters.minQty) {
+                logBotAction("SKIPPED", position.entryPrice, position.side, 0, 0, `TESTNET: hoeveelheid ${qty} onder minQty (${filters.minQty})`);
+                return;
+            }
+            res = await testnetMarketOrder('SELL', { quantity: qty });
+        }
+        const fill = summarizeTestnetFills(res);
+        if (!fill.executedQty || !fill.avgPrice) throw new Error('order gaf geen fills terug');
+        // Positie krijgt de ECHTE uitvoeringsgegevens - hier zie je dus voortaan
+        // de werkelijke slippage t.o.v. de livePrice waarop de bot besloot.
+        position.entryPrice = fill.avgPrice;
+        position.amount = fill.executedQty;
+        position.baseQty = fill.executedQty;
+        position.entryCommissionQuote = fill.commissionQuote;
+        position.isTestnet = true;
+        openPositions.push(position);
+        logBotAction("ENTRY", fill.avgPrice, position.side, 0, fill.executedQty, `${reasonText} [TESTNET fill]`, 0, position.notional, position.isScalp || false);
+        savePersistentState();
+        updateWalletUI();
+        updatePositionLines();
+    } catch (e) {
+        setTestnetStatus(`Entry-order mislukt: ${e.message}`, true);
+        logBotAction("SKIPPED", position.entryPrice, position.side, 0, 0, `TESTNET entry-order mislukt: ${e.message}`);
+    }
 }
 
 function closePosition(pos, pnlPct, reason) {
-    // FIX: fees meenemen - round-trip (open + sluit) tegen feePct per zijde.
-    // pnlPct wordt NETTO gemaakt zodat wins/losses, learningLog en de tradelog
-    // allemaal dezelfde (eerlijke) waarheid zien. Bruto blijft afleidbaar:
-    // bruto = netto + roundTripCostPct()/100.
+    if (botSettings.executionMode === 'TESTNET' && pos.isTestnet) {
+        closePositionOnTestnet(pos, reason); // async - finalize gebeurt na de echte fill
+        return;
+    }
+    // SIM: fees + slippage meenemen - round-trip tegen (feePct+slippagePct) per
+    // zijde. pnlPct wordt NETTO gemaakt zodat wins/losses, learningLog en de
+    // tradelog allemaal dezelfde (eerlijke) waarheid zien. Bruto blijft
+    // afleidbaar: bruto = netto + roundTripCostPct()/100.
     const feeFraction = roundTripCostPct() / 100;
-    pnlPct = pnlPct - feeFraction;
+    finalizeClosePosition(pos, pnlPct - feeFraction, reason);
+}
+
+async function closePositionOnTestnet(pos, reason) {
+    if (pos.pendingExchangeClose) return; // dubbele close voorkomen terwijl de order onderweg is
+    pos.pendingExchangeClose = true;
+    try {
+        const filters = await getTestnetSymbolFilters();
+        const orderSide = pos.side === 'LONG' ? 'SELL' : 'BUY';
+        const qty = roundToStep(pos.baseQty || pos.amount, filters.stepSize);
+        if (qty < filters.minQty) throw new Error(`hoeveelheid ${qty} onder minQty (${filters.minQty})`);
+        const res = await testnetMarketOrder(orderSide, { quantity: qty });
+        const fill = summarizeTestnetFills(res);
+        if (!fill.executedQty || !fill.avgPrice) throw new Error('order gaf geen fills terug');
+        // PnL uit de ECHTE fill-prijzen; commissies (entry + exit) van de
+        // exchange zelf, omgerekend naar een percentage van de notional.
+        const grossPnlPct = pos.side === 'LONG'
+            ? (fill.avgPrice - pos.entryPrice) / pos.entryPrice
+            : (pos.entryPrice - fill.avgPrice) / pos.entryPrice;
+        const notionalUSD = pos.entryPrice * (pos.baseQty || pos.amount);
+        const commPct = notionalUSD > 0 ? ((pos.entryCommissionQuote || 0) + fill.commissionQuote) / notionalUSD : 0;
+        finalizeClosePosition(pos, grossPnlPct - commPct, `${reason} [TESTNET fill]`);
+    } catch (e) {
+        pos.pendingExchangeClose = false; // positie blijft open; volgende scan-cyclus probeert opnieuw
+        setTestnetStatus(`Exit-order mislukt: ${e.message}`, true);
+        console.warn('TESTNET exit-order mislukt, positie blijft open:', e);
+    }
+}
+
+function finalizeClosePosition(pos, pnlPct, reason) {
     const pnlAmount = pos.notional * pnlPct;
     walletState.realizedPnL += pnlAmount;
     if (pnlPct >= 0) walletState.wins++; else walletState.losses++;
@@ -4085,3 +4331,14 @@ setInterval(fetchEurUsdtRate, 5 * 60 * 1000); // elke 5 minuten verversen
 
 initDashboard();
 setInterval(updateInfoPanel, 1000);
+
+// --- Testnet UI-koppeling (knoppen bestaan alleen als index.html up-to-date is) ---
+document.getElementById('testnet-save-keys-btn')?.addEventListener('click', saveTestnetKeysFromInputs);
+document.getElementById('testnet-test-btn')?.addEventListener('click', testTestnetConnection);
+// Bij het wisselen naar TESTNET direct een verbindingscheck doen, zodat een
+// ontbrekende key of CORS-blokkade meteen zichtbaar is - niet pas bij de
+// eerste order die de bot probeert te plaatsen.
+document.getElementById('execution-mode')?.addEventListener('change', (e) => {
+    if (e.target.value === 'TESTNET') testTestnetConnection();
+    else setTestnetStatus('');
+});
