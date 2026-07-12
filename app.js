@@ -132,7 +132,17 @@ function roundTripFeePct() { return (botSettings.feePct || 0) * 2; }
 // - In TESTNET-modus staat de eigen fee/slippage-simulatie uit: de fill-prijs
 //   en commissie komen van de exchange zelf en zijn dus al "echt".
 // ============================================================
-const TESTNET_BASE_URL = 'https://testnet.binance.vision';
+// TRANSPORT: de REST-endpoints van testnet.binance.vision sturen geen CORS-
+// headers, dus signed fetch()-calls vanuit een browserpagina worden door de
+// browser zelf geblokkeerd ("Failed to fetch", geconstateerd op 12-07 vanaf
+// GitHub Pages). Daarom loopt ALLE communicatie hier over de officiële
+// Binance WebSocket API (wss://ws-api.testnet.binance.vision/ws-api/v3):
+// WebSockets vallen buiten het CORS-mechanisme en werken dus wel volledig
+// client-side. Zelfde functionaliteit (order.place, account.status,
+// exchangeInfo), zelfde HMAC-signing - alleen het vervoermiddel verschilt.
+// Let op één subtiel verschil met REST: bij de WS API wordt de signature
+// berekend over ALLE parameters ALFABETISCH gesorteerd, niet in verzendvolgorde.
+const TESTNET_WS_API_URL = 'wss://ws-api.testnet.binance.vision/ws-api/v3';
 const TESTNET_SYMBOL = 'BTCUSDT';
 let testnetSymbolFilters = null; // { stepSize, minQty, minNotional } - lazy geladen uit exchangeInfo
 
@@ -164,30 +174,74 @@ async function hmacSha256Hex(secret, message) {
     return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Eén request-functie voor alle testnet-calls. Voor signed endpoints wordt de
-// signature berekend over exact de querystring die verstuurd wordt (volgorde
-// van URLSearchParams blijft behouden; signature komt als laatste parameter).
-async function testnetRequest(method, path, params = {}, signed = false) {
+// --- WebSocket-verbinding met request/response-administratie ---
+let wsApi = null;
+let wsApiConnecting = null;
+let wsApiIdCounter = 1;
+const wsApiPending = new Map(); // id -> { resolve, reject }
+
+function ensureWsApiConnection() {
+    if (wsApi && wsApi.readyState === WebSocket.OPEN) return Promise.resolve();
+    if (wsApiConnecting) return wsApiConnecting;
+    wsApiConnecting = new Promise((resolve, reject) => {
+        let settled = false;
+        const sock = new WebSocket(TESTNET_WS_API_URL);
+        sock.onopen = () => { settled = true; wsApi = sock; wsApiConnecting = null; resolve(); };
+        sock.onmessage = (ev) => {
+            let msg;
+            try { msg = JSON.parse(ev.data); } catch (e) { return; }
+            const pending = msg.id != null ? wsApiPending.get(msg.id) : null;
+            if (!pending) return;
+            wsApiPending.delete(msg.id);
+            if (msg.status === 200) pending.resolve(msg.result);
+            else pending.reject(new Error(`Testnet ${msg.status}: ${msg.error?.msg || 'onbekende fout'} (code ${msg.error?.code ?? '?'})`));
+        };
+        sock.onerror = () => {
+            if (!settled) { settled = true; wsApiConnecting = null; reject(new Error('WebSocket-verbinding met ws-api.testnet.binance.vision mislukt')); }
+        };
+        sock.onclose = () => {
+            wsApi = null; wsApiConnecting = null;
+            // Alles wat nog onderweg was netjes laten falen; de aanroepende
+            // logica (entry skipt, exit probeert volgende cyclus opnieuw) vangt dit op.
+            for (const [, p] of wsApiPending) p.reject(new Error('WebSocket-verbinding gesloten'));
+            wsApiPending.clear();
+        };
+    });
+    return wsApiConnecting;
+}
+
+// Eén request-functie voor alle testnet-calls, nu over de WS API.
+// signed=true voegt apiKey/timestamp/recvWindow toe en berekent de signature
+// over alle parameters in ALFABETISCHE volgorde (WS API-vereiste).
+async function testnetWsRequest(method, params = {}, signed = false) {
+    await ensureWsApiConnection();
     const keys = getTestnetKeys();
-    if (signed && (!keys.apiKey || !keys.secret)) throw new Error('Geen testnet API-keys ingesteld.');
-    const qs = new URLSearchParams(params);
+    const p = {};
+    for (const [k, v] of Object.entries(params)) p[k] = String(v);
     if (signed) {
-        qs.set('timestamp', Date.now().toString());
-        qs.set('recvWindow', '10000');
-        qs.set('signature', await hmacSha256Hex(keys.secret, qs.toString()));
+        if (!keys.apiKey || !keys.secret) throw new Error('Geen testnet API-keys ingesteld.');
+        p.apiKey = keys.apiKey;
+        p.timestamp = String(Date.now());
+        p.recvWindow = '10000';
+        const payload = Object.keys(p).sort().map(k => `${k}=${p[k]}`).join('&');
+        p.signature = await hmacSha256Hex(keys.secret, payload);
     }
-    const url = `${TESTNET_BASE_URL}${path}${qs.toString() ? '?' + qs.toString() : ''}`;
-    const res = await fetch(url, { method, headers: keys.apiKey ? { 'X-MBX-APIKEY': keys.apiKey } : {} });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(`Testnet ${res.status}: ${data?.msg || res.statusText || 'onbekende fout'}`);
-    return data;
+    const id = `osiris-${wsApiIdCounter++}`;
+    return new Promise((resolve, reject) => {
+        wsApiPending.set(id, { resolve, reject });
+        setTimeout(() => {
+            if (wsApiPending.has(id)) { wsApiPending.delete(id); reject(new Error(`timeout (15s) op ${method}`)); }
+        }, 15000);
+        try { wsApi.send(JSON.stringify({ id, method, params: p })); }
+        catch (e) { wsApiPending.delete(id); reject(e); }
+    });
 }
 
 // LOT_SIZE (stepSize/minQty) en NOTIONAL-filters ophalen en cachen - nodig om
 // BTC-hoeveelheden correct af te ronden, anders weigert de exchange de order.
 async function getTestnetSymbolFilters() {
     if (testnetSymbolFilters) return testnetSymbolFilters;
-    const info = await testnetRequest('GET', '/api/v3/exchangeInfo', { symbol: TESTNET_SYMBOL });
+    const info = await testnetWsRequest('exchangeInfo', { symbol: TESTNET_SYMBOL });
     const sym = info.symbols?.[0];
     const lot = sym?.filters?.find(f => f.filterType === 'LOT_SIZE');
     const notional = sym?.filters?.find(f => f.filterType === 'NOTIONAL' || f.filterType === 'MIN_NOTIONAL');
@@ -205,7 +259,7 @@ function roundToStep(qty, stepSize) {
 }
 
 async function getTestnetBalances() {
-    const acc = await testnetRequest('GET', '/api/v3/account', {}, true);
+    const acc = await testnetWsRequest('account.status', {}, true);
     const bal = {};
     (acc.balances || []).forEach(b => { bal[b.asset] = parseFloat(b.free); });
     return bal;
@@ -213,11 +267,12 @@ async function getTestnetBalances() {
 
 // Market-order plaatsen. opts: { quoteOrderQty } (USDT-bedrag, voor entries)
 // of { quantity } (BTC-hoeveelheid, voor exits van een bestaande positie).
+// newOrderRespType FULL zodat de respons de individuele fills bevat.
 async function testnetMarketOrder(orderSide, opts) {
-    const params = { symbol: TESTNET_SYMBOL, side: orderSide, type: 'MARKET' };
+    const params = { symbol: TESTNET_SYMBOL, side: orderSide, type: 'MARKET', newOrderRespType: 'FULL' };
     if (opts.quoteOrderQty != null) params.quoteOrderQty = opts.quoteOrderQty.toFixed(2);
     if (opts.quantity != null) params.quantity = String(opts.quantity);
-    return testnetRequest('POST', '/api/v3/order', params, true);
+    return testnetWsRequest('order.place', params, true);
 }
 
 // Gewogen gemiddelde fill-prijs + commissie (omgerekend naar USDT) uit een
@@ -240,18 +295,14 @@ function summarizeTestnetFills(orderResponse) {
 
 // Verbindingstest voor de UI-knop: haalt het account op en toont de saldi.
 async function testTestnetConnection() {
-    setTestnetStatus('Verbinden met testnet.binance.vision...');
+    setTestnetStatus('Verbinden met ws-api.testnet.binance.vision...');
     try {
         const bal = await getTestnetBalances();
         await getTestnetSymbolFilters();
-        setTestnetStatus(`Verbonden. Saldo: ${(bal.USDT || 0).toFixed(2)} USDT | ${(bal.BTC || 0).toFixed(5)} BTC. Klaar voor TESTNET-modus.`);
+        setTestnetStatus(`Verbonden via WebSocket. Saldo: ${(bal.USDT || 0).toFixed(2)} USDT | ${(bal.BTC || 0).toFixed(5)} BTC. Klaar voor TESTNET-modus.`);
         return true;
     } catch (e) {
-        // CORS-fouten manifesteren zich als TypeError zonder statuscode
-        const hint = (e instanceof TypeError)
-            ? ' (mogelijk een CORS-blokkade van de browser - check de console; signed calls vanuit de browser werken niet bij elke exchange)'
-            : '';
-        setTestnetStatus(`Verbinding mislukt: ${e.message}${hint}`, true);
+        setTestnetStatus(`Verbinding mislukt: ${e.message} - check je keys en of je netwerk uitgaande WebSockets (wss, poort 443) toestaat.`, true);
         return false;
     }
 }
