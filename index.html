@@ -441,7 +441,7 @@
         <!-- ============ OSIRIS ENGINE SECTION ============ -->
         <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.41<span class="fill"></span></div>
+            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.42<span class="fill"></span></div>
             <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
@@ -516,6 +516,10 @@
                         <div><label>Min. verwacht rendement %</label><input type="number" id="min-projected-profit-pct" value="1"></div>
                         <div><label>Pending order geldig (min)</label><input type="number" id="pending-order-ttl" value="30"></div>
                         <div><label>Min. verlies % vroege exit</label><input type="number" id="min-loss-early-exit" value="0.3" step="0.1"></div>
+                        <div><label>Winst-bescherming: activatiepiek %</label><input type="number" id="profit-protect-activation" value="0.5" step="0.1" min="0"></div>
+                        <div><label>Winst-bescherming: % van piek behouden</label><input type="number" id="profit-protect-keep" value="55" step="5" min="0" max="100"></div>
+                        <div><label>Kans-collaps: drempel %</label><input type="number" id="prob-collapse-threshold" value="35" step="5" min="0" max="100"></div>
+                        <div><label>Kans-collaps: bevestiging (sec)</label><input type="number" id="prob-collapse-confirm-sec" value="120" step="10" min="0"></div>
                         <div><label>Bevestigingstijd exit (sec)</label><input type="number" id="continuation-confirmation-sec" value="20"></div>
                         <div>
                             <label>Chase: min. kans % / na (min)</label>
