@@ -138,6 +138,10 @@
         .volrow{ display:grid; grid-template-columns:1.3fr 1fr; gap:12px; margin-top:4px; }
         #sentiment-bar-container{ width:100%; height:10px; background:var(--panel-2); overflow:hidden; display:flex; margin-top:10px; }
 
+        /* ---- adaptive learning collapsible ---- */
+        #learning-body{ max-height:0; overflow:hidden; transition:max-height 0.3s ease; }
+        #learning-body.open{ max-height:600px; }
+
         /* ---- engine config collapsible ---- */
         #config-header{ display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none; padding:12px 15px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.1); }
         #config-header .title{ font-family:'Orbitron',sans-serif; font-size:0.78rem; letter-spacing:0.06em; color:var(--text-primary); }
@@ -231,8 +235,14 @@
         <div class="hud chart-clean">
             <div class="eyebrow chart-title"><span class="chart-bar"></span>Market Chart</div>
 
-            <div class="timeframe-selector" style="margin-bottom: 14px; display: flex; gap: 10px;">
-                <button onclick="changeTimeframe('15m')" id="btn-15m" class="btn btn-mini" style="background:var(--teal); color:#04060a;">15m</button>
+            <div class="timeframe-selector" style="margin-bottom: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <button onclick="changeTimeframe('1m')" id="btn-1m" class="btn btn-mini">1m</button>
+                <button onclick="changeTimeframe('15m')" id="btn-15m" class="btn btn-mini" style="background:var(--teal); color:#04060a; font-weight:bold;">15m</button>
+                <button onclick="changeTimeframe('30m')" id="btn-30m" class="btn btn-mini">30m</button>
+                <button onclick="changeTimeframe('45m')" id="btn-45m" class="btn btn-mini">45m</button>
+                <button onclick="changeTimeframe('1h')" id="btn-1h" class="btn btn-mini">1h</button>
+                <button onclick="changeTimeframe('4h')" id="btn-4h" class="btn btn-mini">4h</button>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--text-dimmer); margin-left:6px;">view-only &middot; bot rekent altijd op 15m</span>
             </div>
 
             <div class="toggle-grid">
@@ -441,7 +451,7 @@
         <!-- ============ OSIRIS ENGINE SECTION ============ -->
         <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.42<span class="fill"></span></div>
+            <div class="eyebrow engine-title">OSIRIS ADAPTIVE BOT ENGINE V1.3.43 <span class="fill"></span></div>
             <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
@@ -452,6 +462,7 @@
             <!-- COLLAPSIBLE ENGINE CONFIGURATION -->
             <div id="config-header" onclick="toggleConfigPanel()">
                 <span class="title">&#9881; ENGINE CONFIGURATION</span>
+                <span id="engine-mode-badge" style="display:none; font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.08em; color:var(--teal); border:1px solid rgba(0,255,204,0.35); padding:2px 8px; border-radius:3px; margin-left:10px;"></span>
                 <span id="config-chevron" class="open">&#9662;</span>
             </div>
             <div id="active-settings-panel">
@@ -520,6 +531,8 @@
                         <div><label>Winst-bescherming: % van piek behouden</label><input type="number" id="profit-protect-keep" value="55" step="5" min="0" max="100"></div>
                         <div><label>Kans-collaps: drempel %</label><input type="number" id="prob-collapse-threshold" value="35" step="5" min="0" max="100"></div>
                         <div><label>Kans-collaps: bevestiging (sec)</label><input type="number" id="prob-collapse-confirm-sec" value="120" step="10" min="0"></div>
+                        <div><label>Regime-poort (pauzeer dode markt)</label><select id="regime-gate-enabled"><option value="true" selected>aan</option><option value="false">uit</option></select></div>
+                        <div><label>Tijd-stop (min, 0 = uit)</label><input type="number" id="max-position-age" value="90" step="10" min="0"></div>
                         <div><label>Bevestigingstijd exit (sec)</label><input type="number" id="continuation-confirmation-sec" value="20"></div>
                         <div>
                             <label>Chase: min. kans % / na (min)</label>
@@ -585,10 +598,15 @@
                 </div>
             </div>
 
-            <!-- NIVEAU 1: ADAPTIEVE GEWICHTEN ("leren van fouten") -->
+            <!-- LEVEL 1: ADAPTIVE WEIGHTS ("leren van fouten") - inklapbaar -->
             <div id="learning-wrap" style="background:rgba(255,255,255,0.02); border:1px solid rgba(153,69,255,0.25); padding:14px 16px; margin-bottom:18px;">
-                <div style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); margin-bottom:10px;">&#9679; Adaptief Leren — Niveau 1</div>
-                <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
+                <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+                    <span>&#9679; Adaptive Learning — Level 1</span>
+                    <span id="learning-chevron">&#9662;</span>
+                </div>
+                <div id="learning-body" class="open" style="margin-top:10px;">
+                    <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
+                </div>
             </div>
 
             <!-- WALLET STATUS: neon rand + icoon -->
