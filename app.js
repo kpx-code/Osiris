@@ -2,8 +2,20 @@
 const ANCHOR_TIME = new Date('2026-07-01T12:00:00Z').getTime(); 
 const T_PI_MINUTES = 188.6634;
 const T_PI_MS = T_PI_MINUTES * 60 * 1000;
+// Confluence-drempels (herijkt 13-07 na de meter-fixes; zie calculateConfluence)
+const CONF_VFM_TH = 0.8;
+const CONF_DB_TH = 0.3;
+const CONF_CHAOS_TH = 0.30;
+const CONF_ER_TH = 1.2;
 
-let currentInterval = '15m'; // Standaard interval bij opstarten
+// ONTKOPPELING BOT vs. VIEW (13-07): de bot rekent ALTIJD op 15m spot-data
+// (BOT_INTERVAL); currentInterval is voortaan uitsluitend de CHART-WEERGAVE.
+// Wisselen van view (1m/30m/45m/1h/4h) raakt de handelslogica dus niet meer.
+const BOT_INTERVAL = '15m';
+const BOT_INTERVAL_MS = 15 * 60 * 1000;
+let currentInterval = '15m'; // VIEW-interval van de chart (niet van de bot)
+let viewData = [];           // candles van de huidige chart-view (klines-formaat)
+let viewWs = null;           // aparte WebSocket voor de chart-view (indien != 15m)
 
 let currentWs = null; // Dit is cruciaal: Onthoudt actieve WebSocket-verbinding
 let rawData = [];
@@ -83,6 +95,18 @@ let botSettings = {
     // dat een omkeer zich vaak 2-3 candles na een node aftekent.
     probCollapseThresholdPct: 35,      // live winkans waaronder de collaps-teller start
     probCollapseConfirmSeconds: 120,   // zo lang moet de kans onafgebroken onder de drempel blijven
+    // REGIME-POORT (13-07): de sessiedata laat consequent zien dat de bot
+    // verliest in samengedrukte, energieloze ranges (avg trade 0.03% bij 0.24%
+    // kosten) en verdient in trends. Als chaos (gerealiseerde vol) EN |VFM|
+    // beide aanhoudend onder hun eigen mediaan van de recente historie liggen,
+    // valt er structureel niets te oogsten - dan worden nieuwe entries
+    // gepauzeerd. "Niet handelen" is in dat regime het winstgevendste besluit.
+    regimeGateEnabled: true,
+    regimeGateConfirmMinutes: 3,       // zo lang moet het dode regime aanhouden voordat de poort sluit
+    // TIJD-STOP (13-07): een positie die na zo veel minuten nog rond
+    // break-even hangt (binnen de kostenband) heeft zijn these niet
+    // waargemaakt en bindt alleen kapitaal + risico. Sluiten en herbeoordelen.
+    maxPositionAgeMinutes: 90,
     minLossForEarlyExit: 0.003,  // ondergrens (0.3%) verlies voordat de bot vroegtijdig mag sluiten op bevestigde tegentrend, vóór de volle stop-loss
     maxOpenPositions: 3,         // totaal aantal posities dat tegelijk open mag staan (over beide kanten samen), hard begrensd op 4
     minHedgeReservePct: 0.15,    // gereserveerde allocatie voor een eventuele hedge op de andere kant, ALLEEN als die kant nog geen positie heeft
@@ -546,10 +570,11 @@ function renderMovingAverage() {
         if (maSlowSeries) { chart.removeSeries(maSlowSeries); maSlowSeries = null; }
         return;
     }
-    if (!rawData || rawData.length < Math.max(maFastPeriod, maSlowPeriod)) return;
+    const src = (viewData && viewData.length) ? viewData : rawData;
+    if (!src || src.length < Math.max(maFastPeriod, maSlowPeriod)) return;
 
-    const closes = rawData.map(d => parseFloat(d[4]));
-    const times = rawData.map(d => Math.floor(d[0] / 1000));
+    const closes = src.map(d => parseFloat(d[4]));
+    const times = src.map(d => Math.floor(d[0] / 1000));
 
     const smaFast = calculateSMA(closes, maFastPeriod);
     const dataFast = smaFast.map((v, i) => ({ time: times[i + maFastPeriod - 1], value: v }));
@@ -640,7 +665,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 1, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 70, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 55, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 1.2, 'range-scalp-alloc-pct': 20,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 50,
@@ -659,7 +684,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 40, 'stop-loss-pct': 1.5, 'min-probability-pct': 80,
         'hold-continuation-probability-pct': 90, 'min-projected-profit-pct': 1.5,
         'max-open-positions': 2, 'hedge-reserve-pct': 25, 'pending-order-ttl': 20,
-        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 60, 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180,
+        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 85, 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180, 'regime-gate-enabled': 'true', 'max-position-age': 120,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 0.8, 'range-scalp-alloc-pct': 0,
         'chase-probability-pct': 95, 'chase-after-minutes': 15,
         'reallocation-enabled': 'false', 'reallocation-margin-pct': 25,
@@ -675,7 +700,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2, 'min-probability-pct': 70,
         'hold-continuation-probability-pct': 85, 'min-projected-profit-pct': 1,
         'max-open-positions': 3, 'hedge-reserve-pct': 15, 'pending-order-ttl': 30,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 55, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 75, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 0.7, 'range-scalp-alloc-pct': 10,
         'chase-probability-pct': 90, 'chase-after-minutes': 10,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 20,
@@ -694,7 +719,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2.5, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 80, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.4, 'profit-protect-keep': 50, 'prob-collapse-threshold': 40, 'prob-collapse-confirm-sec': 90,
+        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.4, 'profit-protect-keep': 70, 'prob-collapse-threshold': 40, 'prob-collapse-confirm-sec': 90, 'regime-gate-enabled': 'true', 'max-position-age': 60,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 1.0, 'range-scalp-alloc-pct': 15,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 15,
@@ -759,10 +784,11 @@ function renderRSI() {
         if (rsiSeries) { chart.removeSeries(rsiSeries); rsiSeries = null; }
         return;
     }
-    if (!rawData || rawData.length < rsiPeriod + 1) return;
+    const src = (viewData && viewData.length) ? viewData : rawData;
+    if (!src || src.length < rsiPeriod + 1) return;
 
-    const closes = rawData.map(d => parseFloat(d[4]));
-    const times = rawData.map(d => Math.floor(d[0] / 1000));
+    const closes = src.map(d => parseFloat(d[4]));
+    const times = src.map(d => Math.floor(d[0] / 1000));
     const series = calculateRSISeries(closes, rsiPeriod);
     const data = series.map(s => ({ time: times[s.index], value: s.rsi }));
 
@@ -1288,6 +1314,8 @@ function populateSettingsInputsFromState() {
     setVal('profit-protect-keep', s.profitProtectKeepPct);
     setVal('prob-collapse-threshold', s.probCollapseThresholdPct);
     setVal('prob-collapse-confirm-sec', s.probCollapseConfirmSeconds);
+    setVal('regime-gate-enabled', String(s.regimeGateEnabled ?? true));
+    setVal('max-position-age', s.maxPositionAgeMinutes);
     setVal('continuation-confirmation-sec', s.continuationConfirmationSeconds);
     setVal('range-scalp-target-pct', s.rangeScalpProfitTargetPct);
     setVal('range-scalp-stop-pct', s.rangeScalpStopLossPct);
@@ -1434,6 +1462,12 @@ function readTradingSettingsFromInputs() {
     if (pcConfirmInput && !isNaN(parseFloat(pcConfirmInput.value))) {
         botSettings.probCollapseConfirmSeconds = Math.max(parseFloat(pcConfirmInput.value), 0);
     }
+    const regimeGateInput = document.getElementById('regime-gate-enabled');
+    if (regimeGateInput) botSettings.regimeGateEnabled = regimeGateInput.value === 'true';
+    const maxAgeInput = document.getElementById('max-position-age');
+    if (maxAgeInput && !isNaN(parseFloat(maxAgeInput.value))) {
+        botSettings.maxPositionAgeMinutes = Math.max(parseFloat(maxAgeInput.value), 0);
+    }
     if (stopLossInput && !isNaN(parseFloat(stopLossInput.value))) {
         botSettings.stopLossPct = Math.max(parseFloat(stopLossInput.value) / 100, 0.001);
     }
@@ -1549,6 +1583,15 @@ function startAutonomousBot(isAutoRestart = false) {
     isBotRunning = true;
     localStorage.setItem('botIsRunning', 'true');
 
+    // Badge in de (ingeklapte) ENGINE CONFIGURATION-header: toont in één
+    // oogopslag de executiemodus én hoe de sessie gestart is (manual vs.
+    // auto-restart na een refresh) - ook als het paneel dicht is.
+    const modeBadge = document.getElementById('engine-mode-badge');
+    if (modeBadge) {
+        modeBadge.textContent = `${botSettings.executionMode === 'TESTNET' ? 'BINANCE TESTNET' : 'SIM'} \u00b7 ${isAutoRestart ? 'auto-restart' : 'manual'}`;
+        modeBadge.style.display = 'inline-block';
+    }
+
     // FIX: dit was nooit true gezet, waardoor botHeartbeat() de trading
     // engine altijd oversloeg (bot deed nooit iets, ook al stond hij "ACTIEF").
     botSettings.isRunning = true;
@@ -1629,6 +1672,32 @@ function renderLearningPanel() {
         html += `</div></div>`;
     });
     html += `</div>`;
+
+    // KALIBRATIETABEL (13-07): voorspelde winkans-buckets vs. gerealiseerde
+    // winrate. Dit is de directe toets of de kansscore eerlijk is: in een
+    // perfect gekalibreerd systeem wint de 70-80%-bucket ~75% van de tijd.
+    // Wint hij 40%, dan is de score overmoedig en weet je precies hoeveel.
+    const withProb = learningLog.filter(l => l.entryProbabilityPct != null || (l.factors && l.factors.probabilityPct != null));
+    if (withProb.length >= 10) {
+        const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
+        html += `<div style="font-size:0.7em; color:var(--text-dim); margin:14px 0 6px;">Kalibratie: voorspelde winkans vs. werkelijkheid (n=${withProb.length})</div>`;
+        html += `<table style="width:100%; font-family:'JetBrains Mono',monospace; font-size:0.62em; border-collapse:collapse;">`;
+        html += `<tr style="color:var(--text-dimmer); text-align:left;"><th style="padding:2px 6px;">voorspeld</th><th style="padding:2px 6px;">trades</th><th style="padding:2px 6px;">werkelijke winrate</th><th style="padding:2px 6px;">afwijking</th></tr>`;
+        buckets.forEach(([lo, hi]) => {
+            const inB = withProb.filter(l => {
+                const p = l.entryProbabilityPct ?? l.factors.probabilityPct;
+                return p >= lo && p < hi;
+            });
+            if (inB.length === 0) return;
+            const wr = inB.filter(l => l.outcome === 'win').length / inB.length * 100;
+            const mid = (lo + Math.min(hi, 100)) / 2;
+            const dev = wr - mid;
+            const devColor = Math.abs(dev) < 10 ? 'var(--teal)' : (Math.abs(dev) < 25 ? 'var(--amber, #ffb627)' : 'var(--red, #ef5350)');
+            html += `<tr><td style="padding:2px 6px;">${lo}-${Math.min(hi, 100)}%</td><td style="padding:2px 6px;">${inB.length}</td><td style="padding:2px 6px;">${wr.toFixed(0)}%</td><td style="padding:2px 6px; color:${devColor};">${dev >= 0 ? '+' : ''}${dev.toFixed(0)}pt</td></tr>`;
+        });
+        html += `</table>`;
+    }
+
     if (lastCalibrationSummary) {
         html += `<div style="font-size:0.62em; color:var(--text-dimmer); margin-top:10px;">Laatst herijkt: ${lastCalibrationSummary.timestamp}</div>`;
     }
@@ -1661,6 +1730,7 @@ function renderActiveSettingsPanel() {
         ['Min. verlies % vroege exit', `${(s.minLossForEarlyExit * 100).toFixed(1)}%`],
         ['Winst-bescherming (piek / greep)', `${(s.profitProtectActivationPct * 100).toFixed(1)}% / ${s.profitProtectKeepPct}%`],
         ['Kans-collaps (drempel / bevestiging)', `${s.probCollapseThresholdPct}% / ${s.probCollapseConfirmSeconds}s`],
+        ['Regime-poort / tijd-stop', `${s.regimeGateEnabled ? 'aan' : 'uit'} / ${s.maxPositionAgeMinutes || 0}min`],
         ['Bevestigingstijd exit', `${s.continuationConfirmationSeconds}s`],
         ['Range-scalp doel / stop / alloc', `${s.rangeScalpProfitTargetPct}% / ${s.rangeScalpStopLossPct}% / ${(s.rangeScalpAllocationPct * 100).toFixed(0)}%`],
         ['Chase (aan >kans / na min)', `${s.chaseEnabled ? 'aan' : 'uit'} / ${s.chaseProbabilityThreshold}% / ${s.chaseAfterMinutes}min`],
@@ -1684,6 +1754,8 @@ function renderActiveSettingsPanel() {
 
 
 function stopAutonomousBot() {
+    const modeBadge = document.getElementById('engine-mode-badge');
+    if (modeBadge) { modeBadge.textContent = ''; modeBadge.style.display = 'none'; }
     // 1. Stop de bot-logica
     botSettings.isRunning = false;
     recordSessionEvent('STOP');
@@ -1850,10 +1922,10 @@ function generateLiveNarration() {
     lines.push(`INPUT · VFM ${vfm.toFixed(2)} · ER ${er.toFixed(2)} · DB ${db.toFixed(2)} · Chaos ${chaos.toFixed(2)}% · isBullish ${isBullish}`);
 
     const checks = [
-        `${Math.abs(vfm) > 1.2 ? '\u2713' : '\u2717'} |VFM|>1.2 (+2)`,
-        `${Math.abs(db) > 0.3 ? '\u2713' : '\u2717'} |DB|>0.3 (+1)`,
-        `${chaos < 10 ? '\u2713' : '\u2717'} Chaos<10 (+1)`,
-        `${er > 1.2 ? '\u2713' : '\u2717'} ER>1.2 (+1)`
+        `${Math.abs(vfm) > CONF_VFM_TH ? '\u2713' : '\u2717'} |VFM|>${CONF_VFM_TH} (+2)`,
+        `${Math.abs(db) > CONF_DB_TH ? '\u2713' : '\u2717'} |DB|>${CONF_DB_TH} (+1)`,
+        `${chaos < CONF_CHAOS_TH ? '\u2713' : '\u2717'} Chaos<${CONF_CHAOS_TH} (+1)`,
+        `${er > CONF_ER_TH ? '\u2713' : '\u2717'} ER>${CONF_ER_TH} (+1)`
     ];
     if (lastOsirisMetrics) checks.push(`${lastOsirisMetrics.score > 65 ? '\u2713' : '\u2717'} VolScore>65 (+1)`);
     lines.push(`CONFLUENCE-OPBOUW · ${checks.join(' \u00b7 ')} \u2192 ${lastOsirisDecision.confluence}/9`);
@@ -1871,7 +1943,7 @@ function generateLiveNarration() {
 
     const cp = detectCandlestickPattern();
     const ms = detectMarketStructure();
-    const patternLabels = { hammer: 'Hamer', shooting_star: 'Shooting star', doji: 'Doji', bullish_engulfing: 'Bullish engulfing', bearish_engulfing: 'Bearish engulfing', morning_star: 'Morning star', evening_star: 'Evening star', marubozu_bull: 'Marubozu (bullish)', marubozu_bear: 'Marubozu (bearish)' };
+    const patternLabels = { hammer: 'Hamer', hanging_man: 'Hanging man', inverted_hammer: 'Inverted hammer', shooting_star: 'Shooting star', doji: 'Doji', dragonfly_doji: 'Dragonfly doji', gravestone_doji: 'Gravestone doji', spinning_top: 'Spinning top', bullish_engulfing: 'Bullish engulfing', bearish_engulfing: 'Bearish engulfing', piercing_line: 'Piercing line', dark_cloud_cover: 'Dark cloud cover', harami_bull: 'Harami (bullish)', harami_bear: 'Harami (bearish)', tweezer_top: 'Tweezer top', tweezer_bottom: 'Tweezer bottom', three_white_soldiers: 'Three white soldiers', three_black_crows: 'Three black crows', morning_star: 'Morning star', evening_star: 'Evening star', marubozu_bull: 'Marubozu (bullish)', marubozu_bear: 'Marubozu (bearish)' };
     lines.push(`PATROON/STRUCTUUR · ${cp.pattern ? patternLabels[cp.pattern] + ` (${cp.bias})` : 'geen duidelijk candlestick-patroon'} \u00b7 ${ms.structure}`);
 
     const maVals = getCurrentMAValues();
@@ -1923,11 +1995,18 @@ function updateWalletUI() {
 
     setText('wallet-equity', formatMoney(equity));
     setText('wallet-balance', formatMoney(balance));
-    setText('wallet-realized-pnl', formatMoney(walletState.realizedPnL));
+    // P/L nu ook als PERCENTAGE: gerealiseerd t.o.v. startkapitaal, open P/L
+    // t.o.v. de ingezette notional van de open posities (of startkapitaal als
+    // er niets open staat) - zo lees je in één oogopslag de schaal.
+    const realizedPct = walletState.startingCapital > 0 ? (walletState.realizedPnL / walletState.startingCapital) * 100 : 0;
+    setText('wallet-realized-pnl', `${formatMoney(walletState.realizedPnL)} (${realizedPct >= 0 ? '+' : ''}${realizedPct.toFixed(2)}%)`);
     const realizedEl = document.getElementById('wallet-realized-pnl');
     if (realizedEl) realizedEl.style.color = walletState.realizedPnL >= 0 ? '#00ffcc' : '#ef5350';
 
-    setText('wallet-unrealized-pnl', formatMoney(unrealized));
+    const openNotional = openPositions.reduce((a, p) => a + (p.notional || 0), 0);
+    const unrealBase = openNotional > 0 ? openNotional : walletState.startingCapital;
+    const unrealPct = unrealBase > 0 ? (unrealized / unrealBase) * 100 : 0;
+    setText('wallet-unrealized-pnl', `${formatMoney(unrealized)} (${unrealPct >= 0 ? '+' : ''}${unrealPct.toFixed(2)}%)`);
     const unrealizedEl = document.getElementById('wallet-unrealized-pnl');
     if (unrealizedEl) unrealizedEl.style.color = unrealized >= 0 ? '#00ffcc' : '#ef5350';
 
@@ -2258,12 +2337,20 @@ function calculateEntryTrigger(side, currentPrice) {
 // ============================================================
 
 // ---- Losse candlestick-patronen (laatste 1-3 candles) ----
-function detectCandlestickPattern(index = null) {
-    if (!rawData || rawData.length < 3) return { pattern: null, bias: 'neutral' };
-    const i = index === null ? rawData.length - 1 : index;
+// UITGEBREID (13-07): van 9 naar 22 patronen, zodat de bot meer markt-
+// microstructuur herkent. Contextbewust waar dat hoort: dezelfde candle-vorm
+// is bullish na een daling (hamer / inverted hammer) maar bearish na een
+// stijging (hanging man / shooting star). Detectievolgorde: meest specifieke
+// en meest zeldzame patronen eerst, generieke vormen (doji, spinning top) laatst.
+// De optionele data-parameter laat de chart patronen tekenen op de VIEW-candles
+// terwijl de bot zelf altijd op zijn eigen 15m-data blijft scannen.
+function detectCandlestickPattern(index = null, data = null) {
+    const src = data || rawData;
+    if (!src || src.length < 3) return { pattern: null, bias: 'neutral' };
+    const i = index === null ? src.length - 1 : index;
     if (i < 2) return { pattern: null, bias: 'neutral' };
 
-    const c = [rawData[i - 2], rawData[i - 1], rawData[i]].map(d => ({
+    const c = [src[i - 2], src[i - 1], src[i]].map(d => ({
         open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4])
     }));
     const [c2, c1, c0] = c; // c0 = de candle op index i, c1 = ervoor, c2 = twee ervoor
@@ -2276,39 +2363,87 @@ function detectCandlestickPattern(index = null) {
         const isBull = k.close >= k.open;
         return { body, range, upperWick, lowerWick, isBull, bodyPct: body / range };
     }
-    const m0 = metrics(c0);
+    const m0 = metrics(c0), m1 = metrics(c1), m2 = metrics(c2);
+    const wasUptrend = m1.isBull && m2.isBull;   // grove trend-context van de 2 candles ervoor
+    const wasDowntrend = !m1.isBull && !m2.isBull;
+    const bodyTop1 = Math.max(c1.open, c1.close), bodyBot1 = Math.min(c1.open, c1.close);
+    const mid1 = (c1.open + c1.close) / 2;
+    const wickTol = m0.range * 0.15; // tolerantie voor "gelijke" highs/lows (tweezers)
 
-    // Marubozu: nagenoeg geen pitten, sterke overtuiging in één richting
+    // --- 3-candle momentum-patronen (zeldzaam en sterk) ---
+    if (m2.isBull && m1.isBull && m0.isBull && m2.bodyPct > 0.5 && m1.bodyPct > 0.5 && m0.bodyPct > 0.5 &&
+        c1.close > c2.close && c0.close > c1.close) {
+        return { pattern: 'three_white_soldiers', bias: 'bullish' };
+    }
+    if (!m2.isBull && !m1.isBull && !m0.isBull && m2.bodyPct > 0.5 && m1.bodyPct > 0.5 && m0.bodyPct > 0.5 &&
+        c1.close < c2.close && c0.close < c1.close) {
+        return { pattern: 'three_black_crows', bias: 'bearish' };
+    }
+    // --- Morning/evening star (3 candles): groot - klein/besluiteloos - groot terug ---
+    if (!m2.isBull && m2.bodyPct > 0.5 && m1.bodyPct < 0.35 && m0.isBull && m0.bodyPct > 0.5 && c0.close > (c2.open + c2.close) / 2) {
+        return { pattern: 'morning_star', bias: 'bullish' };
+    }
+    if (m2.isBull && m2.bodyPct > 0.5 && m1.bodyPct < 0.35 && !m0.isBull && m0.bodyPct > 0.5 && c0.close < (c2.open + c2.close) / 2) {
+        return { pattern: 'evening_star', bias: 'bearish' };
+    }
+
+    // --- Marubozu: nagenoeg geen pitten, maximale overtuiging ---
     if (m0.bodyPct > 0.92) {
         return { pattern: m0.isBull ? 'marubozu_bull' : 'marubozu_bear', bias: m0.isBull ? 'bullish' : 'bearish' };
     }
-    // Doji: open en close nagenoeg gelijk - besluiteloosheid, geen richting
-    if (m0.bodyPct < 0.08) {
-        return { pattern: 'doji', bias: 'neutral' };
-    }
-    // Hamer: kleine body, lange onderpit (>=2x body), nauwelijks bovenpit
-    if (m0.lowerWick >= m0.body * 2 && m0.upperWick < m0.body * 0.5 && m0.bodyPct < 0.35) {
-        return { pattern: 'hammer', bias: 'bullish' };
-    }
-    // Inverted hammer / shooting star: kleine body, lange bovenpit, nauwelijks onderpit
-    if (m0.upperWick >= m0.body * 2 && m0.lowerWick < m0.body * 0.5 && m0.bodyPct < 0.35) {
-        return { pattern: 'shooting_star', bias: 'bearish' };
-    }
-    // Bullish/bearish engulfing (2 candles): de body van c0 "omsluit" volledig de body van c1
-    const m1 = metrics(c1);
+
+    // --- 2-candle omkeerpatronen ---
+    // Engulfing: body van c0 omsluit volledig de body van c1
     if (!m1.isBull && m0.isBull && c0.open < c1.close && c0.close > c1.open) {
         return { pattern: 'bullish_engulfing', bias: 'bullish' };
     }
     if (m1.isBull && !m0.isBull && c0.open > c1.close && c0.close < c1.open) {
         return { pattern: 'bearish_engulfing', bias: 'bearish' };
     }
-    // Morning/evening star (3 candles): grote candle, kleine (besluiteloze) candle, grote candle terug de andere kant op
-    const m2 = metrics(c2);
-    if (!m2.isBull && m2.bodyPct > 0.5 && m1.bodyPct < 0.35 && m0.isBull && m0.bodyPct > 0.5 && c0.close > (c2.open + c2.close) / 2) {
-        return { pattern: 'morning_star', bias: 'bullish' };
+    // Piercing line: forse rode candle, dan groene die onder de low opent en
+    // boven het midden van de rode body sluit (maar niet volledig omsluit)
+    if (!m1.isBull && m1.bodyPct > 0.5 && m0.isBull && c0.open < c1.close && c0.close > mid1 && c0.close < c1.open) {
+        return { pattern: 'piercing_line', bias: 'bullish' };
     }
-    if (m2.isBull && m2.bodyPct > 0.5 && m1.bodyPct < 0.35 && !m0.isBull && m0.bodyPct > 0.5 && c0.close < (c2.open + c2.close) / 2) {
-        return { pattern: 'evening_star', bias: 'bearish' };
+    // Dark cloud cover: spiegelbeeld
+    if (m1.isBull && m1.bodyPct > 0.5 && !m0.isBull && c0.open > c1.close && c0.close < mid1 && c0.close > c1.open) {
+        return { pattern: 'dark_cloud_cover', bias: 'bearish' };
+    }
+    // Harami: kleine body volledig BINNEN de grote body ervan - momentum stokt
+    if (m1.bodyPct > 0.5 && m0.body < m1.body * 0.5 &&
+        Math.max(c0.open, c0.close) < bodyTop1 && Math.min(c0.open, c0.close) > bodyBot1) {
+        if (!m1.isBull) return { pattern: 'harami_bull', bias: 'bullish' };
+        return { pattern: 'harami_bear', bias: 'bearish' };
+    }
+    // Tweezer top/bottom: twee (bijna) gelijke extremen, tegengestelde candles
+    if (m1.isBull && !m0.isBull && Math.abs(c0.high - c1.high) <= wickTol && m1.bodyPct > 0.3) {
+        return { pattern: 'tweezer_top', bias: 'bearish' };
+    }
+    if (!m1.isBull && m0.isBull && Math.abs(c0.low - c1.low) <= wickTol && m1.bodyPct > 0.3) {
+        return { pattern: 'tweezer_bottom', bias: 'bullish' };
+    }
+
+    // --- Doji-familie: nagenoeg geen body ---
+    if (m0.bodyPct < 0.08) {
+        if (m0.lowerWick > m0.range * 0.6) return { pattern: 'dragonfly_doji', bias: 'bullish' };
+        if (m0.upperWick > m0.range * 0.6) return { pattern: 'gravestone_doji', bias: 'bearish' };
+        return { pattern: 'doji', bias: 'neutral' };
+    }
+
+    // --- Enkelvoudige pit-patronen, contextbewust ---
+    // Lange onderpit: hamer (bullish, na daling) of hanging man (bearish, na stijging)
+    if (m0.lowerWick >= m0.body * 2 && m0.upperWick < m0.body * 0.5 && m0.bodyPct < 0.35) {
+        if (wasUptrend) return { pattern: 'hanging_man', bias: 'bearish' };
+        return { pattern: 'hammer', bias: 'bullish' };
+    }
+    // Lange bovenpit: shooting star (bearish, na stijging) of inverted hammer (bullish, na daling)
+    if (m0.upperWick >= m0.body * 2 && m0.lowerWick < m0.body * 0.5 && m0.bodyPct < 0.35) {
+        if (wasDowntrend) return { pattern: 'inverted_hammer', bias: 'bullish' };
+        return { pattern: 'shooting_star', bias: 'bearish' };
+    }
+    // Spinning top: kleine body met pitten aan beide kanten - besluiteloosheid
+    if (m0.bodyPct < 0.3 && m0.upperWick > m0.body && m0.lowerWick > m0.body) {
+        return { pattern: 'spinning_top', bias: 'neutral' };
     }
 
     return { pattern: null, bias: 'neutral' };
@@ -2394,9 +2529,11 @@ function updatePatternStructureCard() {
     const structureEl = document.getElementById('current-structure');
     if (!patternEl || !structureEl) return;
 
-    const patternLabels = { hammer: '\u{1F528} Hamer (bullish)', shooting_star: '\u2604 Shooting Star (bearish)', doji: '\u2716 Doji (neutraal)', bullish_engulfing: '\u25B2 Bullish Engulfing', bearish_engulfing: '\u25BC Bearish Engulfing', morning_star: '\u2600 Morning Star (bullish)', evening_star: '\u{1F319} Evening Star (bearish)', marubozu_bull: '\u25A0 Marubozu (bullish)', marubozu_bear: '\u25A0 Marubozu (bearish)' };
+    // Labels hergebruiken uit PATTERN_MARKER_STYLE zodat alle 22 patronen
+    // automatisch gedekt zijn en er nooit meer een 'undefined' verschijnt.
     const cp = detectCandlestickPattern();
-    patternEl.innerText = cp.pattern ? patternLabels[cp.pattern] : 'Geen duidelijk patroon';
+    const st = cp.pattern ? PATTERN_MARKER_STYLE[cp.pattern] : null;
+    patternEl.innerText = st ? `${st.text} (${cp.bias})` : 'Geen duidelijk patroon';
 
     const ms = detectMarketStructure();
     structureEl.innerText = ms.structure;
@@ -2436,10 +2573,43 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
 
     // FIX: het verwachte doel moet de round-trip fees OVERTREFFEN plus de
     // ingestelde minimumwinst - anders is een "geslaagde" trade netto verlies.
+    // Plus (13-07): de REGIME-POORT - in een dood regime (lage vol én lage
+    // energie, aanhoudend) gaan er geen nieuwe entries open.
+    const regime = evaluateMarketRegime();
     const eligible = probabilityPct >= botSettings.minProbabilityPct &&
-                      projectedProfitPct > (botSettings.minProjectedProfitPct + roundTripCostPct());
+                      projectedProfitPct > (botSettings.minProjectedProfitPct + roundTripCostPct()) &&
+                      !regime.dead;
 
     return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence, fibConfluenceInfluence, confluence: decision.confluence, patternInfluence };
+}
+
+// REGIME-POORT: bepaalt of de markt op dit moment "dood" is - gerealiseerde
+// volatiliteit (chaos) én energie (|VFM|) beide onder hun eigen mediaan van de
+// beschikbare meethistorie, aanhoudend gedurende regimeGateConfirmMinutes.
+// Mediaan-gebaseerd = zelfkalibrerend: geen magische constantes, werkt op elk
+// activum en in elk volatiliteitsregime. Bij te weinig historie (<60 samples,
+// ~10 min) blijft de poort open - liever handelen op de bestaande drempels dan
+// blind blokkeren.
+let _regimeDeadSince = null;
+let _lastRegimeSkipLog = 0;
+function evaluateMarketRegime() {
+    if (!botSettings.regimeGateEnabled) return { dead: false, reason: 'poort uit' };
+    if (metricsHistory.length < 60) return { dead: false, reason: 'te weinig historie' };
+    const chaosVals = metricsHistory.map(m => m.chaos).filter(v => isFinite(v)).sort((a, b) => a - b);
+    const vfmVals = metricsHistory.map(m => Math.abs(m.vfm)).filter(v => isFinite(v)).sort((a, b) => a - b);
+    const medChaos = chaosVals[Math.floor(chaosVals.length / 2)];
+    const medVfm = vfmVals[Math.floor(vfmVals.length / 2)];
+    const lowNow = chaos < medChaos && Math.abs(vfm) < medVfm;
+    if (!lowNow) { _regimeDeadSince = null; return { dead: false, reason: 'regime actief' }; }
+    if (!_regimeDeadSince) _regimeDeadSince = Date.now();
+    const deadMinutes = (Date.now() - _regimeDeadSince) / 60000;
+    if (deadMinutes < (botSettings.regimeGateConfirmMinutes || 0)) return { dead: false, reason: 'dood regime, nog niet bevestigd' };
+    // Throttled loggen (max 1x per 5 min) - anders vult dit de tradelog met SKIPPED-spam
+    if (Date.now() - _lastRegimeSkipLog > 5 * 60000) {
+        _lastRegimeSkipLog = Date.now();
+        logBotAction("SKIPPED", livePrice, isBullish ? 'LONG' : 'SHORT', 0, 0, `REGIME_GATE: vol ${chaos.toFixed(2)} < mediaan ${medChaos.toFixed(2)} en |VFM| ${Math.abs(vfm).toFixed(2)} < mediaan ${medVfm.toFixed(2)} - al ${deadMinutes.toFixed(0)} min dood, entries gepauzeerd`);
+    }
+    return { dead: true, reason: `dood regime (${deadMinutes.toFixed(0)} min)` };
 }
 
 // FIX: dit was voorheen evaluateEntryOpportunity() (zie hierboven) die óók een
@@ -3004,7 +3174,13 @@ function finalizeClosePosition(pos, pnlPct, reason) {
             side: pos.side,
             factors: pos.factorsAtEntry,
             outcome: pnlPct > 0 ? 'win' : 'loss',
-            pnlPct
+            pnlPct,
+            // Verrijking (13-07): exit-gedrag vastleggen zodat het leren straks
+            // niet alleen entry-factoren maar ook exit-mechanismes kan wegen
+            // (welke exit-reden verdient, welke bloedt - per regime).
+            exitReason: (reason || '').split(' ')[0],
+            holdMinutes: pos.openTime ? Math.round((Date.now() - pos.openTime) / 60000) : null,
+            entryProbabilityPct: pos.probabilityPct ?? null
         });
         if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
         recalibrateAdaptiveWeights();
@@ -3185,6 +3361,19 @@ function checkOpenPositionsExits() {
             }
         }
 
+        // 4a-bis. TIJD-STOP: positie hangt na maxPositionAgeMinutes nog binnen
+        // de kostenband rond break-even - de these is niet uitgekomen, het
+        // kapitaal kan beter opnieuw beoordeeld worden. (Alleen trend-posities;
+        // scalps hebben hun eigen krappe doel/stop.)
+        if (!pos.isScalp && botSettings.maxPositionAgeMinutes > 0) {
+            const ageMin = (Date.now() - (pos.openTime || 0)) / 60000;
+            const costBand = roundTripCostPct() / 100;
+            if (ageMin >= botSettings.maxPositionAgeMinutes && Math.abs(pnlPct) < costBand) {
+                closePosition(pos, pnlPct, `TIME_STOP (${ageMin.toFixed(0)} min rond break-even - these niet uitgekomen)`);
+                return;
+            }
+        }
+
         // 4b. KANS-COLLAPS: de neutrale zone (tussen de vroege-exit- en
         // trendwinst-drempels) bevroor de bot voorheen volledig, ook als de
         // live winkans voor de eigen kant was ingestort (gezien in de praktijk:
@@ -3196,6 +3385,15 @@ function checkOpenPositionsExits() {
         if (!pos.isScalp) {
             const liveProb = evaluateContinuation(pos.side).probabilityPct;
             if (liveProb !== null && liveProb <= botSettings.probCollapseThresholdPct) {
+                // OMMEKEER-WINSTPAKKER (13-07): staat de positie NA KOSTEN in de
+                // winst terwijl de winkans instort, dan is er niets om op te
+                // wachten - de 120s-bevestiging is bedoeld om verliezers niet op
+                // ruis te dumpen, niet om winnaars hun winst te laten teruggeven
+                // aan een gedetecteerde ommekeer. Winst + collaps = direct innen.
+                if (pnlPct >= roundTripCostPct() / 100) {
+                    closePosition(pos, pnlPct, `PROFIT_PROTECT_REVERSAL (winst veiliggesteld: winkans zakte naar ${liveProb.toFixed(0)}%)`);
+                    return;
+                }
                 if (!pos.probCollapseSince) pos.probCollapseSince = Date.now();
                 if ((Date.now() - pos.probCollapseSince) / 1000 >= botSettings.probCollapseConfirmSeconds) {
                     closePosition(pos, pnlPct, `PROB_COLLAPSE_EXIT (winkans ${liveProb.toFixed(0)}% al ${botSettings.probCollapseConfirmSeconds}s onder ${botSettings.probCollapseThresholdPct}%)`);
@@ -3284,7 +3482,7 @@ function downloadAllData() {
         exportedAt: new Date().toISOString(),
         meta: {
             symbol: 'BTCUSDT',
-            interval: currentInterval,
+            interval: BOT_INTERVAL, viewInterval: currentInterval,
             anchorTime: new Date(ANCHOR_TIME).toISOString(),
             tPiMinutes: T_PI_MINUTES,
             sessionTransitionsUTC: SESSION_TRANSITIONS_UTC,
@@ -3431,51 +3629,175 @@ function setHarmonic(value) {
     console.log("Lens gewijzigd naar:", value);
 }
 
-// --- DYNAMISCH TIMEFRAME WISSELEN ---
-function changeTimeframe(interval) {
-    currentInterval = interval;
-    
-    // Wis de markers
-    setChartMarkers([]);
-    
-    // Update alleen de 15m knop (of verwijder de loop als je geen actieve status nodig hebt)
-    const btn = document.getElementById('btn-15m');
-    if (btn) {
-        btn.style.background = '#00ffcc';
-        btn.style.color = '#131722';
-        btn.style.fontWeight = 'bold';
-    }
+// --- DYNAMISCH TIMEFRAME WISSELEN (view-only; raakt de bot NIET) ---
+const VIEW_INTERVALS = ['1m', '15m', '30m', '45m', '1h', '4h'];
 
-    // Herlaad de data
-    initDashboard();
+function intervalToSec(iv) {
+    const map = { '1m': 60, '15m': 900, '30m': 1800, '45m': 2700, '1h': 3600, '4h': 14400, '1d': 86400 };
+    return map[iv] || 900;
 }
 
-// --- HOOFDFUNCTIE: INITIALISATIE ---
-async function initDashboard() {
+// 45m is geen Binance-interval: we aggregeren 3x 15m-candles tot één 45m-candle.
+function aggregate15mTo45m(klines15m) {
+    const out = [];
+    for (const k of klines15m) {
+        const t = Math.floor(k[0] / 2700000) * 2700000; // 45m-bucket
+        const o = parseFloat(k[1]), h = parseFloat(k[2]), l = parseFloat(k[3]), c = parseFloat(k[4]), v = parseFloat(k[5]);
+        const last = out[out.length - 1];
+        if (last && last[0] === t) {
+            last[2] = String(Math.max(parseFloat(last[2]), h));
+            last[3] = String(Math.min(parseFloat(last[3]), l));
+            last[4] = String(c);
+            last[5] = String(parseFloat(last[5]) + v);
+        } else {
+            out.push([t, String(o), String(h), String(l), String(c), String(v)]);
+        }
+    }
+    return out;
+}
+
+async function fetchViewKlines(iv) {
+    if (iv === BOT_INTERVAL && rawData && rawData.length) return rawData; // zelfde data, geen extra fetch
+    if (iv === '45m') {
+        const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=1000`);
+        return aggregate15mTo45m(await r.json());
+    }
+    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${iv}&limit=672`);
+    return r.json();
+}
+
+// Live 45m-bucket bijwerken vanuit de 15m bot-stream (geen aparte socket nodig).
+let _current45m = null;
+function update45mBucketFromLive(candle15m) {
+    const t = Math.floor(candle15m.t / 2700000) * 2700000;
+    const h = parseFloat(candle15m.h), l = parseFloat(candle15m.l), c = parseFloat(candle15m.c), o = parseFloat(candle15m.o);
+    if (!_current45m || _current45m.t !== t) {
+        _current45m = { t, open: o, high: h, low: l, close: c };
+    } else {
+        _current45m.high = Math.max(_current45m.high, h);
+        _current45m.low = Math.min(_current45m.low, l);
+        _current45m.close = c;
+    }
+    candlestickSeries.update({ time: t / 1000, open: _current45m.open, high: _current45m.high, low: _current45m.low, close: _current45m.close });
+}
+
+// Aparte, view-gebonden stream voor chart-updates op niet-15m intervallen.
+// (45m loopt via de 15m bot-stream; 15m zelf ook - dan is deze socket dicht.)
+function startChartStream(iv) {
+    if (viewWs) { try { viewWs.close(); } catch (e) {} viewWs = null; }
+    if (iv === BOT_INTERVAL || iv === '45m') return;
+    viewWs = new WebSocket(`wss://stream.binance.com:9443/ws/btcusdt@kline_${iv}`);
+    viewWs.onmessage = (event) => {
+        try {
+            const k = JSON.parse(event.data).k;
+            if (!k) return;
+            candlestickSeries.update({ time: k.t / 1000, open: parseFloat(k.o), high: parseFloat(k.h), low: parseFloat(k.l), close: parseFloat(k.c) });
+        } catch (e) { /* view-stream mag nooit de bot raken */ }
+    };
+}
+
+// Node-marker-dichtheid per view: op hogere timeframes passen er meerdere
+// nodes in één candle - zonder filter krijgt elke 4h-candle een stapel labels.
+// Regels: 1m/15m tonen alles; 30m/45m/1h alleen de CORE-types; 4h+ alleen de
+// zwaarste (VORTEX/RESET). Daarbovenop: max één label per candle, de
+// belangrijkste wint (VOLA > VORTEX6 > VORTEX3 > RESET > MIDPULSE > OSC).
+function filterMarkersForView(markers, iv) {
+    const allowed = (iv === '1m' || iv === '15m') ? null
+        : (iv === '4h' || iv === '1d') ? ['VOLA', 'VORTEX', 'RESET']
+        : ['VOLA', 'VORTEX', 'RESET', 'CORE'];
+    const prio = { VOLA: 6, VORTEX: 5, RESET: 4, CORE: 3, MIDPULSE: 2, OSC: 1 };
+    const keyOf = (m) => (m.nodeTypeKey || '').startsWith('VORTEX') ? 'VORTEX' : (m.nodeTypeKey || 'OSC');
+    let out = allowed ? markers.filter(m => allowed.includes(keyOf(m))) : markers.slice();
+    const perCandle = new Map();
+    for (const m of out) {
+        const cur = perCandle.get(m.time);
+        if (!cur || (prio[keyOf(m)] || 0) > (prio[keyOf(cur)] || 0)) perCandle.set(m.time, m);
+    }
+    return [...perCandle.values()].sort((a, b) => a.time - b.time);
+}
+
+async function changeTimeframe(interval) {
+    if (!VIEW_INTERVALS.includes(interval)) return;
+    currentInterval = interval;
+    VIEW_INTERVALS.forEach(iv => {
+        const b = document.getElementById(`btn-${iv}`);
+        if (b) {
+            const actief = iv === interval;
+            b.style.background = actief ? 'var(--teal, #00ffcc)' : '';
+            b.style.color = actief ? '#04060a' : '';
+            b.style.fontWeight = actief ? 'bold' : '';
+        }
+    });
+    await refreshViewData();
+}
+
+// Ververst UITSLUITEND de chart-weergave: candles, MA/RSI, patroon-markers en
+// node-markers op het gekozen view-interval. rawData (bot, 15m) blijft
+// onaangeroerd; fib-PRIJSNIVEAUS komen van de bot en zijn op elke view geldig.
+async function refreshViewData() {
     try {
-        setChartMarkers([]);
-        
-        // 2. Fetch 672 candles (exact 7 dagen bij 15m interval)
-        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${currentInterval}&limit=672`);
-        rawData = await response.json(); // Data opslaan in de globale variabele
-        
-        // 3. Update de historie lijst
-        updateHistoryList(rawData);
-        
-        const chartData = rawData.map(d => ({
+        _current45m = null;
+        viewData = await fetchViewKlines(currentInterval);
+        const chartData = viewData.map(d => ({
             time: Math.floor(d[0] / 1000),
             open: parseFloat(d[1]),
             high: parseFloat(d[2]),
             low: parseFloat(d[3]),
             close: parseFloat(d[4])
         }));
-        
         candlestickSeries.setData(chartData);
-        applyUOTAMGrid(chartData);
+        updateHistoryList(viewData);
+        applyUOTAMGrid(chartData, { updateTrading: false, viewInterval: currentInterval });
+        renderMovingAverage();
+        renderRSI();
+        renderPatternMarkers();
+        startChartStream(currentInterval);
+    } catch (e) {
+        console.error('View-wissel mislukt:', e);
+    }
+}
+
+// --- HOOFDFUNCTIE: INITIALISATIE ---
+async function initDashboard() {
+    try {
+        setChartMarkers([]);
+
+        // 1. BOT-DATA: altijd 672 x 15m spot-candles (7 dagen) - de vaste basis
+        // voor alle handelslogica (structuur, meters, nodes, fib), ongeacht
+        // welke view de chart toont.
+        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${BOT_INTERVAL}&limit=672`);
+        rawData = await response.json();
+
+        // 2. TRADING-instrumenten op de bot-data: nodes + fib-niveaus.
+        const botChartData = rawData.map(d => ({
+            time: Math.floor(d[0] / 1000),
+            open: parseFloat(d[1]),
+            high: parseFloat(d[2]),
+            low: parseFloat(d[3]),
+            close: parseFloat(d[4])
+        }));
+        applyUOTAMGrid(botChartData, { updateTrading: true, display: currentInterval === BOT_INTERVAL, viewInterval: currentInterval });
+
+        // 3. VIEW: chart, historie, MA/RSI, patroon- en node-markers op het
+        // gekozen weergave-interval (bij 15m identiek aan de bot-data).
+        viewData = await fetchViewKlines(currentInterval);
+        const chartData = viewData.map(d => ({
+            time: Math.floor(d[0] / 1000),
+            open: parseFloat(d[1]),
+            high: parseFloat(d[2]),
+            low: parseFloat(d[3]),
+            close: parseFloat(d[4])
+        }));
+        candlestickSeries.setData(chartData);
+        updateHistoryList(viewData);
+        if (currentInterval !== BOT_INTERVAL) {
+            applyUOTAMGrid(chartData, { updateTrading: false, viewInterval: currentInterval });
+        }
         renderMovingAverage();
         renderRSI();
         renderPatternMarkers();
         startLiveUpdates();
+        startChartStream(currentInterval);
         startSentimentStream();
         
     } catch (error) {
@@ -3655,12 +3977,26 @@ function getNodeContext(now = Date.now()) {
 let metricsHistory = [];
 const METRICS_HISTORY_MAX = 500;
 
+let _lastSnapVol = 0;
+let _lastSnapCandleBucket = 0;
 function recordMetricsSnapshot() {
+    // METER-FIX (13-07): liveVol is een OPLOPENDE teller binnen de candle -
+    // volumeShift op de ruwe teller was daardoor vrijwel altijd positief
+    // (recent > eerder, per definitie), wat MIDPULSE-nodes kunstmatig een
+    // positief gewicht gaf. We slaan nu de INSTROOM per snapshot op (volRate):
+    // het verschil sinds de vorige meting, met candle-reset-detectie.
+    const bucket = Math.floor(Date.now() / BOT_INTERVAL_MS);
+    const volRate = (bucket === _lastSnapCandleBucket && liveVol >= _lastSnapVol)
+        ? liveVol - _lastSnapVol
+        : liveVol; // nieuwe candle (of reset): alles sinds candle-opening
+    _lastSnapVol = liveVol;
+    _lastSnapCandleBucket = bucket;
     metricsHistory.push({
         timestamp: Date.now(),
         price: livePrice,
         vfm, er, db, chaos,
         liveVol,
+        volRate,
         isBullish
     });
     if (metricsHistory.length > METRICS_HISTORY_MAX) metricsHistory.shift();
@@ -3675,8 +4011,8 @@ function calculateVolumeShift(lookback = 6) {
     if (metricsHistory.length < lookback * 2) return 0;
     const recent = metricsHistory.slice(-lookback);
     const prior = metricsHistory.slice(-lookback * 2, -lookback);
-    const avgRecent = recent.reduce((a, m) => a + m.liveVol, 0) / recent.length;
-    const avgPrior = prior.reduce((a, m) => a + m.liveVol, 0) / prior.length;
+    const avgRecent = recent.reduce((a, m) => a + (m.volRate ?? 0), 0) / recent.length;
+    const avgPrior = prior.reduce((a, m) => a + (m.volRate ?? 0), 0) / prior.length;
     if (avgPrior === 0) return 0;
     return ((avgRecent - avgPrior) / avgPrior) * 100; // % verschuiving
 }
@@ -3798,11 +4134,16 @@ function calculateNodeInfluence(nodeContext) {
     return nextScore + lastScore + nextSessionScore + lastSessionScore;
 }
 
-function applyUOTAMGrid(chartData) {
+function applyUOTAMGrid(chartData, opts = {}) {
     if (chartData.length === 0) return;
-    
-    // 1. Wis oude data
-    allNodes = [];
+    const updateTrading = opts.updateTrading !== false; // default: trading bijwerken (bot-pad)
+    const showOnChart = opts.display !== false;          // default: markers tekenen
+    const viewIv = opts.viewInterval || currentInterval;
+    const nodesLocal = [];
+
+    // 1. Wis oude data (alleen wanneer dit de TRADING-aanroep is; een pure
+    // view-aanroep mag de handelsstate nooit raken)
+    if (updateTrading) allNodes = [];
     
     const markers = [];
     const minTimeSec = chartData[0].time;
@@ -3823,8 +4164,11 @@ function applyUOTAMGrid(chartData) {
         const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
         const timeLabel = `${dateStr} ${timeStr}`;
         
-        // Zoek de candle die het dichtst bij de berekende node tijd ligt (binnen een marge van 15 minuten)
-        const marge = 15 * 60; // 15 minuten in seconden
+        // Zoek de candle die het dichtst bij de berekende node tijd ligt.
+        // De marge schaalt mee met de candle-breedte van deze dataset: op een
+        // 4h-view valt een node anders bijna nooit binnen 15 min van een
+        // candle-OPENING en verdwenen alle markers of stapelden ze verkeerd.
+        const marge = intervalToSec(viewIv) / 2 + 1;
         const closestCandle = chartData.find(c => Math.abs(c.time - nodeTimeSec) <= marge);
         
         if (closestCandle) {
@@ -3836,7 +4180,7 @@ function applyUOTAMGrid(chartData) {
             else if (relativeIndex === 6) nodeType = 'vortex6';
 
             // 2. Push naar allNodes inclusief het type veld
-            allNodes.push({
+            nodesLocal.push({
                 id: i,
                 type: nodeType, 
                 time: closestCandle.time,
@@ -3898,7 +4242,7 @@ function applyUOTAMGrid(chartData) {
         const midTimeLabel = `${midDateStr} ${midTimeStr}`;
 
         if (midCandle) {
-            allNodes.push({
+            nodesLocal.push({
                 id: `mid_${i}`,
                 type: 'mid-pulse',
                 time: midCandle.time,
@@ -3917,17 +4261,19 @@ function applyUOTAMGrid(chartData) {
         }
     }
     
-    // Sla de tekst-markers op
-    gridMarkers = markers; 
-    
-    // Update de grafiek markers (gefilterd op welke node-types actief zijn getoggeld)
-    renderNodeMarkers();
-    
-    // Update de Fib-lijnen
-   // HIER PAS JE HET AAN:
-    // Je voegt 'chartData' toe als het tweede argument.
-    // De functie gebruikt nu allNodes voor de timing en chartData voor de prijs-range.
-    updateActiveNodeFibLines(allNodes, chartData);
+    // DISPLAY: markers gefilterd op view-dichtheid (max 1 label per candle,
+    // zwaarste node-type wint; hogere timeframes tonen alleen CORE-types).
+    if (showOnChart) {
+        gridMarkers = filterMarkersForView(markers, viewIv);
+        renderNodeMarkers();
+    }
+
+    // TRADING: nodes + fib-niveaus alleen bijwerken vanaf de bot-data (15m) -
+    // een view-wissel mag currentFibLevels en allNodes nooit veranderen.
+    if (updateTrading) {
+        allNodes = nodesLocal;
+        updateActiveNodeFibLines(allNodes, chartData);
+    }
 
     if (typeof updateInfoPanel === 'function') updateInfoPanel();
 }
@@ -3958,10 +4304,23 @@ let patternMarkers = [];
 let showPatternMarkers = false;
 const PATTERN_MARKER_STYLE = {
     hammer: { text: '\u{1F528} Hamer', color: '#14f195' },
+    hanging_man: { text: '\u{1FAA2} Hanging Man', color: '#ff3b5c' },
+    inverted_hammer: { text: '\u{1F528} Inv. Hammer', color: '#14f195' },
     shooting_star: { text: '\u2604 Shooting Star', color: '#ff3b5c' },
     doji: { text: '\u2716 Doji', color: '#ffb627' },
+    dragonfly_doji: { text: '\u2716 Dragonfly Doji', color: '#14f195' },
+    gravestone_doji: { text: '\u2716 Gravestone Doji', color: '#ff3b5c' },
+    spinning_top: { text: '\u{1F300} Spinning Top', color: '#ffb627' },
     bullish_engulfing: { text: '\u25B2 Bull. Engulfing', color: '#14f195' },
     bearish_engulfing: { text: '\u25BC Bear. Engulfing', color: '#ff3b5c' },
+    piercing_line: { text: '\u25B2 Piercing Line', color: '#14f195' },
+    dark_cloud_cover: { text: '\u25BC Dark Cloud', color: '#ff3b5c' },
+    harami_bull: { text: '\u25AB Harami (bull)', color: '#14f195' },
+    harami_bear: { text: '\u25AB Harami (bear)', color: '#ff3b5c' },
+    tweezer_top: { text: '\u{1F953} Tweezer Top', color: '#ff3b5c' },
+    tweezer_bottom: { text: '\u{1F953} Tweezer Bottom', color: '#14f195' },
+    three_white_soldiers: { text: '\u25B2\u25B2\u25B2 3 Soldiers', color: '#14f195' },
+    three_black_crows: { text: '\u25BC\u25BC\u25BC 3 Crows', color: '#ff3b5c' },
     morning_star: { text: '\u2600 Morning Star', color: '#14f195' },
     evening_star: { text: '\u{1F319} Evening Star', color: '#ff3b5c' },
     marubozu_bull: { text: '\u25A0 Marubozu', color: '#14f195' },
@@ -3981,16 +4340,18 @@ function updateAllChartMarkers() {
 // 'aboveBar', patronen bewust 'belowBar' zodat ze elkaar nooit overlappen).
 function renderPatternMarkers() {
     patternMarkers = [];
-    if (!showPatternMarkers || !rawData || rawData.length < 3) { updateAllChartMarkers(); return; }
+    const src = (viewData && viewData.length) ? viewData : rawData;
+    if (!showPatternMarkers || !src || src.length < 3) { updateAllChartMarkers(); return; }
 
     const SCAN_WINDOW = 150;
-    const start = Math.max(2, rawData.length - SCAN_WINDOW);
-    for (let i = start; i < rawData.length; i++) {
-        const result = detectCandlestickPattern(i);
+    const start = Math.max(2, src.length - SCAN_WINDOW);
+    for (let i = start; i < src.length; i++) {
+        const result = detectCandlestickPattern(i, src);
         if (!result.pattern) continue;
         const style = PATTERN_MARKER_STYLE[result.pattern];
+        if (!style) continue;
         patternMarkers.push({
-            time: Math.floor(rawData[i][0] / 1000),
+            time: Math.floor(src[i][0] / 1000),
             position: 'belowBar',
             color: style.color,
             shape: 'circle',
@@ -4067,8 +4428,13 @@ function updateHistoryList(rawData) {
 function startLiveUpdates() {
     if (currentWs) { currentWs.close(); currentWs = null; }
 
-    const baseUrl = "wss://fstream.binance.com/market"; 
-    currentWs = new WebSocket(`${baseUrl}/ws/btcusdt@kline_15m`);
+    // METER-FIX (13-07): de stream stond op fstream (FUTURES) terwijl de
+    // SMA20-noemer uit SPOT-klines komt - futures-volume is een veelvoud van
+    // spot, waardoor ER structureel rond 4-9 hing i.p.v. rond 1.0 en de check
+    // "ER>1.2" 87% van de tijd gratis aanstond. Teller en noemer komen nu uit
+    // dezelfde markt (spot - waar de testnet-executie ook op handelt).
+    const baseUrl = "wss://stream.binance.com:9443";
+    currentWs = new WebSocket(`${baseUrl}/ws/btcusdt@kline_${BOT_INTERVAL}`);
     
     currentWs.onmessage = (event) => {
         try {
@@ -4095,27 +4461,51 @@ function startLiveUpdates() {
                 volScoreEl.style.color = isBullish ? '#00ffcc' : '#ef5350';
             }
 
-            // 2. Chart Update
-            candlestickSeries.update({
-                time: candle.t / 1000,
-                open: openPrice,
-                high: high,
-                low: low,
-                close: livePrice,
-            });
+            // 2. Chart Update - ALLEEN als de view op het bot-interval staat;
+            // andere views hebben hun eigen stream (startChartStream) of, voor
+            // 45m, live aggregatie vanuit deze 15m-stream.
+            if (currentInterval === BOT_INTERVAL) {
+                candlestickSeries.update({
+                    time: candle.t / 1000,
+                    open: openPrice,
+                    high: high,
+                    low: low,
+                    close: livePrice,
+                });
+            } else if (currentInterval === '45m') {
+                update45mBucketFromLive(candle);
+            }
 
             // 3. Live Volume UI
             const volEl = document.getElementById('live-volume');
             if (volEl) volEl.innerText = liveVol ? liveVol.toFixed(4) : "Wachten...";
 
             // 4. Data-afhankelijke berekeningen (VFM, ER, DB, Chaos)
+            // METER-FIX (13-07, gemeten op sessiedata):
+            // - ER gebruikte het volume van de NOG VORMENDE candle als teller:
+            //   een oplopende teller die elke 15 min op nul begint. Gemeten:
+            //   ER-mediaan 1.03 in de eerste 200s van een candle, 8.90 in de
+            //   laatste 200s (spearman +0.52 met candle-leeftijd) - een
+            //   zaagtand die candle-leeftijd mat, geen marktenergie. Nu wordt
+            //   het vormende volume GEPRO-RATEERD naar een volle-candle-
+            //   equivalent, met 90s minimumleeftijd tegen deling-door-bijna-0.
+            // - chaos was |prijs vs. 288 candles terug| = 3-DAAGSE DRIFT (hing
+            //   muurvast rond 2.0, check "<10" was 100% van de tijd waar). Nu:
+            //   echte gerealiseerde volatiliteit = std van de laatste 96
+            //   candle-returns (24h op 15m-basis), in % per candle.
             if (rawData && rawData.length >= 288) {
                 const sma20Volume = rawData.slice(-20).reduce((a, b) => a + parseFloat(b[5]), 0) / 20;
-                er = liveVol / sma20Volume;
+                const candleAgeMs = Date.now() - candle.t;
+                const candleFrac = Math.min(1, Math.max(candleAgeMs / BOT_INTERVAL_MS, 0.1));
+                if (candleAgeMs >= 90000) {
+                    er = (liveVol / candleFrac) / sma20Volume; // volle-candle-equivalent vs. SMA20
+                } // eerste 90s: vorige er-waarde vasthouden (te weinig volume-info)
                 db = (high - low !== 0) ? (2 * livePrice - (high + low)) / (high - low) : 0;
                 vfm = er * db;
-                const price3DaysAgo = parseFloat(rawData[rawData.length - 288][4]);
-                chaos = Math.abs((livePrice - price3DaysAgo) / price3DaysAgo) * 100;
+                const closes96 = rawData.slice(-97).map(d => parseFloat(d[4]));
+                const rets = closes96.slice(1).map((c, j) => (c - closes96[j]) / closes96[j] * 100);
+                const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+                chaos = Math.sqrt(rets.reduce((a, r) => a + (r - mean) ** 2, 0) / rets.length);
             
                 // UI Updates voor de meters
                 const absVfm = Math.abs(vfm);
@@ -4135,8 +4525,35 @@ function startLiveUpdates() {
             
                 const chaosEl = document.getElementById('chaos-display');
                 const chaosStatusEl = document.getElementById('chaos-status');
-                if (chaosEl) chaosEl.innerText = chaos.toFixed(1) + '%';
-                if (chaosStatusEl) { chaosStatusEl.innerText = chaos > 15 ? "EXTREME" : "STABIEL"; chaosStatusEl.style.color = chaos > 15 ? "#ef5350" : "#00ffcc"; }
+                // chaos is nu gerealiseerde volatiliteit in % per 15m-candle
+                // (BTC-basis ~0.15-0.20); drempels geschaald op de nieuwe betekenis.
+                if (chaosEl) chaosEl.innerText = chaos.toFixed(2) + '%';
+                if (chaosStatusEl) { chaosStatusEl.innerText = chaos > CONF_CHAOS_TH ? "VOLATIEL" : "STABIEL"; chaosStatusEl.style.color = chaos > CONF_CHAOS_TH ? "#ef5350" : "#00ffcc"; }
+
+                // FIX (13-07): rawData werd bij het laden één keer opgehaald en
+                // daarna NOOIT ververst - na uren draaien rekenden structuur,
+                // SMA20, chaos en fib op steeds oudere data. Elke VOLTOOIDE
+                // candle (candle.x) wordt nu aan de bot-data toegevoegd, de
+                // buffer blijft 672 candles (7 dagen), en de trading-
+                // instrumenten (nodes + fib) worden op dat moment herrekend.
+                if (candle.x) {
+                    rawData.push([candle.t, candle.o, candle.h, candle.l, candle.c, candle.v]);
+                    while (rawData.length > 672) rawData.shift();
+                    const freshBotChart = rawData.map(d => ({
+                        time: Math.floor(d[0] / 1000),
+                        open: parseFloat(d[1]),
+                        high: parseFloat(d[2]),
+                        low: parseFloat(d[3]),
+                        close: parseFloat(d[4])
+                    }));
+                    applyUOTAMGrid(freshBotChart, { updateTrading: true, display: currentInterval === BOT_INTERVAL, viewInterval: currentInterval });
+                    if (currentInterval === BOT_INTERVAL) {
+                        viewData = rawData;
+                        renderMovingAverage();
+                        renderRSI();
+                        renderPatternMarkers();
+                    }
+                }
             
                 // 5. Orisis & Fibonacci Integratie
                 if (typeof allNodes !== 'undefined' && allNodes.length > 0) {
@@ -4450,10 +4867,15 @@ function getOrisisDecisionData(metrics, currentPrice, vfm, er, db, chaos, isBull
 
     // 4. Confluence: Orisis' "Brain"
     let confluence = 0;
-    if (Math.abs(vfm) > 1.2) confluence += 2;
-    if (Math.abs(db) > 0.3) confluence += 1;
-    if (chaos < 10) confluence += 1;
-    if (er > 1.2) confluence += 1;
+    // Drempels herijkt (13-07) op de GEFIXTE meters: ER pendelt na de
+    // pro-ratering en spot/spot-correctie weer rond 1.0, dus >1.2 is weer een
+    // echte eis. |VFM| = ER x |DB| kan max ~ER worden; 0.8 = "duidelijke
+    // energie in een duidelijke richting". Chaos is nu gerealiseerde vol in %
+    // per 15m-candle (BTC-basis ~0.15-0.20): <0.30 = geen chaotische markt.
+    if (Math.abs(vfm) > CONF_VFM_TH) confluence += 2;
+    if (Math.abs(db) > CONF_DB_TH) confluence += 1;
+    if (chaos < CONF_CHAOS_TH) confluence += 1;
+    if (er > CONF_ER_TH) confluence += 1;
     // FIX: Volume Score (metrics.score, 0-100) werd voorheen alleen getoond,
     // nooit gebruikt in de beslissing - ondanks dat het al berekend werd hoe
     // huidig volume zich verhoudt tot zijn eigen recente geschiedenis
@@ -4555,3 +4977,12 @@ document.getElementById('execution-mode')?.addEventListener('change', (e) => {
     if (e.target.value === 'TESTNET') testTestnetConnection();
     else setTestnetStatus('');
 });
+
+// --- Adaptive Learning-paneel inklapbaar (zelfde patroon als de engine-config) ---
+function toggleLearningPanel() {
+    const body = document.getElementById('learning-body');
+    const chev = document.getElementById('learning-chevron');
+    if (!body) return;
+    const open = body.classList.toggle('open');
+    if (chev) chev.innerHTML = open ? '&#9662;' : '&#9656;';
+}
