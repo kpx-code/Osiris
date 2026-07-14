@@ -5035,6 +5035,161 @@ setInterval(fetchEurUsdtRate, 5 * 60 * 1000); // elke 5 minuten verversen
 initDashboard();
 setInterval(updateInfoPanel, 1000);
 
+// ============================================================
+// OSIRIS LIVE DATAFLOW HUD (14-07)
+// Jarvis-achtige visualisatie boven Wallet Status: datadeeltjes stromen van
+// de meters via de confluence-kern naar de beslis-blokken, met live prijs.
+// Alles read-only op bestaande state - de HUD raakt de handelslogica nooit.
+// ============================================================
+let _flowHudInit = false;
+let _flowLastPrice = 0;
+let _flowConsoleIdx = 0;
+
+function initFlowHud() {
+    if (_flowHudInit) return;
+    const parts = document.getElementById('flow-parts');
+    const dust = document.getElementById('flow-dust');
+    if (!parts || !dust) return;
+    _flowHudInit = true;
+    const NS = 'http://www.w3.org/2000/svg';
+    const XL = 'http://www.w3.org/1999/xlink';
+    // Datadeeltjes op de banen: 4 per invoerpad, 3 per uitvoerpad - dichte,
+    // levendige stroom zoals gevraagd, maar klein en semi-transparant zodat
+    // het stof blijft en geen confetti wordt.
+    [['fp1',6,'#14f195'],['fp2',6,'#14f195'],['fp3',6,'#14f195'],['fp4',6,'#14f195'],['fp5',4,'#b07aff'],['fp6',4,'#b07aff']].forEach(([pid, n, kleur], i) => {
+        for (let k = 0; k < n; k++) {
+            const c = document.createElementNS(NS, 'circle');
+            c.setAttribute('r', (1.4 + Math.random() * 1.4).toFixed(1));
+            c.setAttribute('fill', kleur);
+            c.setAttribute('opacity', (0.45 + Math.random() * 0.45).toFixed(2));
+            const am = document.createElementNS(NS, 'animateMotion');
+            am.setAttribute('dur', (2.6 + Math.random() * 2.4).toFixed(1) + 's');
+            am.setAttribute('repeatCount', 'indefinite');
+            am.setAttribute('begin', (k * 0.9 + i * 0.25 + Math.random() * 0.5).toFixed(2) + 's');
+            const mp = document.createElementNS(NS, 'mpath');
+            mp.setAttributeNS(XL, 'href', '#' + pid);
+            am.appendChild(mp); c.appendChild(am); parts.appendChild(c);
+        }
+    });
+    // Zwevend achtergrondstof: trage, bijna onzichtbare deeltjes door het veld.
+    for (let k = 0; k < 24; k++) {
+        const c = document.createElementNS(NS, 'circle');
+        const x = 10 + Math.random() * 320, y = 10 + Math.random() * 230;
+        c.setAttribute('cx', x.toFixed(0)); c.setAttribute('cy', y.toFixed(0));
+        c.setAttribute('r', (0.7 + Math.random() * 1.1).toFixed(1));
+        c.setAttribute('fill', '#14f195');
+        c.setAttribute('opacity', (0.08 + Math.random() * 0.15).toFixed(2));
+        const am = document.createElementNS(NS, 'animate');
+        am.setAttribute('attributeName', 'cy');
+        am.setAttribute('values', `${y.toFixed(0)};${(y - 14 - Math.random() * 20).toFixed(0)};${y.toFixed(0)}`);
+        am.setAttribute('dur', (7 + Math.random() * 9).toFixed(1) + 's');
+        am.setAttribute('repeatCount', 'indefinite');
+        c.appendChild(am); dust.appendChild(c);
+    }
+}
+
+// Read-only mediaan van de kans-smoothingbuffer (zonder te pushen - de HUD
+// mag de beslisdata niet vervuilen).
+function readSmoothedProb(side) {
+    const buf = _probBuffers[side];
+    if (!buf || buf.length === 0) return null;
+    const s = [...buf].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)];
+}
+
+function updateFlowHud() {
+    const priceEl = document.getElementById('flow-price');
+    if (!priceEl) return;
+    initFlowHud();
+    // Live prijs met kleurflits op verandering
+    if (livePrice > 0) {
+        priceEl.textContent = '$' + livePrice.toLocaleString('nl-NL', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        if (_flowLastPrice > 0 && livePrice !== _flowLastPrice) {
+            priceEl.style.color = livePrice > _flowLastPrice ? '#14f195' : '#ff3b5c';
+            setTimeout(() => { priceEl.style.color = '#e0e0e0'; }, 600);
+        }
+        _flowLastPrice = livePrice;
+    }
+    const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+    const setBar = (id, pct, kleur) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.style.width = Math.max(0, Math.min(100, pct)).toFixed(0) + '%';
+        if (kleur) el.style.background = kleur;
+    };
+    set('flow-vfm', isFinite(vfm) ? vfm.toFixed(2) : '\u2014');
+    set('flow-er', isFinite(er) ? er.toFixed(2) : '\u2014');
+    set('flow-db', isFinite(db) ? db.toFixed(2) : '\u2014');
+    set('flow-chaos', isFinite(chaos) ? chaos.toFixed(2) + '%' : '\u2014');
+    // Load bars: elke meter geschaald op zijn eigen werkbereik, kleur = teken/drempel
+    setBar('flow-vfm-bar', Math.abs(vfm) / 1.2 * 100, vfm >= 0 ? '#14f195' : '#ff3b5c');
+    setBar('flow-er-bar', er / 2 * 100, er > CONF_ER_TH ? '#14f195' : '#5d606b');
+    setBar('flow-db-bar', Math.abs(db) * 100, db >= 0 ? '#14f195' : '#ff3b5c');
+    setBar('flow-chaos-bar', chaos / (CONF_CHAOS_TH * 2) * 100, chaos < CONF_CHAOS_TH ? '#14f195' : '#ffb627');
+    // Confluence: cijfer in de kern + 9-cels energiebalk
+    if (lastOsirisDecision && lastOsirisDecision.confluence != null) {
+        set('flow-conf', `${lastOsirisDecision.confluence}/9`);
+        const cells = document.querySelectorAll('#flow-conf-cells .hud-cell');
+        cells.forEach((c, i) => c.classList.toggle('on', i < lastOsirisDecision.confluence));
+    }
+    const pl = readSmoothedProb('LONG'), ps = readSmoothedProb('SHORT');
+    if (pl !== null || ps !== null) {
+        set('flow-prob', `${pl !== null ? pl.toFixed(0) : '\u2014'}% / ${ps !== null ? ps.toFixed(0) : '\u2014'}%`);
+        setBar('flow-prob-l', pl ?? 0);
+        setBar('flow-prob-s', ps ?? 0);
+    }
+    // Allocatie-balk (t.o.v. balance) en node-countdown
+    if (typeof getAllocatedPct === 'function') {
+        const alloc = getAllocatedPct() * 100;
+        set('flow-alloc', alloc.toFixed(1) + '%');
+        setBar('flow-alloc-bar', alloc, alloc > 85 ? '#ff3b5c' : '#ffb627');
+    }
+    try {
+        const ctx = getNodeContext();
+        if (ctx && ctx.nextNode && ctx.lastNode) {
+            set('flow-node', `${ctx.nextNode.type || 'node'} \u00b7 ${ctx.nextNode.minutesUntil.toFixed(0)}m`);
+            const tot = ctx.nextNode.time - ctx.lastNode.time;
+            setBar('flow-node-bar', tot > 0 ? ((Date.now() - ctx.lastNode.time) / tot) * 100 : 0);
+        }
+    } catch (e) {}
+    // Micro-statusstrip: scan-cyclusteller en metricsbuffer-vulling
+    set('flow-scan', `${(10 - (Math.floor(Date.now() / 1000) % 10))}s`);
+    set('flow-buf', `${Math.min(100, Math.round(metricsHistory.length / 500 * 100))}%`);
+    const sysEl = document.getElementById('flow-sys');
+    if (sysEl) {
+        const ok = livePrice > 0 && currentWs && currentWs.readyState === 1;
+        sysEl.textContent = ok ? 'NOMINAAL' : 'STREAM DOWN';
+        sysEl.style.color = ok ? '#14f195' : '#ff3b5c';
+    }
+    const regimeEl = document.getElementById('flow-regime');
+    if (regimeEl && typeof evaluateMarketRegime === 'function') {
+        const r = evaluateMarketRegime();
+        regimeEl.textContent = r.dead ? 'DOOD (pauze)' : 'ACTIEF';
+        regimeEl.style.color = r.dead ? '#ffb627' : '#14f195';
+    }
+    set('flow-pos', `${openPositions.length} open / ${pendingOrders.length} pending`);
+    // Console: roteer door live systeemregels (elke ~6s een andere)
+    const consoleEl = document.getElementById('flow-console');
+    if (consoleEl && Math.floor(Date.now() / 1000) % 6 === 0) {
+        const regels = [];
+        try {
+            const ctx = getNodeContext();
+            if (ctx && ctx.nextNode) regels.push(`Volgende ${ctx.nextNode.type || 'node'} over ${Math.max(0, ((ctx.nextNode.time - Date.now()) / 60000)).toFixed(0)} min`);
+        } catch (e) {}
+        regels.push(`Kans gedempt over ${botSettings.probSmoothingSamples} metingen \u00b7 winst-bescherming vanaf +${(botSettings.profitProtectActivationPct * 100).toFixed(1)}% piek`);
+        regels.push(`Executie: ${botSettings.executionMode === 'TESTNET' ? 'Binance Testnet (echte orders)' : 'simulatie'} \u00b7 kosten ${roundTripCostPct().toFixed(2)}% r.t.`);
+        if (botTradeLog.length > 0) {
+            const l = botTradeLog[botTradeLog.length - 1];
+            regels.push(`Laatste actie: ${l.action} ${l.side || ''} @ $${(l.price || 0).toFixed(0)}`);
+        }
+        _flowConsoleIdx = (_flowConsoleIdx + 1) % regels.length;
+        consoleEl.textContent = regels[_flowConsoleIdx];
+    }
+}
+
+setInterval(updateFlowHud, 1000);
+
+
 // --- Testnet UI-koppeling (knoppen bestaan alleen als index.html up-to-date is) ---
 document.getElementById('testnet-save-keys-btn')?.addEventListener('click', saveTestnetKeysFromInputs);
 document.getElementById('testnet-test-btn')?.addEventListener('click', testTestnetConnection);
