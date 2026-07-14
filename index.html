@@ -611,6 +611,108 @@
                 </div>
             </div>
 
+            <!-- OSIRIS LIVE DATAFLOW: Jarvis-achtige HUD met bewegende datadeeltjes -->
+            <style>
+                @keyframes hudScan { 0% { top: -2px; opacity: 0; } 8% { opacity: 0.5; } 92% { opacity: 0.5; } 100% { top: calc(100% - 2px); opacity: 0; } }
+                @keyframes hudBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+                .hud-corner { position: absolute; width: 14px; height: 14px; border-color: #14f195; border-style: solid; border-width: 0; opacity: 0.8; }
+                .hud-bar-track { height: 4px; background: #0c0d14; border-radius: 2px; margin-top: 4px; overflow: hidden; position: relative; }
+                .hud-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; background: #14f195; }
+                .hud-bar-seg { position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 5px, #131722 5px 7px); pointer-events: none; }
+                .hud-cell { flex: 1; height: 7px; background: #0c0d14; border: 1px solid #2a2e39; border-radius: 1px; transition: background 0.4s, border-color 0.4s; }
+                .hud-cell.on { background: #14f195; border-color: #14f195; box-shadow: 0 0 6px rgba(20,241,149,0.5); }
+                .hud-micro { font-family: 'JetBrains Mono', monospace; font-size: 0.56rem; color: #5d606b; letter-spacing: 0.06em; }
+            </style>
+            <div id="flow-hud" style="position:relative; overflow:hidden; background:rgba(255,255,255,0.02); border:1px solid rgba(20,241,149,0.25); border-radius:6px; padding:14px 16px; margin-bottom:18px;">
+                <span class="hud-corner" style="top:4px; left:4px; border-top-width:1.5px; border-left-width:1.5px;"></span>
+                <span class="hud-corner" style="top:4px; right:4px; border-top-width:1.5px; border-right-width:1.5px;"></span>
+                <span class="hud-corner" style="bottom:4px; left:4px; border-bottom-width:1.5px; border-left-width:1.5px;"></span>
+                <span class="hud-corner" style="bottom:4px; right:4px; border-bottom-width:1.5px; border-right-width:1.5px;"></span>
+                <div style="position:absolute; left:0; right:0; height:2px; background:rgba(20,241,149,0.35); animation:hudScan 7s linear infinite; pointer-events:none;"></div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <span style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--teal);">&#9679; Osiris &middot; Live Dataflow</span>
+                    <span id="flow-price" style="font-family:'JetBrains Mono',monospace; font-size:1.05rem; font-weight:bold; color:#e0e0e0; transition:color 0.3s;">&mdash;</span>
+                </div>
+                <div style="display:grid; grid-template-columns: 118px minmax(0,1fr) 148px; gap:10px; align-items:stretch;">
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        <div class="flow-meter" style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:6px 9px;">
+                            <div style="font-size:0.58rem; color:#5d606b; letter-spacing:0.08em;">VFM</div>
+                            <div id="flow-vfm" style="font-family:'JetBrains Mono',monospace; font-size:0.95rem; color:#e0e0e0;">&mdash;</div>
+                            <div class="hud-bar-track"><div id="flow-vfm-bar" class="hud-bar-fill" style="width:0%;"></div><div class="hud-bar-seg"></div></div>
+                        </div>
+                        <div class="flow-meter" style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:6px 9px;">
+                            <div style="font-size:0.58rem; color:#5d606b; letter-spacing:0.08em;">ER</div>
+                            <div id="flow-er" style="font-family:'JetBrains Mono',monospace; font-size:0.95rem; color:#e0e0e0;">&mdash;</div>
+                            <div class="hud-bar-track"><div id="flow-er-bar" class="hud-bar-fill" style="width:0%;"></div><div class="hud-bar-seg"></div></div>
+                        </div>
+                        <div class="flow-meter" style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:6px 9px;">
+                            <div style="font-size:0.58rem; color:#5d606b; letter-spacing:0.08em;">DB</div>
+                            <div id="flow-db" style="font-family:'JetBrains Mono',monospace; font-size:0.95rem; color:#e0e0e0;">&mdash;</div>
+                            <div class="hud-bar-track"><div id="flow-db-bar" class="hud-bar-fill" style="width:0%;"></div><div class="hud-bar-seg"></div></div>
+                        </div>
+                        <div class="flow-meter" style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:6px 9px;">
+                            <div style="font-size:0.58rem; color:#5d606b; letter-spacing:0.08em;">CHAOS</div>
+                            <div id="flow-chaos" style="font-family:'JetBrains Mono',monospace; font-size:0.95rem; color:#e0e0e0;">&mdash;</div>
+                            <div class="hud-bar-track"><div id="flow-chaos-bar" class="hud-bar-fill" style="width:0%;"></div><div class="hud-bar-seg"></div></div>
+                        </div>
+                    </div>
+                    <svg id="flow-svg" viewBox="0 0 340 250" style="width:100%; height:auto; display:block;">
+                        <path id="fp1" d="M0,30 C70,30 90,105 158,118" fill="none" stroke="rgba(20,241,149,0.35)" stroke-width="1"/>
+                        <path id="fp2" d="M0,92 C60,92 90,113 158,122" fill="none" stroke="rgba(20,241,149,0.35)" stroke-width="1"/>
+                        <path id="fp3" d="M0,155 C60,155 90,133 158,128" fill="none" stroke="rgba(20,241,149,0.35)" stroke-width="1"/>
+                        <path id="fp4" d="M0,218 C70,218 90,141 158,132" fill="none" stroke="rgba(20,241,149,0.35)" stroke-width="1"/>
+                        <path id="fp5" d="M198,122 C250,122 258,62 340,56" fill="none" stroke="rgba(153,69,255,0.4)" stroke-width="1"/>
+                        <path id="fp6" d="M198,128 C250,128 258,190 340,192" fill="none" stroke="rgba(153,69,255,0.4)" stroke-width="1"/>
+                        <g id="flow-dust"></g>
+                        <circle cx="178" cy="125" r="33" fill="none" stroke="#14f195" stroke-width="1.4" stroke-dasharray="10 6" opacity="0.85">
+                            <animateTransform attributeName="transform" type="rotate" from="0 178 125" to="360 178 125" dur="14s" repeatCount="indefinite"/>
+                        </circle>
+                        <circle cx="178" cy="125" r="24" fill="none" stroke="#00d9ff" stroke-width="0.7" stroke-dasharray="3 5" opacity="0.7">
+                            <animateTransform attributeName="transform" type="rotate" from="360 178 125" to="0 178 125" dur="9s" repeatCount="indefinite"/>
+                        </circle>
+                        <text x="178" y="121" text-anchor="middle" font-size="8.5" fill="#5d606b" font-family="'JetBrains Mono',monospace">CONFLUENCE</text>
+                        <text x="178" y="135" text-anchor="middle" font-size="13" font-weight="bold" fill="#14f195" font-family="'JetBrains Mono',monospace" id="flow-conf">&mdash;</text>
+                        <g id="flow-parts"></g>
+                    </svg>
+                    <div style="grid-column:2; display:flex; gap:3px; margin-top:2px;" id="flow-conf-cells">
+                        <div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:6px;">
+                        <div style="background:#131722; border:1px solid rgba(153,69,255,0.4); border-radius:4px; padding:6px 9px;">
+                            <div style="font-size:0.58rem; color:#5d606b; letter-spacing:0.08em;">KANS L / S</div>
+                            <div id="flow-prob" style="font-family:'JetBrains Mono',monospace; font-size:0.9rem; color:#e0e0e0;">&mdash;</div>
+                            <div class="hud-bar-track"><div id="flow-prob-l" class="hud-bar-fill" style="width:0%; background:#14f195;"></div><div class="hud-bar-seg"></div></div>
+                            <div class="hud-bar-track"><div id="flow-prob-s" class="hud-bar-fill" style="width:0%; background:#ff3b5c;"></div><div class="hud-bar-seg"></div></div>
+                        </div>
+                        <div style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:6px 9px;">
+                            <div style="font-size:0.58rem; color:#5d606b; letter-spacing:0.08em;">ALLOCATIE</div>
+                            <div id="flow-alloc" style="font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:#e0e0e0;">&mdash;</div>
+                            <div class="hud-bar-track"><div id="flow-alloc-bar" class="hud-bar-fill" style="width:0%; background:#ffb627;"></div><div class="hud-bar-seg"></div></div>
+                        </div>
+                        <div style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:6px 9px;">
+                            <div style="font-size:0.58rem; color:#5d606b; letter-spacing:0.08em;">REGIME</div>
+                            <div id="flow-regime" style="font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:#14f195;">&mdash;</div>
+                        </div>
+                        <div style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:6px 9px;">
+                            <div style="font-size:0.58rem; color:#5d606b; letter-spacing:0.08em;">POSITIES</div>
+                            <div id="flow-pos" style="font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:#e0e0e0;">&mdash;</div>
+                        </div>
+                        <div style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:6px 9px;">
+                            <div style="font-size:0.58rem; color:#5d606b; letter-spacing:0.08em;">VOLGENDE NODE</div>
+                            <div id="flow-node" style="font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:#00d9ff;">&mdash;</div>
+                            <div class="hud-bar-track"><div id="flow-node-bar" class="hud-bar-fill" style="width:0%; background:#00d9ff;"></div><div class="hud-bar-seg"></div></div>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top:10px; border-top:1px solid #2a2e39; padding-top:8px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                    <span class="live-dot" style="flex:none;"></span>
+                    <span id="flow-console" style="font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:#8a8d98; flex:1; min-width:200px;">Osiris HUD initialiseert...</span>
+                    <span class="hud-micro">SCAN <span id="flow-scan" style="color:#14f195;">&mdash;</span></span>
+                    <span class="hud-micro">BUFFER <span id="flow-buf" style="color:#14f195;">&mdash;</span></span>
+                    <span class="hud-micro" style="animation:hudBlink 2s infinite;">SYS <span id="flow-sys" style="color:#14f195;">NOMINAAL</span></span>
+                </div>
+            </div>
+
             <!-- WALLET STATUS: neon rand + icoon -->
             <div class="wallet-panel">
                 <div class="wallet-header">
