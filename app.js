@@ -107,6 +107,13 @@ let botSettings = {
     // break-even hangt (binnen de kostenband) heeft zijn these niet
     // waargemaakt en bindt alleen kapitaal + risico. Sluiten en herbeoordelen.
     maxPositionAgeMinutes: 90,
+    // KANS-SMOOTHING (14-07): de nachtsessie liet zien dat de kansscore
+    // hyperreactief was - entries op ~95% stortten binnen 14 min onder de 25%
+    // (10 van 12 exits = PROB_COLLAPSE, kalibratie: 90-100%-bucket won 25%).
+    // Eén MA-flip kon de hele score laten zwiepen. Beslissingen (entry én
+    // collaps) rekenen nu met de MEDIAAN van de laatste N metingen per kant:
+    // één uitschieter telt niet meer, een aanhoudende verschuiving wel.
+    probSmoothingSamples: 6,           // ~1 minuut historie bij een 10s-scancyclus
     minLossForEarlyExit: 0.003,  // ondergrens (0.3%) verlies voordat de bot vroegtijdig mag sluiten op bevestigde tegentrend, vóór de volle stop-loss
     maxOpenPositions: 3,         // totaal aantal posities dat tegelijk open mag staan (over beide kanten samen), hard begrensd op 4
     minHedgeReservePct: 0.15,    // gereserveerde allocatie voor een eventuele hedge op de andere kant, ALLEEN als die kant nog geen positie heeft
@@ -2561,7 +2568,7 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const momentumInfluence = calculateMomentumInfluence(side, momentumContext);
     const fibConfluenceInfluence = calculateFibConfluenceInfluence(currentPrice);
     const patternInfluence = calculatePatternInfluence(side);
-    const probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, side, isBullish, patternInfluence);
+    let probabilityPct = calculateProbabilityScore(decision.confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, side, isBullish, patternInfluence);
 
     const targetPrice = side === 'LONG'
         ? parseFloat(decision.targets.meso.bullish)
@@ -2575,6 +2582,9 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     // ingestelde minimumwinst - anders is een "geslaagde" trade netto verlies.
     // Plus (13-07): de REGIME-POORT - in een dood regime (lage vol én lage
     // energie, aanhoudend) gaan er geen nieuwe entries open.
+    // Plus (14-07): de kans is GESMOOTHED (mediaan van de laatste metingen) -
+    // een entry vergt een aanhoudend hoge kans, niet één opgewonden meting.
+    probabilityPct = smoothProb(side, probabilityPct);
     const regime = evaluateMarketRegime();
     const eligible = probabilityPct >= botSettings.minProbabilityPct &&
                       projectedProfitPct > (botSettings.minProjectedProfitPct + roundTripCostPct()) &&
@@ -2590,6 +2600,20 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
 // activum en in elk volatiliteitsregime. Bij te weinig historie (<60 samples,
 // ~10 min) blijft de poort open - liever handelen op de bestaande drempels dan
 // blind blokkeren.
+// Ringbuffers voor kans-smoothing, per kant. smoothProb() voegt de nieuwste
+// ruwe meting toe en geeft de mediaan van de laatste N terug.
+const _probBuffers = { LONG: [], SHORT: [] };
+function smoothProb(side, rawProb) {
+    if (rawProb === null || !isFinite(rawProb)) return rawProb;
+    const buf = _probBuffers[side];
+    if (!buf) return rawProb;
+    buf.push(rawProb);
+    const cap = Math.max(2, botSettings.probSmoothingSamples || 6);
+    while (buf.length > cap) buf.shift();
+    const sorted = [...buf].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+}
+
 let _regimeDeadSince = null;
 let _lastRegimeSkipLog = 0;
 function evaluateMarketRegime() {
@@ -3383,7 +3407,7 @@ function checkOpenPositionsExits() {
         // zit. De bevestigingstijd is de geformaliseerde "2-3 candles na een
         // node"-observatie: één slechte meting telt niet, een aanhoudende wel.
         if (!pos.isScalp) {
-            const liveProb = evaluateContinuation(pos.side).probabilityPct;
+            const liveProb = smoothProb(pos.side, evaluateContinuation(pos.side).probabilityPct);
             if (liveProb !== null && liveProb <= botSettings.probCollapseThresholdPct) {
                 // OMMEKEER-WINSTPAKKER (13-07): staat de positie NA KOSTEN in de
                 // winst terwijl de winkans instort, dan is er niets om op te
@@ -4435,6 +4459,22 @@ function startLiveUpdates() {
     // dezelfde markt (spot - waar de testnet-executie ook op handelt).
     const baseUrl = "wss://stream.binance.com:9443";
     currentWs = new WebSocket(`${baseUrl}/ws/btcusdt@kline_${BOT_INTERVAL}`);
+
+    // RECONNECT (13-07): de bot-stream had géén onclose-handler - een korte
+    // netwerkhapering of browser-hik (zoals vanavond gezien) liet de socket
+    // stil sterven, waarna livePrice/liveVol bevroor en de bot blind verder
+    // "draaide" op verouderde data. Nu: automatische herverbinding met
+    // oplopende backoff (2s -> 4s -> ... -> max 60s), en na herstel wordt de
+    // bot-data ververst zodat gemiste candles worden ingehaald.
+    currentWs.onclose = () => {
+        if (!currentWs) return; // bewust gesloten (bv. interval-herstart)
+        const delay = Math.min(60000, (window._botWsRetryDelay = (window._botWsRetryDelay || 1000) * 2));
+        console.warn(`Bot-stream verbroken - herverbinden over ${delay / 1000}s...`);
+        setTimeout(() => {
+            initDashboard(); // haalt gemiste candles op én start de stream opnieuw
+        }, delay);
+    };
+    currentWs.onopen = () => { window._botWsRetryDelay = 1000; };
     
     currentWs.onmessage = (event) => {
         try {
