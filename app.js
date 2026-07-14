@@ -114,6 +114,15 @@ let botSettings = {
     // collaps) rekenen nu met de MEDIAAN van de laatste N metingen per kant:
     // één uitschieter telt niet meer, een aanhoudende verschuiving wel.
     probSmoothingSamples: 6,           // ~1 minuut historie bij een 10s-scancyclus
+    // KLEINE-WINST-OOGST (14-07, Markov-analyse op 153 trades / 4975
+    // overgangen): vanuit de kleine-winst-zone (kosten..activatie) is de kans
+    // om ooit de activatiedrempel te halen maar 41%, en vanuit 0.5-1.0% haalt
+    // slechts 11% ooit de 1%. Wachten in die zones is -EV zodra het lang
+    // duurt. Regel: staat een trade >= dit aantal minuten in de winst boven
+    // de kosten zonder ooit de winst-beschermingsactivatie te hebben gehaald,
+    // dan wordt de winst geoogst. Beleidssimulatie op de echte trade-paden:
+    // +22.4 vs +18.4 (zonder oogst) vs +1.5 (werkelijk gerealiseerd). 0 = uit.
+    smallProfitHarvestMinutes: 30,
     minLossForEarlyExit: 0.003,  // ondergrens (0.3%) verlies voordat de bot vroegtijdig mag sluiten op bevestigde tegentrend, vóór de volle stop-loss
     maxOpenPositions: 3,         // totaal aantal posities dat tegelijk open mag staan (over beide kanten samen), hard begrensd op 4
     minHedgeReservePct: 0.15,    // gereserveerde allocatie voor een eventuele hedge op de andere kant, ALLEEN als die kant nog geen positie heeft
@@ -672,7 +681,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 1, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 70, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90, 'small-profit-harvest': 30,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 1.2, 'range-scalp-alloc-pct': 20,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 50,
@@ -691,7 +700,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 40, 'stop-loss-pct': 1.5, 'min-probability-pct': 80,
         'hold-continuation-probability-pct': 90, 'min-projected-profit-pct': 1.5,
         'max-open-positions': 2, 'hedge-reserve-pct': 25, 'pending-order-ttl': 20,
-        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 85, 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180, 'regime-gate-enabled': 'true', 'max-position-age': 120,
+        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 85, 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180, 'regime-gate-enabled': 'true', 'max-position-age': 120, 'small-profit-harvest': 45,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 0.8, 'range-scalp-alloc-pct': 0,
         'chase-probability-pct': 95, 'chase-after-minutes': 15,
         'reallocation-enabled': 'false', 'reallocation-margin-pct': 25,
@@ -707,7 +716,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2, 'min-probability-pct': 70,
         'hold-continuation-probability-pct': 85, 'min-projected-profit-pct': 1,
         'max-open-positions': 3, 'hedge-reserve-pct': 15, 'pending-order-ttl': 30,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 75, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 75, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90, 'small-profit-harvest': 30,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 0.7, 'range-scalp-alloc-pct': 10,
         'chase-probability-pct': 90, 'chase-after-minutes': 10,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 20,
@@ -726,7 +735,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2.5, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 80, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.4, 'profit-protect-keep': 70, 'prob-collapse-threshold': 40, 'prob-collapse-confirm-sec': 90, 'regime-gate-enabled': 'true', 'max-position-age': 60,
+        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.4, 'profit-protect-keep': 70, 'prob-collapse-threshold': 40, 'prob-collapse-confirm-sec': 90, 'regime-gate-enabled': 'true', 'max-position-age': 60, 'small-profit-harvest': 20,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 1.0, 'range-scalp-alloc-pct': 15,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 15,
@@ -1323,6 +1332,7 @@ function populateSettingsInputsFromState() {
     setVal('prob-collapse-confirm-sec', s.probCollapseConfirmSeconds);
     setVal('regime-gate-enabled', String(s.regimeGateEnabled ?? true));
     setVal('max-position-age', s.maxPositionAgeMinutes);
+    setVal('small-profit-harvest', s.smallProfitHarvestMinutes);
     setVal('continuation-confirmation-sec', s.continuationConfirmationSeconds);
     setVal('range-scalp-target-pct', s.rangeScalpProfitTargetPct);
     setVal('range-scalp-stop-pct', s.rangeScalpStopLossPct);
@@ -1474,6 +1484,10 @@ function readTradingSettingsFromInputs() {
     const maxAgeInput = document.getElementById('max-position-age');
     if (maxAgeInput && !isNaN(parseFloat(maxAgeInput.value))) {
         botSettings.maxPositionAgeMinutes = Math.max(parseFloat(maxAgeInput.value), 0);
+    }
+    const harvestInput = document.getElementById('small-profit-harvest');
+    if (harvestInput && !isNaN(parseFloat(harvestInput.value))) {
+        botSettings.smallProfitHarvestMinutes = Math.max(parseFloat(harvestInput.value), 0);
     }
     if (stopLossInput && !isNaN(parseFloat(stopLossInput.value))) {
         botSettings.stopLossPct = Math.max(parseFloat(stopLossInput.value) / 100, 0.001);
@@ -1738,6 +1752,7 @@ function renderActiveSettingsPanel() {
         ['Winst-bescherming (piek / greep)', `${(s.profitProtectActivationPct * 100).toFixed(1)}% / ${s.profitProtectKeepPct}%`],
         ['Kans-collaps (drempel / bevestiging)', `${s.probCollapseThresholdPct}% / ${s.probCollapseConfirmSeconds}s`],
         ['Regime-poort / tijd-stop', `${s.regimeGateEnabled ? 'aan' : 'uit'} / ${s.maxPositionAgeMinutes || 0}min`],
+        ['Kleine-winst-oogst', `${s.smallProfitHarvestMinutes > 0 ? s.smallProfitHarvestMinutes + 'min' : 'uit'}`],
         ['Bevestigingstijd exit', `${s.continuationConfirmationSeconds}s`],
         ['Range-scalp doel / stop / alloc', `${s.rangeScalpProfitTargetPct}% / ${s.rangeScalpStopLossPct}% / ${(s.rangeScalpAllocationPct * 100).toFixed(0)}%`],
         ['Chase (aan >kans / na min)', `${s.chaseEnabled ? 'aan' : 'uit'} / ${s.chaseProbabilityThreshold}% / ${s.chaseAfterMinutes}min`],
@@ -3381,6 +3396,20 @@ function checkOpenPositionsExits() {
             const continuation = evaluateContinuationWithConfirmation(pos, pos.side);
             if (continuation.confirmed) {
                 closePosition(pos, pnlPct, "EARLY_STOP_TREND");
+                return;
+            }
+        }
+
+        // 4a-pre. KLEINE-WINST-OOGST: winst boven de kostenband, maar de piek
+        // heeft de beschermingsactivatie nooit gehaald, en dat al >= de
+        // ingestelde tijd - de Markov-matrix zegt dat doorstoten vanaf hier
+        // onwaarschijnlijk is (41% vanuit de kleine-winst-zone). Innen.
+        if (!pos.isScalp && botSettings.smallProfitHarvestMinutes > 0) {
+            const ageMinH = (Date.now() - (pos.openTime || 0)) / 60000;
+            if (pnlPct >= roundTripCostPct() / 100 &&
+                (pos.peakPnlPct || 0) < botSettings.profitProtectActivationPct &&
+                ageMinH >= botSettings.smallProfitHarvestMinutes) {
+                closePosition(pos, pnlPct, `SMALL_PROFIT_HARVEST (+${(pnlPct * 100).toFixed(2)}% na ${ageMinH.toFixed(0)} min - doorstoten statistisch onwaarschijnlijk)`);
                 return;
             }
         }
