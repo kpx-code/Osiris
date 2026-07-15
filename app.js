@@ -442,6 +442,14 @@ let lastReallocationAt = 0; // timestamp (ms) van de laatste reallocatie - voor 
 // teruggeladen - elke refresh gooide dus het adaptieve leren weg. De declaratie
 // hoort hier, bij de rest van de persistente state.
 let sessionLog = [];
+// FIX (crash 15-07): _calibMap stond gedeclareerd bij de kalibratiefunctie
+// (~regel 3260), terwijl loadPersistentState() - dat computeCalibrationMap()
+// aanroept - al rond regel 1300 draait. Zelfde temporal-dead-zone-val als
+// eerder met sessionLog: "Cannot access '_calibMap' before initialization".
+// En met dezelfde stille schade: de catch slokte de fout op, waardoor de regel
+// ERNA (adaptiveWeights herstellen) bij ELKE page-load werd overgeslagen.
+// Declaratie hoort hier, bij de rest van de persistente state.
+let _calibMap = null; // gesorteerde [rawMid, observedWinratePct]-punten
 const MIN_SAMPLE_SIZE = 20; // minimaal aantal trades per groep voordat een gewicht wordt aangepast
 let lastCalibrationSummary = null; // voor het transparantie-paneel
 
@@ -1301,8 +1309,9 @@ function loadPersistentState() {
         }
         if (sl) sessionLog = JSON.parse(sl);
         if (ll) learningLog = JSON.parse(ll);
-        computeCalibrationMap(); // mapping direct beschikbaar na herstel
         if (aw) adaptiveWeights = JSON.parse(aw);
+        computeCalibrationMap(); // pas NA het herstellen van alle state - zodat een
+                                 // fout hier nooit meer een herstel-regel kan blokkeren
     } catch (e) { console.warn("Kon wallet/positie-status niet laden:", e); }
 }
 
@@ -1824,11 +1833,15 @@ function getAllocatedPct() {
 
 function getUnrealizedPnL() {
     if (!livePrice) return 0;
+    // NETTO (15-07): inclusief de round-trip kosten die bij sluiten geboekt
+    // worden, zodat Open P/L en Equity tonen wat je werkelijk overhoudt en
+    // niet een optimistische bruto-waarde.
+    const costFrac = roundTripCostPct() / 100;
     return openPositions.reduce((sum, p) => {
-        const pnlPct = p.side === 'LONG'
+        const grossPct = p.side === 'LONG'
             ? (livePrice - p.entryPrice) / p.entryPrice
             : (p.entryPrice - livePrice) / p.entryPrice;
-        return sum + (p.notional * pnlPct);
+        return sum + (p.notional * (grossPct - costFrac));
     }, 0);
 }
 
@@ -1931,7 +1944,9 @@ function getPositionReasoning(pos) {
         chanceTxt = ` | winkans nu ${formatProbWithCalibration(liveCheck.probabilityPct)} (bij entry ${formatConfidencePct(pos.probabilityPct)}) / verlieskans nu ${formatConfidencePct(100 - liveCheck.probabilityPct)}`;
     }
 
-    return `[${pos.isScalp ? 'SCALP' : 'TREND'}] ${pos.side} @ ${formatChartPrice(pos.entryPrice)} | P/L ${(pnlPct * 100).toFixed(2)}% | ${zone}${detail ? ': ' + detail : ''}${confirmTxt}${chanceTxt}`;
+    // Netto tonen (zie WEERGAVE-FIX 15-07): dit is wat sluiten nu zou boeken.
+    const nettoPct = pnlPct - roundTripCostPct() / 100;
+    return `[${pos.isScalp ? 'SCALP' : 'TREND'}] ${pos.side} @ ${formatChartPrice(pos.entryPrice)} | P/L ${(nettoPct * 100).toFixed(2)}% netto | ${zone}${detail ? ': ' + detail : ''}${confirmTxt}${chanceTxt}`;
 }
 
 // ============================================================
@@ -2055,9 +2070,16 @@ function updateWalletUI() {
             setText('bot-position', 'Geen');
         } else {
             posBody.innerHTML = openPositions.map(p => {
-                const pnlPct = livePrice ? (p.side === 'LONG'
+                // WEERGAVE-FIX (15-07): P/L wordt NETTO getoond (bruto minus de
+                // verwachte round-trip kosten). Voorheen toonde het scherm bruto
+                // terwijl de boeking bij sluiten netto is - een positie op
+                // "+0.10%" stond werkelijk op -0.14%, en elke exit leek dan
+                // "winst die in verlies veranderde". Wat je nu ziet is wat je
+                // bij sluiten ongeveer boekt.
+                const grossPct = livePrice ? (p.side === 'LONG'
                     ? (livePrice - p.entryPrice) / p.entryPrice
                     : (p.entryPrice - livePrice) / p.entryPrice) : 0;
+                const pnlPct = grossPct - roundTripCostPct() / 100;
                 const color = pnlPct >= 0 ? '#00ffcc' : '#ef5350';
                 const entryTijd = p.openTime ? formatFullDateTime(p.openTime) : '-';
                 const typeLabel = p.isScalp ? 'SCALP' : 'TREND';
@@ -2070,7 +2092,7 @@ function updateWalletUI() {
                     <td>${p.amount}</td>
                     <td>${formatMoney(p.notional)}</td>
                     <td>${(p.sizePct * 100).toFixed(1)}%</td>
-                    <td style="color:${color};">${(pnlPct * 100).toFixed(2)}%</td>
+                    <td style="color:${color};" title="netto na ${roundTripCostPct().toFixed(2)}% round-trip kosten (bruto ${(grossPct * 100).toFixed(2)}%)">${(pnlPct * 100).toFixed(2)}%</td>
                     <td style="color:${color};">${formatMoney(p.notional * pnlPct)}</td>
                 </tr>`;
             }).join('');
@@ -3260,8 +3282,7 @@ function finalizeClosePosition(pos, pnlPct, reason) {
 // verandert - pas als de mapping stabiel is, is de bewuste tweede stap om de
 // poorten op de gekalibreerde schaal te zetten mét opnieuw gekozen drempels.
 // ============================================================
-let _calibMap = null; // gesorteerde [rawMid, observedWinratePct]-punten
-
+// _calibMap is bovenin gedeclareerd (bij de persistente state) - zie de FIX daar.
 function computeCalibrationMap() {
     const pts = [];
     const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
