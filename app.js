@@ -1301,6 +1301,7 @@ function loadPersistentState() {
         }
         if (sl) sessionLog = JSON.parse(sl);
         if (ll) learningLog = JSON.parse(ll);
+        computeCalibrationMap(); // mapping direct beschikbaar na herstel
         if (aw) adaptiveWeights = JSON.parse(aw);
     } catch (e) { console.warn("Kon wallet/positie-status niet laden:", e); }
 }
@@ -1719,6 +1720,10 @@ function renderLearningPanel() {
         html += `</table>`;
     }
 
+    if (_calibMap) {
+        const mapTxt = _calibMap.map(([r, w]) => `${r.toFixed(0)}\u2192${w.toFixed(0)}`).join(' \u00b7 ');
+        html += `<div style="font-size:0.64em; color:var(--teal); margin-top:8px;">Herkalibratie actief (weergave): ruwe score \u2192 gemeten winrate: ${mapTxt}</div>`;
+    }
     if (lastCalibrationSummary) {
         html += `<div style="font-size:0.62em; color:var(--text-dimmer); margin-top:10px;">Laatst herijkt: ${lastCalibrationSummary.timestamp}</div>`;
     }
@@ -1923,7 +1928,7 @@ function getPositionReasoning(pos) {
     let chanceTxt = '';
     if (pos.probabilityPct !== null && pos.probabilityPct !== undefined) {
         const liveCheck = evaluateContinuation(pos.side);
-        chanceTxt = ` | winkans nu ${formatConfidencePct(liveCheck.probabilityPct)} (bij entry ${formatConfidencePct(pos.probabilityPct)}) / verlieskans nu ${formatConfidencePct(100 - liveCheck.probabilityPct)}`;
+        chanceTxt = ` | winkans nu ${formatProbWithCalibration(liveCheck.probabilityPct)} (bij entry ${formatConfidencePct(pos.probabilityPct)}) / verlieskans nu ${formatConfidencePct(100 - liveCheck.probabilityPct)}`;
     }
 
     return `[${pos.isScalp ? 'SCALP' : 'TREND'}] ${pos.side} @ ${formatChartPrice(pos.entryPrice)} | P/L ${(pnlPct * 100).toFixed(2)}% | ${zone}${detail ? ': ' + detail : ''}${confirmTxt}${chanceTxt}`;
@@ -1976,7 +1981,7 @@ function generateLiveNarration() {
     lines.push(indicatorTxt);
 
     const confDirs = getDirectionalConfidences();
-    lines.push(`EINDSCORE \u00b7 LONG ${formatConfidencePct(confDirs.bullish)} vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bullish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'}) \u00b7 SHORT ${formatConfidencePct(confDirs.bearish)} vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bearish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'})`);
+    lines.push(`EINDSCORE \u00b7 LONG ${formatProbWithCalibration(confDirs.bullish)} vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bullish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'}) \u00b7 SHORT ${formatProbWithCalibration(confDirs.bearish)} vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bearish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'})`);
 
     lines.push(`STATUS · ${lastOsirisDecision.decision}`);
 
@@ -3244,7 +3249,59 @@ function finalizeClosePosition(pos, pnlPct, reason) {
 // presteert hij duidelijk beter, dan mag het gewicht iets stijgen. Elke
 // aanpassing is klein (max 5% per kalibratie) en pas bij >= MIN_SAMPLE_SIZE
 // trades PER GROEP - bij te weinig data verandert er bewust niets.
+// ============================================================
+// EMPIRISCHE KANS-HERKALIBRATIE (15-07)
+// De kalibratietabel bewees met n=98 dat de 90-100%-bucket werkelijk 36% wint:
+// de score is structureel overmoedig. Deze laag mapt de ruwe score door de
+// EIGEN gemeten winrates (monotoon afgedwongen, minimaal 15 trades per bucket,
+// minimaal 50 totaal). BEWUST alleen als WEERGAVE-laag: overal waar een kans
+// getoond wordt staat de eerlijke waarde erbij als "(kal. X%)". De
+// beslisdrempels blijven op de ruwe schaal zodat het gedrag niet stilletjes
+// verandert - pas als de mapping stabiel is, is de bewuste tweede stap om de
+// poorten op de gekalibreerde schaal te zetten mét opnieuw gekozen drempels.
+// ============================================================
+let _calibMap = null; // gesorteerde [rawMid, observedWinratePct]-punten
+
+function computeCalibrationMap() {
+    const pts = [];
+    const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
+    const withProb = learningLog.filter(l => l.entryProbabilityPct != null);
+    if (withProb.length < 50) { _calibMap = null; return; }
+    for (const [lo, hi] of buckets) {
+        const inB = withProb.filter(l => l.entryProbabilityPct >= lo && l.entryProbabilityPct < hi);
+        if (inB.length >= 15) {
+            pts.push([(lo + Math.min(hi, 100)) / 2, inB.filter(l => l.outcome === 'win').length / inB.length * 100]);
+        }
+    }
+    if (pts.length < 2) { _calibMap = null; return; }
+    // Monotoon afdwingen (kalibratie mag nooit dalen bij hogere ruwe score)
+    for (let i = 1; i < pts.length; i++) pts[i][1] = Math.max(pts[i][1], pts[i - 1][1]);
+    _calibMap = pts;
+}
+
+function calibrateProbability(raw) {
+    if (!_calibMap || raw == null || !isFinite(raw)) return null;
+    const pts = _calibMap;
+    if (raw <= pts[0][0]) return Math.max(1, (raw / pts[0][0]) * pts[0][1]);
+    if (raw >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+    for (let i = 1; i < pts.length; i++) {
+        if (raw <= pts[i][0]) {
+            const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+            return y0 + (raw - x0) / (x1 - x0) * (y1 - y0);
+        }
+    }
+    return pts[pts.length - 1][1];
+}
+
+// Compacte weergave-hulp: "94% (kal. 36%)" zodra de mapping actief is.
+function formatProbWithCalibration(rawPct) {
+    if (rawPct == null || !isFinite(rawPct)) return '\u2014';
+    const cal = calibrateProbability(rawPct);
+    return cal === null ? formatConfidencePct(rawPct) : `${formatConfidencePct(rawPct)} (kal. ${cal.toFixed(0)}%)`;
+}
+
 function recalibrateAdaptiveWeights() {
+    computeCalibrationMap();
     const factorKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluenceInfluence', 'patternInfluence'];
     const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern' };
     const summary = {};
@@ -5074,7 +5131,7 @@ function initFlowHud() {
     // Zwevend achtergrondstof: trage, bijna onzichtbare deeltjes door het veld.
     for (let k = 0; k < 24; k++) {
         const c = document.createElementNS(NS, 'circle');
-        const x = 10 + Math.random() * 320, y = 10 + Math.random() * 230;
+        const x = 10 + Math.random() * 320, y = 8 + Math.random() * 144;
         c.setAttribute('cx', x.toFixed(0)); c.setAttribute('cy', y.toFixed(0));
         c.setAttribute('r', (0.7 + Math.random() * 1.1).toFixed(1));
         c.setAttribute('fill', '#14f195');
@@ -5134,7 +5191,9 @@ function updateFlowHud() {
     }
     const pl = readSmoothedProb('LONG'), ps = readSmoothedProb('SHORT');
     if (pl !== null || ps !== null) {
-        set('flow-prob', `${pl !== null ? pl.toFixed(0) : '\u2014'}% / ${ps !== null ? ps.toFixed(0) : '\u2014'}%`);
+        const calL = calibrateProbability(pl), calS = calibrateProbability(ps);
+        const calTxt = (calL !== null && calS !== null) ? ` (kal. ${calL.toFixed(0)}/${calS.toFixed(0)})` : '';
+        set('flow-prob', `${pl !== null ? pl.toFixed(0) : '\u2014'}% / ${ps !== null ? ps.toFixed(0) : '\u2014'}%${calTxt}`);
         setBar('flow-prob-l', pl ?? 0);
         setBar('flow-prob-s', ps ?? 0);
     }
