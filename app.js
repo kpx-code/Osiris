@@ -123,6 +123,21 @@ let botSettings = {
     // dan wordt de winst geoogst. Beleidssimulatie op de echte trade-paden:
     // +22.4 vs +18.4 (zonder oogst) vs +1.5 (werkelijk gerealiseerd). 0 = uit.
     smallProfitHarvestMinutes: 30,
+    // NODE-GEWICHT (15-07). Drie onafhankelijke toetsen vonden geen robuust
+    // node-effect: spectraalanalyse (geen 188.66-min periodiciteit), respons-
+    // analyse (30/60/90/120 min na node = baseline), en de learningLog (node-
+    // invloed >5 -> winrate 18-21%). De kantelpunt-toets gaf als enige iets:
+    // momentum zet door op gewone momenten (r=+0.149) maar niet op nodes
+    // (r=-0.114), verschil z=-2.94 p=0.0033, permutatie p=0.013 - maar het
+    // repliceerde NIET in de split-half (1e helft -0.212, 2e helft +0.041) en
+    // overleeft geen Bonferroni over ~50 toetsen (p_corr ~ 0.16).
+    // Daarom: geen prijscomponent inbouwen op zwak bewijs, maar het gewicht
+    // wel expliciet in handen van de gebruiker leggen.
+    //   'adaptive' = het lerende systeem bepaalt (kan tot 0.5x dempen)
+    //   'manual'   = vast op nodeWeightManual (0 = node-invloed volledig uit)
+    // Hertoets de kantelpunt-correlatie over ~1 maand op verse data.
+    nodeWeightMode: 'adaptive',
+    nodeWeightManual: 1.0,
     minLossForEarlyExit: 0.003,  // ondergrens (0.3%) verlies voordat de bot vroegtijdig mag sluiten op bevestigde tegentrend, vóór de volle stop-loss
     maxOpenPositions: 3,         // totaal aantal posities dat tegelijk open mag staan (over beide kanten samen), hard begrensd op 4
     minHedgeReservePct: 0.15,    // gereserveerde allocatie voor een eventuele hedge op de andere kant, ALLEEN als die kant nog geen positie heeft
@@ -689,7 +704,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 1, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 70, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90, 'small-profit-harvest': 30,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 30,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 1.2, 'range-scalp-alloc-pct': 20,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 50,
@@ -708,7 +723,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 40, 'stop-loss-pct': 1.5, 'min-probability-pct': 80,
         'hold-continuation-probability-pct': 90, 'min-projected-profit-pct': 1.5,
         'max-open-positions': 2, 'hedge-reserve-pct': 25, 'pending-order-ttl': 20,
-        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 85, 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180, 'regime-gate-enabled': 'true', 'max-position-age': 120, 'small-profit-harvest': 45,
+        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 85, 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180, 'regime-gate-enabled': 'true', 'max-position-age': 120, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 45,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 0.8, 'range-scalp-alloc-pct': 0,
         'chase-probability-pct': 95, 'chase-after-minutes': 15,
         'reallocation-enabled': 'false', 'reallocation-margin-pct': 25,
@@ -724,7 +739,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2, 'min-probability-pct': 70,
         'hold-continuation-probability-pct': 85, 'min-projected-profit-pct': 1,
         'max-open-positions': 3, 'hedge-reserve-pct': 15, 'pending-order-ttl': 30,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 75, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90, 'small-profit-harvest': 30,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 75, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 30,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 0.7, 'range-scalp-alloc-pct': 10,
         'chase-probability-pct': 90, 'chase-after-minutes': 10,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 20,
@@ -743,7 +758,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2.5, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 80, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.4, 'profit-protect-keep': 70, 'prob-collapse-threshold': 40, 'prob-collapse-confirm-sec': 90, 'regime-gate-enabled': 'true', 'max-position-age': 60, 'small-profit-harvest': 20,
+        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.4, 'profit-protect-keep': 70, 'prob-collapse-threshold': 40, 'prob-collapse-confirm-sec': 90, 'regime-gate-enabled': 'true', 'max-position-age': 60, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 20,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 1.0, 'range-scalp-alloc-pct': 15,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 15,
@@ -1343,6 +1358,8 @@ function populateSettingsInputsFromState() {
     setVal('regime-gate-enabled', String(s.regimeGateEnabled ?? true));
     setVal('max-position-age', s.maxPositionAgeMinutes);
     setVal('small-profit-harvest', s.smallProfitHarvestMinutes);
+    setVal('node-weight-mode', s.nodeWeightMode);
+    setVal('node-weight-manual', s.nodeWeightManual);
     setVal('continuation-confirmation-sec', s.continuationConfirmationSeconds);
     setVal('range-scalp-target-pct', s.rangeScalpProfitTargetPct);
     setVal('range-scalp-stop-pct', s.rangeScalpStopLossPct);
@@ -1494,6 +1511,12 @@ function readTradingSettingsFromInputs() {
     const maxAgeInput = document.getElementById('max-position-age');
     if (maxAgeInput && !isNaN(parseFloat(maxAgeInput.value))) {
         botSettings.maxPositionAgeMinutes = Math.max(parseFloat(maxAgeInput.value), 0);
+    }
+    const nodeModeSel = document.getElementById('node-weight-mode');
+    if (nodeModeSel) botSettings.nodeWeightMode = nodeModeSel.value;
+    const nodeWInput = document.getElementById('node-weight-manual');
+    if (nodeWInput && !isNaN(parseFloat(nodeWInput.value))) {
+        botSettings.nodeWeightManual = Math.max(0, parseFloat(nodeWInput.value));
     }
     const harvestInput = document.getElementById('small-profit-harvest');
     if (harvestInput && !isNaN(parseFloat(harvestInput.value))) {
@@ -1687,8 +1710,9 @@ function renderLearningPanel() {
         const wKey = weightKeys[fk];
         const weight = adaptiveWeights[wKey];
         const s = lastCalibrationSummary ? lastCalibrationSummary.summary[fk] : null;
-        const nPresent = s ? s.nPresent : learningLog.filter(l => l.factors[fk] > 1).length;
-        const nAbsent = s ? s.nAbsent : learningLog.filter(l => l.factors[fk] !== null && l.factors[fk] <= 1).length;
+        const botOnly = learningLog.filter(l => !l.manual);
+        const nPresent = s ? s.nPresent : botOnly.filter(l => l.factors[fk] > 1).length;
+        const nAbsent = s ? s.nAbsent : botOnly.filter(l => l.factors[fk] !== null && l.factors[fk] <= 1).length;
         const weightColor = weight > 1.02 ? 'var(--teal)' : (weight < 0.98 ? 'var(--red)' : 'var(--text-primary)');
 
         html += `<div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); padding:10px 12px;">
@@ -1708,7 +1732,7 @@ function renderLearningPanel() {
     // winrate. Dit is de directe toets of de kansscore eerlijk is: in een
     // perfect gekalibreerd systeem wint de 70-80%-bucket ~75% van de tijd.
     // Wint hij 40%, dan is de score overmoedig en weet je precies hoeveel.
-    const withProb = learningLog.filter(l => l.entryProbabilityPct != null || (l.factors && l.factors.probabilityPct != null));
+    const withProb = learningLog.filter(l => !l.manual && (l.entryProbabilityPct != null || (l.factors && l.factors.probabilityPct != null)));
     if (withProb.length >= 10) {
         const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
         html += `<div style="font-size:0.7em; color:var(--text-dim); margin:14px 0 6px;">Kalibratie: voorspelde winkans vs. werkelijkheid (n=${withProb.length})</div>`;
@@ -1727,6 +1751,23 @@ function renderLearningPanel() {
             html += `<tr><td style="padding:2px 6px;">${lo}-${Math.min(hi, 100)}%</td><td style="padding:2px 6px;">${inB.length}</td><td style="padding:2px 6px;">${wr.toFixed(0)}%</td><td style="padding:2px 6px; color:${devColor};">${dev >= 0 ? '+' : ''}${dev.toFixed(0)}pt</td></tr>`;
         });
         html += `</table>`;
+    }
+
+    // Counterfactueel blok: wat leverden de handmatige trades op, gesplitst naar
+    // "bot zou hier ook instappen" vs. "bot zou NIET instappen". Dat tweede vak
+    // is de blinde vlek van het systeem - daar zit de leerwaarde.
+    const man = learningLog.filter(l => l.manual);
+    if (man.length > 0) {
+        const groep = (arr) => arr.length ? `${arr.length}x, winrate ${(arr.filter(l => l.outcome === 'win').length / arr.length * 100).toFixed(0)}%, gem ${(arr.reduce((a, l) => a + l.pnlPct, 0) / arr.length * 100).toFixed(2)}%` : '-';
+        html += `<div style="font-size:0.7em; color:var(--amber, #ffb627); margin:14px 0 4px;">Handmatige trades (counterfactueel \u00b7 tellen niet mee voor kalibratie/gewichten)</div>`;
+        html += `<div style="font-family:'JetBrains Mono',monospace; font-size:0.62em; color:var(--text-dim);">`;
+        html += `bot zou ook instappen: ${groep(man.filter(l => l.botWouldEnter === true))}<br>`;
+        html += `bot zou NIET instappen: ${groep(man.filter(l => l.botWouldEnter === false))}`;
+        html += `</div>`;
+    }
+
+    if (botSettings.nodeWeightMode === 'manual') {
+        html += `<div style="font-size:0.64em; color:#ffb627; margin-top:8px;">Node-gewicht staat HANDMATIG op ${botSettings.nodeWeightManual}${botSettings.nodeWeightManual === 0 ? ' (node-invloed uit)' : ''} \u2014 het lerende systeem past dit gewicht niet aan.</div>`;
     }
 
     if (_calibMap) {
@@ -1767,6 +1808,7 @@ function renderActiveSettingsPanel() {
         ['Kans-collaps (drempel / bevestiging)', `${s.probCollapseThresholdPct}% / ${s.probCollapseConfirmSeconds}s`],
         ['Regime-poort / tijd-stop', `${s.regimeGateEnabled ? 'aan' : 'uit'} / ${s.maxPositionAgeMinutes || 0}min`],
         ['Kleine-winst-oogst', `${s.smallProfitHarvestMinutes > 0 ? s.smallProfitHarvestMinutes + 'min' : 'uit'}`],
+        ['Node-gewicht', s.nodeWeightMode === 'manual' ? `handmatig ${s.nodeWeightManual}${s.nodeWeightManual === 0 ? ' (uit)' : ''}` : 'adaptief'],
         ['Bevestigingstijd exit', `${s.continuationConfirmationSeconds}s`],
         ['Range-scalp doel / stop / alloc', `${s.rangeScalpProfitTargetPct}% / ${s.rangeScalpStopLossPct}% / ${(s.rangeScalpAllocationPct * 100).toFixed(0)}%`],
         ['Chase (aan >kans / na min)', `${s.chaseEnabled ? 'aan' : 'uit'} / ${s.chaseProbabilityThreshold}% / ${s.chaseAfterMinutes}min`],
@@ -2299,7 +2341,7 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     // Zie recalibrateAdaptiveWeights() - blijft te allen tijde transparant en
     // inspecteerbaar, geen black box.
     confluenceContribution *= adaptiveWeights.confluence;
-    nodeInfluence *= adaptiveWeights.nodeInfluence;
+    nodeInfluence *= effectiveNodeWeight();
     momentumInfluence *= adaptiveWeights.momentumInfluence;
     fibConfluenceInfluence *= adaptiveWeights.fibConfluence;
     patternInfluence *= adaptiveWeights.pattern;
@@ -2635,6 +2677,98 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence, fibConfluenceInfluence, confluence: decision.confluence, patternInfluence };
 }
 
+// ============================================================
+// HANDMATIGE TRADE (15-07) - COUNTERFACTUELE DATA
+// Opent een positie op commando via dezelfde executielaag (dus echte
+// testnet-fill), met een eigen allocatie-percentage van de balance.
+// Cruciaal: legt vast wat de BOT dacht op dat moment (factorsAtEntry +
+// probabilityPct), ook als de bot zelf niet zou zijn ingestapt. Dat is de
+// blinde vlek van het leersysteem: de bot leert nu alleen van momenten waarop
+// hij zelf wilde handelen. Deze trades vullen de "wat als"-gaten.
+// STRIKT: isManual=true. Ze tellen NIET mee in de kalibratietabel en NIET in
+// de gewichten-herijking (ze komen uit een ander beslisproces en zouden juist
+// het instrument vervuilen dat meet of de bot zichzelf eerlijk inschat), maar
+// worden verder volledig opgeslagen, beheerd en geexporteerd als elke andere
+// trade - inclusief alle exit-mechanismes, zodat ze vergelijkbaar blijven.
+// Uitzondering: de reallocatie-engine mag ze niet opofferen (een bewuste keuze
+// van de gebruiker wordt niet automatisch weggeruild voor een bot-idee).
+// ============================================================
+function openManualPosition(side) {
+    if (!livePrice) { alert('Nog geen live prijs - wacht tot de stream draait.'); return; }
+    const input = document.getElementById('manual-alloc-pct');
+    const pct = Math.min(Math.max(parseFloat(input?.value) || 20, 1), 70);
+    const allocPct = pct / 100;
+
+    const oppositeSide = side === 'LONG' ? 'SHORT' : 'LONG';
+    const oppositeHasPosition = openPositions.some(p => p.side === oppositeSide);
+    const hedgeReserve = oppositeHasPosition ? 0 : botSettings.minHedgeReservePct;
+    const availablePct = Math.max(0, 1 - getAllocatedPct() - hedgeReserve);
+    const finalSizePct = Math.min(allocPct, availablePct);
+    if (finalSizePct <= 0.001) {
+        alert(`Onvoldoende vrije allocatie: ${(availablePct * 100).toFixed(1)}% beschikbaar (na hedge-reserve).`);
+        return;
+    }
+
+    const balance = getBalance();
+    const notional = balance * finalSizePct;
+    const notionalUSD = isQuoteCurrencyWallet() ? notional : (eurUsdtRate ? notional * eurUsdtRate : notional);
+    const amount = parseFloat((notionalUSD / livePrice).toFixed(6));
+
+    // Wat dacht de bot op dit moment? (ook als hij zelf niet zou instappen)
+    const nodeInfluence = calculateNodeInfluence(getNodeContext());
+    const momentumInfluence = calculateMomentumInfluence(side, getMomentumContext());
+    const fibConfluenceInfluence = calculateFibConfluenceInfluence(livePrice);
+    const patternInfluence = calculatePatternInfluence(side);
+    const confluence = lastOsirisDecision ? lastOsirisDecision.confluence : null;
+    const botProb = (confluence !== null)
+        ? calculateProbabilityScore(confluence, chaos, er, nodeInfluence, momentumInfluence, fibConfluenceInfluence, side, isBullish, patternInfluence)
+        : null;
+    const cal = botProb !== null ? calibrateProbability(botProb) : null;
+
+    const botZouInstappen = botProb !== null && botProb >= botSettings.minProbabilityPct;
+    const ok = confirm(
+        `HANDMATIGE ${side}\n\n` +
+        `Prijs: $${livePrice.toFixed(1)}\n` +
+        `Inzet: ${pct}% van balance = ${formatMoney(notional)} (${amount} BTC)\n` +
+        `Executie: ${botSettings.executionMode === 'TESTNET' ? 'ECHTE testnet-order' : 'simulatie'}\n\n` +
+        `Bot-kans nu: ${botProb !== null ? botProb.toFixed(0) + '%' : 'onbekend'}${cal !== null ? ` (kal. ${cal.toFixed(0)}%)` : ''}\n` +
+        `De bot zou hier ${botZouInstappen ? 'ZELF OOK instappen' : 'NIET instappen'} (drempel ${botSettings.minProbabilityPct}%).\n\n` +
+        `Deze trade telt niet mee voor kalibratie/gewichten, maar wordt wel volledig gelogd.\n\nDoorgaan?`
+    );
+    if (!ok) return;
+
+    const targetPrice = (lastOsirisDecision && lastOsirisDecision.targets)
+        ? parseFloat(side === 'LONG' ? lastOsirisDecision.targets.meso.bullish : lastOsirisDecision.targets.meso.bearish)
+        : (side === 'LONG' ? livePrice * 1.01 : livePrice * 0.99);
+
+    const position = {
+        id: `manual_${Date.now()}_${side}`,
+        side,
+        entryPrice: livePrice,
+        amount,
+        notional,
+        sizePct: finalSizePct,
+        targetPrice,
+        probabilityPct: botProb,
+        nodeInfluence,
+        openTime: Date.now(),
+        closeTime: null,
+        peakPnlPct: 0,
+        trailingStopPct: null,
+        isManual: true,           // <- markering: counterfactuele data
+        botWouldEnter: botZouInstappen,
+        factorsAtEntry: {
+            confluence: confluence,
+            nodeInfluence,
+            momentumInfluence,
+            fibConfluenceInfluence,
+            patternInfluence,
+            probabilityPct: botProb
+        }
+    };
+    commitPositionEntry(position, `MANUAL_ENTRY | alloc ${pct}% | bot-kans ${botProb !== null ? botProb.toFixed(0) + '%' : '?'} (bot zou ${botZouInstappen ? 'ook' : 'NIET'} instappen)`);
+}
+
 // REGIME-POORT: bepaalt of de markt op dit moment "dood" is - gerealiseerde
 // volatiliteit (chaos) én energie (|VFM|) beide onder hun eigen mediaan van de
 // beschikbare meethistorie, aanhoudend gedurende regimeGateConfirmMinutes.
@@ -2830,6 +2964,7 @@ function tryReallocateForBetterOpportunity(newSide, newProbabilityPct) {
         // 2. LEEFTIJD: de winstgevende exits (TREND_REVERSAL) hielden gem. 44 min
         //    vast; reallocaties sloten na gem. 28 min - precies te vroeg. Een
         //    positie krijgt eerst reallocationMinAgeMinutes de tijd om te bewijzen.
+        if (pos.isManual) return false; // handmatige keuze wordt nooit automatisch weggeruild
         const ageMinutes = (now - (pos.openTime || 0)) / 60000;
         if (ageMinutes < (botSettings.reallocationMinAgeMinutes || 0)) return false;
         // 3. ALLEEN VERLIEZERS: een positie die (na fees) op winst staat wordt
@@ -3246,7 +3381,13 @@ function finalizeClosePosition(pos, pnlPct, reason) {
             // (welke exit-reden verdient, welke bloedt - per regime).
             exitReason: (reason || '').split(' ')[0],
             holdMinutes: pos.openTime ? Math.round((Date.now() - pos.openTime) / 60000) : null,
-            entryProbabilityPct: pos.probabilityPct ?? null
+            entryProbabilityPct: pos.probabilityPct ?? null,
+            // Counterfactuele markering: handmatige trades worden volledig
+            // gelogd en geexporteerd, maar filteren zichzelf uit de kalibratie
+            // en de gewichten-herijking (zie computeCalibrationMap /
+            // recalibrateAdaptiveWeights).
+            manual: pos.isManual === true,
+            botWouldEnter: pos.botWouldEnter ?? null
         });
         if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
         recalibrateAdaptiveWeights();
@@ -3286,7 +3427,9 @@ function finalizeClosePosition(pos, pnlPct, reason) {
 function computeCalibrationMap() {
     const pts = [];
     const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
-    const withProb = learningLog.filter(l => l.entryProbabilityPct != null);
+    // Handmatige trades tellen NIET mee: die meten niet of de bot zijn eigen
+    // score eerlijk inschat (ander beslisproces, andere momentkeuze).
+    const withProb = learningLog.filter(l => l.entryProbabilityPct != null && !l.manual);
     if (withProb.length < 50) { _calibMap = null; return; }
     for (const [lo, hi] of buckets) {
         const inB = withProb.filter(l => l.entryProbabilityPct >= lo && l.entryProbabilityPct < hi);
@@ -3328,8 +3471,11 @@ function recalibrateAdaptiveWeights() {
     const summary = {};
 
     factorKeys.forEach(fk => {
-        const present = learningLog.filter(l => l.factors[fk] !== null && l.factors[fk] > 1);
-        const absent = learningLog.filter(l => l.factors[fk] !== null && l.factors[fk] <= 1);
+        // Alleen eigen bot-trades: handmatige entries zijn counterfactuele data
+        // en mogen de gewichten niet sturen.
+        const botLog = learningLog.filter(l => !l.manual);
+        const present = botLog.filter(l => l.factors[fk] !== null && l.factors[fk] > 1);
+        const absent = botLog.filter(l => l.factors[fk] !== null && l.factors[fk] <= 1);
 
         summary[fk] = { nPresent: present.length, nAbsent: absent.length, adjusted: false };
 
@@ -4238,6 +4384,16 @@ const NODE_INFLUENCE_WEIGHTS = {
 // volume-shift i.p.v. een vast gewicht, en (3) of die nodes toevallig
 // samenvallen met een markt-sessie-transitie (Azië/Europa/VS) - zo'n
 // samenloop telt extra mee, zoals in de documenten beschreven.
+// Welk gewicht krijgt de node-invloed in de kansscore? Handmatig vastgezet
+// (incl. 0 = uit), of overgelaten aan het lerende systeem. Zie de toelichting
+// bij nodeWeightMode in botSettings.
+function effectiveNodeWeight() {
+    if (botSettings.nodeWeightMode === 'manual') {
+        return Math.max(0, botSettings.nodeWeightManual ?? 1);
+    }
+    return adaptiveWeights.nodeInfluence;
+}
+
 function calculateNodeInfluence(nodeContext) {
     const windowMinutes = T_PI_MS / 2 / 60000; // ~94.33 min, het volledige relevante venster
     const proximityWeight = (minutes) => Math.max(0, 1 - (minutes / windowMinutes));
@@ -4686,6 +4842,14 @@ function startLiveUpdates() {
                 if (candle.x) {
                     rawData.push([candle.t, candle.o, candle.h, candle.l, candle.c, candle.v]);
                     while (rawData.length > 672) rawData.shift();
+                    // PERF-FIX (15-07): dit blok (applyUOTAMGrid over 672 candles +
+                    // MA/RSI/patronen hertekenen) draaide SYNCHROON in de
+                    // WebSocket-handler en blokkeerde de thread ~365ms - Chrome
+                    // meldde dat als "[Violation] 'message' handler took 365ms".
+                    // Nu uitgesteld naar een idle-moment: de socket-handler is
+                    // meteen klaar, de bot-lus loopt door, en het zware werk
+                    // gebeurt zodra de browser tijd over heeft.
+                    const doHeavy = () => {
                     const freshBotChart = rawData.map(d => ({
                         time: Math.floor(d[0] / 1000),
                         open: parseFloat(d[1]),
@@ -4700,6 +4864,9 @@ function startLiveUpdates() {
                         renderRSI();
                         renderPatternMarkers();
                     }
+                    };
+                    if (window.requestIdleCallback) requestIdleCallback(doHeavy, { timeout: 2000 });
+                    else setTimeout(doHeavy, 0);
                 }
             
                 // 5. Orisis & Fibonacci Integratie
@@ -5122,48 +5289,196 @@ setInterval(updateInfoPanel, 1000);
 let _flowHudInit = false;
 let _flowLastPrice = 0;
 let _flowConsoleIdx = 0;
+const HUD_CX = 350, HUD_CY = 150;
+const HUD_BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6', '#b3e5fc'];
+let _hudBoltTimer = null;
 
+function toggleFlowHud() {
+    const b = document.getElementById('flow-hud-body'), c = document.getElementById('flow-hud-chev');
+    if (!b) return;
+    const dicht = b.style.display === 'none';
+    b.style.display = dicht ? '' : 'none';
+    if (c) c.innerHTML = dicht ? '&#9662;' : '&#9656;';
+    // Animaties stilleggen als het paneel dicht is: scheelt CPU naast de bot.
+    if (!dicht && _hudBoltTimer) { clearInterval(_hudBoltTimer); _hudBoltTimer = null; }
+    else if (dicht && !_hudBoltTimer) _hudBoltTimer = setInterval(hudBolt, 900);
+}
+
+// Vonkboog van de torusrand naar de iris - gefragmenteerd pad, flitst en verdwijnt.
+function hudBolt() {
+    const bg = document.getElementById('w-bolts');
+    if (!bg || Math.random() < 0.35) return;
+    const NS = 'http://www.w3.org/2000/svg';
+    const a0 = Math.random() * Math.PI * 2, r0 = 150, r1 = 90;
+    let d = `M${HUD_CX + Math.cos(a0) * r0},${HUD_CY + Math.sin(a0) * r0 * 0.44}`;
+    for (let s = 1; s <= 5; s++) {
+        const t = s / 5, r = r0 + (r1 - r0) * t, a = a0 + (Math.random() - 0.5) * 0.5;
+        d += `L${(HUD_CX + Math.cos(a) * r + (Math.random() - 0.5) * 16).toFixed(1)},${(HUD_CY + Math.sin(a) * r * 0.44 + (Math.random() - 0.5) * 12).toFixed(1)}`;
+    }
+    const p = document.createElementNS(NS, 'path');
+    p.setAttribute('d', d); p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', '#b3e5fc'); p.setAttribute('stroke-width', '1.1'); p.setAttribute('opacity', '0');
+    const an = document.createElementNS(NS, 'animate');
+    an.setAttribute('attributeName', 'opacity'); an.setAttribute('values', '0;0.95;0.2;0.8;0');
+    an.setAttribute('dur', '0.45s'); an.setAttribute('repeatCount', '1');
+    p.appendChild(an); bg.appendChild(p);
+    setTimeout(() => p.remove(), 600);
+}
+
+// Bouwt het oog eenmalig op: melkweg-vortex, sterrenstof, Tesla-torus,
+// Jarvis-ringen, irisvezels, crypten, 3-6-9 Rodin-spoel en confluence-cellen.
+// Alles is pure SVG/SMIL-animatie: de browser animeert dit op de compositor,
+// buiten de JS-thread waarin de bot rekent.
 function initFlowHud() {
     if (_flowHudInit) return;
-    const parts = document.getElementById('flow-parts');
-    const dust = document.getElementById('flow-dust');
-    if (!parts || !dust) return;
+    const sg = document.getElementById('w-spirals');
+    if (!sg) return;
     _flowHudInit = true;
-    const NS = 'http://www.w3.org/2000/svg';
-    const XL = 'http://www.w3.org/1999/xlink';
-    // Datadeeltjes op de banen: 4 per invoerpad, 3 per uitvoerpad - dichte,
-    // levendige stroom zoals gevraagd, maar klein en semi-transparant zodat
-    // het stof blijft en geen confetti wordt.
-    [['fp1',6,'#14f195'],['fp2',6,'#14f195'],['fp3',6,'#14f195'],['fp4',6,'#14f195'],['fp5',4,'#b07aff'],['fp6',4,'#b07aff']].forEach(([pid, n, kleur], i) => {
-        for (let k = 0; k < n; k++) {
-            const c = document.createElementNS(NS, 'circle');
-            c.setAttribute('r', (1.4 + Math.random() * 1.4).toFixed(1));
-            c.setAttribute('fill', kleur);
-            c.setAttribute('opacity', (0.45 + Math.random() * 0.45).toFixed(2));
-            const am = document.createElementNS(NS, 'animateMotion');
-            am.setAttribute('dur', (2.6 + Math.random() * 2.4).toFixed(1) + 's');
-            am.setAttribute('repeatCount', 'indefinite');
-            am.setAttribute('begin', (k * 0.9 + i * 0.25 + Math.random() * 0.5).toFixed(2) + 's');
-            const mp = document.createElementNS(NS, 'mpath');
-            mp.setAttributeNS(XL, 'href', '#' + pid);
-            am.appendChild(mp); c.appendChild(am); parts.appendChild(c);
+    const NS = 'http://www.w3.org/2000/svg', XL = 'http://www.w3.org/1999/xlink';
+    const pg = document.getElementById('w-parts');
+
+    // --- melkweg-vortex: 9 spiraalarmen die naar de iris toe draaien ---
+    for (let a = 0; a < 9; a++) {
+        const off = a / 9 * Math.PI * 2; let d = '';
+        for (let t = 0; t <= 1; t += 0.02) {
+            const r = 315 - (315 - 90) * t, th = off + t * 2.7;
+            d += (t ? 'L' : 'M') + (HUD_CX + Math.cos(th) * r).toFixed(1) + ',' + (HUD_CY + Math.sin(th) * r * 0.44).toFixed(1);
         }
-    });
-    // Zwevend achtergrondstof: trage, bijna onzichtbare deeltjes door het veld.
-    for (let k = 0; k < 24; k++) {
-        const c = document.createElementNS(NS, 'circle');
-        const x = 10 + Math.random() * 320, y = 8 + Math.random() * 144;
-        c.setAttribute('cx', x.toFixed(0)); c.setAttribute('cy', y.toFixed(0));
-        c.setAttribute('r', (0.7 + Math.random() * 1.1).toFixed(1));
-        c.setAttribute('fill', '#14f195');
-        c.setAttribute('opacity', (0.08 + Math.random() * 0.15).toFixed(2));
-        const am = document.createElementNS(NS, 'animate');
-        am.setAttribute('attributeName', 'cy');
-        am.setAttribute('values', `${y.toFixed(0)};${(y - 14 - Math.random() * 20).toFixed(0)};${y.toFixed(0)}`);
-        am.setAttribute('dur', (7 + Math.random() * 9).toFixed(1) + 's');
-        am.setAttribute('repeatCount', 'indefinite');
-        c.appendChild(am); dust.appendChild(c);
+        const p = document.createElementNS(NS, 'path');
+        p.setAttribute('id', 'w-arm' + a); p.setAttribute('d', d); p.setAttribute('fill', 'none');
+        p.setAttribute('stroke', HUD_BLUE[a % HUD_BLUE.length]); p.setAttribute('stroke-width', '0.8'); p.setAttribute('opacity', '0.16');
+        sg.appendChild(p);
+        for (let k = 0; k < 6; k++) {
+            const c = document.createElementNS(NS, 'circle');
+            c.setAttribute('r', (0.9 + Math.random() * 1.7).toFixed(1));
+            c.setAttribute('fill', HUD_BLUE[a % HUD_BLUE.length]);
+            const am = document.createElementNS(NS, 'animateMotion');
+            const dur = (4 + Math.random() * 5).toFixed(1) + 's', beg = (-Math.random() * 8).toFixed(2) + 's';
+            am.setAttribute('dur', dur); am.setAttribute('repeatCount', 'indefinite'); am.setAttribute('begin', beg);
+            am.setAttribute('calcMode', 'spline'); am.setAttribute('keyPoints', '0;1'); am.setAttribute('keyTimes', '0;1'); am.setAttribute('keySplines', '0.3 0 0.9 0.6');
+            const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#w-arm' + a);
+            am.appendChild(mp); c.appendChild(am);
+            const f = document.createElementNS(NS, 'animate');
+            f.setAttribute('attributeName', 'opacity'); f.setAttribute('values', '0;0.95;0.95;0');
+            f.setAttribute('dur', dur); f.setAttribute('begin', beg); f.setAttribute('repeatCount', 'indefinite');
+            c.appendChild(f); pg.appendChild(c);
+        }
     }
+
+    // --- sterrenstof ---
+    const dg = document.getElementById('w-dust');
+    for (let k = 0; k < 70; k++) {
+        const th = Math.random() * Math.PI * 2, r = 92 + Math.random() * 220;
+        const c = document.createElementNS(NS, 'circle');
+        c.setAttribute('cx', (HUD_CX + Math.cos(th) * r).toFixed(0)); c.setAttribute('cy', (HUD_CY + Math.sin(th) * r * 0.44).toFixed(0));
+        c.setAttribute('r', (0.4 + Math.random()).toFixed(1)); c.setAttribute('fill', HUD_BLUE[k % HUD_BLUE.length]);
+        const an = document.createElementNS(NS, 'animate');
+        an.setAttribute('attributeName', 'opacity'); an.setAttribute('values', '0.05;0.6;0.05');
+        an.setAttribute('dur', (3 + Math.random() * 7).toFixed(1) + 's'); an.setAttribute('begin', (-Math.random() * 6).toFixed(1) + 's');
+        an.setAttribute('repeatCount', 'indefinite'); c.appendChild(an); dg.appendChild(c);
+    }
+
+    // --- Tesla-torus: 26 spoelwindingen + 3 tegendraaiende veldringen ---
+    const tg = document.getElementById('w-torus');
+    for (let i = 0; i < 26; i++) {
+        const e = document.createElementNS(NS, 'ellipse');
+        e.setAttribute('cx', HUD_CX); e.setAttribute('cy', HUD_CY); e.setAttribute('rx', 108); e.setAttribute('ry', 36);
+        e.setAttribute('fill', 'none'); e.setAttribute('stroke', '#0288d1'); e.setAttribute('stroke-width', '0.7');
+        e.setAttribute('opacity', '0.32'); e.setAttribute('transform', `rotate(${i / 26 * 180} ${HUD_CX} ${HUD_CY})`);
+        const an = document.createElementNS(NS, 'animate');
+        an.setAttribute('attributeName', 'opacity'); an.setAttribute('values', '0.1;0.45;0.1');
+        an.setAttribute('dur', '4s'); an.setAttribute('begin', (-i * 0.16).toFixed(2) + 's'); an.setAttribute('repeatCount', 'indefinite');
+        e.appendChild(an); tg.appendChild(e);
+    }
+    [122, 138, 156].forEach((r, i) => {
+        const e = document.createElementNS(NS, 'ellipse');
+        e.setAttribute('cx', HUD_CX); e.setAttribute('cy', HUD_CY); e.setAttribute('rx', r); e.setAttribute('ry', r * 0.42);
+        e.setAttribute('fill', 'none'); e.setAttribute('stroke', '#00d9ff'); e.setAttribute('stroke-width', '0.8');
+        e.setAttribute('stroke-dasharray', '6 10'); e.setAttribute('opacity', '0.3');
+        const t = document.createElementNS(NS, 'animateTransform');
+        t.setAttribute('attributeName', 'transform'); t.setAttribute('type', 'rotate');
+        t.setAttribute('from', `0 ${HUD_CX} ${HUD_CY}`); t.setAttribute('to', `${i % 2 ? -360 : 360} ${HUD_CX} ${HUD_CY}`);
+        t.setAttribute('dur', (22 + i * 7) + 's'); t.setAttribute('repeatCount', 'indefinite');
+        e.appendChild(t); tg.appendChild(e);
+    });
+
+    // --- Jarvis-ringen: tick-marks + tegendraaiende arc-segmenten ---
+    const jg = document.getElementById('w-jarvis');
+    const arc = (r, a0, a1, col, w, op) => {
+        const p = document.createElementNS(NS, 'path');
+        p.setAttribute('d', `M${HUD_CX + Math.cos(a0) * r},${HUD_CY + Math.sin(a0) * r} A${r},${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${HUD_CX + Math.cos(a1) * r},${HUD_CY + Math.sin(a1) * r}`);
+        p.setAttribute('fill', 'none'); p.setAttribute('stroke', col); p.setAttribute('stroke-width', w); p.setAttribute('opacity', op);
+        return p;
+    };
+    [[100, 0.2, 1.5, '#00d9ff', 1.4, 0.7, 30], [100, 3.4, 4.7, '#00d9ff', 1.4, 0.7, 30],
+     [108, 2.0, 2.9, '#ffb627', 1, 0.6, -45], [108, 5.1, 6.0, '#ffb627', 1, 0.6, -45]].forEach(([r, a0, a1, c, w, o, dur]) => {
+        const g = document.createElementNS(NS, 'g'); g.appendChild(arc(r, a0, a1, c, w, o));
+        const t = document.createElementNS(NS, 'animateTransform');
+        t.setAttribute('attributeName', 'transform'); t.setAttribute('type', 'rotate');
+        t.setAttribute('from', `${dur > 0 ? 0 : 360} ${HUD_CX} ${HUD_CY}`); t.setAttribute('to', `${dur > 0 ? 360 : 0} ${HUD_CX} ${HUD_CY}`);
+        t.setAttribute('dur', Math.abs(dur) + 's'); t.setAttribute('repeatCount', 'indefinite');
+        g.appendChild(t); jg.appendChild(g);
+    });
+    for (let i = 0; i < 60; i++) {
+        const a = i / 60 * Math.PI * 2, big = i % 5 === 0, l = document.createElementNS(NS, 'line');
+        l.setAttribute('x1', HUD_CX + Math.cos(a) * (big ? 94 : 97)); l.setAttribute('y1', HUD_CY + Math.sin(a) * (big ? 94 : 97));
+        l.setAttribute('x2', HUD_CX + Math.cos(a) * 101); l.setAttribute('y2', HUD_CY + Math.sin(a) * 101);
+        l.setAttribute('stroke', big ? '#00d9ff' : '#0288d1'); l.setAttribute('stroke-width', big ? '1' : '0.5');
+        l.setAttribute('opacity', big ? '0.7' : '0.35'); jg.appendChild(l);
+    }
+
+    // --- irisvezels + crypten ---
+    const fg = document.getElementById('w-fibers');
+    for (let i = 0; i < 160; i++) {
+        const a = i / 160 * Math.PI * 2 + Math.random() * 0.02, r0 = 32 + Math.random() * 8, r1 = 70 + Math.random() * 15;
+        const bend = (Math.random() - 0.5) * 0.16;
+        const p = document.createElementNS(NS, 'path');
+        p.setAttribute('d', `M${HUD_CX + Math.cos(a) * r0},${HUD_CY + Math.sin(a) * r0} Q${HUD_CX + Math.cos(a + bend) * ((r0 + r1) / 2)},${HUD_CY + Math.sin(a + bend) * ((r0 + r1) / 2)} ${HUD_CX + Math.cos(a + bend * 1.6) * r1},${HUD_CY + Math.sin(a + bend * 1.6) * r1}`);
+        p.setAttribute('fill', 'none'); p.setAttribute('stroke', HUD_BLUE[i % HUD_BLUE.length]);
+        p.setAttribute('stroke-width', (0.3 + Math.random() * 0.7).toFixed(1)); p.setAttribute('opacity', (0.12 + Math.random() * 0.45).toFixed(2));
+        const an = document.createElementNS(NS, 'animate');
+        an.setAttribute('attributeName', 'opacity');
+        an.setAttribute('values', `${(0.08 + Math.random() * 0.2).toFixed(2)};${(0.35 + Math.random() * 0.5).toFixed(2)};${(0.08 + Math.random() * 0.2).toFixed(2)}`);
+        an.setAttribute('dur', (2.5 + Math.random() * 6).toFixed(1) + 's'); an.setAttribute('begin', (-Math.random() * 6).toFixed(1) + 's');
+        an.setAttribute('repeatCount', 'indefinite'); p.appendChild(an); fg.appendChild(p);
+    }
+    const cg2 = document.getElementById('w-crypts');
+    for (let i = 0; i < 22; i++) {
+        const a = Math.random() * Math.PI * 2, r = 48 + Math.random() * 30;
+        const x = HUD_CX + Math.cos(a) * r, y = HUD_CY + Math.sin(a) * r;
+        const e = document.createElementNS(NS, 'ellipse');
+        e.setAttribute('cx', x.toFixed(1)); e.setAttribute('cy', y.toFixed(1));
+        e.setAttribute('rx', (2 + Math.random() * 6).toFixed(1)); e.setAttribute('ry', (1.5 + Math.random() * 3.5).toFixed(1));
+        e.setAttribute('transform', `rotate(${(a * 180 / Math.PI).toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})`);
+        e.setAttribute('fill', '#02121f'); e.setAttribute('opacity', (0.3 + Math.random() * 0.4).toFixed(2)); cg2.appendChild(e);
+    }
+
+    // --- 3-6-9 Rodin-spoel: verdubbelingsreeks 1-2-4-8-7-5 + de 3-6-9 driehoek ---
+    const rg = document.getElementById('w-rodin');
+    const pt = (n, r) => [HUD_CX + Math.cos((n / 9) * Math.PI * 2 - Math.PI / 2) * r, HUD_CY + Math.sin((n / 9) * Math.PI * 2 - Math.PI / 2) * r];
+    const dbl = document.createElementNS(NS, 'path');
+    dbl.setAttribute('d', 'M' + [1, 2, 4, 8, 7, 5, 1].map(n => pt(n, 40).map(v => v.toFixed(1)).join(',')).join('L'));
+    dbl.setAttribute('fill', 'none'); dbl.setAttribute('stroke', '#ffb627'); dbl.setAttribute('stroke-width', '0.9'); dbl.setAttribute('opacity', '0.55');
+    const dan = document.createElementNS(NS, 'animate');
+    dan.setAttribute('attributeName', 'opacity'); dan.setAttribute('values', '0.2;0.75;0.2');
+    dan.setAttribute('dur', '5s'); dan.setAttribute('repeatCount', 'indefinite'); dbl.appendChild(dan); rg.appendChild(dbl);
+    const tp = document.createElementNS(NS, 'path');
+    tp.setAttribute('d', 'M' + [3, 6, 9, 3].map(n => pt(n, 40).map(v => v.toFixed(1)).join(',')).join('L'));
+    tp.setAttribute('fill', 'none'); tp.setAttribute('stroke', '#00d9ff'); tp.setAttribute('stroke-width', '1'); tp.setAttribute('opacity', '0.6');
+    const tan = document.createElementNS(NS, 'animateTransform');
+    tan.setAttribute('attributeName', 'transform'); tan.setAttribute('type', 'rotate');
+    tan.setAttribute('from', `0 ${HUD_CX} ${HUD_CY}`); tan.setAttribute('to', `360 ${HUD_CX} ${HUD_CY}`);
+    tan.setAttribute('dur', '26s'); tan.setAttribute('repeatCount', 'indefinite'); tp.appendChild(tan); rg.appendChild(tp);
+
+    // --- 9 confluence-segmenten in de limbale ring ---
+    const cg = document.getElementById('w-cells');
+    for (let i = 0; i < 9; i++) {
+        const a0 = (i / 9) * Math.PI * 2 - Math.PI / 2 + 0.025, a1 = ((i + 1) / 9) * Math.PI * 2 - Math.PI / 2 - 0.025, r0 = 88, r1 = 93;
+        const p = document.createElementNS(NS, 'path');
+        p.setAttribute('d', `M${HUD_CX + Math.cos(a0) * r0},${HUD_CY + Math.sin(a0) * r0} A${r0},${r0} 0 0 1 ${HUD_CX + Math.cos(a1) * r0},${HUD_CY + Math.sin(a1) * r0} L${HUD_CX + Math.cos(a1) * r1},${HUD_CY + Math.sin(a1) * r1} A${r1},${r1} 0 0 0 ${HUD_CX + Math.cos(a0) * r1},${HUD_CY + Math.sin(a0) * r1} Z`);
+        p.setAttribute('fill', '#123040'); p.setAttribute('class', 'w-cell'); cg.appendChild(p);
+    }
+    _hudBoltTimer = setInterval(hudBolt, 900);
 }
 
 // Read-only mediaan van de kans-smoothingbuffer (zonder te pushen - de HUD
@@ -5178,85 +5493,72 @@ function readSmoothedProb(side) {
 function updateFlowHud() {
     const priceEl = document.getElementById('flow-price');
     if (!priceEl) return;
+    const body = document.getElementById('flow-hud-body');
+    if (body && body.style.display === 'none') { // ingeklapt: alleen de prijs bijwerken
+        if (livePrice > 0) priceEl.textContent = '$' + livePrice.toLocaleString('nl-NL', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        return;
+    }
     initFlowHud();
-    // Live prijs met kleurflits op verandering
     if (livePrice > 0) {
         priceEl.textContent = '$' + livePrice.toLocaleString('nl-NL', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
         if (_flowLastPrice > 0 && livePrice !== _flowLastPrice) {
-            priceEl.style.color = livePrice > _flowLastPrice ? '#14f195' : '#ff3b5c';
-            setTimeout(() => { priceEl.style.color = '#e0e0e0'; }, 600);
+            priceEl.style.color = livePrice > _flowLastPrice ? '#00d9ff' : '#ff5f7e';
+            setTimeout(() => { priceEl.style.color = '#e3f6ff'; }, 600);
         }
         _flowLastPrice = livePrice;
     }
     const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
-    const setBar = (id, pct, kleur) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.style.width = Math.max(0, Math.min(100, pct)).toFixed(0) + '%';
-        if (kleur) el.style.background = kleur;
-    };
     set('flow-vfm', isFinite(vfm) ? vfm.toFixed(2) : '\u2014');
     set('flow-er', isFinite(er) ? er.toFixed(2) : '\u2014');
     set('flow-db', isFinite(db) ? db.toFixed(2) : '\u2014');
     set('flow-chaos', isFinite(chaos) ? chaos.toFixed(2) + '%' : '\u2014');
-    // Load bars: elke meter geschaald op zijn eigen werkbereik, kleur = teken/drempel
-    setBar('flow-vfm-bar', Math.abs(vfm) / 1.2 * 100, vfm >= 0 ? '#14f195' : '#ff3b5c');
-    setBar('flow-er-bar', er / 2 * 100, er > CONF_ER_TH ? '#14f195' : '#5d606b');
-    setBar('flow-db-bar', Math.abs(db) * 100, db >= 0 ? '#14f195' : '#ff3b5c');
-    setBar('flow-chaos-bar', chaos / (CONF_CHAOS_TH * 2) * 100, chaos < CONF_CHAOS_TH ? '#14f195' : '#ffb627');
-    // Confluence: cijfer in de kern + 9-cels energiebalk
+    // Confluence: cijfer in de pupil + oplichtende segmenten in de limbale ring
     if (lastOsirisDecision && lastOsirisDecision.confluence != null) {
         set('flow-conf', `${lastOsirisDecision.confluence}/9`);
-        const cells = document.querySelectorAll('#flow-conf-cells .hud-cell');
-        cells.forEach((c, i) => c.classList.toggle('on', i < lastOsirisDecision.confluence));
+        document.querySelectorAll('#w-cells .w-cell').forEach((c, i) => {
+            const aan = i < lastOsirisDecision.confluence;
+            c.setAttribute('fill', aan ? '#00d9ff' : '#123040');
+            c.setAttribute('opacity', aan ? '0.95' : '0.5');
+        });
     }
+    // Pupil verwijdt met de sterkste (gedempte) kans; gekalibreerde waarde ernaast
     const pl = readSmoothedProb('LONG'), ps = readSmoothedProb('SHORT');
     if (pl !== null || ps !== null) {
-        const calL = calibrateProbability(pl), calS = calibrateProbability(ps);
-        const calTxt = (calL !== null && calS !== null) ? ` (kal. ${calL.toFixed(0)}/${calS.toFixed(0)})` : '';
-        set('flow-prob', `${pl !== null ? pl.toFixed(0) : '\u2014'}% / ${ps !== null ? ps.toFixed(0) : '\u2014'}%${calTxt}`);
-        setBar('flow-prob-l', pl ?? 0);
-        setBar('flow-prob-s', ps ?? 0);
+        set('flow-prob', `${pl !== null ? pl.toFixed(0) : '\u2014'}/${ps !== null ? ps.toFixed(0) : '\u2014'}`);
+        const best = Math.max(pl ?? 0, ps ?? 0);
+        const pupil = document.getElementById('flow-pupil');
+        if (pupil) pupil.setAttribute('r', (16 + best / 100 * 26).toFixed(1));
+        const cal = calibrateProbability(best);
+        set('flow-cal', cal === null ? 'n.v.t.' : cal.toFixed(0) + '%');
     }
-    // Allocatie-balk (t.o.v. balance) en node-countdown
-    if (typeof getAllocatedPct === 'function') {
-        const alloc = getAllocatedPct() * 100;
-        set('flow-alloc', alloc.toFixed(1) + '%');
-        setBar('flow-alloc-bar', alloc, alloc > 85 ? '#ff3b5c' : '#ffb627');
+    const regimeEl = document.getElementById('flow-regime');
+    if (regimeEl && typeof evaluateMarketRegime === 'function') {
+        const r = evaluateMarketRegime();
+        regimeEl.textContent = r.dead ? 'DOOD' : 'ACTIEF';
+        regimeEl.style.fill = r.dead ? '#ffb627' : '#00d9ff';
     }
+    set('flow-pos', `${openPositions.length}/${pendingOrders.length}`);
     try {
         const ctx = getNodeContext();
-        if (ctx && ctx.nextNode && ctx.lastNode) {
-            set('flow-node', `${ctx.nextNode.type || 'node'} \u00b7 ${ctx.nextNode.minutesUntil.toFixed(0)}m`);
-            const tot = ctx.nextNode.time - ctx.lastNode.time;
-            setBar('flow-node-bar', tot > 0 ? ((Date.now() - ctx.lastNode.time) / tot) * 100 : 0);
-        }
+        if (ctx && ctx.nextNode) set('flow-node', `${(ctx.nextNode.type || '').slice(0, 8)} ${ctx.nextNode.minutesUntil.toFixed(0)}m`);
     } catch (e) {}
-    // Micro-statusstrip: scan-cyclusteller en metricsbuffer-vulling
-    set('flow-scan', `${(10 - (Math.floor(Date.now() / 1000) % 10))}s`);
+    if (typeof getAllocatedPct === 'function') set('flow-alloc', (getAllocatedPct() * 100).toFixed(0) + '%');
+    set('flow-scan', `${10 - (Math.floor(Date.now() / 1000) % 10)}s`);
     set('flow-buf', `${Math.min(100, Math.round(metricsHistory.length / 500 * 100))}%`);
     const sysEl = document.getElementById('flow-sys');
     if (sysEl) {
         const ok = livePrice > 0 && currentWs && currentWs.readyState === 1;
         sysEl.textContent = ok ? 'NOMINAAL' : 'STREAM DOWN';
-        sysEl.style.color = ok ? '#14f195' : '#ff3b5c';
+        sysEl.style.color = ok ? '#00d9ff' : '#ff5f7e';
     }
-    const regimeEl = document.getElementById('flow-regime');
-    if (regimeEl && typeof evaluateMarketRegime === 'function') {
-        const r = evaluateMarketRegime();
-        regimeEl.textContent = r.dead ? 'DOOD (pauze)' : 'ACTIEF';
-        regimeEl.style.color = r.dead ? '#ffb627' : '#14f195';
-    }
-    set('flow-pos', `${openPositions.length} open / ${pendingOrders.length} pending`);
-    // Console: roteer door live systeemregels (elke ~6s een andere)
     const consoleEl = document.getElementById('flow-console');
     if (consoleEl && Math.floor(Date.now() / 1000) % 6 === 0) {
         const regels = [];
         try {
             const ctx = getNodeContext();
-            if (ctx && ctx.nextNode) regels.push(`Volgende ${ctx.nextNode.type || 'node'} over ${Math.max(0, ((ctx.nextNode.time - Date.now()) / 60000)).toFixed(0)} min`);
+            if (ctx && ctx.nextNode) regels.push(`Volgende ${ctx.nextNode.type || 'node'} over ${Math.max(0, ctx.nextNode.minutesUntil).toFixed(0)} min`);
         } catch (e) {}
-        regels.push(`Kans gedempt over ${botSettings.probSmoothingSamples} metingen \u00b7 winst-bescherming vanaf +${(botSettings.profitProtectActivationPct * 100).toFixed(1)}% piek`);
+        regels.push(`Kans gedempt over ${botSettings.probSmoothingSamples} metingen \u00b7 bescherming vanaf +${(botSettings.profitProtectActivationPct * 100).toFixed(1)}% piek`);
         regels.push(`Executie: ${botSettings.executionMode === 'TESTNET' ? 'Binance Testnet (echte orders)' : 'simulatie'} \u00b7 kosten ${roundTripCostPct().toFixed(2)}% r.t.`);
         if (botTradeLog.length > 0) {
             const l = botTradeLog[botTradeLog.length - 1];
@@ -5266,7 +5568,6 @@ function updateFlowHud() {
         consoleEl.textContent = regels[_flowConsoleIdx];
     }
 }
-
 setInterval(updateFlowHud, 1000);
 
 
@@ -5290,3 +5591,7 @@ function toggleLearningPanel() {
     const open = body.classList.toggle('open');
     if (chev) chev.innerHTML = open ? '&#9662;' : '&#9656;';
 }
+
+// --- Handmatige trade-knoppen (counterfactuele data, zie openManualPosition) ---
+document.getElementById('manual-long-btn')?.addEventListener('click', () => openManualPosition('LONG'));
+document.getElementById('manual-short-btn')?.addEventListener('click', () => openManualPosition('SHORT'));
