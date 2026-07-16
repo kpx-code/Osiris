@@ -454,7 +454,7 @@
         <!-- ============ OSIRIS ENGINE SECTION ============ -->
         <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.46<span class="fill"></span></div>
+            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.47<span class="fill"></span></div>
             <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
@@ -524,6 +524,14 @@
                             <button type="button" id="testnet-sync-wallet-btn" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);" title="Zet de walletvaluta op USDT en het startkapitaal op je werkelijke vrije USDT-saldo op het testnet, en reset daarna de wallet (met bevestiging).">Sync wallet ← testnet</button>
                         </div>
                     </div>
+                    <div class="grid-row" style="margin-bottom: 8px;">
+                        <div><label>Manual trade: % van balance</label><input type="number" id="manual-alloc-pct" value="20" step="5" min="1" max="70"></div>
+                        <div style="display:flex; align-items:flex-end; gap:8px;">
+                            <button type="button" id="manual-long-btn" class="btn btn-ghost btn-mini" style="color:var(--teal); border-color:rgba(20,241,149,0.5);">&#9650; Manual LONG</button>
+                            <button type="button" id="manual-short-btn" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,59,92,0.5);">&#9660; Manual SHORT</button>
+                        </div>
+                    </div>
+                    <small style="display:block; color:var(--text-dimmer); margin-bottom:10px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.6;">Handmatige trade: opent direct een positie tegen de live prijs met het ingestelde % van je balance, via dezelfde executielaag (in TESTNET-modus dus een echte order). Je ziet vooraf wat de bot op dat moment dacht en of hij zelf zou instappen. Deze trades worden volledig gelogd, beheerd en geexporteerd als counterfactuele data, maar tellen bewust NIET mee voor de kalibratietabel en de gewichten-herijking - en de reallocatie-engine sluit ze nooit automatisch.</small>
                     <div id="testnet-status" style="font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:var(--text-dimmer); margin-bottom:10px; min-height:1.2em;"></div>
                     <small style="display:block; color:var(--text-dimmer); margin-bottom:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.6;">TESTNET stuurt echte market-orders via de Binance WebSocket API (wss://ws-api.testnet.binance.vision) - nepgeld, echt orderboek, en WebSockets omzeilen de CORS-blokkade die browser-REST-calls tegenhoudt. Keys maak je gratis aan op testnet.binance.vision (inloggen met GitHub). Keys worden ALLEEN lokaal in je browser bewaard en zitten nooit in exports. Gebruik hier NOOIT live Binance-keys. In TESTNET-modus komen fill-prijs en commissie van de exchange zelf; de eigen fee/slippage-simulatie staat dan automatisch uit. SHORT-entries verkopen BTC uit je testnet-saldo (spot kent geen echte shorts) - het testnet geeft je bij elke maandelijkse reset vers BTC en USDT.</small>
 
@@ -544,6 +552,8 @@
                         <div><label>Tijd-stop (min, 0 = uit)</label><input type="number" id="max-position-age" value="90" step="10" min="0"></div>
 
                         <div><label>Kleine-winst-oogst (min, 0 = uit)</label><input type="number" id="small-profit-harvest" value="30" step="5" min="0"></div>
+                        <div><label>Node-gewicht</label><select id="node-weight-mode"><option value="adaptive" selected>Adaptief (leersysteem)</option><option value="manual">Handmatig vast</option></select></div>
+                        <div><label>Node-gewicht handmatig (0 = uit)</label><input type="number" id="node-weight-manual" value="1.0" step="0.1" min="0" max="2"></div>
                         <div><label>Bevestigingstijd exit (sec)</label><input type="number" id="continuation-confirmation-sec" value="20"></div>
                         <div>
                             <label>Chase: min. kans % / na (min)</label>
@@ -632,97 +642,71 @@
                 .hud-cell.on { background: #14f195; border-color: #14f195; box-shadow: 0 0 6px rgba(20,241,149,0.5); }
                 .hud-micro { font-family: 'JetBrains Mono', monospace; font-size: 0.56rem; color: #5d606b; letter-spacing: 0.06em; }
             </style>
-            <div id="flow-hud" style="position:relative; overflow:hidden; background:rgba(255,255,255,0.02); border:1px solid rgba(20,241,149,0.25); border-radius:6px; padding:8px 12px; margin-bottom:14px;">
-                <span class="hud-corner" style="top:4px; left:4px; border-top-width:1.5px; border-left-width:1.5px;"></span>
-                <span class="hud-corner" style="top:4px; right:4px; border-top-width:1.5px; border-right-width:1.5px;"></span>
-                <span class="hud-corner" style="bottom:4px; left:4px; border-bottom-width:1.5px; border-left-width:1.5px;"></span>
-                <span class="hud-corner" style="bottom:4px; right:4px; border-bottom-width:1.5px; border-right-width:1.5px;"></span>
-                <div style="position:absolute; left:0; right:0; height:2px; background:rgba(20,241,149,0.35); animation:hudScan 7s linear infinite; pointer-events:none;"></div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; cursor:pointer;" onclick="const b=document.getElementById('flow-hud-body'); const c=document.getElementById('flow-hud-chev'); const open=b.style.display!=='none'; b.style.display=open?'none':''; c.innerHTML=open?'&#9656;':'&#9662;';">
-                    <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--teal);">&#9679; Osiris &middot; Live Dataflow <span id="flow-hud-chev">&#9662;</span></span>
-                    <span id="flow-price" style="font-family:'JetBrains Mono',monospace; font-size:0.92rem; font-weight:bold; color:#e0e0e0; transition:color 0.3s;">&mdash;</span>
+            <div id="flow-hud" style="position:relative; overflow:hidden; background:radial-gradient(ellipse at 50% 48%, #0a1420 0%, #04070c 72%); border:1px solid rgba(0,217,255,0.35); border-radius:8px; padding:8px 12px; margin-bottom:14px;">
+                <span class="hud-corner" style="top:4px; left:4px; border-top-width:1.5px; border-left-width:1.5px; border-color:#00d9ff;"></span>
+                <span class="hud-corner" style="top:4px; right:4px; border-top-width:1.5px; border-right-width:1.5px; border-color:#00d9ff;"></span>
+                <span class="hud-corner" style="bottom:4px; left:4px; border-bottom-width:1.5px; border-left-width:1.5px; border-color:#00d9ff;"></span>
+                <span class="hud-corner" style="bottom:4px; right:4px; border-bottom-width:1.5px; border-right-width:1.5px; border-color:#00d9ff;"></span>
+                <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleFlowHud()">
+                    <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.16em; color:#4fc3f7;">&#9679; Osiris &middot; Ocular Core <span id="flow-hud-chev">&#9662;</span></span>
+                    <span id="flow-price" style="font-family:'JetBrains Mono',monospace; font-size:0.95rem; font-weight:bold; color:#e3f6ff; text-shadow:0 0 10px rgba(0,217,255,0.5); transition:color .3s;">&mdash;</span>
                 </div>
                 <div id="flow-hud-body">
-                <div style="display:grid; grid-template-columns: 96px minmax(0,1fr) 124px; gap:8px; align-items:stretch;">
-                    <div style="display:flex; flex-direction:column; gap:6px;">
-                        <div class="flow-meter" style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:4px 7px;">
-                            <div style="font-size:0.52rem; color:#5d606b; letter-spacing:0.08em;">VFM</div>
-                            <div id="flow-vfm" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#e0e0e0;">&mdash;</div>
-                            <div class="hud-bar-track"><div id="flow-vfm-bar" class="hud-bar-fill" style="width:0%;"></div><div class="hud-bar-seg"></div></div>
-                        </div>
-                        <div class="flow-meter" style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:4px 7px;">
-                            <div style="font-size:0.52rem; color:#5d606b; letter-spacing:0.08em;">ER</div>
-                            <div id="flow-er" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#e0e0e0;">&mdash;</div>
-                            <div class="hud-bar-track"><div id="flow-er-bar" class="hud-bar-fill" style="width:0%;"></div><div class="hud-bar-seg"></div></div>
-                        </div>
-                        <div class="flow-meter" style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:4px 7px;">
-                            <div style="font-size:0.52rem; color:#5d606b; letter-spacing:0.08em;">DB</div>
-                            <div id="flow-db" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#e0e0e0;">&mdash;</div>
-                            <div class="hud-bar-track"><div id="flow-db-bar" class="hud-bar-fill" style="width:0%;"></div><div class="hud-bar-seg"></div></div>
-                        </div>
-                        <div class="flow-meter" style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:4px 7px;">
-                            <div style="font-size:0.52rem; color:#5d606b; letter-spacing:0.08em;">CHAOS</div>
-                            <div id="flow-chaos" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#e0e0e0;">&mdash;</div>
-                            <div class="hud-bar-track"><div id="flow-chaos-bar" class="hud-bar-fill" style="width:0%;"></div><div class="hud-bar-seg"></div></div>
-                        </div>
-                    </div>
-                    <svg id="flow-svg" viewBox="0 0 340 160" style="width:100%; max-height:170px; height:auto; display:block;">
-                        <path id="fp1" d="M0,18 C70,18 90,68 152,76" fill="none" stroke="rgba(20,241,149,0.35)" stroke-width="1"/>
-                        <path id="fp2" d="M0,59 C60,59 90,73 152,78" fill="none" stroke="rgba(20,241,149,0.35)" stroke-width="1"/>
-                        <path id="fp3" d="M0,100 C60,100 90,85 152,82" fill="none" stroke="rgba(20,241,149,0.35)" stroke-width="1"/>
-                        <path id="fp4" d="M0,141 C70,141 90,90 152,84" fill="none" stroke="rgba(20,241,149,0.35)" stroke-width="1"/>
-                        <path id="fp5" d="M200,78 C250,78 258,36 340,32" fill="none" stroke="rgba(153,69,255,0.4)" stroke-width="1"/>
-                        <path id="fp6" d="M200,82 C250,82 258,124 340,126" fill="none" stroke="rgba(153,69,255,0.4)" stroke-width="1"/>
-                        <g id="flow-dust"></g>
-                        <circle cx="176" cy="80" r="25" fill="none" stroke="#14f195" stroke-width="1.3" stroke-dasharray="9 5" opacity="0.85">
-                            <animateTransform attributeName="transform" type="rotate" from="0 176 80" to="360 176 80" dur="14s" repeatCount="indefinite"/>
-                        </circle>
-                        <circle cx="176" cy="80" r="18" fill="none" stroke="#00d9ff" stroke-width="0.7" stroke-dasharray="3 4" opacity="0.7">
-                            <animateTransform attributeName="transform" type="rotate" from="360 176 80" to="0 176 80" dur="9s" repeatCount="indefinite"/>
-                        </circle>
-                        <text x="176" y="77" text-anchor="middle" font-size="7" fill="#5d606b" font-family="'JetBrains Mono',monospace">CONFLUENCE</text>
-                        <text x="176" y="89" text-anchor="middle" font-size="11" font-weight="bold" fill="#14f195" font-family="'JetBrains Mono',monospace" id="flow-conf">&mdash;</text>
-                        <g id="flow-parts"></g>
+                    <svg id="flow-svg" viewBox="0 0 700 300" style="width:100%; max-height:260px; height:auto; display:block;">
+                        <defs>
+                            <radialGradient id="w-iris" cx="50%" cy="46%">
+                                <stop offset="0%" stop-color="#02060c"/><stop offset="30%" stop-color="#06304d"/>
+                                <stop offset="58%" stop-color="#0a6ea8" stop-opacity="0.9"/><stop offset="80%" stop-color="#00d9ff" stop-opacity="0.65"/>
+                                <stop offset="94%" stop-color="#81d4fa" stop-opacity="0.4"/><stop offset="100%" stop-color="#01121e"/>
+                            </radialGradient>
+                            <radialGradient id="w-halo" cx="50%" cy="50%">
+                                <stop offset="0%" stop-color="#00d9ff" stop-opacity="0.2"/><stop offset="55%" stop-color="#0288d1" stop-opacity="0.08"/><stop offset="100%" stop-color="#000" stop-opacity="0"/>
+                            </radialGradient>
+                            <filter id="w-glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                            <filter id="w-arc"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                            <filter id="w-soft"><feGaussianBlur stdDeviation="1.1"/></filter>
+                        </defs>
+                        <ellipse cx="350" cy="150" rx="335" ry="148" fill="url(#w-halo)"/>
+                        <g id="w-spirals" filter="url(#w-soft)"></g>
+                        <g id="w-dust"></g>
+                        <g id="w-torus"></g>
+                        <g id="w-bolts" filter="url(#w-arc)"></g>
+                        <g id="w-jarvis"></g>
+                        <circle cx="350" cy="150" r="86" fill="url(#w-iris)"/>
+                        <g id="w-fibers"></g>
+                        <g id="w-crypts"></g>
+                        <circle cx="350" cy="150" r="44" fill="none" stroke="#81d4fa" stroke-width="1.6" opacity="0.5"/>
+                        <circle cx="350" cy="150" r="86" fill="none" stroke="#01121e" stroke-width="5" opacity="0.85"/>
+                        <circle cx="350" cy="150" r="86" fill="none" stroke="#00d9ff" stroke-width="1" opacity="0.75"/>
+                        <g id="w-rodin"></g>
+                        <g id="w-cells"></g>
+                        <circle id="flow-pupil" cx="350" cy="150" r="30" fill="#01060c" stroke="#00d9ff" stroke-width="1.6" filter="url(#w-glow)" style="transition:r 1s ease"/>
+                        <circle cx="350" cy="150" r="7" fill="#7fe9ff" opacity="0.9"><animate attributeName="r" values="5;9;5" dur="3.2s" repeatCount="indefinite"/></circle>
+                        <text x="350" y="154" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#04070c" font-family="'JetBrains Mono',monospace" id="flow-conf" style="pointer-events:none">&mdash;</text>
+                        <g id="w-parts"></g>
+                        <g font-family="'JetBrains Mono',monospace" font-size="9">
+                            <text x="8" y="34" fill="#4a6a80">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
+                            <text x="8" y="96" fill="#4a6a80">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
+                            <text x="8" y="202" fill="#4a6a80">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
+                            <text x="8" y="266" fill="#4a6a80">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
+                            <text x="692" y="34" fill="#4a6a80" text-anchor="end">KANS L/S <tspan fill="#00d9ff" id="flow-prob">&mdash;</tspan></text>
+                            <text x="692" y="96" fill="#4a6a80" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
+                            <text x="692" y="150" fill="#4a6a80" text-anchor="end">NODE <tspan fill="#4fc3f7" id="flow-node">&mdash;</tspan></text>
+                            <text x="692" y="202" fill="#4a6a80" text-anchor="end">REGIME <tspan fill="#00d9ff" id="flow-regime">&mdash;</tspan></text>
+                            <text x="692" y="266" fill="#4a6a80" text-anchor="end">POS <tspan fill="#e3f6ff" id="flow-pos">&mdash;</tspan></text>
+                        </g>
                     </svg>
-                    <div style="grid-column:2; display:flex; gap:3px; margin-top:2px;" id="flow-conf-cells">
-                        <div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div><div class="hud-cell"></div>
+                    <div style="border-top:1px solid #123040; padding-top:6px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                        <span class="live-dot" style="flex:none;"></span>
+                        <span id="flow-console" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; color:#4a6a80; flex:1; min-width:180px;">Ocular core initialiseert...</span>
+                        <span class="hud-micro">ALLOC <span id="flow-alloc" style="color:#ffb627;">&mdash;</span></span>
+                        <span class="hud-micro">SCAN <span id="flow-scan" style="color:#00d9ff;">&mdash;</span></span>
+                        <span class="hud-micro">BUFFER <span id="flow-buf" style="color:#00d9ff;">&mdash;</span></span>
+                        <span class="hud-micro" style="animation:hudBlink 2s infinite;">SYS <span id="flow-sys" style="color:#00d9ff;">NOMINAAL</span></span>
                     </div>
-                    <div style="display:flex; flex-direction:column; gap:6px;">
-                        <div style="background:#131722; border:1px solid rgba(153,69,255,0.4); border-radius:4px; padding:4px 7px;">
-                            <div style="font-size:0.52rem; color:#5d606b; letter-spacing:0.08em;">KANS L / S</div>
-                            <div id="flow-prob" style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#e0e0e0;">&mdash;</div>
-                            <div class="hud-bar-track"><div id="flow-prob-l" class="hud-bar-fill" style="width:0%; background:#14f195;"></div><div class="hud-bar-seg"></div></div>
-                            <div class="hud-bar-track"><div id="flow-prob-s" class="hud-bar-fill" style="width:0%; background:#ff3b5c;"></div><div class="hud-bar-seg"></div></div>
-                        </div>
-                        <div style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:4px 7px;">
-                            <div style="font-size:0.52rem; color:#5d606b; letter-spacing:0.08em;">ALLOCATIE</div>
-                            <div id="flow-alloc" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#e0e0e0;">&mdash;</div>
-                            <div class="hud-bar-track"><div id="flow-alloc-bar" class="hud-bar-fill" style="width:0%; background:#ffb627;"></div><div class="hud-bar-seg"></div></div>
-                        </div>
-                        <div style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:4px 7px;">
-                            <div style="font-size:0.52rem; color:#5d606b; letter-spacing:0.08em;">REGIME</div>
-                            <div id="flow-regime" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#14f195;">&mdash;</div>
-                        </div>
-                        <div style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:4px 7px;">
-                            <div style="font-size:0.52rem; color:#5d606b; letter-spacing:0.08em;">POSITIES</div>
-                            <div id="flow-pos" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#e0e0e0;">&mdash;</div>
-                        </div>
-                        <div style="background:#131722; border:1px solid #2a2e39; border-radius:4px; padding:4px 7px;">
-                            <div style="font-size:0.52rem; color:#5d606b; letter-spacing:0.08em;">VOLGENDE NODE</div>
-                            <div id="flow-node" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#00d9ff;">&mdash;</div>
-                            <div class="hud-bar-track"><div id="flow-node-bar" class="hud-bar-fill" style="width:0%; background:#00d9ff;"></div><div class="hud-bar-seg"></div></div>
-                        </div>
-                    </div>
-                </div>
-                <div style="margin-top:10px; border-top:1px solid #2a2e39; padding-top:8px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-                    <span class="live-dot" style="flex:none;"></span>
-                    <span id="flow-console" style="font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:#8a8d98; flex:1; min-width:200px;">Osiris HUD initialiseert...</span>
-                    <span class="hud-micro">SCAN <span id="flow-scan" style="color:#14f195;">&mdash;</span></span>
-                    <span class="hud-micro">BUFFER <span id="flow-buf" style="color:#14f195;">&mdash;</span></span>
-                    <span class="hud-micro" style="animation:hudBlink 2s infinite;">SYS <span id="flow-sys" style="color:#14f195;">NOMINAAL</span></span>
-                </div>
                 </div>
             </div>
+
 
             <!-- WALLET STATUS: neon rand + icoon -->
             <div class="wallet-panel">
