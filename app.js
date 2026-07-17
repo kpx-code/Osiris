@@ -5347,6 +5347,9 @@ const HUD_BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6', '#b3e5f
 // bestaande update-functies en id's blijven werken zoals ze waren.
 // ============================================================
 function showSection(naam) {
+    // De Engine-config is samengevoegd met de Hub (17-07): een oude
+    // localStorage-waarde 'engine' mag niet in een lege pagina eindigen.
+    if (!document.getElementById('sec-' + naam)) naam = 'hub';
     document.querySelectorAll('.hub-section').forEach(s => {
         s.style.display = (s.id === 'sec-' + naam) ? '' : 'none';
     });
@@ -5511,10 +5514,13 @@ function updateKpiStrip() {
     set('kpi-pnl', formatMoney(walletState.realizedPnL), walletState.realizedPnL >= 0 ? '#00d9ff' : '#ff5f7e');
     const totaal = (walletState.wins || 0) + (walletState.losses || 0);
     set('kpi-winrate', totaal > 0 ? `${(walletState.wins / totaal * 100).toFixed(0)}%` : '\u2014');
-    // gekalibreerde kans van de sterkste kant
-    const beste = Math.max(readSmoothedProb('LONG') ?? 0, readSmoothedProb('SHORT') ?? 0);
-    const cal = calibrateProbability(beste);
-    set('kpi-cal', cal === null ? 'n.v.t.' : `${cal.toFixed(0)}%`);
+    // Gekalibreerde kans van de sterkste kant. Zonder live kansdata (bot staat
+    // stil, buffers leeg) hoort hier een streepje: anders rekent de mapping op
+    // een score van 0 en toont hij misleidend "1%".
+    const pL = readSmoothedProb('LONG'), pS = readSmoothedProb('SHORT');
+    const beste = (pL === null && pS === null) ? null : Math.max(pL ?? 0, pS ?? 0);
+    const cal = beste === null ? null : calibrateProbability(beste);
+    set('kpi-cal', cal === null ? '\u2014' : `${cal.toFixed(0)}%`);
     // break-even winrate uit de werkelijke payoff-verhouding van gesloten trades
     const bot = learningLog.filter(l => !l.manual && l.pnlPct != null);
     const wins = bot.filter(l => l.pnlPct > 0).map(l => l.pnlPct);
@@ -5534,6 +5540,80 @@ function updateKpiStrip() {
         badge.innerHTML = `&#9673; ${aan ? (botSettings.executionMode === 'TESTNET' ? 'TESTNET · live' : 'SIMULATIE · live') : 'STANDBY'}`;
         badge.style.color = aan ? '#00d9ff' : '#5b7a90';
     }
+}
+
+// ============================================================
+// HUB-PANELEN (17-07): kalibratiecurve, exit-bijdrage en positielijst.
+// Alles read-only op bestaande state; 1x per seconde ververst vanuit
+// updateFlowHud(). Deze drie panelen tonen samen de kernvraag van het hele
+// systeem: klopt de voorspelling (kalibratie), wat verdient/kost elk
+// exit-mechanisme (bijdrage), en wat staat er nu open.
+// ============================================================
+function renderCalibrationCurve() {
+    const plot = document.getElementById('calib-plot');
+    const note = document.getElementById('calib-note');
+    if (!plot) return;
+    if (!_calibMap || _calibMap.length < 2) {
+        plot.innerHTML = '';
+        const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null).length;
+        if (note) note.textContent = `Wacht op 50+ trades met entry-kans (nu ${n}).`;
+        return;
+    }
+    // x: ruwe score 50-100 -> 8..94 | y: gemeten winrate 0-100 -> 50..4
+    const X = r => 8 + (Math.min(100, Math.max(50, r)) - 50) / 50 * 86;
+    const Y = w => 50 - Math.min(100, Math.max(0, w)) / 100 * 46;
+    const pts = _calibMap.map(([r, w]) => `${X(r).toFixed(1)},${Y(w).toFixed(1)}`).join(' ');
+    let svg = `<polyline points="${pts}" fill="none" stroke="#ffb627" stroke-width="1.3"/>`;
+    _calibMap.forEach(([r, w], i) => {
+        const laatste = i === _calibMap.length - 1;
+        svg += `<circle cx="${X(r).toFixed(1)}" cy="${Y(w).toFixed(1)}" r="${laatste ? 2 : 1.4}" fill="#ffb627"/>`;
+        if (laatste) svg += `<text x="${(X(r) - 4).toFixed(1)}" y="${(Y(w) - 4).toFixed(1)}" font-size="5" fill="#ffb627" text-anchor="middle" font-family="'JetBrains Mono',monospace">${w.toFixed(0)}%</text>`;
+    });
+    plot.innerHTML = svg;
+    if (note) {
+        const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null).length;
+        note.textContent = `${n} bot-trades \u00b7 hoe verder onder de stippellijn, hoe overmoediger de score.`;
+    }
+}
+
+function renderExitDistribution() {
+    const el = document.getElementById('exit-dist');
+    if (!el) return;
+    const bot = learningLog.filter(l => l.exitReason && l.pnlPct != null);
+    if (bot.length === 0) { el.textContent = 'Nog geen gesloten trades.'; return; }
+    const som = {};
+    bot.forEach(l => {
+        const k = String(l.exitReason).replace('_EXIT', '').replace('PROFIT_', '').replace('SMALL_', '');
+        som[k] = (som[k] || 0) + l.pnlPct * 100;
+    });
+    const paren = Object.entries(som).sort((a, b) => a[1] - b[1]).slice(0, 6);
+    const max = Math.max(...paren.map(([, v]) => Math.abs(v)), 0.01);
+    el.innerHTML = paren.map(([naam, v]) => {
+        const breedte = Math.abs(v) / max * 48;
+        const kleur = v >= 0 ? '#00d9ff' : '#ff5f7e';
+        const kant = v >= 0 ? `left:50%; width:${breedte.toFixed(1)}%` : `right:50%; width:${breedte.toFixed(1)}%`;
+        return `<div class="exit-row"><span class="naam" title="${naam}">${naam.slice(0, 9)}</span><span class="track"><span class="bar" style="${kant}; background:${kleur};"></span></span><span class="waarde" style="color:${kleur};">${v >= 0 ? '+' : ''}${v.toFixed(1)}</span></div>`;
+    }).join('');
+}
+
+function renderHubPositions() {
+    const el = document.getElementById('hub-positions');
+    if (!el) return;
+    if (openPositions.length === 0) { el.textContent = 'Geen open posities.'; return; }
+    const kosten = roundTripCostPct() / 100;
+    el.innerHTML = openPositions.map(p => {
+        const bruto = livePrice ? (p.side === 'LONG' ? (livePrice - p.entryPrice) / p.entryPrice : (p.entryPrice - livePrice) / p.entryPrice) : 0;
+        const netto = (bruto - kosten) * 100;
+        const type = p.isManual ? 'MANUAL' : (p.isScalp ? 'SCALP' : 'TREND');
+        const typeKleur = p.isManual ? '#ffb627' : (p.isScalp ? '#c678dd' : '#4287f5');
+        return `<div class="pos-row">
+            <span style="color:${typeKleur}; width:42px; flex:none;">${type}</span>
+            <span style="color:${p.side === 'LONG' ? '#00d9ff' : '#ff5f7e'}; width:34px; flex:none;">${p.side}</span>
+            <span style="color:#7d99ac; flex:1; min-width:0;">${formatChartPrice(p.entryPrice)}</span>
+            <span style="color:${netto >= 0 ? '#00d9ff' : '#ff5f7e'}; flex:none;">${netto >= 0 ? '+' : ''}${netto.toFixed(2)}%</span>
+            <button class="sluit" onclick="closePositionManually('${p.id}')" title="Sluit nu tegen de live prijs">sluit</button>
+        </div>`;
+    }).join('');
 }
 
 function updateFlowHud() {
@@ -5575,7 +5655,7 @@ function updateFlowHud() {
         const pupil = document.getElementById('flow-pupil');
         if (pupil) pupil.setAttribute('r', (16 + best / 100 * 22).toFixed(1));
         const cal = calibrateProbability(best);
-        set('flow-cal', cal === null ? 'n.v.t.' : cal.toFixed(0) + '%');
+        set('flow-cal', cal === null ? '\u2014' : cal.toFixed(0) + '%');
     }
     const regimeEl = document.getElementById('flow-regime');
     if (regimeEl && typeof evaluateMarketRegime === 'function') {
@@ -5589,6 +5669,9 @@ function updateFlowHud() {
         if (ctx && ctx.nextNode) set('flow-node', `${(ctx.nextNode.type || '').slice(0, 8)} ${ctx.nextNode.minutesUntil.toFixed(0)}m`);
     } catch (e) {}
     if (typeof getAllocatedPct === 'function') set('flow-alloc', (getAllocatedPct() * 100).toFixed(0) + '%');
+    renderCalibrationCurve();
+    renderExitDistribution();
+    renderHubPositions();
     set('flow-scan', `${10 - (Math.floor(Date.now() / 1000) % 10)}s`);
     set('flow-buf', `${Math.min(100, Math.round(metricsHistory.length / 500 * 100))}%`);
     const sysEl = document.getElementById('flow-sys');
