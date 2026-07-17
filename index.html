@@ -248,7 +248,11 @@
         .hub-main-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; margin-bottom:12px; align-items:start; }
         @media (max-width: 1000px) { .hub-main-grid { grid-template-columns:1fr; } }
         .hub-main-grid .hud.chart-clean { margin-bottom:0; }
-        .hub-main-grid #flow-hud { margin-bottom:0; height:100%; }
+        /* GEEN height:100% (17-07): daarmee rekte het oogpaneel mee met de veel
+           hogere chartkolom, terwijl de SVG op max-height bleef staan - dat gaf
+           een grote lege ruimte onder het oog. Het paneel volgt nu zijn inhoud. */
+        .hub-main-grid #flow-hud { margin-bottom:0; align-self:start; }
+        .hub-main-grid #flow-svg { max-height:340px; }
         .hub-panel-row { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); border:1px solid #10202c; border-radius:6px; background:#04070c; margin-bottom:12px; }
         @media (max-width: 800px) { .hub-panel-row { grid-template-columns:1fr; } .hub-panel { border-right:none !important; border-bottom:1px solid #10202c; } }
         .hub-panel { padding:10px 12px; border-right:1px solid #10202c; min-width:0; }
@@ -847,6 +851,6 @@
 
 
     </div>
-    <script src="/Osiris/app.js?v=20260717-hub3"></script>
+    <script src="/Osiris/app.js?v=20260717-hub4"></script>
 </body>
 </html>
