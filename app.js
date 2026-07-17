@@ -93,6 +93,13 @@ let botSettings = {
     // De bevestigingstijd (default 120s = "2-3 candles") voorkomt reageren op
     // één slechte meting - dit is de geformaliseerde versie van het inzicht
     // dat een omkeer zich vaak 2-3 candles na een node aftekent.
+    // KANS-COLLAPS AAN/UIT (17-07). Meting over de hele learningLog:
+    // PROB_COLLAPSE_EXIT = 121 trades, winrate 13%, bijdrage -7.05 %-punt.
+    // ALLE andere exits samen = 48 trades, winrate 67%, +2.82 %-punt.
+    // Winnaars werden 14 min vastgehouden, verliezers 9 min: het mechanisme
+    // maait posities om vóór de these getoetst is. Daarom nu uitschakelbaar;
+    // met false doen stop-loss, winst-bescherming, tijd-stop en oogst het werk.
+    probCollapseEnabled: true,
     probCollapseThresholdPct: 35,      // live winkans waaronder de collaps-teller start
     probCollapseConfirmSeconds: 120,   // zo lang moet de kans onafgebroken onder de drempel blijven
     // REGIME-POORT (13-07): de sessiedata laat consequent zien dat de bot
@@ -704,12 +711,14 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 1, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 70, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 30,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80,
+        'prob-collapse-enabled': 'false', 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180, 'prob-smoothing-samples': 18,
+        'regime-gate-enabled': 'true', 'max-position-age': 90, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 30,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 1.2, 'range-scalp-alloc-pct': 20,
-        'chase-probability-pct': 82, 'chase-after-minutes': 5,
+        'chase-probability-pct': 82, 'chase-after-minutes': 10,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 50,
         'reallocation-min-age': 15, 'reallocation-cooldown': 10, 'fee-pct': 0.1, 'slippage-pct': 0.02,
-        'ma-fast-period': 9, 'ma-slow-period': 21,
+        'ma-fast-period': 12, 'ma-slow-period': 26,
         'rsi-period': 14, 'rsi-overbought': 70, 'rsi-oversold': 30
     },
     // CONSERVATIVE: hoge lat, weinig trades, kapitaalbehoud voorop.
@@ -723,7 +732,9 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 40, 'stop-loss-pct': 1.5, 'min-probability-pct': 80,
         'hold-continuation-probability-pct': 90, 'min-projected-profit-pct': 1.5,
         'max-open-positions': 2, 'hedge-reserve-pct': 25, 'pending-order-ttl': 20,
-        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 85, 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180, 'regime-gate-enabled': 'true', 'max-position-age': 120, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 45,
+        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 85,
+        'prob-collapse-enabled': 'false', 'prob-collapse-threshold': 25, 'prob-collapse-confirm-sec': 240, 'prob-smoothing-samples': 24,
+        'regime-gate-enabled': 'true', 'max-position-age': 120, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 45,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 0.8, 'range-scalp-alloc-pct': 0,
         'chase-probability-pct': 95, 'chase-after-minutes': 15,
         'reallocation-enabled': 'false', 'reallocation-margin-pct': 25,
@@ -739,12 +750,14 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2, 'min-probability-pct': 70,
         'hold-continuation-probability-pct': 85, 'min-projected-profit-pct': 1,
         'max-open-positions': 3, 'hedge-reserve-pct': 15, 'pending-order-ttl': 30,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 75, 'prob-collapse-threshold': 35, 'prob-collapse-confirm-sec': 120, 'regime-gate-enabled': 'true', 'max-position-age': 90, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 30,
+        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80,
+        'prob-collapse-enabled': 'false', 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180, 'prob-smoothing-samples': 18,
+        'regime-gate-enabled': 'true', 'max-position-age': 90, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 30,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 0.7, 'range-scalp-alloc-pct': 10,
         'chase-probability-pct': 90, 'chase-after-minutes': 10,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 20,
         'reallocation-min-age': 15, 'reallocation-cooldown': 10, 'fee-pct': 0.1, 'slippage-pct': 0.02,
-        'ma-fast-period': 9, 'ma-slow-period': 21,
+        'ma-fast-period': 12, 'ma-slow-period': 26,
         'rsi-period': 14, 'rsi-overbought': 70, 'rsi-oversold': 30
     },
     // AGGRESSIVE: veel trades, snelle indicatoren (MA 5/13), lage drempels.
@@ -758,12 +771,14 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2.5, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 80, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.4, 'profit-protect-keep': 70, 'prob-collapse-threshold': 40, 'prob-collapse-confirm-sec': 90, 'regime-gate-enabled': 'true', 'max-position-age': 60, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 20,
+        'min-loss-early-exit': 0.5, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.4, 'profit-protect-keep': 70,
+        'prob-collapse-enabled': 'true', 'prob-collapse-threshold': 25, 'prob-collapse-confirm-sec': 120, 'prob-smoothing-samples': 12,
+        'regime-gate-enabled': 'true', 'max-position-age': 60, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 20,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 1.0, 'range-scalp-alloc-pct': 15,
         'chase-probability-pct': 82, 'chase-after-minutes': 5,
         'reallocation-enabled': 'true', 'reallocation-margin-pct': 15,
         'reallocation-min-age': 10, 'reallocation-cooldown': 5, 'fee-pct': 0.1, 'slippage-pct': 0.02,
-        'ma-fast-period': 5, 'ma-slow-period': 13,
+        'ma-fast-period': 9, 'ma-slow-period': 21,
         'rsi-period': 14, 'rsi-overbought': 65, 'rsi-oversold': 35
     }
 };
@@ -1358,6 +1373,8 @@ function populateSettingsInputsFromState() {
     setVal('regime-gate-enabled', String(s.regimeGateEnabled ?? true));
     setVal('max-position-age', s.maxPositionAgeMinutes);
     setVal('small-profit-harvest', s.smallProfitHarvestMinutes);
+    setVal('prob-smoothing-samples', s.probSmoothingSamples);
+    setVal('prob-collapse-enabled', String(s.probCollapseEnabled));
     setVal('node-weight-mode', s.nodeWeightMode);
     setVal('node-weight-manual', s.nodeWeightManual);
     setVal('continuation-confirmation-sec', s.continuationConfirmationSeconds);
@@ -1512,6 +1529,12 @@ function readTradingSettingsFromInputs() {
     if (maxAgeInput && !isNaN(parseFloat(maxAgeInput.value))) {
         botSettings.maxPositionAgeMinutes = Math.max(parseFloat(maxAgeInput.value), 0);
     }
+    const smoothInput = document.getElementById('prob-smoothing-samples');
+    if (smoothInput && !isNaN(parseInt(smoothInput.value))) {
+        botSettings.probSmoothingSamples = Math.max(1, parseInt(smoothInput.value));
+    }
+    const pcEnabled = document.getElementById('prob-collapse-enabled');
+    if (pcEnabled) botSettings.probCollapseEnabled = pcEnabled.value === 'true';
     const nodeModeSel = document.getElementById('node-weight-mode');
     if (nodeModeSel) botSettings.nodeWeightMode = nodeModeSel.value;
     const nodeWInput = document.getElementById('node-weight-manual');
@@ -1809,6 +1832,7 @@ function renderActiveSettingsPanel() {
         ['Regime-poort / tijd-stop', `${s.regimeGateEnabled ? 'aan' : 'uit'} / ${s.maxPositionAgeMinutes || 0}min`],
         ['Kleine-winst-oogst', `${s.smallProfitHarvestMinutes > 0 ? s.smallProfitHarvestMinutes + 'min' : 'uit'}`],
         ['Node-gewicht', s.nodeWeightMode === 'manual' ? `handmatig ${s.nodeWeightManual}${s.nodeWeightManual === 0 ? ' (uit)' : ''}` : 'adaptief'],
+        ['Kans-collaps', s.probCollapseEnabled ? `aan (${s.probCollapseThresholdPct}% / ${s.probCollapseConfirmSeconds}s)` : 'UIT'],
         ['Bevestigingstijd exit', `${s.continuationConfirmationSeconds}s`],
         ['Range-scalp doel / stop / alloc', `${s.rangeScalpProfitTargetPct}% / ${s.rangeScalpStopLossPct}% / ${(s.rangeScalpAllocationPct * 100).toFixed(0)}%`],
         ['Chase (aan >kans / na min)', `${s.chaseEnabled ? 'aan' : 'uit'} / ${s.chaseProbabilityThreshold}% / ${s.chaseAfterMinutes}min`],
@@ -2108,7 +2132,7 @@ function updateWalletUI() {
     const posBody = document.getElementById('open-positions-body');
     if (posBody) {
         if (openPositions.length === 0) {
-            posBody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:#888; padding:8px;">Geen open posities</td></tr>`;
+            posBody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:#888; padding:8px;">Geen open posities</td></tr>`;
             setText('bot-position', 'Geen');
         } else {
             posBody.innerHTML = openPositions.map(p => {
@@ -2124,10 +2148,10 @@ function updateWalletUI() {
                 const pnlPct = grossPct - roundTripCostPct() / 100;
                 const color = pnlPct >= 0 ? '#00ffcc' : '#ef5350';
                 const entryTijd = p.openTime ? formatFullDateTime(p.openTime) : '-';
-                const typeLabel = p.isScalp ? 'SCALP' : 'TREND';
-                const typeColor = p.isScalp ? '#c678dd' : '#4287f5';
+                const typeLabel = p.isManual ? 'MANUAL' : (p.isScalp ? 'SCALP' : 'TREND');
+                const typeColor = p.isManual ? '#ffb627' : (p.isScalp ? '#c678dd' : '#4287f5');
                 return `<tr>
-                    <td style="padding:4px; color:${typeColor}; font-weight:bold; font-size:0.8em;">${typeLabel}</td>
+                    <td style="padding:4px; color:${typeColor}; font-weight:bold; font-size:0.8em;" title="${p.isManual ? 'handmatige trade - telt niet mee voor kalibratie/gewichten' : 'bot-trade'}">${typeLabel}</td>
                     <td style="color:${p.side === 'LONG' ? '#26a69a' : '#ef5350'}; font-weight:bold;">${p.side}</td>
                     <td>${formatChartPrice(p.entryPrice)}</td>
                     <td style="font-size:0.9em; color:#aaa;">${entryTijd}</td>
@@ -2136,6 +2160,7 @@ function updateWalletUI() {
                     <td>${(p.sizePct * 100).toFixed(1)}%</td>
                     <td style="color:${color};" title="netto na ${roundTripCostPct().toFixed(2)}% round-trip kosten (bruto ${(grossPct * 100).toFixed(2)}%)">${(pnlPct * 100).toFixed(2)}%</td>
                     <td style="color:${color};">${formatMoney(p.notional * pnlPct)}</td>
+                    <td style="padding:2px 4px;"><button type="button" class="btn btn-ghost btn-mini" style="color:#ff5f7e; border-color:rgba(255,95,126,0.5); padding:2px 7px; font-size:0.7em;" onclick="closePositionManually('${p.id}')" title="Sluit deze positie nu tegen de live prijs">Sluit</button></td>
                 </tr>`;
             }).join('');
             setText('bot-position', openPositions.map(p => p.side).join(' + '));
@@ -2767,6 +2792,30 @@ function openManualPosition(side) {
         }
     };
     commitPositionEntry(position, `MANUAL_ENTRY | alloc ${pct}% | bot-kans ${botProb !== null ? botProb.toFixed(0) + '%' : '?'} (bot zou ${botZouInstappen ? 'ook' : 'NIET'} instappen)`);
+}
+
+// HANDMATIG SLUITEN (17-07): sluit een open positie op commando, ook terwijl
+// de bot draait. Loopt via dezelfde closePosition() als elke bot-exit, dus de
+// fill, de boeking en de logging zijn identiek; alleen de reden verschilt
+// (MANUAL_CLOSE), zodat je hem in de exit-verdeling apart terugziet.
+function closePositionManually(id) {
+    const pos = openPositions.find(p => p.id === id);
+    if (!pos) return;
+    if (!livePrice) { alert('Nog geen live prijs - wacht tot de stream draait.'); return; }
+    const grossPct = pos.side === 'LONG'
+        ? (livePrice - pos.entryPrice) / pos.entryPrice
+        : (pos.entryPrice - livePrice) / pos.entryPrice;
+    const nettoPct = grossPct - roundTripCostPct() / 100;
+    const ok = confirm(
+        `POSITIE HANDMATIG SLUITEN\n\n` +
+        `${pos.isManual ? 'HANDMATIGE' : 'BOT-'}${pos.isScalp ? ' SCALP' : ' TREND'} ${pos.side} @ $${pos.entryPrice.toFixed(1)}\n` +
+        `Nu: $${livePrice.toFixed(1)}\n` +
+        `Resultaat: ${(nettoPct * 100).toFixed(2)}% netto (${formatMoney(pos.notional * nettoPct)})\n` +
+        `bruto ${(grossPct * 100).toFixed(2)}% minus ${roundTripCostPct().toFixed(2)}% kosten\n\n` +
+        `Sluiten?`
+    );
+    if (!ok) return;
+    closePosition(pos, nettoPct + roundTripCostPct() / 100, `MANUAL_CLOSE (handmatig gesloten op ${(nettoPct * 100).toFixed(2)}% netto)`);
 }
 
 // REGIME-POORT: bepaalt of de markt op dit moment "dood" is - gerealiseerde
@@ -3659,7 +3708,7 @@ function checkOpenPositionsExits() {
         // blijft, sluiten we - ongeacht in welke micro-zone de P/L toevallig
         // zit. De bevestigingstijd is de geformaliseerde "2-3 candles na een
         // node"-observatie: één slechte meting telt niet, een aanhoudende wel.
-        if (!pos.isScalp) {
+        if (!pos.isScalp && botSettings.probCollapseEnabled) {
             const liveProb = smoothProb(pos.side, evaluateContinuation(pos.side).probabilityPct);
             if (liveProb !== null && liveProb <= botSettings.probCollapseThresholdPct) {
                 // OMMEKEER-WINSTPAKKER (13-07): staat de positie NA KOSTEN in de
@@ -5289,9 +5338,28 @@ setInterval(updateInfoPanel, 1000);
 let _flowHudInit = false;
 let _flowLastPrice = 0;
 let _flowConsoleIdx = 0;
-const HUD_CX = 350, HUD_CY = 150;
+const HUD_CX = 350, HUD_CY = 160;
 const HUD_BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6', '#b3e5fc'];
-let _hudBoltTimer = null;
+
+// ============================================================
+// SECTIE-NAVIGATIE (17-07): Hub / Markt / Leren / Engine.
+// Toont/verbergt hele secties; alle panelen blijven in de DOM, dus alle
+// bestaande update-functies en id's blijven werken zoals ze waren.
+// ============================================================
+function showSection(naam) {
+    document.querySelectorAll('.hub-section').forEach(s => {
+        s.style.display = (s.id === 'sec-' + naam) ? '' : 'none';
+    });
+    document.querySelectorAll('.hub-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.sec === naam);
+    });
+    try { localStorage.setItem('osirisSection', naam); } catch (e) {}
+    // De chart moet hertekenen zodra hij weer zichtbaar wordt (Lightweight
+    // Charts kan niet meten in een display:none container).
+    if (naam === 'markt' && typeof chart !== 'undefined' && chart && chart.timeScale) {
+        setTimeout(() => { try { chart.timeScale().fitContent(); } catch (e) {} }, 50);
+    }
+}
 
 function toggleFlowHud() {
     const b = document.getElementById('flow-hud-body'), c = document.getElementById('flow-hud-chev');
@@ -5299,36 +5367,13 @@ function toggleFlowHud() {
     const dicht = b.style.display === 'none';
     b.style.display = dicht ? '' : 'none';
     if (c) c.innerHTML = dicht ? '&#9662;' : '&#9656;';
-    // Animaties stilleggen als het paneel dicht is: scheelt CPU naast de bot.
-    if (!dicht && _hudBoltTimer) { clearInterval(_hudBoltTimer); _hudBoltTimer = null; }
-    else if (dicht && !_hudBoltTimer) _hudBoltTimer = setInterval(hudBolt, 900);
 }
 
-// Vonkboog van de torusrand naar de iris - gefragmenteerd pad, flitst en verdwijnt.
-function hudBolt() {
-    const bg = document.getElementById('w-bolts');
-    if (!bg || Math.random() < 0.35) return;
-    const NS = 'http://www.w3.org/2000/svg';
-    const a0 = Math.random() * Math.PI * 2, r0 = 150, r1 = 90;
-    let d = `M${HUD_CX + Math.cos(a0) * r0},${HUD_CY + Math.sin(a0) * r0 * 0.44}`;
-    for (let s = 1; s <= 5; s++) {
-        const t = s / 5, r = r0 + (r1 - r0) * t, a = a0 + (Math.random() - 0.5) * 0.5;
-        d += `L${(HUD_CX + Math.cos(a) * r + (Math.random() - 0.5) * 16).toFixed(1)},${(HUD_CY + Math.sin(a) * r * 0.44 + (Math.random() - 0.5) * 12).toFixed(1)}`;
-    }
-    const p = document.createElementNS(NS, 'path');
-    p.setAttribute('d', d); p.setAttribute('fill', 'none');
-    p.setAttribute('stroke', '#b3e5fc'); p.setAttribute('stroke-width', '1.1'); p.setAttribute('opacity', '0');
-    const an = document.createElementNS(NS, 'animate');
-    an.setAttribute('attributeName', 'opacity'); an.setAttribute('values', '0;0.95;0.2;0.8;0');
-    an.setAttribute('dur', '0.45s'); an.setAttribute('repeatCount', '1');
-    p.appendChild(an); bg.appendChild(p);
-    setTimeout(() => p.remove(), 600);
-}
-
-// Bouwt het oog eenmalig op: melkweg-vortex, sterrenstof, Tesla-torus,
-// Jarvis-ringen, irisvezels, crypten, 3-6-9 Rodin-spoel en confluence-cellen.
-// Alles is pure SVG/SMIL-animatie: de browser animeert dit op de compositor,
-// buiten de JS-thread waarin de bot rekent.
+// Bouwt het oog eenmalig op: melkweg-vortex (spiraalarmen + deeltjes +
+// sterrenstof), binaire iris (ringen van enen en nullen die tegen elkaar in
+// draaien), Jarvis-laag (tick-ring + tegendraaiende arc-segmenten) en de
+// negen confluence-segmenten. Alles SVG/SMIL: de browser animeert dit buiten
+// de JS-thread, dus het kost de bot-lus geen rekentijd.
 function initFlowHud() {
     if (_flowHudInit) return;
     const sg = document.getElementById('w-spirals');
@@ -5337,23 +5382,23 @@ function initFlowHud() {
     const NS = 'http://www.w3.org/2000/svg', XL = 'http://www.w3.org/1999/xlink';
     const pg = document.getElementById('w-parts');
 
-    // --- melkweg-vortex: 9 spiraalarmen die naar de iris toe draaien ---
-    for (let a = 0; a < 9; a++) {
-        const off = a / 9 * Math.PI * 2; let d = '';
+    // --- melkweg-vortex ---
+    for (let a = 0; a < 10; a++) {
+        const off = a / 10 * Math.PI * 2; let d = '';
         for (let t = 0; t <= 1; t += 0.02) {
-            const r = 315 - (315 - 90) * t, th = off + t * 2.7;
-            d += (t ? 'L' : 'M') + (HUD_CX + Math.cos(th) * r).toFixed(1) + ',' + (HUD_CY + Math.sin(th) * r * 0.44).toFixed(1);
+            const r = 335 - (335 - 110) * t, th = off + t * 2.8;
+            d += (t ? 'L' : 'M') + (HUD_CX + Math.cos(th) * r).toFixed(1) + ',' + (HUD_CY + Math.sin(th) * r * 0.46).toFixed(1);
         }
-        const p = document.createElementNS(NS, 'path');
-        p.setAttribute('id', 'w-arm' + a); p.setAttribute('d', d); p.setAttribute('fill', 'none');
-        p.setAttribute('stroke', HUD_BLUE[a % HUD_BLUE.length]); p.setAttribute('stroke-width', '0.8'); p.setAttribute('opacity', '0.16');
-        sg.appendChild(p);
+        const q = document.createElementNS(NS, 'path');
+        q.setAttribute('id', 'w-arm' + a); q.setAttribute('d', d); q.setAttribute('fill', 'none');
+        q.setAttribute('stroke', HUD_BLUE[a % HUD_BLUE.length]); q.setAttribute('stroke-width', '0.8'); q.setAttribute('opacity', '0.15');
+        sg.appendChild(q);
         for (let k = 0; k < 6; k++) {
             const c = document.createElementNS(NS, 'circle');
-            c.setAttribute('r', (0.9 + Math.random() * 1.7).toFixed(1));
+            c.setAttribute('r', (0.9 + Math.random() * 1.6).toFixed(1));
             c.setAttribute('fill', HUD_BLUE[a % HUD_BLUE.length]);
-            const am = document.createElementNS(NS, 'animateMotion');
             const dur = (4 + Math.random() * 5).toFixed(1) + 's', beg = (-Math.random() * 8).toFixed(2) + 's';
+            const am = document.createElementNS(NS, 'animateMotion');
             am.setAttribute('dur', dur); am.setAttribute('repeatCount', 'indefinite'); am.setAttribute('begin', beg);
             am.setAttribute('calcMode', 'spline'); am.setAttribute('keyPoints', '0;1'); am.setAttribute('keyTimes', '0;1'); am.setAttribute('keySplines', '0.3 0 0.9 0.6');
             const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#w-arm' + a);
@@ -5368,50 +5413,52 @@ function initFlowHud() {
     // --- sterrenstof ---
     const dg = document.getElementById('w-dust');
     for (let k = 0; k < 70; k++) {
-        const th = Math.random() * Math.PI * 2, r = 92 + Math.random() * 220;
+        const th = Math.random() * Math.PI * 2, r = 112 + Math.random() * 215;
         const c = document.createElementNS(NS, 'circle');
-        c.setAttribute('cx', (HUD_CX + Math.cos(th) * r).toFixed(0)); c.setAttribute('cy', (HUD_CY + Math.sin(th) * r * 0.44).toFixed(0));
+        c.setAttribute('cx', (HUD_CX + Math.cos(th) * r).toFixed(0)); c.setAttribute('cy', (HUD_CY + Math.sin(th) * r * 0.46).toFixed(0));
         c.setAttribute('r', (0.4 + Math.random()).toFixed(1)); c.setAttribute('fill', HUD_BLUE[k % HUD_BLUE.length]);
         const an = document.createElementNS(NS, 'animate');
-        an.setAttribute('attributeName', 'opacity'); an.setAttribute('values', '0.05;0.6;0.05');
+        an.setAttribute('attributeName', 'opacity'); an.setAttribute('values', '0.05;0.55;0.05');
         an.setAttribute('dur', (3 + Math.random() * 7).toFixed(1) + 's'); an.setAttribute('begin', (-Math.random() * 6).toFixed(1) + 's');
         an.setAttribute('repeatCount', 'indefinite'); c.appendChild(an); dg.appendChild(c);
     }
 
-    // --- Tesla-torus: 26 spoelwindingen + 3 tegendraaiende veldringen ---
-    const tg = document.getElementById('w-torus');
-    for (let i = 0; i < 26; i++) {
-        const e = document.createElementNS(NS, 'ellipse');
-        e.setAttribute('cx', HUD_CX); e.setAttribute('cy', HUD_CY); e.setAttribute('rx', 108); e.setAttribute('ry', 36);
-        e.setAttribute('fill', 'none'); e.setAttribute('stroke', '#0288d1'); e.setAttribute('stroke-width', '0.7');
-        e.setAttribute('opacity', '0.32'); e.setAttribute('transform', `rotate(${i / 26 * 180} ${HUD_CX} ${HUD_CY})`);
-        const an = document.createElementNS(NS, 'animate');
-        an.setAttribute('attributeName', 'opacity'); an.setAttribute('values', '0.1;0.45;0.1');
-        an.setAttribute('dur', '4s'); an.setAttribute('begin', (-i * 0.16).toFixed(2) + 's'); an.setAttribute('repeatCount', 'indefinite');
-        e.appendChild(an); tg.appendChild(e);
+    // --- binaire iris: 9 ringen enen en nullen, tegendraaiend ---
+    const ig = document.getElementById('w-iris');
+    for (let ring = 0; ring < 9; ring++) {
+        const r = 40 + ring * 7.4, n = Math.round(2 * Math.PI * r / 8.4);
+        const g = document.createElementNS(NS, 'g');
+        for (let i = 0; i < n; i++) {
+            const a = i / n * Math.PI * 2, x = HUD_CX + Math.cos(a) * r, y = HUD_CY + Math.sin(a) * r * 0.96;
+            const t = document.createElementNS(NS, 'text');
+            t.setAttribute('x', x.toFixed(1)); t.setAttribute('y', y.toFixed(1));
+            t.setAttribute('font-size', (4.6 + ring * 0.18).toFixed(1)); t.setAttribute('font-family', "'JetBrains Mono',monospace");
+            t.setAttribute('text-anchor', 'middle'); t.setAttribute('fill', ring < 4 ? '#7fe9ff' : HUD_BLUE[ring % HUD_BLUE.length]);
+            t.setAttribute('opacity', (0.25 + Math.random() * 0.6).toFixed(2));
+            t.setAttribute('transform', `rotate(${(a * 180 / Math.PI + 90).toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})`);
+            t.textContent = Math.random() > 0.5 ? '1' : '0';
+            const an = document.createElementNS(NS, 'animate');
+            an.setAttribute('attributeName', 'opacity'); an.setAttribute('values', '0.12;0.9;0.12');
+            an.setAttribute('dur', (2 + Math.random() * 5).toFixed(1) + 's'); an.setAttribute('begin', (-Math.random() * 5).toFixed(1) + 's');
+            an.setAttribute('repeatCount', 'indefinite'); t.appendChild(an); g.appendChild(t);
+        }
+        const rot = document.createElementNS(NS, 'animateTransform');
+        rot.setAttribute('attributeName', 'transform'); rot.setAttribute('type', 'rotate');
+        rot.setAttribute('from', `${ring % 2 ? 360 : 0} ${HUD_CX} ${HUD_CY}`); rot.setAttribute('to', `${ring % 2 ? 0 : 360} ${HUD_CX} ${HUD_CY}`);
+        rot.setAttribute('dur', (48 + ring * 13) + 's'); rot.setAttribute('repeatCount', 'indefinite');
+        g.appendChild(rot); ig.appendChild(g);
     }
-    [122, 138, 156].forEach((r, i) => {
-        const e = document.createElementNS(NS, 'ellipse');
-        e.setAttribute('cx', HUD_CX); e.setAttribute('cy', HUD_CY); e.setAttribute('rx', r); e.setAttribute('ry', r * 0.42);
-        e.setAttribute('fill', 'none'); e.setAttribute('stroke', '#00d9ff'); e.setAttribute('stroke-width', '0.8');
-        e.setAttribute('stroke-dasharray', '6 10'); e.setAttribute('opacity', '0.3');
-        const t = document.createElementNS(NS, 'animateTransform');
-        t.setAttribute('attributeName', 'transform'); t.setAttribute('type', 'rotate');
-        t.setAttribute('from', `0 ${HUD_CX} ${HUD_CY}`); t.setAttribute('to', `${i % 2 ? -360 : 360} ${HUD_CX} ${HUD_CY}`);
-        t.setAttribute('dur', (22 + i * 7) + 's'); t.setAttribute('repeatCount', 'indefinite');
-        e.appendChild(t); tg.appendChild(e);
-    });
 
-    // --- Jarvis-ringen: tick-marks + tegendraaiende arc-segmenten ---
+    // --- Jarvis-laag: tick-ring + tegendraaiende arc-segmenten (cyaan/goud) ---
     const jg = document.getElementById('w-jarvis');
     const arc = (r, a0, a1, col, w, op) => {
-        const p = document.createElementNS(NS, 'path');
-        p.setAttribute('d', `M${HUD_CX + Math.cos(a0) * r},${HUD_CY + Math.sin(a0) * r} A${r},${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${HUD_CX + Math.cos(a1) * r},${HUD_CY + Math.sin(a1) * r}`);
-        p.setAttribute('fill', 'none'); p.setAttribute('stroke', col); p.setAttribute('stroke-width', w); p.setAttribute('opacity', op);
-        return p;
+        const q = document.createElementNS(NS, 'path');
+        q.setAttribute('d', `M${HUD_CX + Math.cos(a0) * r},${HUD_CY + Math.sin(a0) * r * 0.96} A${r},${r * 0.96} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${HUD_CX + Math.cos(a1) * r},${HUD_CY + Math.sin(a1) * r * 0.96}`);
+        q.setAttribute('fill', 'none'); q.setAttribute('stroke', col); q.setAttribute('stroke-width', w); q.setAttribute('opacity', op);
+        return q;
     };
-    [[100, 0.2, 1.5, '#00d9ff', 1.4, 0.7, 30], [100, 3.4, 4.7, '#00d9ff', 1.4, 0.7, 30],
-     [108, 2.0, 2.9, '#ffb627', 1, 0.6, -45], [108, 5.1, 6.0, '#ffb627', 1, 0.6, -45]].forEach(([r, a0, a1, c, w, o, dur]) => {
+    [[118, 0.25, 1.45, '#00d9ff', 1.6, 0.75, 32], [118, 3.4, 4.6, '#00d9ff', 1.6, 0.75, 32],
+     [126, 2.05, 2.85, '#ffb627', 1.1, 0.65, -48], [126, 5.15, 5.95, '#ffb627', 1.1, 0.65, -48]].forEach(([r, a0, a1, c, w, o, dur]) => {
         const g = document.createElementNS(NS, 'g'); g.appendChild(arc(r, a0, a1, c, w, o));
         const t = document.createElementNS(NS, 'animateTransform');
         t.setAttribute('attributeName', 'transform'); t.setAttribute('type', 'rotate');
@@ -5421,68 +5468,24 @@ function initFlowHud() {
     });
     for (let i = 0; i < 60; i++) {
         const a = i / 60 * Math.PI * 2, big = i % 5 === 0, l = document.createElementNS(NS, 'line');
-        l.setAttribute('x1', HUD_CX + Math.cos(a) * (big ? 94 : 97)); l.setAttribute('y1', HUD_CY + Math.sin(a) * (big ? 94 : 97));
-        l.setAttribute('x2', HUD_CX + Math.cos(a) * 101); l.setAttribute('y2', HUD_CY + Math.sin(a) * 101);
+        l.setAttribute('x1', HUD_CX + Math.cos(a) * (big ? 112 : 115)); l.setAttribute('y1', HUD_CY + Math.sin(a) * (big ? 112 : 115) * 0.96);
+        l.setAttribute('x2', HUD_CX + Math.cos(a) * 119); l.setAttribute('y2', HUD_CY + Math.sin(a) * 119 * 0.96);
         l.setAttribute('stroke', big ? '#00d9ff' : '#0288d1'); l.setAttribute('stroke-width', big ? '1' : '0.5');
         l.setAttribute('opacity', big ? '0.7' : '0.35'); jg.appendChild(l);
     }
 
-    // --- irisvezels + crypten ---
-    const fg = document.getElementById('w-fibers');
-    for (let i = 0; i < 160; i++) {
-        const a = i / 160 * Math.PI * 2 + Math.random() * 0.02, r0 = 32 + Math.random() * 8, r1 = 70 + Math.random() * 15;
-        const bend = (Math.random() - 0.5) * 0.16;
-        const p = document.createElementNS(NS, 'path');
-        p.setAttribute('d', `M${HUD_CX + Math.cos(a) * r0},${HUD_CY + Math.sin(a) * r0} Q${HUD_CX + Math.cos(a + bend) * ((r0 + r1) / 2)},${HUD_CY + Math.sin(a + bend) * ((r0 + r1) / 2)} ${HUD_CX + Math.cos(a + bend * 1.6) * r1},${HUD_CY + Math.sin(a + bend * 1.6) * r1}`);
-        p.setAttribute('fill', 'none'); p.setAttribute('stroke', HUD_BLUE[i % HUD_BLUE.length]);
-        p.setAttribute('stroke-width', (0.3 + Math.random() * 0.7).toFixed(1)); p.setAttribute('opacity', (0.12 + Math.random() * 0.45).toFixed(2));
-        const an = document.createElementNS(NS, 'animate');
-        an.setAttribute('attributeName', 'opacity');
-        an.setAttribute('values', `${(0.08 + Math.random() * 0.2).toFixed(2)};${(0.35 + Math.random() * 0.5).toFixed(2)};${(0.08 + Math.random() * 0.2).toFixed(2)}`);
-        an.setAttribute('dur', (2.5 + Math.random() * 6).toFixed(1) + 's'); an.setAttribute('begin', (-Math.random() * 6).toFixed(1) + 's');
-        an.setAttribute('repeatCount', 'indefinite'); p.appendChild(an); fg.appendChild(p);
-    }
-    const cg2 = document.getElementById('w-crypts');
-    for (let i = 0; i < 22; i++) {
-        const a = Math.random() * Math.PI * 2, r = 48 + Math.random() * 30;
-        const x = HUD_CX + Math.cos(a) * r, y = HUD_CY + Math.sin(a) * r;
-        const e = document.createElementNS(NS, 'ellipse');
-        e.setAttribute('cx', x.toFixed(1)); e.setAttribute('cy', y.toFixed(1));
-        e.setAttribute('rx', (2 + Math.random() * 6).toFixed(1)); e.setAttribute('ry', (1.5 + Math.random() * 3.5).toFixed(1));
-        e.setAttribute('transform', `rotate(${(a * 180 / Math.PI).toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})`);
-        e.setAttribute('fill', '#02121f'); e.setAttribute('opacity', (0.3 + Math.random() * 0.4).toFixed(2)); cg2.appendChild(e);
-    }
-
-    // --- 3-6-9 Rodin-spoel: verdubbelingsreeks 1-2-4-8-7-5 + de 3-6-9 driehoek ---
-    const rg = document.getElementById('w-rodin');
-    const pt = (n, r) => [HUD_CX + Math.cos((n / 9) * Math.PI * 2 - Math.PI / 2) * r, HUD_CY + Math.sin((n / 9) * Math.PI * 2 - Math.PI / 2) * r];
-    const dbl = document.createElementNS(NS, 'path');
-    dbl.setAttribute('d', 'M' + [1, 2, 4, 8, 7, 5, 1].map(n => pt(n, 40).map(v => v.toFixed(1)).join(',')).join('L'));
-    dbl.setAttribute('fill', 'none'); dbl.setAttribute('stroke', '#ffb627'); dbl.setAttribute('stroke-width', '0.9'); dbl.setAttribute('opacity', '0.55');
-    const dan = document.createElementNS(NS, 'animate');
-    dan.setAttribute('attributeName', 'opacity'); dan.setAttribute('values', '0.2;0.75;0.2');
-    dan.setAttribute('dur', '5s'); dan.setAttribute('repeatCount', 'indefinite'); dbl.appendChild(dan); rg.appendChild(dbl);
-    const tp = document.createElementNS(NS, 'path');
-    tp.setAttribute('d', 'M' + [3, 6, 9, 3].map(n => pt(n, 40).map(v => v.toFixed(1)).join(',')).join('L'));
-    tp.setAttribute('fill', 'none'); tp.setAttribute('stroke', '#00d9ff'); tp.setAttribute('stroke-width', '1'); tp.setAttribute('opacity', '0.6');
-    const tan = document.createElementNS(NS, 'animateTransform');
-    tan.setAttribute('attributeName', 'transform'); tan.setAttribute('type', 'rotate');
-    tan.setAttribute('from', `0 ${HUD_CX} ${HUD_CY}`); tan.setAttribute('to', `360 ${HUD_CX} ${HUD_CY}`);
-    tan.setAttribute('dur', '26s'); tan.setAttribute('repeatCount', 'indefinite'); tp.appendChild(tan); rg.appendChild(tp);
-
-    // --- 9 confluence-segmenten in de limbale ring ---
+    // --- 9 confluence-segmenten als limbale ring ---
     const cg = document.getElementById('w-cells');
     for (let i = 0; i < 9; i++) {
-        const a0 = (i / 9) * Math.PI * 2 - Math.PI / 2 + 0.025, a1 = ((i + 1) / 9) * Math.PI * 2 - Math.PI / 2 - 0.025, r0 = 88, r1 = 93;
-        const p = document.createElementNS(NS, 'path');
-        p.setAttribute('d', `M${HUD_CX + Math.cos(a0) * r0},${HUD_CY + Math.sin(a0) * r0} A${r0},${r0} 0 0 1 ${HUD_CX + Math.cos(a1) * r0},${HUD_CY + Math.sin(a1) * r0} L${HUD_CX + Math.cos(a1) * r1},${HUD_CY + Math.sin(a1) * r1} A${r1},${r1} 0 0 0 ${HUD_CX + Math.cos(a0) * r1},${HUD_CY + Math.sin(a0) * r1} Z`);
-        p.setAttribute('fill', '#123040'); p.setAttribute('class', 'w-cell'); cg.appendChild(p);
+        const a0 = (i / 9) * Math.PI * 2 - Math.PI / 2 + 0.025, a1 = ((i + 1) / 9) * Math.PI * 2 - Math.PI / 2 - 0.025, r0 = 104, r1 = 110;
+        const q = document.createElementNS(NS, 'path');
+        q.setAttribute('d', `M${HUD_CX + Math.cos(a0) * r0},${HUD_CY + Math.sin(a0) * r0 * 0.96} A${r0},${r0 * 0.96} 0 0 1 ${HUD_CX + Math.cos(a1) * r0},${HUD_CY + Math.sin(a1) * r0 * 0.96} L${HUD_CX + Math.cos(a1) * r1},${HUD_CY + Math.sin(a1) * r1 * 0.96} A${r1},${r1 * 0.96} 0 0 0 ${HUD_CX + Math.cos(a0) * r1},${HUD_CY + Math.sin(a0) * r1 * 0.96} Z`);
+        q.setAttribute('fill', '#123040'); q.setAttribute('class', 'w-cell'); cg.appendChild(q);
     }
-    _hudBoltTimer = setInterval(hudBolt, 900);
 }
 
-// Read-only mediaan van de kans-smoothingbuffer (zonder te pushen - de HUD
-// mag de beslisdata niet vervuilen).
+// Read-only mediaan van de kans-smoothingbuffer (de HUD mag de beslisdata
+// nooit vervuilen door zelf te pushen).
 function readSmoothedProb(side) {
     const buf = _probBuffers[side];
     if (!buf || buf.length === 0) return null;
@@ -5490,11 +5493,55 @@ function readSmoothedProb(side) {
     return s[Math.floor(s.length / 2)];
 }
 
+// KPI-strip bovenin de hub: de zes cijfers die er werkelijk toe doen.
+// "break-even" is de winrate die je bij je eigen payoff-verhouding nodig hebt
+// om quitte te spelen - het enige eerlijke ijkpunt voor "kal. edge".
+function updateKpiStrip() {
+    const set = (id, txt, kleur) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = txt;
+        if (kleur) el.style.color = kleur;
+    };
+    const eq = getBalance() + getUnrealizedPnL();
+    const start = walletState.startingCapital || 0;
+    const pct = start > 0 ? (eq - start) / start * 100 : 0;
+    set('hub-equity', formatMoney(eq));
+    set('hub-equity-pct', `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, pct >= 0 ? '#00d9ff' : '#ff5f7e');
+    set('kpi-pnl', formatMoney(walletState.realizedPnL), walletState.realizedPnL >= 0 ? '#00d9ff' : '#ff5f7e');
+    const totaal = (walletState.wins || 0) + (walletState.losses || 0);
+    set('kpi-winrate', totaal > 0 ? `${(walletState.wins / totaal * 100).toFixed(0)}%` : '\u2014');
+    // gekalibreerde kans van de sterkste kant
+    const beste = Math.max(readSmoothedProb('LONG') ?? 0, readSmoothedProb('SHORT') ?? 0);
+    const cal = calibrateProbability(beste);
+    set('kpi-cal', cal === null ? 'n.v.t.' : `${cal.toFixed(0)}%`);
+    // break-even winrate uit de werkelijke payoff-verhouding van gesloten trades
+    const bot = learningLog.filter(l => !l.manual && l.pnlPct != null);
+    const wins = bot.filter(l => l.pnlPct > 0).map(l => l.pnlPct);
+    const losses = bot.filter(l => l.pnlPct <= 0).map(l => Math.abs(l.pnlPct));
+    if (wins.length >= 5 && losses.length >= 5) {
+        const W = wins.reduce((a, b) => a + b, 0) / wins.length;
+        const L = losses.reduce((a, b) => a + b, 0) / losses.length;
+        set('kpi-breakeven', `${(L / (W + L) * 100).toFixed(0)}%`);
+    } else {
+        set('kpi-breakeven', '\u2014');
+    }
+    set('kpi-alloc', `${(getAllocatedPct() * 100).toFixed(0)}%`);
+    set('kpi-pos', `${openPositions.length}/${botSettings.maxOpenPositions}`);
+    const badge = document.getElementById('hub-engine-badge');
+    if (badge) {
+        const aan = botSettings.isRunning;
+        badge.innerHTML = `&#9673; ${aan ? (botSettings.executionMode === 'TESTNET' ? 'TESTNET · live' : 'SIMULATIE · live') : 'STANDBY'}`;
+        badge.style.color = aan ? '#00d9ff' : '#5b7a90';
+    }
+}
+
 function updateFlowHud() {
     const priceEl = document.getElementById('flow-price');
     if (!priceEl) return;
+    updateKpiStrip();
     const body = document.getElementById('flow-hud-body');
-    if (body && body.style.display === 'none') { // ingeklapt: alleen de prijs bijwerken
+    if (body && body.style.display === 'none') {
         if (livePrice > 0) priceEl.textContent = '$' + livePrice.toLocaleString('nl-NL', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
         return;
     }
@@ -5512,22 +5559,21 @@ function updateFlowHud() {
     set('flow-er', isFinite(er) ? er.toFixed(2) : '\u2014');
     set('flow-db', isFinite(db) ? db.toFixed(2) : '\u2014');
     set('flow-chaos', isFinite(chaos) ? chaos.toFixed(2) + '%' : '\u2014');
-    // Confluence: cijfer in de pupil + oplichtende segmenten in de limbale ring
     if (lastOsirisDecision && lastOsirisDecision.confluence != null) {
         set('flow-conf', `${lastOsirisDecision.confluence}/9`);
         document.querySelectorAll('#w-cells .w-cell').forEach((c, i) => {
             const aan = i < lastOsirisDecision.confluence;
             c.setAttribute('fill', aan ? '#00d9ff' : '#123040');
-            c.setAttribute('opacity', aan ? '0.95' : '0.5');
+            c.setAttribute('opacity', aan ? '0.95' : '0.45');
         });
     }
-    // Pupil verwijdt met de sterkste (gedempte) kans; gekalibreerde waarde ernaast
+    // Pupil verwijdt met de sterkste gedempte kans: klein = onzeker, wijd = zeker
     const pl = readSmoothedProb('LONG'), ps = readSmoothedProb('SHORT');
     if (pl !== null || ps !== null) {
         set('flow-prob', `${pl !== null ? pl.toFixed(0) : '\u2014'}/${ps !== null ? ps.toFixed(0) : '\u2014'}`);
         const best = Math.max(pl ?? 0, ps ?? 0);
         const pupil = document.getElementById('flow-pupil');
-        if (pupil) pupil.setAttribute('r', (16 + best / 100 * 26).toFixed(1));
+        if (pupil) pupil.setAttribute('r', (16 + best / 100 * 22).toFixed(1));
         const cal = calibrateProbability(best);
         set('flow-cal', cal === null ? 'n.v.t.' : cal.toFixed(0) + '%');
     }
@@ -5535,7 +5581,7 @@ function updateFlowHud() {
     if (regimeEl && typeof evaluateMarketRegime === 'function') {
         const r = evaluateMarketRegime();
         regimeEl.textContent = r.dead ? 'DOOD' : 'ACTIEF';
-        regimeEl.style.fill = r.dead ? '#ffb627' : '#00d9ff';
+        regimeEl.setAttribute('fill', r.dead ? '#ffb627' : '#00d9ff');
     }
     set('flow-pos', `${openPositions.length}/${pendingOrders.length}`);
     try {
@@ -5554,12 +5600,9 @@ function updateFlowHud() {
     const consoleEl = document.getElementById('flow-console');
     if (consoleEl && Math.floor(Date.now() / 1000) % 6 === 0) {
         const regels = [];
-        try {
-            const ctx = getNodeContext();
-            if (ctx && ctx.nextNode) regels.push(`Volgende ${ctx.nextNode.type || 'node'} over ${Math.max(0, ctx.nextNode.minutesUntil).toFixed(0)} min`);
-        } catch (e) {}
-        regels.push(`Kans gedempt over ${botSettings.probSmoothingSamples} metingen \u00b7 bescherming vanaf +${(botSettings.profitProtectActivationPct * 100).toFixed(1)}% piek`);
-        regels.push(`Executie: ${botSettings.executionMode === 'TESTNET' ? 'Binance Testnet (echte orders)' : 'simulatie'} \u00b7 kosten ${roundTripCostPct().toFixed(2)}% r.t.`);
+        regels.push(`Kans-collaps ${botSettings.probCollapseEnabled ? 'AAN (' + botSettings.probCollapseThresholdPct + '%/' + botSettings.probCollapseConfirmSeconds + 's)' : 'UIT'} \u00b7 demping ${botSettings.probSmoothingSamples} metingen`);
+        regels.push(`Bescherming vanaf +${(botSettings.profitProtectActivationPct * 100).toFixed(1)}% piek \u00b7 kosten ${roundTripCostPct().toFixed(2)}% r.t.`);
+        regels.push(`MA ${maFastPeriod}/${maSlowPeriod} \u00b7 node-gewicht ${botSettings.nodeWeightMode === 'manual' ? botSettings.nodeWeightManual : 'adaptief'}`);
         if (botTradeLog.length > 0) {
             const l = botTradeLog[botTradeLog.length - 1];
             regels.push(`Laatste actie: ${l.action} ${l.side || ''} @ $${(l.price || 0).toFixed(0)}`);
@@ -5568,6 +5611,12 @@ function updateFlowHud() {
         consoleEl.textContent = regels[_flowConsoleIdx];
     }
 }
+
+// Laatst gekozen sectie herstellen (default: Hub)
+try {
+    const opgeslagen = localStorage.getItem('osirisSection');
+    if (opgeslagen) showSection(opgeslagen);
+} catch (e) {}
 setInterval(updateFlowHud, 1000);
 
 
