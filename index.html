@@ -215,6 +215,34 @@
             .wallet-grid{ grid-template-columns:repeat(2,1fr); }
             table { font-size: 0.64em; }
         }
+
+        /* ============ HUB-LAYOUT (17-07): navigatie, KPI-strip, Ocular Core ============ */
+        #hub-nav { display:flex; align-items:center; gap:18px; padding:10px 4px; border-bottom:1px solid #10202c; margin-bottom:0; flex-wrap:wrap; }
+        .hub-tab { font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#456; cursor:pointer; padding-bottom:4px; border-bottom:1px solid transparent; transition:color .2s, border-color .2s; }
+        .hub-tab:hover { color:#7d99ac; }
+        .hub-tab.active { color:#00d9ff; border-bottom-color:#00d9ff; }
+        .hub-badge { font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#00d9ff; }
+        .hub-equity { font-family:'JetBrains Mono',monospace; font-size:0.86rem; color:#e3f6ff; }
+        .hub-equity-pct { font-family:'JetBrains Mono',monospace; font-size:0.62rem; }
+        #kpi-strip { display:grid; grid-template-columns:repeat(6,1fr); border-bottom:1px solid #10202c; margin-bottom:16px; }
+        #kpi-strip .kpi { padding:8px 12px; border-right:1px solid #10202c; }
+        #kpi-strip .kpi:last-child { border-right:none; }
+        #kpi-strip .kpi small { font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:#456; letter-spacing:0.06em; text-transform:none; }
+        #kpi-strip .kpi div { font-family:'JetBrains Mono',monospace; font-size:0.88rem; color:#e3f6ff; }
+        @media (max-width: 720px) { #kpi-strip { grid-template-columns:repeat(3,1fr); } }
+        /* Ocular Core */
+        #flow-hud { position:relative; background:#04070c; border:1px solid #10202c; border-radius:6px; padding:8px 10px; margin-bottom:16px; }
+        .hud-corner { position:absolute; width:12px; height:12px; border-color:#00d9ff; border-style:solid; border-width:0; opacity:0.8; }
+        .eye-head { display:flex; justify-content:space-between; align-items:center; padding:0 8px; cursor:pointer; }
+        .eye-title { font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.16em; text-transform:uppercase; color:#4fc3f7; }
+        #flow-price { font-family:'JetBrains Mono',monospace; font-size:0.95rem; font-weight:bold; color:#e3f6ff; text-shadow:0 0 10px rgba(0,217,255,0.4); transition:color .3s; }
+        #flow-svg { width:100%; max-height:300px; height:auto; display:block; }
+        #flow-pupil { transition:r 1s ease; }
+        .eye-foot { border-top:1px solid #10202c; padding:6px 8px 0; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+        #flow-console { font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#567; flex:1; min-width:180px; }
+        .hud-micro { font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#456; letter-spacing:0.06em; }
+        @keyframes hudBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
     </style>
     <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
@@ -234,6 +262,135 @@
         </header>
         <div class="scan-line"></div>
 
+        <!-- ============ HUB NAVIGATIE + KPI-STRIP ============ -->
+        <div id="hub-nav">
+            <span class="hub-tab active" data-sec="hub" onclick="showSection('hub')">Hub</span>
+            <span class="hub-tab" data-sec="markt" onclick="showSection('markt')">Markt</span>
+            <span class="hub-tab" data-sec="leren" onclick="showSection('leren')">Leren</span>
+            <span class="hub-tab" data-sec="engine" onclick="showSection('engine')">Engine</span>
+            <span style="flex:1;"></span>
+            <span id="hub-engine-badge" class="hub-badge">&#9673; STANDBY</span>
+            <span id="hub-equity" class="hub-equity">&mdash;</span>
+            <span id="hub-equity-pct" class="hub-equity-pct">&mdash;</span>
+        </div>
+        <div id="kpi-strip">
+            <div class="kpi"><small>P/L</small><div id="kpi-pnl">&mdash;</div></div>
+            <div class="kpi"><small>winrate</small><div id="kpi-winrate">&mdash;</div></div>
+            <div class="kpi"><small>kal. edge</small><div id="kpi-cal" style="color:var(--amber);">&mdash;</div></div>
+            <div class="kpi"><small>break-even</small><div id="kpi-breakeven" style="color:#00d9ff;">&mdash;</div></div>
+            <div class="kpi"><small>alloc</small><div id="kpi-alloc">&mdash;</div></div>
+            <div class="kpi"><small>pos</small><div id="kpi-pos">&mdash;</div></div>
+        </div>
+
+        <section id="sec-hub" class="hub-section">
+
+        <!-- ============ OCULAR CORE: binaire iris + melkweg-vortex + Jarvis-ringen ============ -->
+        <div id="flow-hud">
+            <span class="hud-corner" style="top:5px; left:5px; border-top-width:1.5px; border-left-width:1.5px;"></span>
+            <span class="hud-corner" style="top:5px; right:5px; border-top-width:1.5px; border-right-width:1.5px;"></span>
+            <span class="hud-corner" style="bottom:5px; left:5px; border-bottom-width:1.5px; border-left-width:1.5px;"></span>
+            <span class="hud-corner" style="bottom:5px; right:5px; border-bottom-width:1.5px; border-right-width:1.5px;"></span>
+            <div class="eye-head" onclick="toggleFlowHud()">
+                <span class="eye-title">&#9673; Ocular Core <span id="flow-hud-chev">&#9662;</span></span>
+                <span id="flow-price">&mdash;</span>
+            </div>
+            <div id="flow-hud-body">
+                <svg id="flow-svg" viewBox="0 0 700 320" preserveAspectRatio="xMidYMid meet">
+                    <defs>
+                        <radialGradient id="k-halo"><stop offset="0%" stop-color="#00d9ff" stop-opacity="0.15"/><stop offset="60%" stop-color="#0288d1" stop-opacity="0.06"/><stop offset="100%" stop-opacity="0"/></radialGradient>
+                        <radialGradient id="k-bed"><stop offset="0%" stop-color="#00d9ff" stop-opacity="0.3"/><stop offset="66%" stop-color="#06304d" stop-opacity="0.42"/><stop offset="100%" stop-color="#04070c" stop-opacity="0"/></radialGradient>
+                        <filter id="k-glow"><feGaussianBlur stdDeviation="2.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                        <filter id="k-soft"><feGaussianBlur stdDeviation="1"/></filter>
+                    </defs>
+                    <ellipse cx="350" cy="160" rx="340" ry="155" fill="url(#k-halo)"/>
+                    <g id="w-spirals" filter="url(#k-soft)"></g>
+                    <g id="w-dust"></g>
+                    <ellipse cx="350" cy="160" rx="108" ry="104" fill="url(#k-bed)"/>
+                    <g id="w-iris"></g>
+                    <circle id="flow-pupil" cx="350" cy="160" r="28" fill="#02050a" stroke="#00d9ff" stroke-width="1.4" filter="url(#k-glow)"/>
+                    <circle cx="350" cy="160" r="6" fill="#7fe9ff" opacity="0.85"><animate attributeName="r" values="4;8;4" dur="3.2s" repeatCount="indefinite"/></circle>
+                    <g id="w-jarvis"></g>
+                    <g id="w-cells"></g>
+                    <text x="350" y="164" text-anchor="middle" font-size="10" font-weight="bold" fill="#04070c" font-family="'JetBrains Mono',monospace" id="flow-conf">&mdash;</text>
+                    <g id="w-parts"></g>
+                    <g font-family="'JetBrains Mono',monospace" font-size="9">
+                        <text x="10" y="38" fill="#456">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
+                        <text x="10" y="104" fill="#456">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
+                        <text x="10" y="220" fill="#456">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
+                        <text x="10" y="286" fill="#456">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
+                        <text x="690" y="38" fill="#456" text-anchor="end">KANS L/S <tspan fill="#00d9ff" id="flow-prob">&mdash;</tspan></text>
+                        <text x="690" y="104" fill="#456" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
+                        <text x="690" y="220" fill="#456" text-anchor="end">REGIME <tspan fill="#00d9ff" id="flow-regime">&mdash;</tspan></text>
+                        <text x="690" y="286" fill="#456" text-anchor="end">NODE <tspan fill="#4fc3f7" id="flow-node">&mdash;</tspan></text>
+                    </g>
+                </svg>
+                <div class="eye-foot">
+                    <span class="live-dot" style="flex:none;"></span>
+                    <span id="flow-console">Ocular core initialiseert...</span>
+                    <span class="hud-micro">POS <span id="flow-pos" style="color:#00d9ff;">&mdash;</span></span>
+                    <span class="hud-micro">ALLOC <span id="flow-alloc" style="color:#ffb627;">&mdash;</span></span>
+                    <span class="hud-micro">SCAN <span id="flow-scan" style="color:#00d9ff;">&mdash;</span></span>
+                    <span class="hud-micro">BUFFER <span id="flow-buf" style="color:#00d9ff;">&mdash;</span></span>
+                    <span class="hud-micro" style="animation:hudBlink 2s infinite;">SYS <span id="flow-sys" style="color:#00d9ff;">NOMINAAL</span></span>
+                </div>
+            </div>
+        </div>
+
+            <div class="hud">
+            <!-- BOT STATUS STRIP -->
+            <div id="bot-monitor">
+                <div class="stat"><small>Status</small><div id="bot-status" style="color:var(--teal);">STANDBY</div></div>
+                <div class="stat"><small>Live P/L</small><div id="bot-pnl">0.00%</div></div>
+                <div class="stat"><small>Open Posities</small><div id="bot-position">Geen</div></div>
+                <div class="stat"><small>Laatste Actie</small><div id="bot-last-action" style="font-size:0.7rem; font-weight:500; line-height:1.4;">-</div></div>
+            </div>
+
+            <!-- WALLET STATUS: neon rand + icoon -->
+            <div class="wallet-panel">
+                <div class="wallet-header">
+                    <div class="titlewrap">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><circle cx="17" cy="14" r="1.3" fill="currentColor" stroke="none"/></svg>
+                        Wallet Status
+                    </div>
+                    <button onclick="resetWallet()" class="btn btn-ghost btn-mini">&#9851; Reset Wallet</button>
+                </div>
+                <div class="wallet-grid">
+                    <div><div class="wlabel">Equity (dynamisch)</div><div id="wallet-equity" class="wvalue">€1000.00</div></div>
+                    <div><div class="wlabel">Balance (gerealiseerd)</div><div id="wallet-balance" class="wvalue">€1000.00</div></div>
+                    <div><div class="wlabel">Gerealiseerd P/L</div><div id="wallet-realized-pnl" class="wvalue">€0.00</div></div>
+                    <div><div class="wlabel">Open P/L (unrealized)</div><div id="wallet-unrealized-pnl" class="wvalue">€0.00</div></div>
+                    <div><div class="wlabel">Allocatie</div><div id="wallet-allocated-pct" class="wvalue">0.0%</div></div>
+                    <div><div class="wlabel">Open Posities</div><div id="wallet-open-count" class="wvalue">0</div></div>
+                    <div><div class="wlabel">Win Rate</div><div id="wallet-winrate" class="wvalue">--</div></div>
+                </div>
+            </div>
+
+            <div class="subhead" style="margin-top:8px;">Open Posities</div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Type</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size (BTC)</th><th>Size (€)</th><th>Alloc %</th><th>P/L %</th><th>P/L €</th><th></th></tr></thead>
+                    <tbody id="open-positions-body">
+                        <tr><td colspan="9" style="text-align:center; color:var(--text-dim); padding: 8px;">Geen open posities</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="subhead">Pending Orders <span style="font-weight:400; color:var(--text-dimmer); font-size:0.85em; text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
+            <div id="pending-orders-list" style="font-family: 'JetBrains Mono',monospace; font-size: 0.8em; color: var(--text-primary);">
+                <span style="color:var(--text-dim);">Geen pending orders</span>
+            </div>
+
+            <div class="subhead">Gesloten Posities — Huidige Sessie</div>
+            <div class="table-wrap scrollable">
+                <table>
+                    <thead><tr><th>Datum/Tijd</th><th>Type</th><th>Side</th><th>Prijs</th><th>Amount (BTC)</th><th>Size (€)</th><th>P/L</th></tr></thead>
+                    <tbody id="history-body"></tbody>
+                </table>
+            </div>
+            </div>
+        </section>
+
+        <section id="sec-markt" class="hub-section" style="display:none;">
         <!-- ============ CHART SECTION ============ -->
         <div class="hud chart-clean">
             <div class="eyebrow chart-title"><span class="chart-bar"></span>Market Chart</div>
@@ -451,10 +608,45 @@
             </div>
         </div>
 
-        <!-- ============ OSIRIS ENGINE SECTION ============ -->
-        <div id="bot-control-hub" class="hud amber">
+        <!-- ============ PRIJS & VOLUME HISTORIE ============ -->
+        <div class="hud">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.47<span class="fill"></span></div>
+            <div class="eyebrow">PRIJS &amp; VOLUME HISTORIE — 15M<span class="fill"></span><button onclick="downloadPriceVolumeHistory()" class="btn btn-ghost btn-mini">&darr; Download Historie</button></div>
+            <div id="history-list"></div>
+        </div>
+        </section>
+
+        <section id="sec-leren" class="hub-section" style="display:none;">
+            <div class="hud violet">
+            <!-- LIVE REASONING PANEL -->
+            <div id="bot-reasoning-wrap">
+                <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
+                    <span>&#9679; Beredenering (live) — continue unpacking van elke berekeningsstap</span>
+                    <span id="reasoning-chevron" class="open">&#9662;</span>
+                </div>
+                <div id="reasoning-body" class="open">
+                    <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
+                </div>
+            </div>
+
+            <!-- LEVEL 1: ADAPTIVE WEIGHTS ("leren van fouten") - inklapbaar -->
+            <div id="learning-wrap" style="background:rgba(255,255,255,0.02); border:1px solid rgba(153,69,255,0.25); padding:14px 16px; margin-bottom:18px;">
+                <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+                    <span>&#9679; Adaptive Learning — Level 1</span>
+                    <span id="learning-chevron">&#9662;</span>
+                </div>
+                <div id="learning-body" class="open" style="margin-top:10px;">
+                    <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
+                </div>
+            </div>
+
+            </div>
+        </section>
+
+        <section id="sec-engine" class="hub-section" style="display:none;">
+            <div id="bot-control-hub" class="hud amber">
+            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
+            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.23<span class="fill"></span></div>
             <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
@@ -546,6 +738,8 @@
                         <div><label>Min. verlies % vroege exit</label><input type="number" id="min-loss-early-exit" value="0.3" step="0.1"></div>
                         <div><label>Winst-bescherming: activatiepiek %</label><input type="number" id="profit-protect-activation" value="0.5" step="0.1" min="0"></div>
                         <div><label>Winst-bescherming: % van piek behouden</label><input type="number" id="profit-protect-keep" value="55" step="5" min="0" max="100"></div>
+                        <div><label>Kans-collaps mechanisme</label><select id="prob-collapse-enabled"><option value="true">Aan</option><option value="false" selected>Uit (aanbevolen)</option></select></div>
+                        <div><label>Kans-demping (metingen)</label><input type="number" id="prob-smoothing-samples" value="18" step="2" min="1" max="60"></div>
                         <div><label>Kans-collaps: drempel %</label><input type="number" id="prob-collapse-threshold" value="35" step="5" min="0" max="100"></div>
                         <div><label>Kans-collaps: bevestiging (sec)</label><input type="number" id="prob-collapse-confirm-sec" value="120" step="10" min="0"></div>
                         <div><label>Regime-poort (pauzeer dode markt)</label><select id="regime-gate-enabled"><option value="true" selected>aan</option><option value="false">uit</option></select></div>
@@ -599,165 +793,8 @@
                 <button onclick="downloadBotSettings()" class="btn btn-ghost btn-mini">&#9881; Download Instellingen</button>
                 <button onclick="downloadAllData()" class="btn btn-ghost btn-mini" style="color:var(--teal); border-color:rgba(20,241,149,0.4);">&darr; Download All Data</button>
             </div>
-
-            <!-- BOT STATUS STRIP -->
-            <div id="bot-monitor">
-                <div class="stat"><small>Status</small><div id="bot-status" style="color:var(--teal);">STANDBY</div></div>
-                <div class="stat"><small>Live P/L</small><div id="bot-pnl">0.00%</div></div>
-                <div class="stat"><small>Open Posities</small><div id="bot-position">Geen</div></div>
-                <div class="stat"><small>Laatste Actie</small><div id="bot-last-action" style="font-size:0.7rem; font-weight:500; line-height:1.4;">-</div></div>
             </div>
-
-            <!-- LIVE REASONING PANEL -->
-            <div id="bot-reasoning-wrap">
-                <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
-                    <span>&#9679; Beredenering (live) — continue unpacking van elke berekeningsstap</span>
-                    <span id="reasoning-chevron" class="open">&#9662;</span>
-                </div>
-                <div id="reasoning-body" class="open">
-                    <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
-                </div>
-            </div>
-
-            <!-- LEVEL 1: ADAPTIVE WEIGHTS ("leren van fouten") - inklapbaar -->
-            <div id="learning-wrap" style="background:rgba(255,255,255,0.02); border:1px solid rgba(153,69,255,0.25); padding:14px 16px; margin-bottom:18px;">
-                <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
-                    <span>&#9679; Adaptive Learning — Level 1</span>
-                    <span id="learning-chevron">&#9662;</span>
-                </div>
-                <div id="learning-body" class="open" style="margin-top:10px;">
-                    <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
-                </div>
-            </div>
-
-            <!-- OSIRIS LIVE DATAFLOW: Jarvis-achtige HUD met bewegende datadeeltjes -->
-            <style>
-                @keyframes hudScan { 0% { top: -2px; opacity: 0; } 8% { opacity: 0.5; } 92% { opacity: 0.5; } 100% { top: calc(100% - 2px); opacity: 0; } }
-                @keyframes hudBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-                .hud-corner { position: absolute; width: 14px; height: 14px; border-color: #14f195; border-style: solid; border-width: 0; opacity: 0.8; }
-                .hud-bar-track { height: 4px; background: #0c0d14; border-radius: 2px; margin-top: 4px; overflow: hidden; position: relative; }
-                .hud-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; background: #14f195; }
-                .hud-bar-seg { position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 5px, #131722 5px 7px); pointer-events: none; }
-                .hud-cell { flex: 1; height: 7px; background: #0c0d14; border: 1px solid #2a2e39; border-radius: 1px; transition: background 0.4s, border-color 0.4s; }
-                .hud-cell.on { background: #14f195; border-color: #14f195; box-shadow: 0 0 6px rgba(20,241,149,0.5); }
-                .hud-micro { font-family: 'JetBrains Mono', monospace; font-size: 0.56rem; color: #5d606b; letter-spacing: 0.06em; }
-            </style>
-            <div id="flow-hud" style="position:relative; overflow:hidden; background:radial-gradient(ellipse at 50% 48%, #0a1420 0%, #04070c 72%); border:1px solid rgba(0,217,255,0.35); border-radius:8px; padding:8px 12px; margin-bottom:14px;">
-                <span class="hud-corner" style="top:4px; left:4px; border-top-width:1.5px; border-left-width:1.5px; border-color:#00d9ff;"></span>
-                <span class="hud-corner" style="top:4px; right:4px; border-top-width:1.5px; border-right-width:1.5px; border-color:#00d9ff;"></span>
-                <span class="hud-corner" style="bottom:4px; left:4px; border-bottom-width:1.5px; border-left-width:1.5px; border-color:#00d9ff;"></span>
-                <span class="hud-corner" style="bottom:4px; right:4px; border-bottom-width:1.5px; border-right-width:1.5px; border-color:#00d9ff;"></span>
-                <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleFlowHud()">
-                    <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.16em; color:#4fc3f7;">&#9679; Osiris &middot; Ocular Core <span id="flow-hud-chev">&#9662;</span></span>
-                    <span id="flow-price" style="font-family:'JetBrains Mono',monospace; font-size:0.95rem; font-weight:bold; color:#e3f6ff; text-shadow:0 0 10px rgba(0,217,255,0.5); transition:color .3s;">&mdash;</span>
-                </div>
-                <div id="flow-hud-body">
-                    <svg id="flow-svg" viewBox="0 0 700 300" style="width:100%; max-height:260px; height:auto; display:block;">
-                        <defs>
-                            <radialGradient id="w-iris" cx="50%" cy="46%">
-                                <stop offset="0%" stop-color="#02060c"/><stop offset="30%" stop-color="#06304d"/>
-                                <stop offset="58%" stop-color="#0a6ea8" stop-opacity="0.9"/><stop offset="80%" stop-color="#00d9ff" stop-opacity="0.65"/>
-                                <stop offset="94%" stop-color="#81d4fa" stop-opacity="0.4"/><stop offset="100%" stop-color="#01121e"/>
-                            </radialGradient>
-                            <radialGradient id="w-halo" cx="50%" cy="50%">
-                                <stop offset="0%" stop-color="#00d9ff" stop-opacity="0.2"/><stop offset="55%" stop-color="#0288d1" stop-opacity="0.08"/><stop offset="100%" stop-color="#000" stop-opacity="0"/>
-                            </radialGradient>
-                            <filter id="w-glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-                            <filter id="w-arc"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-                            <filter id="w-soft"><feGaussianBlur stdDeviation="1.1"/></filter>
-                        </defs>
-                        <ellipse cx="350" cy="150" rx="335" ry="148" fill="url(#w-halo)"/>
-                        <g id="w-spirals" filter="url(#w-soft)"></g>
-                        <g id="w-dust"></g>
-                        <g id="w-torus"></g>
-                        <g id="w-bolts" filter="url(#w-arc)"></g>
-                        <g id="w-jarvis"></g>
-                        <circle cx="350" cy="150" r="86" fill="url(#w-iris)"/>
-                        <g id="w-fibers"></g>
-                        <g id="w-crypts"></g>
-                        <circle cx="350" cy="150" r="44" fill="none" stroke="#81d4fa" stroke-width="1.6" opacity="0.5"/>
-                        <circle cx="350" cy="150" r="86" fill="none" stroke="#01121e" stroke-width="5" opacity="0.85"/>
-                        <circle cx="350" cy="150" r="86" fill="none" stroke="#00d9ff" stroke-width="1" opacity="0.75"/>
-                        <g id="w-rodin"></g>
-                        <g id="w-cells"></g>
-                        <circle id="flow-pupil" cx="350" cy="150" r="30" fill="#01060c" stroke="#00d9ff" stroke-width="1.6" filter="url(#w-glow)" style="transition:r 1s ease"/>
-                        <circle cx="350" cy="150" r="7" fill="#7fe9ff" opacity="0.9"><animate attributeName="r" values="5;9;5" dur="3.2s" repeatCount="indefinite"/></circle>
-                        <text x="350" y="154" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#04070c" font-family="'JetBrains Mono',monospace" id="flow-conf" style="pointer-events:none">&mdash;</text>
-                        <g id="w-parts"></g>
-                        <g font-family="'JetBrains Mono',monospace" font-size="9">
-                            <text x="8" y="34" fill="#4a6a80">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
-                            <text x="8" y="96" fill="#4a6a80">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
-                            <text x="8" y="202" fill="#4a6a80">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
-                            <text x="8" y="266" fill="#4a6a80">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
-                            <text x="692" y="34" fill="#4a6a80" text-anchor="end">KANS L/S <tspan fill="#00d9ff" id="flow-prob">&mdash;</tspan></text>
-                            <text x="692" y="96" fill="#4a6a80" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
-                            <text x="692" y="150" fill="#4a6a80" text-anchor="end">NODE <tspan fill="#4fc3f7" id="flow-node">&mdash;</tspan></text>
-                            <text x="692" y="202" fill="#4a6a80" text-anchor="end">REGIME <tspan fill="#00d9ff" id="flow-regime">&mdash;</tspan></text>
-                            <text x="692" y="266" fill="#4a6a80" text-anchor="end">POS <tspan fill="#e3f6ff" id="flow-pos">&mdash;</tspan></text>
-                        </g>
-                    </svg>
-                    <div style="border-top:1px solid #123040; padding-top:6px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-                        <span class="live-dot" style="flex:none;"></span>
-                        <span id="flow-console" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; color:#4a6a80; flex:1; min-width:180px;">Ocular core initialiseert...</span>
-                        <span class="hud-micro">ALLOC <span id="flow-alloc" style="color:#ffb627;">&mdash;</span></span>
-                        <span class="hud-micro">SCAN <span id="flow-scan" style="color:#00d9ff;">&mdash;</span></span>
-                        <span class="hud-micro">BUFFER <span id="flow-buf" style="color:#00d9ff;">&mdash;</span></span>
-                        <span class="hud-micro" style="animation:hudBlink 2s infinite;">SYS <span id="flow-sys" style="color:#00d9ff;">NOMINAAL</span></span>
-                    </div>
-                </div>
-            </div>
-
-
-            <!-- WALLET STATUS: neon rand + icoon -->
-            <div class="wallet-panel">
-                <div class="wallet-header">
-                    <div class="titlewrap">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><circle cx="17" cy="14" r="1.3" fill="currentColor" stroke="none"/></svg>
-                        Wallet Status
-                    </div>
-                    <button onclick="resetWallet()" class="btn btn-ghost btn-mini">&#9851; Reset Wallet</button>
-                </div>
-                <div class="wallet-grid">
-                    <div><div class="wlabel">Equity (dynamisch)</div><div id="wallet-equity" class="wvalue">€1000.00</div></div>
-                    <div><div class="wlabel">Balance (gerealiseerd)</div><div id="wallet-balance" class="wvalue">€1000.00</div></div>
-                    <div><div class="wlabel">Gerealiseerd P/L</div><div id="wallet-realized-pnl" class="wvalue">€0.00</div></div>
-                    <div><div class="wlabel">Open P/L (unrealized)</div><div id="wallet-unrealized-pnl" class="wvalue">€0.00</div></div>
-                    <div><div class="wlabel">Allocatie</div><div id="wallet-allocated-pct" class="wvalue">0.0%</div></div>
-                    <div><div class="wlabel">Open Posities</div><div id="wallet-open-count" class="wvalue">0</div></div>
-                    <div><div class="wlabel">Win Rate</div><div id="wallet-winrate" class="wvalue">--</div></div>
-                </div>
-            </div>
-
-            <div class="subhead" style="margin-top:8px;">Open Posities</div>
-            <div class="table-wrap">
-                <table>
-                    <thead><tr><th>Type</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size (BTC)</th><th>Size (€)</th><th>Alloc %</th><th>P/L %</th><th>P/L €</th></tr></thead>
-                    <tbody id="open-positions-body">
-                        <tr><td colspan="9" style="text-align:center; color:var(--text-dim); padding: 8px;">Geen open posities</td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="subhead">Pending Orders <span style="font-weight:400; color:var(--text-dimmer); font-size:0.85em; text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
-            <div id="pending-orders-list" style="font-family: 'JetBrains Mono',monospace; font-size: 0.8em; color: var(--text-primary);">
-                <span style="color:var(--text-dim);">Geen pending orders</span>
-            </div>
-
-            <div class="subhead">Gesloten Posities — Huidige Sessie</div>
-            <div class="table-wrap scrollable">
-                <table>
-                    <thead><tr><th>Datum/Tijd</th><th>Type</th><th>Side</th><th>Prijs</th><th>Amount (BTC)</th><th>Size (€)</th><th>P/L</th></tr></thead>
-                    <tbody id="history-body"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- ============ PRICE & VOLUME HISTORY SECTION ============ -->
-        <div class="hud">
-            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow">PRIJS &amp; VOLUME HISTORIE — 15M<span class="fill"></span><button onclick="downloadPriceVolumeHistory()" class="btn btn-ghost btn-mini">&darr; Download Historie</button></div>
-            <div id="history-list"></div>
-        </div>
+        </section>
 
     </div>
     <script src="/Osiris/app.js?v=20260711-2"></script>
