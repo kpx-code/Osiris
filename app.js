@@ -5385,6 +5385,7 @@ function toggleFlowHud() {
 // ============================================================
 const HUD_BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6', '#b3e5fc'];
 let _eyeSig = [];          // elementen die op bull/bear verkleuren
+let _allEyeSig = [];       // kleurbare elementen van ALLE ogen (hub + hero + engine)
 let _eyeBits = [];         // binaire cijfers die op sentiment verkleuren
 let _eyePupil = null, _eyeHalo = null, _eyeConf = null;
 let _eyeCX = 280, _eyeCY = 170, _eyeR = 118;
@@ -5507,6 +5508,7 @@ function initFlowHud() {
     coreC.appendChild(mk('animate', { attributeName: 'r', values: (R * 0.04) + ';' + (R * 0.08) + ';' + (R * 0.04), dur: '3.2s', repeatCount: 'indefinite' }));
     host.appendChild(coreC);
 
+    _allEyeSig = _allEyeSig.concat(_eyeSig);
     applyEyeSignal(); applyEyeSentiment();
 }
 
@@ -5527,7 +5529,7 @@ function setEyeSignalManual(s) {
 }
 function applyEyeSignal() {
     const c = eyeColor();
-    _eyeSig.forEach(el => {
+    (_allEyeSig.length ? _allEyeSig : _eyeSig).forEach(el => {
         if (el.getAttribute && el.getAttribute('data-bit') === '1') return;
         const stroke = el.getAttribute('stroke');
         if (stroke && stroke !== 'none') el.setAttribute('stroke', c);
@@ -5854,6 +5856,13 @@ function buildDecorEye(hostId, R) {
     conf.textContent = '6/9';
     conf.appendChild(mk('animate', { attributeName: 'font-size', values: `${R * 0.11};${R * 0.28};${R * 0.11}`, dur: '6.5s', repeatCount: 'indefinite' }));
     svg.appendChild(conf);
+    // registreer kleurbare elementen zodat de bull/bear-knoppen dit oog mee verkleuren
+    svg.querySelectorAll('path, circle, ellipse, line').forEach(el => {
+        const f = el.getAttribute('fill'), s = el.getAttribute('stroke');
+        const kleurbaar = [f, s].some(c => c && ['#00d9ff', '#4fc3f7', '#14f195', '#ff5f7e', '#7fe9ff'].includes(c));
+        if (kleurbaar) _allEyeSig.push(el);
+    });
+    applyEyeSignal();
 }
 
 // starmap: één grote ruimte waar je doorheen reist (depth-parallax)
