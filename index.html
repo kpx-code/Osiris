@@ -694,7 +694,7 @@ section { position:relative; z-index:2; }
         </div>
 
         <!-- ============ PRIJS & VOLUME HISTORIE ============ -->
-        <div class="hud">
+        <div class="hud" style="margin-top:28px;">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
             <div class="eyebrow">PRIJS &amp; VOLUME HISTORIE — 15M<span class="fill"></span><button onclick="downloadPriceVolumeHistory()" class="btn btn-ghost btn-mini">&darr; Download Historie</button></div>
             <div id="history-list" style="max-height:300px; overflow-y:auto;"></div>
@@ -732,7 +732,7 @@ section { position:relative; z-index:2; }
   <div class="wrap">
     <div class="waypoint">Waypoint 04 &middot; Control hub</div>
     <div class="sec-eyebrow">Bot Control Hub</div>
-    <h2 class="sec">Osiris Intel Bot Engine V1.3.73</h2>
+    <h2 class="sec">Osiris Intel Bot Engine V1.3.74</h2>
     <div class="mock">
       <div class="mock-body">
 
@@ -774,43 +774,7 @@ section { position:relative; z-index:2; }
             </div>
           </div>
         </div>
-        <div class="subhead">Live reasoning feed</div>
-            <div id="bot-reasoning-wrap">
-                <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
-                    <span>&#9679; Beredenering (live) — continue unpacking van elke berekeningsstap</span>
-                    <span id="reasoning-chevron" class="open">&#9662;</span>
-                </div>
-                <div id="reasoning-body" class="open">
-                    <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
-                </div>
-            </div>
-        <div class="subhead">Adaptive learning &middot; Level 1</div>
-                <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
-                    <span id="learning-chevron">&#9662;</span>
-                </div>
-                <div id="learning-body" class="open" style="margin-top:10px;">
-                    <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
-                </div>
-        <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer;" onclick="toggleCalibPanel()"><span><span id="calib-chevron">&#9662;</span> Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
-        <div id="calib-body" style="display:grid; grid-template-columns:1.1fr 1fr; gap:20px; align-items:center; margin-top:8px;">
-          <svg id="calib-svg" viewBox="0 0 100 62" preserveAspectRatio="xMinYMid meet" style="width:100%; height:300px; overflow:visible;">
-            <line x1="8" y1="50" x2="94" y2="4" stroke="#3a5064" stroke-width="0.4" stroke-dasharray="1.2 1.2"/>
-            <text x="72" y="9" font-size="3" fill="#4a6076" font-family="'JetBrains Mono',monospace" font-style="italic">perfect</text>
-            <line x1="8" y1="3" x2="8" y2="50" stroke="#1a2a38" stroke-width="0.4"/>
-            <line x1="8" y1="50" x2="95" y2="50" stroke="#1a2a38" stroke-width="0.4"/>
-            <text x="1" y="5" font-size="3.4" fill="#5c7488" font-family="'JetBrains Mono',monospace">100</text>
-            <text x="5" y="51.5" font-size="3.4" fill="#5c7488" font-family="'JetBrains Mono',monospace">0</text>
-            <text x="8" y="57" font-size="3.4" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">60</text>
-            <text x="94" y="57" font-size="3.4" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">95</text>
-            <g id="calib-plot"></g>
-          </svg>
-          <div class="mono" style="font-size:0.68rem; color:var(--dim); line-height:1.75;">
-            <div style="color:var(--amber); margin-bottom:8px; font-weight:600; font-size:0.78rem;">Osiris is overconfident.</div>
-            <span id="calib-note">Wacht op 50+ trades met entry-kans.</span>
-          </div>
-        </div>
-
-        <div class="subhead">Wallet status</div>
+        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center;"><span>Wallet status</span><button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button></div>
         <div class="kpi-strip" style="border:1px solid var(--line);">
           <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
           <div class="kpi"><small>win rate</small><b id="kpi-winrate">&mdash;</b></div>
@@ -850,6 +814,43 @@ section { position:relative; z-index:2; }
             <tbody id="history-body"></tbody>
           </table>
         </div>
+        <div class="subhead">Live reasoning feed</div>
+            <div id="bot-reasoning-wrap">
+                <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
+                    <span>&#9679; Beredenering (live) — continue unpacking van elke berekeningsstap</span>
+                    <span id="reasoning-chevron" class="open">&#9662;</span>
+                </div>
+                <div id="reasoning-body" class="open">
+                    <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
+                </div>
+            </div>
+        <div class="subhead">Adaptive learning &middot; Level 1</div>
+                <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+                    <span>&#9679; Adaptive Learning — Level 1</span>
+                    <span id="learning-chevron">&#9662;</span>
+                </div>
+                <div id="learning-body" class="open" style="margin-top:10px;">
+                    <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
+                </div>
+        <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer;" onclick="toggleCalibPanel()"><span><span id="calib-chevron">&#9662;</span> Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
+        <div id="calib-body" style="display:grid; grid-template-columns:1.1fr 1fr; gap:20px; align-items:center; margin-top:8px;">
+          <svg id="calib-svg" viewBox="0 0 100 62" preserveAspectRatio="xMinYMid meet" style="width:100%; height:300px; overflow:visible;">
+            <line x1="8" y1="50" x2="94" y2="4" stroke="#3a5064" stroke-width="0.4" stroke-dasharray="1.2 1.2"/>
+            <text x="72" y="9" font-size="3" fill="#4a6076" font-family="'JetBrains Mono',monospace" font-style="italic">perfect</text>
+            <line x1="8" y1="3" x2="8" y2="50" stroke="#1a2a38" stroke-width="0.4"/>
+            <line x1="8" y1="50" x2="95" y2="50" stroke="#1a2a38" stroke-width="0.4"/>
+            <text x="1" y="5" font-size="3.4" fill="#5c7488" font-family="'JetBrains Mono',monospace">100</text>
+            <text x="5" y="51.5" font-size="3.4" fill="#5c7488" font-family="'JetBrains Mono',monospace">0</text>
+            <text x="8" y="57" font-size="3.4" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">60</text>
+            <text x="94" y="57" font-size="3.4" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">95</text>
+            <g id="calib-plot"></g>
+          </svg>
+          <div class="mono" style="font-size:0.68rem; color:var(--dim); line-height:1.75;">
+            <div style="color:var(--amber); margin-bottom:8px; font-weight:600; font-size:0.78rem;">Osiris is overconfident.</div>
+            <span id="calib-note">Wacht op 50+ trades met entry-kans.</span>
+          </div>
+        </div>
+
         <div class="subhead">Engine Config &middot; presets &middot; toggles</div>
             <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
@@ -1009,6 +1010,6 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build5"></script>
+<script src="app.js?v=20260718-v4build6"></script>
 </body>
 </html>
