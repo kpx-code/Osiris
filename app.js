@@ -5388,7 +5388,7 @@ let _eyeSig = [];          // elementen die op bull/bear verkleuren
 let _allEyeSig = [];       // kleurbare elementen van ALLE ogen (hub + hero + engine)
 let _eyeBits = [];         // binaire cijfers die op sentiment verkleuren
 let _eyePupil = null, _eyeHalo = null, _eyeConf = null;
-let _eyeCX = 280, _eyeCY = 170, _eyeR = 118;
+let _eyeCX = 280, _eyeCY = 182, _eyeR = 140;
 let EYE_SIGNAL = 'neutral', EYE_BUYERS = 50;
 
 function initFlowHud() {
@@ -5615,11 +5615,11 @@ function renderCalibrationCurve() {
     const X = r => 8 + (Math.min(100, Math.max(50, r)) - 50) / 50 * 86;
     const Y = w => 50 - Math.min(100, Math.max(0, w)) / 100 * 46;
     const pts = _calibMap.map(([r, w]) => `${X(r).toFixed(1)},${Y(w).toFixed(1)}`).join(' ');
-    let svg = `<polyline points="${pts}" fill="none" stroke="#ffb627" stroke-width="1.3"/>`;
+    let svg = `<polyline points="${pts}" fill="none" stroke="#ffb627" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>`;
     _calibMap.forEach(([r, w], i) => {
         const laatste = i === _calibMap.length - 1;
-        svg += `<circle cx="${X(r).toFixed(1)}" cy="${Y(w).toFixed(1)}" r="${laatste ? 2 : 1.4}" fill="#ffb627"/>`;
-        if (laatste) svg += `<text x="${(X(r) - 4).toFixed(1)}" y="${(Y(w) - 4).toFixed(1)}" font-size="5" fill="#ffb627" text-anchor="middle" font-family="'JetBrains Mono',monospace">${w.toFixed(0)}%</text>`;
+        svg += `<circle cx="${X(r).toFixed(1)}" cy="${Y(w).toFixed(1)}" r="${laatste ? 1.6 : 1.1}" fill="#ffb627"/>`;
+        if (laatste) svg += `<text x="${(X(r) - 3).toFixed(1)}" y="${(Y(w) - 3).toFixed(1)}" font-size="4" font-weight="bold" fill="#ffb627" text-anchor="middle" font-family="'JetBrains Mono',monospace">${w.toFixed(0)}%</text>`;
     });
     plot.innerHTML = svg;
     if (note) {
@@ -5771,7 +5771,7 @@ setInterval(updateFlowHud, 1000);
 // scroll-spy en nav-prijs. De hub-eye is de LIVE variant (buildEye/updateFlowHud);
 // deze decoratieve ogen delen dezelfde vormtaal maar zonder data-binding.
 // ============================================================
-function buildDecorEye(hostId, R) {
+function buildDecorEye(hostId, R, showConf) {
     const svg = document.getElementById(hostId);
     if (!svg) return;
     const NS = 'http://www.w3.org/2000/svg', XL = 'http://www.w3.org/1999/xlink';
@@ -5852,10 +5852,12 @@ function buildDecorEye(hostId, R) {
     const pupil = mk('circle', { cx: CX, cy: CY, r: R * 0.18, fill: '#02050a', stroke: '#00d9ff', 'stroke-width': 1.2, opacity: 0.95 });
     pupil.appendChild(mk('animate', { attributeName: 'r', values: `${R * 0.12};${R * 0.3};${R * 0.12}`, dur: '6.5s', repeatCount: 'indefinite' }));
     svg.appendChild(pupil);
-    const conf = mk('text', { x: CX, y: CY, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-weight': 'bold', 'font-family': "'JetBrains Mono', monospace", fill: '#7fe9ff' });
-    conf.textContent = '6/9';
-    conf.appendChild(mk('animate', { attributeName: 'font-size', values: `${R * 0.11};${R * 0.28};${R * 0.11}`, dur: '6.5s', repeatCount: 'indefinite' }));
-    svg.appendChild(conf);
+    if (showConf) {
+        const conf = mk('text', { x: CX, y: CY, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-weight': 'bold', 'font-family': "'JetBrains Mono', monospace", fill: '#7fe9ff' });
+        conf.textContent = '6/9';
+        conf.appendChild(mk('animate', { attributeName: 'font-size', values: `${R * 0.11};${R * 0.28};${R * 0.11}`, dur: '6.5s', repeatCount: 'indefinite' }));
+        svg.appendChild(conf);
+    }
     // registreer kleurbare elementen zodat de bull/bear-knoppen dit oog mee verkleuren
     svg.querySelectorAll('path, circle, ellipse, line').forEach(el => {
         const f = el.getAttribute('fill'), s = el.getAttribute('stroke');
@@ -5934,8 +5936,8 @@ function initScrollSpy() {
 // alles opstarten zodra de DOM klaar is
 (function bootLanding() {
     function go() {
-        try { buildDecorEye('hero-eye', 150); } catch (e) {}
-        try { buildDecorEye('engine-eye', 132); } catch (e) {}
+        try { buildDecorEye('hero-eye', 150, false); } catch (e) {}
+        try { buildDecorEye('engine-eye', 132, false); } catch (e) {}
         try { initStarmap(); } catch (e) {}
         // (v4 gebruikt waypoint-tekst i.p.v. SVG jump-rails)
         try { initScrollSpy(); } catch (e) {}
