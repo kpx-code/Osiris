@@ -331,7 +331,7 @@ footer{padding:60px 0; text-align:center; font-family:'JetBrains Mono',monospace
         .hub-panel { padding:10px 12px; border-right:1px solid #10202c; min-width:0; }
         .hub-panel:last-child { border-right:none; }
         .hub-panel h5 { font-family:'JetBrains Mono',monospace; font-size:0.58rem; letter-spacing:0.1em; text-transform:uppercase; color:#456; margin:0 0 8px; font-weight:400; }
-        #calib-svg { width:100%; height:auto; max-height:110px; display:block; }
+        #calib-svg { width:100%; display:block; }
         #calib-note { font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#456; margin-top:4px; }
         #exit-dist, #hub-positions { font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:#7d99ac; display:flex; flex-direction:column; gap:4px; }
         .exit-row { display:flex; align-items:center; gap:5px; }
@@ -374,7 +374,7 @@ footer{padding:60px 0; text-align:center; font-family:'JetBrains Mono',monospace
         #hero-eye-wrap { display:flex; flex-direction:column; align-items:center; }
         #hero-eye { width:100%; max-width:440px; height:auto; aspect-ratio:460/440; display:block; }
         #engine-eye { width:100%; max-width:400px; height:auto; aspect-ratio:400/380; display:block; }
-        #flow-svg { width:100%; height:auto; aspect-ratio:560/340; display:block; }
+        #flow-svg { width:100%; height:auto; aspect-ratio:560/380; display:block; }
         .eye-toggle { display:flex; gap:8px; justify-content:center; margin-top:12px; }
         .eye-toggle button { font-family:'JetBrains Mono',monospace; font-size:0.58rem; letter-spacing:0.08em; text-transform:uppercase; padding:6px 14px; background:transparent; border:1px solid #33485a; color:#5c7488; cursor:pointer; }
         .eye-toggle button.on-bull { border-color:var(--teal); color:var(--teal); }
@@ -411,7 +411,7 @@ section { position:relative; z-index:2; }
 
 #hero-eye{ aspect-ratio:460/440; height:auto; }
 #engine-eye{ aspect-ratio:400/380; height:auto; }
-#flow-svg{ aspect-ratio:560/340; height:auto; }
+#flow-svg{ aspect-ratio:560/380; height:auto; }
 #chart-container{ width:100%; height:600px; max-width:100%; }
 @media (max-width:768px){ #chart-container{ height:360px; } }
 </style>
@@ -758,7 +758,7 @@ section { position:relative; z-index:2; }
         </div>
         <div id="flow-hud">
           <div id="flow-hud-body">
-            <svg id="flow-svg" viewBox="0 0 560 340" preserveAspectRatio="xMidYMid meet" style="width:100%; max-width:560px; display:block; margin:0 auto;">
+            <svg id="flow-svg" viewBox="0 0 560 380" preserveAspectRatio="xMidYMid meet" style="width:100%; max-width:620px; display:block; margin:0 auto;">
               <g id="w-eye"></g>
               <g font-family="'JetBrains Mono',monospace" font-size="9">
                 <text x="8" y="40" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
@@ -807,26 +807,21 @@ section { position:relative; z-index:2; }
                 <div id="learning-body" class="open" style="margin-top:10px;">
                     <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
                 </div>
-        <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer;"><span>Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
-        <div style="display:grid; grid-template-columns:1.5fr 1fr; gap:20px; align-items:center;">
-          <svg id="calib-svg" viewBox="0 0 100 62" style="width:100%; overflow:visible;">
-            <!-- perfecte diagonaal (stippellijn) -->
-            <line x1="8" y1="50" x2="94" y2="4" stroke="#33485a" stroke-width="0.5" stroke-dasharray="1.5 1.5"/>
-            <text x="82" y="9" font-size="3.4" fill="#33485a" font-family="'JetBrains Mono',monospace" font-style="italic">perfect</text>
-            <!-- assen -->
-            <line x1="8" y1="4" x2="8" y2="50" stroke="#10202c" stroke-width="0.5"/>
-            <line x1="8" y1="50" x2="94" y2="50" stroke="#10202c" stroke-width="0.5"/>
-            <!-- y-labels 100 / 0 -->
-            <text x="1.5" y="6" font-size="3.2" fill="#5c7488" font-family="'JetBrains Mono',monospace">100</text>
-            <text x="4.5" y="51" font-size="3.2" fill="#5c7488" font-family="'JetBrains Mono',monospace">0</text>
-            <!-- x-labels 60 / 95 -->
-            <text x="8" y="57" font-size="3.2" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">60</text>
-            <text x="94" y="57" font-size="3.2" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">95</text>
-            <!-- gouden meetcurve wordt hierin getekend door app.js -->
+        <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer;"><span>&#9662; Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
+        <div style="display:grid; grid-template-columns:1.6fr 1fr; gap:28px; align-items:center; margin-top:8px;">
+          <svg id="calib-svg" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid meet" style="width:100%; height:300px; overflow:visible;">
+            <line x1="8" y1="50" x2="94" y2="4" stroke="#3a5064" stroke-width="0.4" stroke-dasharray="1.2 1.2"/>
+            <text x="72" y="9" font-size="3" fill="#4a6076" font-family="'JetBrains Mono',monospace" font-style="italic">perfect</text>
+            <line x1="8" y1="3" x2="8" y2="50" stroke="#1a2a38" stroke-width="0.4"/>
+            <line x1="8" y1="50" x2="95" y2="50" stroke="#1a2a38" stroke-width="0.4"/>
+            <text x="1" y="5" font-size="3.4" fill="#5c7488" font-family="'JetBrains Mono',monospace">100</text>
+            <text x="5" y="51.5" font-size="3.4" fill="#5c7488" font-family="'JetBrains Mono',monospace">0</text>
+            <text x="8" y="57" font-size="3.4" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">60</text>
+            <text x="94" y="57" font-size="3.4" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">95</text>
             <g id="calib-plot"></g>
           </svg>
-          <div class="mono" style="font-size:0.64rem; color:var(--dim); line-height:1.7;">
-            <div style="color:var(--amber); margin-bottom:6px; font-weight:600;">Osiris is overconfident.</div>
+          <div class="mono" style="font-size:0.68rem; color:var(--dim); line-height:1.75;">
+            <div style="color:var(--amber); margin-bottom:8px; font-weight:600; font-size:0.78rem;">Osiris is overconfident.</div>
             <span id="calib-note">Wacht op 50+ trades met entry-kans.</span>
           </div>
         </div>
@@ -927,10 +922,10 @@ section { position:relative; z-index:2; }
                         <div><label>Testnet API Key</label><input type="password" id="testnet-api-key" autocomplete="new-password" placeholder="alleen testnet-keys!"></div>
                         <div><label>Testnet API Secret</label><input type="password" id="testnet-api-secret" autocomplete="new-password" placeholder="alleen testnet-keys!"></div>
                         </form>
-                        <div style="display:flex; align-items:flex-end; gap:8px;">
+                        <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap;">
                             <button type="button" id="testnet-save-keys-btn" class="btn btn-ghost btn-mini">Keys opslaan</button>
                             <button type="button" id="testnet-test-btn" class="btn btn-ghost btn-mini" style="color:var(--teal); border-color:rgba(0,255,204,0.4);">Test verbinding</button>
-                            <button type="button" id="testnet-sync-wallet-btn" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);" title="Zet de walletvaluta op USDT en het startkapitaal op je werkelijke vrije USDT-saldo op het testnet, en reset daarna de wallet (met bevestiging).">Sync wallet ← testnet</button>
+                            <button type="button" id="testnet-sync-wallet-btn" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);" title="Zet de walletvaluta op USDT en het startkapitaal op je werkelijke vrije USDT-saldo op het testnet, en reset daarna de wallet (met bevestiging).">Sync wallet &larr; testnet</button>
                         </div>
                     </div>
                     <div class="grid-row" style="margin-bottom: 8px;">
@@ -1019,6 +1014,6 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build2"></script>
+<script src="app.js?v=20260718-v4build4"></script>
 </body>
 </html>
