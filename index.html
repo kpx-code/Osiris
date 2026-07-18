@@ -395,7 +395,7 @@ footer{padding:60px 0; text-align:center; font-family:'JetBrains Mono',monospace
         .hub-eye-head { display:flex; justify-content:center; align-items:center; gap:14px; flex-wrap:wrap; margin:10px 0 4px; }
         .hub-eye-head .eye-title { font-family:'JetBrains Mono',monospace; font-size:0.66rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--cyan2,#4fc3f7); }
         .hub-eye-head .livep { font-family:'JetBrains Mono',monospace; font-size:0.86rem; color:var(--tx,#e3f6ff); }
-        #sec-hub #flow-hud { max-width:620px; margin:0 auto 20px; border:none; background:none; }
+        #sec-hub #flow-hud { width:100%; margin:0 auto 20px; border:none; background:none; }
         #sec-hub #flow-svg { max-height:320px; }
         @media (max-width: 1000px) { .hero-grid, .split-grid { grid-template-columns:1fr; } .hero-h1 { font-size:2.3rem; } .engine-cards { grid-template-columns:1fr; } }
 
@@ -732,16 +732,8 @@ section { position:relative; z-index:2; }
   <div class="wrap">
     <div class="waypoint">Waypoint 04 &middot; Control hub</div>
     <div class="sec-eyebrow">Bot Control Hub</div>
-    <h2 class="sec">Everything the bot does, in one place</h2>
+    <h2 class="sec">Osiris Intel Bot Engine V1.3.73</h2>
     <div class="mock">
-      <div class="kpi-strip" style="border-bottom:1px solid var(--line);">
-        <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
-        <div class="kpi"><small>win rate</small><b id="kpi-winrate">&mdash;</b></div>
-        <div class="kpi"><small>cal. edge</small><b id="kpi-cal" style="color:var(--amber);">&mdash;</b></div>
-        <div class="kpi"><small>break-even</small><b id="kpi-breakeven" style="color:var(--cyan);">&mdash;</b></div>
-        <div class="kpi"><small>alloc</small><b id="kpi-alloc">&mdash;</b></div>
-        <div class="kpi"><small>equity</small><b id="hub-equity">&mdash;</b><span id="hub-equity-pct" style="display:none;"></span></div>
-      </div>
       <div class="mock-body">
 
         <div id="bot-monitor" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px;">
@@ -758,7 +750,7 @@ section { position:relative; z-index:2; }
         </div>
         <div id="flow-hud">
           <div id="flow-hud-body">
-            <svg id="flow-svg" viewBox="0 0 560 380" preserveAspectRatio="xMidYMid meet" style="width:100%; max-width:620px; display:block; margin:0 auto;">
+            <svg id="flow-svg" viewBox="0 0 560 380" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto;">
               <g id="w-eye"></g>
               <g font-family="'JetBrains Mono',monospace" font-size="9">
                 <text x="8" y="40" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
@@ -782,13 +774,6 @@ section { position:relative; z-index:2; }
             </div>
           </div>
         </div>
-        <div class="subhead">Wallet status</div>
-        <div class="meter-row" style="grid-template-columns:repeat(4,1fr);">
-          <div class="meter"><div class="l">REALISED P/L</div><div class="v" style="font-size:0.95rem;" id="wallet-realized-pnl">&mdash;</div></div>
-          <div class="meter"><div class="l">OPEN P/L</div><div class="v" style="font-size:0.95rem;" id="wallet-unrealized-pnl">&mdash;</div></div>
-          <div class="meter"><div class="l">EQUITY (LIVE)</div><div class="v" style="font-size:0.95rem;" id="wallet-equity-mirror">&mdash;</div></div>
-          <div class="meter"><div class="l">ALLOCATION</div><div class="v" style="font-size:0.95rem;" id="wallet-alloc-mirror">&mdash;</div></div>
-        </div>
         <div class="subhead">Live reasoning feed</div>
             <div id="bot-reasoning-wrap">
                 <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
@@ -801,15 +786,14 @@ section { position:relative; z-index:2; }
             </div>
         <div class="subhead">Adaptive learning &middot; Level 1</div>
                 <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
-                    <span>&#9679; Adaptive Learning — Level 1</span>
                     <span id="learning-chevron">&#9662;</span>
                 </div>
                 <div id="learning-body" class="open" style="margin-top:10px;">
                     <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
                 </div>
-        <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer;"><span>&#9662; Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
-        <div style="display:grid; grid-template-columns:1.6fr 1fr; gap:28px; align-items:center; margin-top:8px;">
-          <svg id="calib-svg" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid meet" style="width:100%; height:300px; overflow:visible;">
+        <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer;" onclick="toggleCalibPanel()"><span><span id="calib-chevron">&#9662;</span> Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
+        <div id="calib-body" style="display:grid; grid-template-columns:1.1fr 1fr; gap:20px; align-items:center; margin-top:8px;">
+          <svg id="calib-svg" viewBox="0 0 100 62" preserveAspectRatio="xMinYMid meet" style="width:100%; height:300px; overflow:visible;">
             <line x1="8" y1="50" x2="94" y2="4" stroke="#3a5064" stroke-width="0.4" stroke-dasharray="1.2 1.2"/>
             <text x="72" y="9" font-size="3" fill="#4a6076" font-family="'JetBrains Mono',monospace" font-style="italic">perfect</text>
             <line x1="8" y1="3" x2="8" y2="50" stroke="#1a2a38" stroke-width="0.4"/>
@@ -825,6 +809,17 @@ section { position:relative; z-index:2; }
             <span id="calib-note">Wacht op 50+ trades met entry-kans.</span>
           </div>
         </div>
+
+        <div class="subhead">Wallet status</div>
+        <div class="kpi-strip" style="border:1px solid var(--line);">
+          <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
+          <div class="kpi"><small>win rate</small><b id="kpi-winrate">&mdash;</b></div>
+          <div class="kpi"><small>cal. edge</small><b id="kpi-cal" style="color:var(--amber);">&mdash;</b></div>
+          <div class="kpi"><small>break-even</small><b id="kpi-breakeven" style="color:var(--cyan);">&mdash;</b></div>
+          <div class="kpi"><small>alloc</small><b id="kpi-alloc">&mdash;</b></div>
+          <div class="kpi"><small>equity</small><b id="hub-equity">&mdash;</b><span id="hub-equity-pct" style="display:none;"></span></div>
+        </div>
+        <span id="wallet-realized-pnl" style="display:none;"></span><span id="wallet-unrealized-pnl" style="display:none;"></span>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
           <div>
             <div class="mock-title" style="margin-bottom:8px;">Exit &middot; bijdrage</div>
@@ -1014,6 +1009,6 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build4"></script>
+<script src="app.js?v=20260718-v4build5"></script>
 </body>
 </html>
