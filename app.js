@@ -5504,11 +5504,38 @@ function initFlowHud() {
     // de confluence-teller-tekst uit de HTML halen we naar voren zodat hij bovenop ligt
     _eyeConf = document.getElementById('flow-conf');
     if (_eyeConf) { _eyeConf.setAttribute('x', CX); _eyeConf.setAttribute('y', CY); _eyeConf.setAttribute('dominant-baseline', 'central'); }
-    const coreC = mk('circle', { cx: CX, cy: CY, r: R * 0.05, fill: '#7fe9ff', opacity: 0.85 });
+    const coreC = mk('circle', { cx: CX, cy: CY, r: R * 0.05, fill: '#ff5f7e', opacity: 0.85 });
     coreC.appendChild(mk('animate', { attributeName: 'r', values: (R * 0.04) + ';' + (R * 0.08) + ';' + (R * 0.04), dur: '3.2s', repeatCount: 'indefinite' }));
     host.appendChild(coreC);
 
     _allEyeSig = _allEyeSig.concat(_eyeSig);
+
+    // --- DATAFLOW PACKAGES: pakketjes stromen van de linker data-labels NAAR het
+    // oog (inkomende meters) en van het oog naar de rechter labels (uitgaande
+    // resultaten). Puur visueel; de labels zelf blijven aan de zijkanten staan.
+    const leftYs = [40, 112, 234, 306], rightYs = [40, 112, 234, 306];
+    const edgeR = R * 1.24;  // waar de pakketjes het oog "raken"
+    leftYs.forEach((y, i) => {
+        const x0 = 40, y0 = y, x1 = CX - edgeR * 0.7, y1 = CY;   // van label naar oog-rand
+        const pkt = mk('rect', { x: -1.5, y: -1.5, width: 3, height: 3, fill: '#00d9ff', opacity: 0.9, rx: 0.5 });
+        const path = mk('path', { id: 'flowInPath' + i, d: `M${x0},${y0} Q${(x0 + x1) / 2},${y0} ${x1},${y1}`, fill: 'none', stroke: 'none' });
+        host.appendChild(path);
+        const am = mk('animateMotion', { dur: (2.2 + i * 0.3).toFixed(1) + 's', repeatCount: 'indefinite', begin: (-i * 0.5).toFixed(1) + 's', rotate: 'auto' });
+        const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#flowInPath' + i); am.appendChild(mp); pkt.appendChild(am);
+        pkt.appendChild(mk('animate', { attributeName: 'opacity', values: '0;0.95;0.95;0', dur: am.getAttribute('dur'), begin: am.getAttribute('begin'), repeatCount: 'indefinite' }));
+        host.appendChild(pkt);
+    });
+    rightYs.forEach((y, i) => {
+        const x0 = CX + edgeR * 0.7, y0 = CY, x1 = 520, y1 = y;   // van oog-rand naar rechter label
+        const pkt = mk('rect', { x: -1.5, y: -1.5, width: 3, height: 3, fill: '#14f195', opacity: 0.9, rx: 0.5 });
+        const path = mk('path', { id: 'flowOutPath' + i, d: `M${x0},${y0} Q${(x0 + x1) / 2},${y1} ${x1},${y1}`, fill: 'none', stroke: 'none' });
+        host.appendChild(path);
+        const am = mk('animateMotion', { dur: (2.4 + i * 0.3).toFixed(1) + 's', repeatCount: 'indefinite', begin: (-i * 0.6).toFixed(1) + 's', rotate: 'auto' });
+        const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#flowOutPath' + i); am.appendChild(mp); pkt.appendChild(am);
+        pkt.appendChild(mk('animate', { attributeName: 'opacity', values: '0;0.95;0.95;0', dur: am.getAttribute('dur'), begin: am.getAttribute('begin'), repeatCount: 'indefinite' }));
+        host.appendChild(pkt);
+    });
+
     applyEyeSignal(); applyEyeSentiment();
 }
 
@@ -5520,8 +5547,10 @@ function eyeColor() {
 }
 // Handmatige bull/bear/neutral-demo vanuit de hero-knoppen. Zodra de bot een
 // echte beslissing neemt, overschrijft updateFlowHud() dit weer met de live richting.
+let _manualSignalUntil = 0;
 function setEyeSignalManual(s) {
     EYE_SIGNAL = s;
+    _manualSignalUntil = Date.now() + 8000;  // hou de simulatie 8s vast
     const bull = document.getElementById('bull-btn'), bear = document.getElementById('bear-btn');
     if (bull) bull.classList.toggle('on-bull', s === 'bull');
     if (bear) bear.classList.toggle('on-bear', s === 'bear');
@@ -5622,6 +5651,14 @@ function renderCalibrationCurve() {
         if (laatste) svg += `<text x="${(X(r) - 3).toFixed(1)}" y="${(Y(w) - 3).toFixed(1)}" font-size="4" font-weight="bold" fill="#ffb627" text-anchor="middle" font-family="'JetBrains Mono',monospace">${w.toFixed(0)}%</text>`;
     });
     plot.innerHTML = svg;
+    const upd = document.getElementById('calib-updated');
+    if (upd) {
+        const nu = new Date();
+        const d = String(nu.getDate()).padStart(2, '0'), m = String(nu.getMonth() + 1).padStart(2, '0');
+        const hh = String(nu.getHours()).padStart(2, '0'), mm = String(nu.getMinutes()).padStart(2, '0'), ss = String(nu.getSeconds()).padStart(2, '0');
+        const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null).length;
+        upd.textContent = `last updated ${d}-${m} ${hh}:${mm}:${ss} \u00b7 ${n} trades`;
+    }
     if (note) {
         const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null).length;
         note.textContent = `${n} bot-trades \u00b7 hoe verder onder de stippellijn, hoe overmoediger de score.`;
@@ -5707,7 +5744,7 @@ function updateFlowHud() {
         });
         const dir = lastOsirisDecision.side || lastOsirisDecision.direction;
         const sig = dir === 'LONG' ? 'bull' : dir === 'SHORT' ? 'bear' : 'neutral';
-        if (sig !== EYE_SIGNAL) { EYE_SIGNAL = sig; applyEyeSignal(); }
+        if (sig !== EYE_SIGNAL && Date.now() > _manualSignalUntil) { EYE_SIGNAL = sig; applyEyeSignal(); }
     }
     // Pupil + halo + confluence-teller schalen mee met de sterkste gedempte kans
     const pl = readSmoothedProb('LONG'), ps = readSmoothedProb('SHORT');
