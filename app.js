@@ -4255,7 +4255,13 @@ function updateSentimentBar(obi) {
 
     barGreen.style.width = `${greenWidth}%`;
     barRed.style.width = `${redWidth}%`;
+    _lastBuyersPct = greenWidth;
 }
+
+// Buyers-ratio (0..100) voor de oog-sentimentkleuring. Leest de laatst berekende
+// order-book-imbalance; valt terug op 50 (neutraal) als er nog geen data is.
+let _lastBuyersPct = 50;
+function getMarketSentiment() { return _lastBuyersPct; }
 
 // ============================================================
 // NODE CONTEXT & INVLOED OP DE BOT
@@ -5338,8 +5344,7 @@ setInterval(updateInfoPanel, 1000);
 let _flowHudInit = false;
 let _flowLastPrice = 0;
 let _flowConsoleIdx = 0;
-const HUD_CX = 350, HUD_CY = 160;
-const HUD_BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6', '#b3e5fc'];
+let _confCells = [];
 
 // ============================================================
 // SECTIE-NAVIGATIE (17-07): Hub / Markt / Leren / Engine.
@@ -5347,21 +5352,13 @@ const HUD_BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6', '#b3e5f
 // bestaande update-functies en id's blijven werken zoals ze waren.
 // ============================================================
 function showSection(naam) {
-    // De Engine-config is samengevoegd met de Hub (17-07): een oude
-    // localStorage-waarde 'engine' mag niet in een lege pagina eindigen.
-    if (!document.getElementById('sec-' + naam)) naam = 'hub';
-    document.querySelectorAll('.hub-section').forEach(s => {
-        s.style.display = (s.id === 'sec-' + naam) ? '' : 'none';
-    });
-    document.querySelectorAll('.hub-tab').forEach(t => {
-        t.classList.toggle('active', t.dataset.sec === naam);
-    });
-    try { localStorage.setItem('osirisSection', naam); } catch (e) {}
-    // De chart moet hertekenen zodra hij weer zichtbaar wordt (Lightweight
-    // Charts kan niet meten in een display:none container).
-    if (naam === 'markt' && typeof chart !== 'undefined' && chart && chart.timeScale) {
-        setTimeout(() => { try { chart.timeScale().fitContent(); } catch (e) {} }, 50);
-    }
+    // Scroll-landing (18-07): secties staan nu allemaal onder elkaar. showSection
+    // scrollt naar de gevraagde sectie i.p.v. te tonen/verbergen. Oude localStorage
+    // 'engine' valt terug op hub. Alle secties blijven altijd in de DOM (nodig voor
+    // de live-updates), dus niets wordt verborgen.
+    const map = { engine: 'hub', hub: 'hub', markt: 'markt', leren: 'hub' };
+    const target = document.getElementById('sec-' + (map[naam] || naam)) || document.getElementById('sec-hub');
+    if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth' });
 }
 
 function toggleFlowHud() {
@@ -5377,118 +5374,171 @@ function toggleFlowHud() {
 // draaien), Jarvis-laag (tick-ring + tegendraaiende arc-segmenten) en de
 // negen confluence-segmenten. Alles SVG/SMIL: de browser animeert dit buiten
 // de JS-thread, dus het kost de bot-lus geen rekentijd.
+// ============================================================
+// OCULAR CORE (v4): mechanisch/cyber oog met binaire iris, melkweg-vortex,
+// radar-sweep in de buitenband, bewegende confluence-ring, en een pupil +
+// confluence-teller die met de kansscore mee-schalen. De binaire cijfers
+// kleuren op market-sentiment (groen=buyers, rood=sellers); bull/bear-detectie
+// kleurt de structurele elementen. Alles wordt in #w-eye gebouwd; de live
+// data-updates in updateFlowHud() sturen pupil-r, conf-tekst, sentiment en
+// bull/bear aan.
+// ============================================================
+const HUD_BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6', '#b3e5fc'];
+let _eyeSig = [];          // elementen die op bull/bear verkleuren
+let _eyeBits = [];         // binaire cijfers die op sentiment verkleuren
+let _eyePupil = null, _eyeHalo = null, _eyeConf = null;
+let _eyeCX = 280, _eyeCY = 170, _eyeR = 118;
+let EYE_SIGNAL = 'neutral', EYE_BUYERS = 50;
+
 function initFlowHud() {
     if (_flowHudInit) return;
-    const sg = document.getElementById('w-spirals');
-    if (!sg) return;
+    const host = document.getElementById('w-eye');
+    if (!host) return;
     _flowHudInit = true;
     const NS = 'http://www.w3.org/2000/svg', XL = 'http://www.w3.org/1999/xlink';
-    const pg = document.getElementById('w-parts');
+    const mk = (t, a = {}) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+    const CX = _eyeCX, CY = _eyeCY, R = _eyeR;
+    _eyeSig = []; _eyeBits = [];
 
     // --- melkweg-vortex ---
-    for (let a = 0; a < 10; a++) {
-        const off = a / 10 * Math.PI * 2; let d = '';
-        for (let t = 0; t <= 1; t += 0.02) {
-            const r = 335 - (335 - 110) * t, th = off + t * 2.8;
-            d += (t ? 'L' : 'M') + (HUD_CX + Math.cos(th) * r).toFixed(1) + ',' + (HUD_CY + Math.sin(th) * r * 0.46).toFixed(1);
-        }
-        const q = document.createElementNS(NS, 'path');
-        q.setAttribute('id', 'w-arm' + a); q.setAttribute('d', d); q.setAttribute('fill', 'none');
-        q.setAttribute('stroke', HUD_BLUE[a % HUD_BLUE.length]); q.setAttribute('stroke-width', '0.8'); q.setAttribute('opacity', '0.15');
-        sg.appendChild(q);
-        for (let k = 0; k < 6; k++) {
-            const c = document.createElementNS(NS, 'circle');
-            c.setAttribute('r', (0.9 + Math.random() * 1.6).toFixed(1));
-            c.setAttribute('fill', HUD_BLUE[a % HUD_BLUE.length]);
-            const dur = (4 + Math.random() * 5).toFixed(1) + 's', beg = (-Math.random() * 8).toFixed(2) + 's';
-            const am = document.createElementNS(NS, 'animateMotion');
-            am.setAttribute('dur', dur); am.setAttribute('repeatCount', 'indefinite'); am.setAttribute('begin', beg);
-            am.setAttribute('calcMode', 'spline'); am.setAttribute('keyPoints', '0;1'); am.setAttribute('keyTimes', '0;1'); am.setAttribute('keySplines', '0.3 0 0.9 0.6');
-            const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#w-arm' + a);
-            am.appendChild(mp); c.appendChild(am);
-            const f = document.createElementNS(NS, 'animate');
-            f.setAttribute('attributeName', 'opacity'); f.setAttribute('values', '0;0.95;0.95;0');
-            f.setAttribute('dur', dur); f.setAttribute('begin', beg); f.setAttribute('repeatCount', 'indefinite');
-            c.appendChild(f); pg.appendChild(c);
+    for (let a = 0; a < 9; a++) {
+        let d = ''; const off = a / 9 * Math.PI * 2;
+        for (let t = 0; t <= 1; t += 0.03) { const r = R * 2.0 - (R * 2.0 - R * 0.95) * t, th = off + t * 2.7; d += (t ? 'L' : 'M') + (CX + Math.cos(th) * r).toFixed(1) + ',' + (CY + Math.sin(th) * r * 0.46).toFixed(1); }
+        host.appendChild(mk('path', { d, fill: 'none', stroke: HUD_BLUE[a % 5], 'stroke-width': 0.6, opacity: 0.13, id: 'weArm' + a }));
+        for (let k = 0; k < 5; k++) {
+            const c = mk('circle', { r: (0.8 + Math.random() * 1.4).toFixed(1), fill: HUD_BLUE[a % 5] });
+            const am = mk('animateMotion', { dur: (4 + Math.random() * 5).toFixed(1) + 's', repeatCount: 'indefinite', begin: (-Math.random() * 8).toFixed(2) + 's', calcMode: 'spline', keyPoints: '0;1', keyTimes: '0;1', keySplines: '0.3 0 0.9 0.6' });
+            const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#weArm' + a); am.appendChild(mp); c.appendChild(am);
+            c.appendChild(mk('animate', { attributeName: 'opacity', values: '0;0.9;0.9;0', dur: am.getAttribute('dur'), begin: am.getAttribute('begin'), repeatCount: 'indefinite' }));
+            host.appendChild(c);
         }
     }
+    host.appendChild(mk('ellipse', { cx: CX, cy: CY, rx: R * 1.02, ry: R * 0.98, fill: 'rgba(0,217,255,0.05)' }));
 
-    // --- sterrenstof ---
-    const dg = document.getElementById('w-dust');
-    for (let k = 0; k < 70; k++) {
-        const th = Math.random() * Math.PI * 2, r = 112 + Math.random() * 215;
-        const c = document.createElementNS(NS, 'circle');
-        c.setAttribute('cx', (HUD_CX + Math.cos(th) * r).toFixed(0)); c.setAttribute('cy', (HUD_CY + Math.sin(th) * r * 0.46).toFixed(0));
-        c.setAttribute('r', (0.4 + Math.random()).toFixed(1)); c.setAttribute('fill', HUD_BLUE[k % HUD_BLUE.length]);
-        const an = document.createElementNS(NS, 'animate');
-        an.setAttribute('attributeName', 'opacity'); an.setAttribute('values', '0.05;0.55;0.05');
-        an.setAttribute('dur', (3 + Math.random() * 7).toFixed(1) + 's'); an.setAttribute('begin', (-Math.random() * 6).toFixed(1) + 's');
-        an.setAttribute('repeatCount', 'indefinite'); c.appendChild(an); dg.appendChild(c);
-    }
-
-    // --- binaire iris: 9 ringen enen en nullen, tegendraaiend ---
-    const ig = document.getElementById('w-iris');
-    for (let ring = 0; ring < 9; ring++) {
-        const r = 40 + ring * 7.4, n = Math.round(2 * Math.PI * r / 8.4);
-        const g = document.createElementNS(NS, 'g');
-        for (let i = 0; i < n; i++) {
-            const a = i / n * Math.PI * 2, x = HUD_CX + Math.cos(a) * r, y = HUD_CY + Math.sin(a) * r * 0.96;
-            const t = document.createElementNS(NS, 'text');
-            t.setAttribute('x', x.toFixed(1)); t.setAttribute('y', y.toFixed(1));
-            t.setAttribute('font-size', (4.6 + ring * 0.18).toFixed(1)); t.setAttribute('font-family', "'JetBrains Mono',monospace");
-            t.setAttribute('text-anchor', 'middle'); t.setAttribute('fill', ring < 4 ? '#7fe9ff' : HUD_BLUE[ring % HUD_BLUE.length]);
-            t.setAttribute('opacity', (0.25 + Math.random() * 0.6).toFixed(2));
-            t.setAttribute('transform', `rotate(${(a * 180 / Math.PI + 90).toFixed(0)} ${x.toFixed(1)} ${y.toFixed(1)})`);
-            t.textContent = Math.random() > 0.5 ? '1' : '0';
-            const an = document.createElementNS(NS, 'animate');
-            an.setAttribute('attributeName', 'opacity'); an.setAttribute('values', '0.12;0.9;0.12');
-            an.setAttribute('dur', (2 + Math.random() * 5).toFixed(1) + 's'); an.setAttribute('begin', (-Math.random() * 5).toFixed(1) + 's');
-            an.setAttribute('repeatCount', 'indefinite'); t.appendChild(an); g.appendChild(t);
-        }
-        const rot = document.createElementNS(NS, 'animateTransform');
-        rot.setAttribute('attributeName', 'transform'); rot.setAttribute('type', 'rotate');
-        rot.setAttribute('from', `${ring % 2 ? 360 : 0} ${HUD_CX} ${HUD_CY}`); rot.setAttribute('to', `${ring % 2 ? 0 : 360} ${HUD_CX} ${HUD_CY}`);
-        rot.setAttribute('dur', (48 + ring * 13) + 's'); rot.setAttribute('repeatCount', 'indefinite');
-        g.appendChild(rot); ig.appendChild(g);
-    }
-
-    // --- Jarvis-laag: tick-ring + tegendraaiende arc-segmenten (cyaan/goud) ---
-    const jg = document.getElementById('w-jarvis');
-    const arc = (r, a0, a1, col, w, op) => {
-        const q = document.createElementNS(NS, 'path');
-        q.setAttribute('d', `M${HUD_CX + Math.cos(a0) * r},${HUD_CY + Math.sin(a0) * r * 0.96} A${r},${r * 0.96} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${HUD_CX + Math.cos(a1) * r},${HUD_CY + Math.sin(a1) * r * 0.96}`);
-        q.setAttribute('fill', 'none'); q.setAttribute('stroke', col); q.setAttribute('stroke-width', w); q.setAttribute('opacity', op);
-        return q;
-    };
-    [[118, 0.25, 1.45, '#00d9ff', 1.6, 0.75, 32], [118, 3.4, 4.6, '#00d9ff', 1.6, 0.75, 32],
-     [126, 2.05, 2.85, '#ffb627', 1.1, 0.65, -48], [126, 5.15, 5.95, '#ffb627', 1.1, 0.65, -48]].forEach(([r, a0, a1, c, w, o, dur]) => {
-        const g = document.createElementNS(NS, 'g'); g.appendChild(arc(r, a0, a1, c, w, o));
-        const t = document.createElementNS(NS, 'animateTransform');
-        t.setAttribute('attributeName', 'transform'); t.setAttribute('type', 'rotate');
-        t.setAttribute('from', `${dur > 0 ? 0 : 360} ${HUD_CX} ${HUD_CY}`); t.setAttribute('to', `${dur > 0 ? 360 : 0} ${HUD_CX} ${HUD_CY}`);
-        t.setAttribute('dur', Math.abs(dur) + 's'); t.setAttribute('repeatCount', 'indefinite');
-        g.appendChild(t); jg.appendChild(g);
+    // --- CYBER-behuizing: snelle tegendraaiende streepjes-scanringen + data-runners + bouten/beugels/vents ---
+    [[R * 1.16, '#00d9ff', 0.6, '3 6', 6], [R * 1.22, '#0288d1', 0.5, '2 10', -9]].forEach(([rr, col, w, dash, dur]) => {
+        const ring = mk('g');
+        ring.appendChild(mk('ellipse', { cx: CX, cy: CY, rx: rr, ry: rr * 0.96, fill: 'none', stroke: col, 'stroke-width': w, 'stroke-dasharray': dash, opacity: 0.55 }));
+        ring.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: `${dur > 0 ? 0 : 360} ${CX} ${CY}`, to: `${dur > 0 ? 360 : 0} ${CX} ${CY}`, dur: Math.abs(dur) + 's', repeatCount: 'indefinite' }));
+        host.appendChild(ring);
     });
-    for (let i = 0; i < 60; i++) {
-        const a = i / 60 * Math.PI * 2, big = i % 5 === 0, l = document.createElementNS(NS, 'line');
-        l.setAttribute('x1', HUD_CX + Math.cos(a) * (big ? 112 : 115)); l.setAttribute('y1', HUD_CY + Math.sin(a) * (big ? 112 : 115) * 0.96);
-        l.setAttribute('x2', HUD_CX + Math.cos(a) * 119); l.setAttribute('y2', HUD_CY + Math.sin(a) * 119 * 0.96);
-        l.setAttribute('stroke', big ? '#00d9ff' : '#0288d1'); l.setAttribute('stroke-width', big ? '1' : '0.5');
-        l.setAttribute('opacity', big ? '0.7' : '0.35'); jg.appendChild(l);
+    [[R * 1.19, '#00d9ff', 2.5], [R * 1.19, '#4fc3f7', 3.5]].forEach(([rr, col, dur], i) => {
+        const g = mk('g'); const a0 = i * Math.PI, a1 = a0 + 0.7;
+        g.appendChild(mk('path', { d: `M${CX + Math.cos(a0) * rr},${CY + Math.sin(a0) * rr * 0.96} A${rr},${rr * 0.96} 0 0 1 ${CX + Math.cos(a1) * rr},${CY + Math.sin(a1) * rr * 0.96}`, fill: 'none', stroke: col, 'stroke-width': 2, opacity: 0.85, 'stroke-linecap': 'round' }));
+        g.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: `0 ${CX} ${CY}`, to: `360 ${CX} ${CY}`, dur: dur + 's', repeatCount: 'indefinite' }));
+        host.appendChild(g);
+    });
+    // gesegmenteerd pantser (verkleurt op signaal)
+    for (let i = 0; i < 16; i++) { const a0 = i / 16 * Math.PI * 2 + 0.03, a1 = (i + 0.86) / 16 * Math.PI * 2, r0 = R * 1.04, r1 = R * 1.1;
+        const seg = mk('path', { d: `M${CX + Math.cos(a0) * r0},${CY + Math.sin(a0) * r0 * 0.96} A${r0},${r0 * 0.96} 0 0 1 ${CX + Math.cos(a1) * r0},${CY + Math.sin(a1) * r0 * 0.96} L${CX + Math.cos(a1) * r1},${CY + Math.sin(a1) * r1 * 0.96} A${r1},${r1 * 0.96} 0 0 0 ${CX + Math.cos(a0) * r1},${CY + Math.sin(a0) * r1 * 0.96} Z`, fill: '#0a1a28', stroke: '#00d9ff', 'stroke-width': 0.5, opacity: 0.55 });
+        _eyeSig.push(seg); host.appendChild(seg); }
+    // hex-bouten + hoekbeugels
+    [0.785, 2.356, 3.927, 5.498].forEach(a => {
+        const x2 = CX + Math.cos(a) * R * 1.32, y2 = CY + Math.sin(a) * R * 1.28 * 0.96;
+        const hb = mk('circle', { cx: x2, cy: y2, r: 3, fill: '#0a1a28', stroke: '#4fc3f7', 'stroke-width': 0.7, opacity: 0.75 }); _eyeSig.push(hb); host.appendChild(hb);
+    });
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sy]) => { const bx = CX + sx * R * 1.26, by = CY + sy * R * 1.2 * 0.96;
+        const br = mk('path', { d: `M${bx - sx * 16},${by} L${bx},${by} L${bx},${by - sy * 16}`, fill: 'none', stroke: '#00d9ff', 'stroke-width': 1.2, opacity: 0.6 }); _eyeSig.push(br); host.appendChild(br); });
+
+    // --- binaire iris tot dicht bij het centrum (geen donker gat) ---
+    for (let ring = 0; ring < 11; ring++) {
+        const r = R * 0.12 + ring * R * 0.072, n = Math.round(2 * Math.PI * r / (R * 0.093)); const g = mk('g');
+        for (let i = 0; i < n; i++) {
+            const a = i / n * Math.PI * 2, x = CX + Math.cos(a) * r, y = CY + Math.sin(a) * r * 0.96;
+            const t = mk('text', { x: x.toFixed(1), y: y.toFixed(1), 'font-size': (R * 0.05 + ring * 0.15).toFixed(1), 'font-family': "'JetBrains Mono', monospace", 'text-anchor': 'middle', fill: ring < 4 ? '#7fe9ff' : HUD_BLUE[ring % 5], opacity: (0.25 + Math.random() * 0.55).toFixed(2), transform: 'rotate(' + (a * 180 / Math.PI + 90).toFixed(0) + ' ' + x.toFixed(1) + ' ' + y.toFixed(1) + ')' });
+            t.textContent = Math.random() > 0.5 ? '1' : '0'; t.setAttribute('data-bit', '1'); _eyeBits.push(t);
+            t.appendChild(mk('animate', { attributeName: 'opacity', values: '0.12;0.85;0.12', dur: (1.4 + Math.random() * 3).toFixed(1) + 's', begin: (-Math.random() * 5).toFixed(1) + 's', repeatCount: 'indefinite' }));
+            g.appendChild(t);
+        }
+        g.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: (ring % 2 ? 360 : 0) + ' ' + CX + ' ' + CY, to: (ring % 2 ? 0 : 360) + ' ' + CX + ' ' + CY, dur: (18 + ring * 5) + 's', repeatCount: 'indefinite' }));
+        host.appendChild(g);
     }
 
-    // --- 9 confluence-segmenten als limbale ring ---
-    const cg = document.getElementById('w-cells');
-    for (let i = 0; i < 9; i++) {
-        const a0 = (i / 9) * Math.PI * 2 - Math.PI / 2 + 0.025, a1 = ((i + 1) / 9) * Math.PI * 2 - Math.PI / 2 - 0.025, r0 = 104, r1 = 110;
-        const q = document.createElementNS(NS, 'path');
-        q.setAttribute('d', `M${HUD_CX + Math.cos(a0) * r0},${HUD_CY + Math.sin(a0) * r0 * 0.96} A${r0},${r0 * 0.96} 0 0 1 ${HUD_CX + Math.cos(a1) * r0},${HUD_CY + Math.sin(a1) * r0 * 0.96} L${HUD_CX + Math.cos(a1) * r1},${HUD_CY + Math.sin(a1) * r1 * 0.96} A${r1},${r1 * 0.96} 0 0 0 ${HUD_CX + Math.cos(a0) * r1},${HUD_CY + Math.sin(a0) * r1 * 0.96} Z`);
-        q.setAttribute('fill', '#123040'); q.setAttribute('class', 'w-cell'); cg.appendChild(q);
-    }
+    // --- Jarvis-arcs (cyaan verkleurt, goud vast) + tick-ring ---
+    const arc = (r, a0, a1, col, w) => mk('path', { d: 'M' + (CX + Math.cos(a0) * r) + ',' + (CY + Math.sin(a0) * r * 0.96) + ' A' + r + ',' + (r * 0.96) + ' 0 ' + (a1 - a0 > Math.PI ? 1 : 0) + ' 1 ' + (CX + Math.cos(a1) * r) + ',' + (CY + Math.sin(a1) * r * 0.96), fill: 'none', stroke: col, 'stroke-width': w, opacity: 0.7 });
+    [[R * 1.0, 0.25, 1.45, '#00d9ff', 1.4, 20], [R * 1.0, 3.4, 4.6, '#00d9ff', 1.4, 20], [R * 1.08, 2.05, 2.85, '#ffb627', 1, -30], [R * 1.08, 5.15, 5.95, '#ffb627', 1, -30]].forEach(([r, a0, a1, c, w, dur], idx) => {
+        const g = mk('g'); const pth = arc(r, a0, a1, c, w); if (idx < 2) _eyeSig.push(pth); g.appendChild(pth);
+        g.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: (dur > 0 ? 0 : 360) + ' ' + CX + ' ' + CY, to: (dur > 0 ? 360 : 0) + ' ' + CX + ' ' + CY, dur: Math.abs(dur) + 's', repeatCount: 'indefinite' }));
+        host.appendChild(g);
+    });
+    for (let i = 0; i < 48; i++) { const a = i / 48 * Math.PI * 2, big = i % 4 === 0; host.appendChild(mk('line', { x1: CX + Math.cos(a) * (big ? R * 0.96 : R * 0.99), y1: CY + Math.sin(a) * (big ? R * 0.96 : R * 0.99) * 0.96, x2: CX + Math.cos(a) * R * 1.02, y2: CY + Math.sin(a) * R * 1.02 * 0.96, stroke: big ? '#00d9ff' : '#0288d1', 'stroke-width': big ? 1 : 0.5, opacity: big ? 0.7 : 0.35 })); }
+
+    // --- confluence-ring: draait rond + kleurt rood/groen op de data (zie updateFlowHud) ---
+    _confCells = [];
+    const confRing = mk('g');
+    for (let i = 0; i < 9; i++) { const a0 = (i / 9) * Math.PI * 2 - Math.PI / 2 + 0.03, a1 = ((i + 1) / 9) * Math.PI * 2 - Math.PI / 2 - 0.03, r0 = R * 0.92, r1 = R * 0.98;
+        const seg = mk('path', { d: 'M' + (CX + Math.cos(a0) * r0) + ',' + (CY + Math.sin(a0) * r0 * 0.96) + ' A' + r0 + ',' + (r0 * 0.96) + ' 0 0 1 ' + (CX + Math.cos(a1) * r0) + ',' + (CY + Math.sin(a1) * r0 * 0.96) + ' L' + (CX + Math.cos(a1) * r1) + ',' + (CY + Math.sin(a1) * r1 * 0.96) + ' A' + r1 + ',' + (r1 * 0.96) + ' 0 0 0 ' + (CX + Math.cos(a0) * r1) + ',' + (CY + Math.sin(a0) * r1 * 0.96) + ' Z', fill: '#123040', opacity: 0.4 });
+        seg.setAttribute('class', 'w-cell'); _confCells.push(seg); confRing.appendChild(seg); }
+    // de hele ring draait langzaam rond
+    confRing.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: `0 ${CX} ${CY}`, to: `360 ${CX} ${CY}`, dur: '24s', repeatCount: 'indefinite' }));
+    host.appendChild(confRing);
+    const sd = mk('circle', { r: R * 0.028, fill: '#7fe9ff' });
+    const rp = mk('path', { id: 'weCr', d: `M${CX + R * 0.95},${CY} A${R * 0.95},${R * 0.91} 0 1 1 ${CX - R * 0.95},${CY} A${R * 0.95},${R * 0.91} 0 1 1 ${CX + R * 0.95},${CY}`, fill: 'none', stroke: 'none' });
+    host.appendChild(rp);
+    const sm = mk('animateMotion', { dur: '2.4s', repeatCount: 'indefinite' });
+    const smp = document.createElementNS(NS, 'mpath'); smp.setAttributeNS(XL, 'href', '#weCr'); sm.appendChild(smp); sd.appendChild(sm);
+    sd.appendChild(mk('animate', { attributeName: 'opacity', values: '0.3;1;0.3', dur: '1s', repeatCount: 'indefinite' }));
+    host.appendChild(sd);
+
+    // --- RADAR-sweep in de buitenband (SVG-mask = donut, laat iris intact) ---
+    const defs = mk('defs'); const mask = mk('mask', { id: 'weRm' });
+    mask.appendChild(mk('ellipse', { cx: CX, cy: CY, rx: R * 1.12, ry: R * 1.08, fill: '#fff' }));
+    mask.appendChild(mk('ellipse', { cx: CX, cy: CY, rx: R * 1.0, ry: R * 0.96, fill: '#000' }));
+    defs.appendChild(mask); host.appendChild(defs);
+    const band = R * 1.12;
+    // twee radars: groen met de klok mee, rood tegen de klok in
+    [['#00ff9f', '#5dffb0', 0], ['#ff5f7e', '#ff9bb0', 360]].forEach(([wedgeCol, lineCol, fromDeg]) => {
+        const sweep = mk('g', { mask: 'url(#weRm)' });
+        sweep.appendChild(mk('path', { d: `M${CX},${CY} L${CX + Math.cos(-0.5) * band},${CY + Math.sin(-0.5) * band * 0.96} A${band},${band * 0.96} 0 0 1 ${CX + Math.cos(0.5) * band},${CY + Math.sin(0.5) * band * 0.96} Z`, fill: wedgeCol, opacity: 0.24 }));
+        sweep.appendChild(mk('line', { x1: CX, y1: CY, x2: CX + band, y2: CY, stroke: lineCol, 'stroke-width': 1.4, opacity: 0.7 }));
+        sweep.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: `${fromDeg} ${CX} ${CY}`, to: `${fromDeg === 0 ? 360 : 0} ${CX} ${CY}`, dur: '3s', repeatCount: 'indefinite' }));
+        host.appendChild(sweep);
+    });
+    for (let i = 0; i < 6; i++) { const a = Math.random() * Math.PI * 2, br = R * 1.06; const b = mk('circle', { cx: CX + Math.cos(a) * br, cy: CY + Math.sin(a) * br * 0.96, r: 1.6, fill: '#5dffb0' });
+        b.appendChild(mk('animate', { attributeName: 'opacity', values: '0;1;0', dur: '3s', begin: (i * 0.5) + 's', repeatCount: 'indefinite' })); host.appendChild(b); }
+
+    // --- pupil + halo + confluence-teller (schalen mee met de kans) ---
+    _eyeHalo = mk('circle', { cx: CX, cy: CY, r: R * 0.22, fill: 'none', stroke: '#00d9ff', 'stroke-width': 2, opacity: 0.85 }); _eyeSig.push(_eyeHalo); host.appendChild(_eyeHalo);
+    _eyePupil = mk('circle', { cx: CX, cy: CY, r: R * 0.18, fill: '#02050a', stroke: '#00d9ff', 'stroke-width': 1.2, opacity: 0.95 }); _eyeSig.push(_eyePupil); host.appendChild(_eyePupil);
+    // de confluence-teller-tekst uit de HTML halen we naar voren zodat hij bovenop ligt
+    _eyeConf = document.getElementById('flow-conf');
+    if (_eyeConf) { _eyeConf.setAttribute('x', CX); _eyeConf.setAttribute('y', CY); _eyeConf.setAttribute('dominant-baseline', 'central'); }
+    const coreC = mk('circle', { cx: CX, cy: CY, r: R * 0.05, fill: '#7fe9ff', opacity: 0.85 });
+    coreC.appendChild(mk('animate', { attributeName: 'r', values: (R * 0.04) + ';' + (R * 0.08) + ';' + (R * 0.04), dur: '3.2s', repeatCount: 'indefinite' }));
+    host.appendChild(coreC);
+
+    applyEyeSignal(); applyEyeSentiment();
 }
 
-// Read-only mediaan van de kans-smoothingbuffer (de HUD mag de beslisdata
-// nooit vervuilen door zelf te pushen).
+// bull/bear kleurt de structurele elementen; iris-cijfers slaan we over (sentiment stuurt die)
+function eyeColor() {
+    if (EYE_SIGNAL === 'bull') return '#14f195';
+    if (EYE_SIGNAL === 'bear') return '#ff5f7e';
+    return '#00d9ff';
+}
+// Handmatige bull/bear/neutral-demo vanuit de hero-knoppen. Zodra de bot een
+// echte beslissing neemt, overschrijft updateFlowHud() dit weer met de live richting.
+function setEyeSignalManual(s) {
+    EYE_SIGNAL = s;
+    const bull = document.getElementById('bull-btn'), bear = document.getElementById('bear-btn');
+    if (bull) bull.classList.toggle('on-bull', s === 'bull');
+    if (bear) bear.classList.toggle('on-bear', s === 'bear');
+    applyEyeSignal();
+}
+function applyEyeSignal() {
+    const c = eyeColor();
+    _eyeSig.forEach(el => {
+        if (el.getAttribute && el.getAttribute('data-bit') === '1') return;
+        const stroke = el.getAttribute('stroke');
+        if (stroke && stroke !== 'none') el.setAttribute('stroke', c);
+        const fill = el.getAttribute('fill');
+        if (fill && fill !== 'none' && fill !== '#02050a' && fill !== '#0a1a28' && fill !== '#123040') el.setAttribute('fill', c);
+    });
+}
+// De binaire cijfers blijven Jarvis-stijl (cyaan/teal-mix). Sentiment kleurt niet
+// langer de cijfers zelf - dat doet nu de confluence-ring (zie updateFlowHud).
+function applyEyeSentiment() { /* no-op: cijfers houden hun Jarvis-kleur */ }
+
 function readSmoothedProb(side) {
     const buf = _probBuffers[side];
     if (!buf || buf.length === 0) return null;
@@ -5618,16 +5668,18 @@ function renderHubPositions() {
 
 function updateFlowHud() {
     const priceEl = document.getElementById('flow-price');
-    if (!priceEl) return;
+    const navPriceEl = document.getElementById('nav-live-price');
+    if (livePrice > 0 && navPriceEl) navPriceEl.textContent = '$' + livePrice.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    if (!priceEl) { updateKpiStrip(); return; }
     updateKpiStrip();
     const body = document.getElementById('flow-hud-body');
     if (body && body.style.display === 'none') {
-        if (livePrice > 0) priceEl.textContent = '$' + livePrice.toLocaleString('nl-NL', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        if (livePrice > 0) priceEl.textContent = '$' + livePrice.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
         return;
     }
     initFlowHud();
     if (livePrice > 0) {
-        priceEl.textContent = '$' + livePrice.toLocaleString('nl-NL', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        priceEl.textContent = '$' + livePrice.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
         if (_flowLastPrice > 0 && livePrice !== _flowLastPrice) {
             priceEl.style.color = livePrice > _flowLastPrice ? '#00d9ff' : '#ff5f7e';
             setTimeout(() => { priceEl.style.color = '#e3f6ff'; }, 600);
@@ -5639,23 +5691,36 @@ function updateFlowHud() {
     set('flow-er', isFinite(er) ? er.toFixed(2) : '\u2014');
     set('flow-db', isFinite(db) ? db.toFixed(2) : '\u2014');
     set('flow-chaos', isFinite(chaos) ? chaos.toFixed(2) + '%' : '\u2014');
+    const R = _eyeR;
     if (lastOsirisDecision && lastOsirisDecision.confluence != null) {
-        set('flow-conf', `${lastOsirisDecision.confluence}/9`);
-        document.querySelectorAll('#w-cells .w-cell').forEach((c, i) => {
-            const aan = i < lastOsirisDecision.confluence;
-            c.setAttribute('fill', aan ? '#00d9ff' : '#123040');
-            c.setAttribute('opacity', aan ? '0.95' : '0.45');
+        const c9 = Math.max(0, Math.min(9, lastOsirisDecision.confluence));
+        set('flow-conf', `${c9}/9`);
+        // confluence-segmenten kleuren mee met de markt: groen als buyers de
+        // overhand hebben (net als de sentiment-loadbar), rood als sellers dat doen.
+        const confCol = EYE_BUYERS >= 50 ? '#14f195' : '#ff5f7e';
+        _confCells.forEach((c, i) => {
+            const aan = i < c9;
+            c.setAttribute('fill', aan ? confCol : '#123040');
+            c.setAttribute('opacity', aan ? '0.9' : '0.4');
         });
+        const dir = lastOsirisDecision.side || lastOsirisDecision.direction;
+        const sig = dir === 'LONG' ? 'bull' : dir === 'SHORT' ? 'bear' : 'neutral';
+        if (sig !== EYE_SIGNAL) { EYE_SIGNAL = sig; applyEyeSignal(); }
     }
-    // Pupil verwijdt met de sterkste gedempte kans: klein = onzeker, wijd = zeker
+    // Pupil + halo + confluence-teller schalen mee met de sterkste gedempte kans
     const pl = readSmoothedProb('LONG'), ps = readSmoothedProb('SHORT');
     if (pl !== null || ps !== null) {
         set('flow-prob', `${pl !== null ? pl.toFixed(0) : '\u2014'}/${ps !== null ? ps.toFixed(0) : '\u2014'}`);
         const best = Math.max(pl ?? 0, ps ?? 0);
-        const pupil = document.getElementById('flow-pupil');
-        if (pupil) pupil.setAttribute('r', (16 + best / 100 * 22).toFixed(1));
+        const pr = (R * 0.1 + best / 100 * R * 0.22);
+        if (_eyePupil) _eyePupil.setAttribute('r', pr.toFixed(1));
+        if (_eyeHalo) _eyeHalo.setAttribute('r', (pr + R * 0.04).toFixed(1));
+        if (_eyeConf) _eyeConf.setAttribute('font-size', (pr * 0.9).toFixed(1));
         const cal = calibrateProbability(best);
         set('flow-cal', cal === null ? '\u2014' : cal.toFixed(0) + '%');
+    }
+    if (typeof getMarketSentiment === 'function') {
+        try { const sBuy = getMarketSentiment(); if (isFinite(sBuy)) { EYE_BUYERS = sBuy; applyEyeSentiment(); } } catch (e) {}
     }
     const regimeEl = document.getElementById('flow-regime');
     if (regimeEl && typeof evaluateMarketRegime === 'function') {
@@ -5695,12 +5760,182 @@ function updateFlowHud() {
     }
 }
 
-// Laatst gekozen sectie herstellen (default: Hub)
-try {
-    const opgeslagen = localStorage.getItem('osirisSection');
-    if (opgeslagen) showSection(opgeslagen);
-} catch (e) {}
+// Scroll-landing: de pagina begint altijd bovenaan bij de intro (geen
+// auto-scroll naar een opgeslagen sectie meer).
 setInterval(updateFlowHud, 1000);
+
+// ============================================================
+// SCROLL-LANDING (v4): decoratief oog (hero/engine), starmap, jump-rails,
+// scroll-spy en nav-prijs. De hub-eye is de LIVE variant (buildEye/updateFlowHud);
+// deze decoratieve ogen delen dezelfde vormtaal maar zonder data-binding.
+// ============================================================
+function buildDecorEye(hostId, R) {
+    const svg = document.getElementById(hostId);
+    if (!svg) return;
+    const NS = 'http://www.w3.org/2000/svg', XL = 'http://www.w3.org/1999/xlink';
+    const mk = (t, a = {}) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+    const vb = svg.getAttribute('viewBox').split(' ').map(Number);
+    const CX = vb[2] / 2, CY = vb[3] / 2 - 10;
+    const BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6'];
+    // vortex
+    for (let a = 0; a < 9; a++) {
+        let d = ''; const off = a / 9 * Math.PI * 2;
+        for (let t = 0; t <= 1; t += 0.03) { const r = R * 2.0 - (R * 2.0 - R * 0.95) * t, th = off + t * 2.7; d += (t ? 'L' : 'M') + (CX + Math.cos(th) * r).toFixed(1) + ',' + (CY + Math.sin(th) * r * 0.46).toFixed(1); }
+        svg.appendChild(mk('path', { d, fill: 'none', stroke: BLUE[a % 5], 'stroke-width': 0.6, opacity: 0.13, id: hostId + 'arm' + a }));
+        for (let k = 0; k < 5; k++) {
+            const c = mk('circle', { r: (0.8 + Math.random() * 1.4).toFixed(1), fill: BLUE[a % 5] });
+            const am = mk('animateMotion', { dur: (4 + Math.random() * 5).toFixed(1) + 's', repeatCount: 'indefinite', begin: (-Math.random() * 8).toFixed(2) + 's', calcMode: 'spline', keyPoints: '0;1', keyTimes: '0;1', keySplines: '0.3 0 0.9 0.6' });
+            const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#' + hostId + 'arm' + a); am.appendChild(mp); c.appendChild(am);
+            c.appendChild(mk('animate', { attributeName: 'opacity', values: '0;0.9;0.9;0', dur: am.getAttribute('dur'), begin: am.getAttribute('begin'), repeatCount: 'indefinite' }));
+            svg.appendChild(c);
+        }
+    }
+    svg.appendChild(mk('ellipse', { cx: CX, cy: CY, rx: R * 1.02, ry: R * 0.98, fill: 'rgba(0,217,255,0.05)' }));
+    // cyber scan-rings
+    [[R * 1.16, '#00d9ff', 0.6, '3 6', 6], [R * 1.22, '#0288d1', 0.5, '2 10', -9]].forEach(([rr, col, w, dash, dur]) => {
+        const ring = mk('g');
+        ring.appendChild(mk('ellipse', { cx: CX, cy: CY, rx: rr, ry: rr * 0.96, fill: 'none', stroke: col, 'stroke-width': w, 'stroke-dasharray': dash, opacity: 0.55 }));
+        ring.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: `${dur > 0 ? 0 : 360} ${CX} ${CY}`, to: `${dur > 0 ? 360 : 0} ${CX} ${CY}`, dur: Math.abs(dur) + 's', repeatCount: 'indefinite' }));
+        svg.appendChild(ring);
+    });
+    [[R * 1.19, '#00d9ff', 2.5], [R * 1.19, '#4fc3f7', 3.5]].forEach(([rr, col, dur], i) => {
+        const g = mk('g'); const a0 = i * Math.PI, a1 = a0 + 0.7;
+        g.appendChild(mk('path', { d: `M${CX + Math.cos(a0) * rr},${CY + Math.sin(a0) * rr * 0.96} A${rr},${rr * 0.96} 0 0 1 ${CX + Math.cos(a1) * rr},${CY + Math.sin(a1) * rr * 0.96}`, fill: 'none', stroke: col, 'stroke-width': 2, opacity: 0.85, 'stroke-linecap': 'round' }));
+        g.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: `0 ${CX} ${CY}`, to: `360 ${CX} ${CY}`, dur: dur + 's', repeatCount: 'indefinite' }));
+        svg.appendChild(g);
+    });
+    // binaire iris
+    for (let ring = 0; ring < 11; ring++) {
+        const r = R * 0.12 + ring * R * 0.072, n = Math.round(2 * Math.PI * r / (R * 0.093)); const g = mk('g');
+        for (let i = 0; i < n; i++) {
+            const a = i / n * Math.PI * 2, x = CX + Math.cos(a) * r, y = CY + Math.sin(a) * r * 0.96;
+            const t = mk('text', { x: x.toFixed(1), y: y.toFixed(1), 'font-size': (R * 0.05 + ring * 0.15).toFixed(1), 'font-family': "'JetBrains Mono', monospace", 'text-anchor': 'middle', fill: ring < 4 ? '#7fe9ff' : BLUE[ring % 5], opacity: (0.25 + Math.random() * 0.55).toFixed(2), transform: 'rotate(' + (a * 180 / Math.PI + 90).toFixed(0) + ' ' + x.toFixed(1) + ' ' + y.toFixed(1) + ')' });
+            t.textContent = Math.random() > 0.5 ? '1' : '0';
+            t.appendChild(mk('animate', { attributeName: 'opacity', values: '0.12;0.85;0.12', dur: (1.6 + Math.random() * 4).toFixed(1) + 's', begin: (-Math.random() * 5).toFixed(1) + 's', repeatCount: 'indefinite' }));
+            g.appendChild(t);
+        }
+        g.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: (ring % 2 ? 360 : 0) + ' ' + CX + ' ' + CY, to: (ring % 2 ? 0 : 360) + ' ' + CX + ' ' + CY, dur: (30 + ring * 8) + 's', repeatCount: 'indefinite' }));
+        svg.appendChild(g);
+    }
+    // Jarvis arcs + ticks
+    const arc = (r, a0, a1, col, w) => mk('path', { d: 'M' + (CX + Math.cos(a0) * r) + ',' + (CY + Math.sin(a0) * r * 0.96) + ' A' + r + ',' + (r * 0.96) + ' 0 ' + (a1 - a0 > Math.PI ? 1 : 0) + ' 1 ' + (CX + Math.cos(a1) * r) + ',' + (CY + Math.sin(a1) * r * 0.96), fill: 'none', stroke: col, 'stroke-width': w, opacity: 0.7 });
+    [[R * 1.0, 0.25, 1.45, '#00d9ff', 1.4, 22], [R * 1.0, 3.4, 4.6, '#00d9ff', 1.4, 22], [R * 1.08, 2.05, 2.85, '#ffb627', 1, -32], [R * 1.08, 5.15, 5.95, '#ffb627', 1, -32]].forEach(([r, a0, a1, c, w, dur]) => {
+        const g = mk('g'); g.appendChild(arc(r, a0, a1, c, w));
+        g.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: (dur > 0 ? 0 : 360) + ' ' + CX + ' ' + CY, to: (dur > 0 ? 360 : 0) + ' ' + CX + ' ' + CY, dur: Math.abs(dur) + 's', repeatCount: 'indefinite' }));
+        svg.appendChild(g);
+    });
+    for (let i = 0; i < 48; i++) { const a = i / 48 * Math.PI * 2, big = i % 4 === 0; svg.appendChild(mk('line', { x1: CX + Math.cos(a) * (big ? R * 0.96 : R * 0.99), y1: CY + Math.sin(a) * (big ? R * 0.96 : R * 0.99) * 0.96, x2: CX + Math.cos(a) * R * 1.02, y2: CY + Math.sin(a) * R * 1.02 * 0.96, stroke: big ? '#00d9ff' : '#0288d1', 'stroke-width': big ? 1 : 0.5, opacity: big ? 0.7 : 0.35 })); }
+    // confluence-ring (6/9 aan), draait rond, groen
+    const confRing = mk('g');
+    for (let i = 0; i < 9; i++) { const a0 = (i / 9) * Math.PI * 2 - Math.PI / 2 + 0.03, a1 = ((i + 1) / 9) * Math.PI * 2 - Math.PI / 2 - 0.03, r0 = R * 0.92, r1 = R * 0.98, on = i < 6;
+        const seg = mk('path', { d: 'M' + (CX + Math.cos(a0) * r0) + ',' + (CY + Math.sin(a0) * r0 * 0.96) + ' A' + r0 + ',' + (r0 * 0.96) + ' 0 0 1 ' + (CX + Math.cos(a1) * r0) + ',' + (CY + Math.sin(a1) * r0 * 0.96) + ' L' + (CX + Math.cos(a1) * r1) + ',' + (CY + Math.sin(a1) * r1 * 0.96) + ' A' + r1 + ',' + (r1 * 0.96) + ' 0 0 0 ' + (CX + Math.cos(a0) * r1) + ',' + (CY + Math.sin(a0) * r1 * 0.96) + ' Z', fill: on ? '#14f195' : '#123040', opacity: on ? 0.85 : 0.4 });
+        if (on) seg.appendChild(mk('animate', { attributeName: 'opacity', values: '0.5;1;0.5', dur: (1.6 + i * 0.15).toFixed(1) + 's', begin: (-i * 0.2).toFixed(1) + 's', repeatCount: 'indefinite' }));
+        confRing.appendChild(seg); }
+    confRing.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: `0 ${CX} ${CY}`, to: `360 ${CX} ${CY}`, dur: '24s', repeatCount: 'indefinite' }));
+    svg.appendChild(confRing);
+    // radar sweep (mask donut)
+    const defs = mk('defs'); const mask = mk('mask', { id: hostId + 'rm' });
+    mask.appendChild(mk('ellipse', { cx: CX, cy: CY, rx: R * 1.12, ry: R * 1.08, fill: '#fff' }));
+    mask.appendChild(mk('ellipse', { cx: CX, cy: CY, rx: R * 1.0, ry: R * 0.96, fill: '#000' }));
+    defs.appendChild(mask); svg.appendChild(defs);
+    const band = R * 1.12; const sweep = mk('g', { mask: `url(#${hostId}rm)` });
+    sweep.appendChild(mk('path', { d: `M${CX},${CY} L${CX + Math.cos(-0.5) * band},${CY + Math.sin(-0.5) * band * 0.96} A${band},${band * 0.96} 0 0 1 ${CX + Math.cos(0.5) * band},${CY + Math.sin(0.5) * band * 0.96} Z`, fill: '#00ff9f', opacity: 0.28 }));
+    sweep.appendChild(mk('line', { x1: CX, y1: CY, x2: CX + band, y2: CY, stroke: '#5dffb0', 'stroke-width': 1.4, opacity: 0.7 }));
+    sweep.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: `0 ${CX} ${CY}`, to: `360 ${CX} ${CY}`, dur: '4s', repeatCount: 'indefinite' }));
+    svg.appendChild(sweep);
+    // pupil + teller
+    const halo = mk('circle', { cx: CX, cy: CY, r: R * 0.22, fill: 'none', stroke: '#00d9ff', 'stroke-width': 2, opacity: 0.85 });
+    halo.appendChild(mk('animate', { attributeName: 'r', values: `${R * 0.16};${R * 0.34};${R * 0.16}`, dur: '6.5s', repeatCount: 'indefinite' }));
+    svg.appendChild(halo);
+    const pupil = mk('circle', { cx: CX, cy: CY, r: R * 0.18, fill: '#02050a', stroke: '#00d9ff', 'stroke-width': 1.2, opacity: 0.95 });
+    pupil.appendChild(mk('animate', { attributeName: 'r', values: `${R * 0.12};${R * 0.3};${R * 0.12}`, dur: '6.5s', repeatCount: 'indefinite' }));
+    svg.appendChild(pupil);
+    const conf = mk('text', { x: CX, y: CY, 'text-anchor': 'middle', 'dominant-baseline': 'central', 'font-weight': 'bold', 'font-family': "'JetBrains Mono', monospace", fill: '#7fe9ff' });
+    conf.textContent = '6/9';
+    conf.appendChild(mk('animate', { attributeName: 'font-size', values: `${R * 0.11};${R * 0.28};${R * 0.11}`, dur: '6.5s', repeatCount: 'indefinite' }));
+    svg.appendChild(conf);
+}
+
+// starmap: één grote ruimte waar je doorheen reist (depth-parallax)
+function initStarmap() {
+    const cv = document.getElementById('starmap'); if (!cv) return;
+    const ctx = cv.getContext('2d');
+    let W, H, stars, nodes, total;
+    function init() {
+        W = cv.width = innerWidth; H = cv.height = innerHeight; total = document.body.scrollHeight;
+        stars = [...Array(240)].map(() => ({ x: Math.random(), y: Math.random() * total, z: Math.random(), r: Math.random() * 1.3 }));
+        nodes = [...Array(38)].map(() => ({ x: Math.random() * W, y: Math.random() * total, vx: (Math.random() - 0.5) * 0.1, p: 0 }));
+    }
+    init(); addEventListener('resize', init);
+    addEventListener('load', init);
+    setTimeout(init, 400); setTimeout(init, 1200);
+    (function loop() {
+        ctx.clearRect(0, 0, W, H); const sy = scrollY;
+        stars.forEach(s => { const y = s.y - sy * (0.2 + s.z * 0.8); if (y < -10 || y > H + 10) return;
+            ctx.globalAlpha = 0.25 + s.z * 0.6; ctx.fillStyle = s.z > 0.66 ? '#7fd6ff' : (s.z > 0.33 ? '#3a6a86' : '#20384a');
+            ctx.beginPath(); ctx.arc(s.x * W, y, s.r * (0.5 + s.z), 0, 6.28); ctx.fill(); });
+        const vis = nodes.map(n => ({ x: n.x + (n.p += n.vx), y: n.y - sy * 0.5 })).filter(n => n.y > -50 && n.y < H + 50);
+        for (let i = 0; i < vis.length; i++) for (let j = i + 1; j < vis.length; j++) {
+            const dx = vis[i].x - vis[j].x, dy = vis[i].y - vis[j].y, d = Math.hypot(dx, dy);
+            if (d < 140) { ctx.globalAlpha = (1 - d / 140) * 0.13; ctx.strokeStyle = '#00d9ff'; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(vis[i].x, vis[i].y); ctx.lineTo(vis[j].x, vis[j].y); ctx.stroke(); }
+        }
+        vis.forEach(n => { ctx.globalAlpha = 0.55; ctx.fillStyle = '#00d9ff'; ctx.fillRect(n.x - 1, n.y - 1, 2, 2); });
+        requestAnimationFrame(loop);
+    })();
+}
+
+// jump-rail: door de ruimte naar een gloeiende node reizen
+function buildJump(id, hue) {
+    const svg = document.getElementById(id); if (!svg) return;
+    const NS = 'http://www.w3.org/2000/svg';
+    const mk = (t, a = {}) => { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); return e; };
+    const CX = 590, CY = 80;
+    for (let i = 0; i < 36; i++) {
+        const a = Math.random() * Math.PI * 2, r0 = 30 + Math.random() * 25, r1 = 600 + Math.random() * 400;
+        const ln = mk('line', { x1: (CX + Math.cos(a) * r0).toFixed(0), y1: (CY + Math.sin(a) * r0 * 0.5).toFixed(0), x2: (CX + Math.cos(a) * r1).toFixed(0), y2: (CY + Math.sin(a) * r1 * 0.5).toFixed(0), stroke: hue, 'stroke-width': (0.5 + Math.random()).toFixed(1), opacity: 0 });
+        ln.appendChild(mk('animate', { attributeName: 'opacity', values: '0;0.5;0', dur: (2 + Math.random() * 3).toFixed(1) + 's', begin: (-Math.random() * 4).toFixed(1) + 's', repeatCount: 'indefinite' }));
+        svg.appendChild(ln);
+    }
+    svg.appendChild(mk('ellipse', { cx: CX, cy: CY, rx: 30, ry: 28, fill: 'none', stroke: hue, 'stroke-width': 1, opacity: 0.5 }));
+    svg.appendChild(mk('ellipse', { cx: CX, cy: CY, rx: 48, ry: 18, fill: 'none', stroke: hue, 'stroke-width': 0.6, opacity: 0.35 }));
+    const core = mk('circle', { cx: CX, cy: CY, r: 14, fill: hue, opacity: 0.18 });
+    core.appendChild(mk('animate', { attributeName: 'r', values: '12;18;12', dur: '4s', repeatCount: 'indefinite' }));
+    svg.appendChild(core);
+    svg.appendChild(mk('circle', { cx: CX, cy: CY, r: 5, fill: hue, opacity: 0.7 }));
+    const moon = mk('g');
+    moon.appendChild(mk('circle', { cx: CX + 52, cy: CY, r: 3, fill: '#e3f6ff', opacity: 0.8 }));
+    moon.appendChild(mk('animateTransform', { attributeName: 'transform', type: 'rotate', from: `0 ${CX} ${CY}`, to: `360 ${CX} ${CY}`, dur: '9s', repeatCount: 'indefinite' }));
+    svg.appendChild(moon);
+}
+
+// nav scroll-spy + live prijs
+function initScrollSpy() {
+    // v4-nav: <nav id="scroll-nav"> met <a href="#..."> links; secties zijn de
+    // top-level <section id="intro|market|data|engine|hub">.
+    const secs = [...document.querySelectorAll('section[id]')];
+    const links = [...document.querySelectorAll('#scroll-nav a[href^="#"]')];
+    function spy() {
+        let cur = secs.length ? secs[0].id : '';
+        for (const s of secs) { if (scrollY >= s.offsetTop - 140) cur = s.id; }
+        links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + cur));
+    }
+    addEventListener('scroll', spy); spy();
+}
+
+// alles opstarten zodra de DOM klaar is
+(function bootLanding() {
+    function go() {
+        try { buildDecorEye('hero-eye', 150); } catch (e) {}
+        try { buildDecorEye('engine-eye', 132); } catch (e) {}
+        try { initStarmap(); } catch (e) {}
+        // (v4 gebruikt waypoint-tekst i.p.v. SVG jump-rails)
+        try { initScrollSpy(); } catch (e) {}
+        try { initFlowHud(); } catch (e) {}
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
+    else go();
+})();
+
 
 
 // --- Testnet UI-koppeling (knoppen bestaan alleen als index.html up-to-date is) ---
