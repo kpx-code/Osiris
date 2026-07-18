@@ -188,7 +188,7 @@ footer{padding:60px 0; text-align:center; font-family:'JetBrains Mono',monospace
 
         .ohlc-strip{ display:flex; gap:20px; flex-wrap:wrap; font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--text-dim); margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,0.06); }
         .ohlc-strip b{ color:var(--text-primary); font-weight:600; }
-        #chart-container{ min-height: 400px; width: 100%; max-width: 100%; }
+        
 
         /* ---- data section meters ---- */
         .data-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
@@ -402,7 +402,7 @@ footer{padding:60px 0; text-align:center; font-family:'JetBrains Mono',monospace
     
 /* ==== overrides zodat de echte panelen in v4's mock-frames passen ==== */
 .mock-body .hud, .mock-body #bot-control-hub { background:transparent; border:none; padding:0; margin:0; }
-#chart-container { width:100%; height:340px; }
+
 #flow-hud { background:transparent; border:none; }
 .wrap { position:relative; z-index:2; }
 section { position:relative; z-index:2; }
@@ -412,7 +412,8 @@ section { position:relative; z-index:2; }
 #hero-eye{ aspect-ratio:460/440; height:auto; }
 #engine-eye{ aspect-ratio:400/380; height:auto; }
 #flow-svg{ aspect-ratio:560/340; height:auto; }
-#chart-container{ width:100%; min-height:340px; }
+#chart-container{ width:100%; height:600px; max-width:100%; }
+@media (max-width:768px){ #chart-container{ height:360px; } }
 </style>
 <body>
 <div id="dashboard">
@@ -696,7 +697,7 @@ section { position:relative; z-index:2; }
         <div class="hud">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
             <div class="eyebrow">PRIJS &amp; VOLUME HISTORIE — 15M<span class="fill"></span><button onclick="downloadPriceVolumeHistory()" class="btn btn-ghost btn-mini">&darr; Download Historie</button></div>
-            <div id="history-list"></div>
+            <div id="history-list" style="max-height:300px; overflow-y:auto;"></div>
         </div>
       </div>
     </div>
@@ -807,14 +808,27 @@ section { position:relative; z-index:2; }
                     <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
                 </div>
         <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer;"><span>Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
-        <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:16px; align-items:center;">
-          <svg id="calib-svg" viewBox="0 0 300 150" style="width:100%;">
-            <line x1="26" y1="128" x2="286" y2="14" stroke="#1a2a38" stroke-width="1" stroke-dasharray="3 4"/>
-            <text x="250" y="26" font-size="8" fill="#33485a" font-family="'JetBrains Mono',monospace">perfect</text>
+        <div style="display:grid; grid-template-columns:1.5fr 1fr; gap:20px; align-items:center;">
+          <svg id="calib-svg" viewBox="0 0 100 62" style="width:100%; overflow:visible;">
+            <!-- perfecte diagonaal (stippellijn) -->
+            <line x1="8" y1="50" x2="94" y2="4" stroke="#33485a" stroke-width="0.5" stroke-dasharray="1.5 1.5"/>
+            <text x="82" y="9" font-size="3.4" fill="#33485a" font-family="'JetBrains Mono',monospace" font-style="italic">perfect</text>
+            <!-- assen -->
+            <line x1="8" y1="4" x2="8" y2="50" stroke="#10202c" stroke-width="0.5"/>
+            <line x1="8" y1="50" x2="94" y2="50" stroke="#10202c" stroke-width="0.5"/>
+            <!-- y-labels 100 / 0 -->
+            <text x="1.5" y="6" font-size="3.2" fill="#5c7488" font-family="'JetBrains Mono',monospace">100</text>
+            <text x="4.5" y="51" font-size="3.2" fill="#5c7488" font-family="'JetBrains Mono',monospace">0</text>
+            <!-- x-labels 60 / 95 -->
+            <text x="8" y="57" font-size="3.2" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">60</text>
+            <text x="94" y="57" font-size="3.2" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">95</text>
+            <!-- gouden meetcurve wordt hierin getekend door app.js -->
             <g id="calib-plot"></g>
-            <line x1="26" y1="14" x2="26" y2="130" stroke="#10202c" stroke-width="1"/><line x1="26" y1="130" x2="288" y2="130" stroke="#10202c" stroke-width="1"/>
           </svg>
-          <div class="mono" id="calib-note" style="font-size:0.64rem; color:var(--dim); line-height:1.7;">Wacht op 50+ trades met entry-kans.</div>
+          <div class="mono" style="font-size:0.64rem; color:var(--dim); line-height:1.7;">
+            <div style="color:var(--amber); margin-bottom:6px; font-weight:600;">Osiris is overconfident.</div>
+            <span id="calib-note">Wacht op 50+ trades met entry-kans.</span>
+          </div>
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
           <div>
@@ -1005,6 +1019,6 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build1"></script>
+<script src="app.js?v=20260718-v4build2"></script>
 </body>
 </html>
