@@ -1,31 +1,104 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OSIRIS INTELLIGENCE</title>
-    <!-- Inline SVG-favicon: voorkomt de favicon.ico 404 in de console (GitHub Pages
-         heeft geen favicon in de repo-root) zonder een extra bestand nodig te hebben. -->
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%2314f195' stroke-width='2' stroke-dasharray='10 5'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%2314f195'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <style>
-        :root{
-            --void:#05060a; --panel:#0d1420; --panel-2:#0a0f1a;
-            --violet:#9945ff; --teal:#14f195; --cyan:#00d9ff; --red:#ff3b5c; --amber:#ffb627; --primary:#6366f1;
-            --text-primary:#e9edf6; --text-dim:#5c6478; --text-dimmer:#3a4052; --line:rgba(153,69,255,0.16);
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OSIRIS INTELLIGENCE — Design Concept v3</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --void:#04060b; --line:rgba(0,217,255,0.14);
+  --teal:#14f195; --cyan:#00d9ff; --cyan2:#4fc3f7; --amber:#ffb627; --red:#ff5f7e; --mint:#00ff41;
+  --tx:#e3f6ff; --dim:#5c7488; --dimmer:#33485a;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{background:var(--void); color:var(--tx); font-family:'Chakra Petch',sans-serif; overflow-x:hidden;}
+#starmap{position:fixed; inset:0; z-index:0; pointer-events:none;}
+.mono{font-family:'JetBrains Mono',monospace;}
+.wrap{position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:0 24px;}
+
+nav.top{position:sticky; top:0; z-index:50; backdrop-filter:blur(10px); background:rgba(4,6,11,0.62); border-bottom:1px solid var(--line);}
+nav.top .row{display:flex; align-items:center; gap:26px; height:60px;}
+.brand{font-family:'Orbitron',sans-serif; font-weight:800; letter-spacing:0.14em; font-size:1.05rem; color:#fff;}
+.brand span{color:var(--cyan);}
+nav.top a{color:var(--dim); text-decoration:none; font-family:'JetBrains Mono',monospace; font-size:0.7rem; letter-spacing:0.08em; text-transform:uppercase; transition:color .2s; position:relative;}
+nav.top a:hover,nav.top a.active{color:var(--cyan);}
+nav.top a.active::after{content:''; position:absolute; left:0; right:0; bottom:-6px; height:1px; background:var(--cyan);}
+.nav-spacer{flex:1;}
+.badge{font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--teal); border:1px solid rgba(20,241,149,0.35); padding:4px 10px; border-radius:4px;}
+.livep{font-family:'JetBrains Mono',monospace; font-size:0.86rem; color:var(--tx);}
+
+/* sections flow into each other — no hard dividers, generous overlap */
+section{position:relative; z-index:2; padding:120px 0;}
+.sec-eyebrow{font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.24em; text-transform:uppercase; color:var(--cyan); margin-bottom:14px; display:flex; align-items:center; gap:10px;}
+.sec-eyebrow::before{content:''; width:22px; height:1px; background:var(--cyan);}
+h1.hero{font-family:'Orbitron',sans-serif; font-weight:900; font-size:3.4rem; line-height:1.05; letter-spacing:0.02em; color:#fff; margin-bottom:20px;}
+h1.hero em{color:var(--cyan); font-style:normal;}
+h2.sec{font-family:'Orbitron',sans-serif; font-weight:800; font-size:1.9rem; letter-spacing:0.03em; color:#fff; margin-bottom:16px;}
+p.lead{font-size:1.05rem; line-height:1.75; color:#aebfce; max-width:620px;}
+p.body{font-size:0.9rem; line-height:1.75; color:var(--dim); max-width:600px; margin-top:12px;}
+.waypoint{font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.28em; text-transform:uppercase; color:var(--cyan2); opacity:0.6; text-align:center; margin:0 0 20px; display:flex; align-items:center; justify-content:center; gap:12px;}
+.waypoint::before,.waypoint::after{content:''; width:40px; height:1px; background:linear-gradient(90deg,transparent,var(--cyan2));}
+.waypoint::after{background:linear-gradient(90deg,var(--cyan2),transparent);}
+
+.hero-grid{display:grid; grid-template-columns:1fr 1fr; gap:40px; align-items:center; min-height:78vh;}
+.hero-cta{display:flex; gap:14px; margin-top:30px; flex-wrap:wrap;}
+.btn{font-family:'Chakra Petch',sans-serif; font-weight:600; font-size:0.8rem; letter-spacing:0.06em; text-transform:uppercase; padding:13px 26px; border:1px solid var(--cyan); color:var(--cyan); background:rgba(0,217,255,0.05); cursor:pointer; text-decoration:none; transition:all .2s; clip-path:polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px);}
+.btn:hover{background:rgba(0,217,255,0.14);}
+.btn.ghost{border-color:var(--dimmer); color:var(--dim);}
+.eye-toggle{display:flex; gap:8px; justify-content:center; margin-top:14px;}
+.eye-toggle button{font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.08em; text-transform:uppercase; padding:6px 14px; background:transparent; border:1px solid var(--dimmer); color:var(--dim); cursor:pointer;}
+.eye-toggle button.on-bull{border-color:var(--teal); color:var(--teal);}
+.eye-toggle button.on-bear{border-color:var(--red); color:var(--red);}
+
+.cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:34px;}
+.card{position:relative; background:linear-gradient(165deg,rgba(10,20,32,0.72),rgba(6,10,16,0.72)); border:1px solid var(--line); padding:20px; transition:border-color .2s, transform .2s;}
+.card:hover{border-color:rgba(0,217,255,0.4); transform:translateY(-3px);}
+.card h4{font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--cyan); margin-bottom:8px;}
+.card p{font-size:0.82rem; line-height:1.65; color:var(--dim);}
+.corner{position:absolute; width:10px; height:10px; opacity:0.7;}
+.corner.tl{top:-1px; left:-1px; border-top:1px solid var(--cyan); border-left:1px solid var(--cyan);}
+.corner.br{bottom:-1px; right:-1px; border-bottom:1px solid var(--cyan); border-right:1px solid var(--cyan);}
+
+.mock{background:rgba(4,7,12,0.72); border:1px solid var(--line); border-radius:8px; margin-top:30px; overflow:hidden; backdrop-filter:blur(2px);}
+.mock-head{display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line);}
+.dot{width:8px;height:8px;border-radius:50%;}
+.mock-title{font-family:'JetBrains Mono',monospace; font-size:0.66rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--dim);}
+.mock-body{padding:16px;}
+.kpi-strip{display:grid; grid-template-columns:repeat(6,1fr);}
+.kpi-strip .kpi{padding:10px 14px; border-right:1px solid var(--line);}
+.kpi-strip .kpi:last-child{border-right:none;}
+.kpi-strip small{font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--dim); display:block;}
+.kpi-strip b{font-family:'JetBrains Mono',monospace; font-size:0.95rem; font-weight:500; color:var(--tx);}
+.meter-row{display:grid; grid-template-columns:repeat(4,1fr); gap:12px;}
+.meter{background:rgba(0,217,255,0.03); border:1px solid var(--line); padding:12px;}
+.meter .l{font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--dim); letter-spacing:0.08em;}
+.meter .v{font-family:'JetBrains Mono',monospace; font-size:1.15rem; color:var(--cyan); margin-top:4px;}
+.loadbar{height:5px; background:#0c1622; margin-top:8px; position:relative; overflow:hidden;}
+.loadbar i{position:absolute; inset:0 auto 0 0; background:var(--cyan);}
+.loadbar::after{content:''; position:absolute; inset:0; background:repeating-linear-gradient(90deg,transparent 0 5px,#04070c 5px 7px);}
+.subhead{font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--dim); margin:22px 0 10px;}
+.sentiment{height:10px; display:flex; overflow:hidden; border-radius:2px;}
+.reasoning{background:rgba(0,0,0,0.6); border:1px solid rgba(0,255,65,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:var(--mint); line-height:1.9;}
+.reasoning .rl{opacity:0.5;}
+/* chart with price axis (right) + timeframe (bottom) */
+.chart-frame{display:grid; grid-template-columns:1fr 48px; grid-template-rows:1fr auto 26px;}
+.chart-frame.mini{grid-template-rows:1fr 26px;}
+.chart-plot{grid-column:1; grid-row:1;}
+.price-axis{grid-column:2; grid-row:1; border-left:1px solid var(--line); display:flex; flex-direction:column; justify-content:space-between; padding:2px 0 2px 6px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--dim);}
+.tf-axis{grid-column:1/3; grid-row:2; border-top:1px solid var(--line); display:flex; gap:14px; align-items:center; padding-top:6px; font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--dim);}
+.tf-axis .on{color:var(--cyan);}
+
+.split{display:grid; grid-template-columns:0.85fr 1.15fr; gap:40px; align-items:center;}
+@media(max-width:900px){ .hero-grid,.split{grid-template-columns:1fr;} h1.hero{font-size:2.4rem;} .kpi-strip{grid-template-columns:repeat(3,1fr);} nav.top a.hide-m{display:none;} }
+footer{padding:60px 0; text-align:center; font-family:'JetBrains Mono',monospace; font-size:0.64rem; color:var(--dimmer); position:relative; z-index:2;}
+
+/* ==== COMPAT-LAAG: form/engine/hud-stijlen uit de werkende site (v4-palette leidt) ==== */
+
+        
         *, *::before, *::after { box-sizing: border-box; }
-        body {
-            margin: 0; background-color: var(--void);
-            background-image:
-                radial-gradient(ellipse 900px 500px at 15% -10%, rgba(153,69,255,0.14), transparent 55%),
-                radial-gradient(ellipse 700px 500px at 95% 5%, rgba(20,241,149,0.09), transparent 50%),
-                radial-gradient(ellipse 700px 500px at 50% 115%, rgba(0,217,255,0.07), transparent 50%);
-            color: var(--text-primary); font-family: 'Chakra Petch', sans-serif;
-        }
+        
         body::before{
             content:''; position:fixed; inset:0;
             background-image:linear-gradient(rgba(255,255,255,0.026) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.026) 1px, transparent 1px);
@@ -272,47 +345,121 @@
         .hub-statusbar { border:1px solid #10202c; border-radius:6px; background:#04070c; margin-bottom:16px; }
         .hub-statusbar .eye-foot { border-top:none; padding:8px 12px; }
 
-    </style>
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'G-0KTV089ZWE');
-    </script>
-</head>
+
+        /* ============ SCROLL-LANDING (v4): starmap, hero, jumps, secties ============ */
+        html { scroll-behavior:smooth; }
+        #starmap { position:fixed; inset:0; z-index:0; pointer-events:none; display:block; width:100vw; height:100vh; }
+        #dashboard { position:relative; z-index:1; }
+        #scroll-nav { position:sticky; top:0; z-index:50; display:flex; align-items:center; gap:22px; height:58px; padding:0 4px; backdrop-filter:blur(10px); background:rgba(4,6,11,0.62); border-bottom:1px solid var(--line, rgba(0,217,255,0.14)); flex-wrap:wrap; }
+        #scroll-nav .brand { font-family:'Orbitron',sans-serif; font-weight:800; letter-spacing:0.14em; font-size:1rem; color:#fff; }
+        #scroll-nav .brand span { color:var(--cyan); }
+        #scroll-nav a.scroll-link { color:#5c7488; text-decoration:none; font-family:'JetBrains Mono',monospace; font-size:0.68rem; letter-spacing:0.08em; text-transform:uppercase; transition:color .2s; position:relative; }
+        #scroll-nav a.scroll-link:hover, #scroll-nav a.scroll-link.active { color:var(--cyan); }
+        #scroll-nav a.scroll-link.active::after { content:''; position:absolute; left:0; right:0; bottom:-6px; height:1px; background:var(--cyan); }
+        .nav-live-price { font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:var(--tx,#e3f6ff); }
+        .flow-section { position:relative; z-index:1; padding:104px 0 90px; }
+        .sec-eyebrow { font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.24em; text-transform:uppercase; color:var(--cyan); margin-bottom:16px; display:flex; align-items:center; gap:10px; }
+        .sec-eyebrow::before { content:''; width:22px; height:1px; background:var(--cyan); }
+        .hero-grid { display:grid; grid-template-columns:1fr 1fr; gap:40px; align-items:center; min-height:76vh; }
+        .hero-h1 { font-family:'Orbitron',sans-serif; font-weight:900; font-size:3.2rem; line-height:1.05; letter-spacing:0.02em; color:#fff; margin:0 0 20px; }
+        .hero-h1 em { color:var(--cyan); font-style:normal; }
+        .hero-lead { font-size:1.02rem; line-height:1.75; color:#aebfce; max-width:600px; margin:0; }
+        .sec-h2 { font-family:'Orbitron',sans-serif; font-weight:800; font-size:1.8rem; letter-spacing:0.03em; color:#fff; margin:0 0 16px; }
+        .hero-cta { display:flex; gap:14px; margin-top:28px; flex-wrap:wrap; }
+        .btn-primary, .btn-ghost { font-family:'Chakra Petch',sans-serif; font-weight:600; font-size:0.78rem; letter-spacing:0.06em; text-transform:uppercase; padding:13px 26px; cursor:pointer; text-decoration:none; transition:all .2s; clip-path:polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px); }
+        .btn-primary { border:1px solid var(--cyan); color:var(--cyan); background:rgba(0,217,255,0.05); }
+        .btn-primary:hover { background:rgba(0,217,255,0.14); }
+        .btn-ghost { border:1px solid #33485a; color:#5c7488; }
+        .btn-ghost:hover { color:var(--tx,#e3f6ff); border-color:#5c7488; }
+        #hero-eye-wrap { display:flex; flex-direction:column; align-items:center; }
+        #hero-eye { width:100%; max-width:440px; height:auto; aspect-ratio:460/440; display:block; }
+        #engine-eye { width:100%; max-width:400px; height:auto; aspect-ratio:400/380; display:block; }
+        #flow-svg { width:100%; height:auto; aspect-ratio:560/340; display:block; }
+        .eye-toggle { display:flex; gap:8px; justify-content:center; margin-top:12px; }
+        .eye-toggle button { font-family:'JetBrains Mono',monospace; font-size:0.58rem; letter-spacing:0.08em; text-transform:uppercase; padding:6px 14px; background:transparent; border:1px solid #33485a; color:#5c7488; cursor:pointer; }
+        .eye-toggle button.on-bull { border-color:var(--teal); color:var(--teal); }
+        .eye-toggle button.on-bear { border-color:var(--red); color:var(--red); }
+        .jump-rail { position:relative; z-index:1; height:160px; overflow:hidden; }
+        .jump-rail svg { position:absolute; inset:0; width:100%; height:100%; }
+        .jump-tag { position:absolute; left:50%; bottom:20px; transform:translateX(-50%); font-family:'JetBrains Mono',monospace; font-size:0.62rem; letter-spacing:0.28em; text-transform:uppercase; color:var(--cyan2,#4fc3f7); display:flex; align-items:center; gap:10px; }
+        .jump-tag::before, .jump-tag::after { content:''; width:24px; height:1px; background:var(--cyan2,#4fc3f7); opacity:0.5; }
+        .split-grid { display:grid; grid-template-columns:0.9fr 1.1fr; gap:40px; align-items:center; }
+        .engine-cards { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:26px; }
+        .ecard { position:relative; background:linear-gradient(165deg,rgba(10,20,32,0.72),rgba(6,10,16,0.72)); border:1px solid var(--line,rgba(0,217,255,0.14)); padding:18px; transition:border-color .2s, transform .2s; }
+        .ecard:hover { border-color:rgba(0,217,255,0.4); transform:translateY(-3px); }
+        .ecard h4 { font-family:'JetBrains Mono',monospace; font-size:0.7rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--cyan); margin:0 0 8px; }
+        .ecard p { font-size:0.8rem; line-height:1.6; color:#5c7488; margin:0; }
+        .ecard .corner { position:absolute; width:9px; height:9px; opacity:0.7; }
+        .ecard .corner-tl { top:-1px; left:-1px; border-top:1px solid var(--cyan); border-left:1px solid var(--cyan); }
+        .ecard .corner-br { bottom:-1px; right:-1px; border-bottom:1px solid var(--cyan); border-right:1px solid var(--cyan); }
+        .hub-eye-head { display:flex; justify-content:center; align-items:center; gap:14px; flex-wrap:wrap; margin:10px 0 4px; }
+        .hub-eye-head .eye-title { font-family:'JetBrains Mono',monospace; font-size:0.66rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--cyan2,#4fc3f7); }
+        .hub-eye-head .livep { font-family:'JetBrains Mono',monospace; font-size:0.86rem; color:var(--tx,#e3f6ff); }
+        #sec-hub #flow-hud { max-width:620px; margin:0 auto 20px; border:none; background:none; }
+        #sec-hub #flow-svg { max-height:320px; }
+        @media (max-width: 1000px) { .hero-grid, .split-grid { grid-template-columns:1fr; } .hero-h1 { font-size:2.3rem; } .engine-cards { grid-template-columns:1fr; } }
+
+    
+/* ==== overrides zodat de echte panelen in v4's mock-frames passen ==== */
+.mock-body .hud, .mock-body #bot-control-hub { background:transparent; border:none; padding:0; margin:0; }
+#chart-container { width:100%; height:340px; }
+#flow-hud { background:transparent; border:none; }
+.wrap { position:relative; z-index:2; }
+section { position:relative; z-index:2; }
+#starmap { position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+
+#hero-eye{ aspect-ratio:460/440; height:auto; }
+#engine-eye{ aspect-ratio:400/380; height:auto; }
+#flow-svg{ aspect-ratio:560/340; height:auto; }
+#chart-container{ width:100%; min-height:340px; }
+</style>
 <body>
-    <div id="dashboard">
+<div id="dashboard">
+<canvas id="starmap"></canvas>
 
-        <header>
-            <h1>OSIRIS INTELLIGENCE<span class="live-dot"></span></h1>
-            <nav><a href="about.html">About &amp; Disclaimer &rarr;</a></nav>
-        </header>
-        <div class="scan-line"></div>
+<nav class="top" id="scroll-nav"><div class="wrap"><div class="row">
+  <span class="brand">OSIRIS<span>·</span>INTEL</span>
+  <a href="#intro" class="active">Intro</a>
+  <a href="#market" class="hide-m">Market</a>
+  <a href="#data" class="hide-m">Data</a>
+  <a href="#engine">Engine</a>
+  <a href="#hub">Hub</a>
+  <span class="nav-spacer"></span>
+  <span class="livep" id="nav-live-price">&mdash;</span>
+  <span id="hub-engine-badge" class="badge mono">&#9673; STANDBY</span>
+  <a href="about.html" class="badge mono" style="text-decoration:none; color:var(--dim); border-color:var(--dimmer);">About &rarr;</a>
+</div></div></nav>
 
-        <!-- ============ HUB NAVIGATIE + KPI-STRIP ============ -->
-        <div id="hub-nav">
-            <span class="hub-tab active" data-sec="hub" onclick="showSection('hub')">Hub</span>
-            <span class="hub-tab" data-sec="markt" onclick="showSection('markt')">Markt</span>
-            <span class="hub-tab" data-sec="leren" onclick="showSection('leren')">Leren</span>
-            <span style="flex:1;"></span>
-            <span id="hub-engine-badge" class="hub-badge">&#9673; STANDBY</span>
-            <span id="hub-equity" class="hub-equity">&mdash;</span>
-            <span id="hub-equity-pct" class="hub-equity-pct">&mdash;</span>
-        </div>
-        <div id="kpi-strip">
-            <div class="kpi"><small>P/L</small><div id="kpi-pnl">&mdash;</div></div>
-            <div class="kpi"><small>winrate</small><div id="kpi-winrate">&mdash;</div></div>
-            <div class="kpi"><small>kal. edge</small><div id="kpi-cal" style="color:var(--amber);">&mdash;</div></div>
-            <div class="kpi"><small>break-even</small><div id="kpi-breakeven" style="color:#00d9ff;">&mdash;</div></div>
-            <div class="kpi"><small>alloc</small><div id="kpi-alloc">&mdash;</div></div>
-            <div class="kpi"><small>pos</small><div id="kpi-pos">&mdash;</div></div>
-        </div>
+<section id="intro" style="padding-top:56px;">
+  <div class="wrap"><div class="hero-grid">
+    <div>
+      <div class="sec-eyebrow">Autonomous BTC/USDT intelligence</div>
+      <h1 class="hero">Osiris watches<br>the <em>market</em><br>breathe.</h1>
+      <p class="lead">A client-side trading intelligence that reads price, volume and volatility through its own indicator framework &mdash; and tests every prediction against what actually happened. No promises, only calibrated probabilities.</p>
+      <div class="hero-cta"><a href="#hub" class="btn">Enter the bot hub &rarr;</a><a href="#market" class="btn ghost">View the market</a></div>
+    </div>
+    <div>
+      <svg id="hero-eye" viewBox="0 0 460 440" style="width:100%; max-width:460px; display:block; margin:0 auto;"></svg>
+      <div class="eye-toggle">
+        <button id="bull-btn" onclick="setEyeSignalManual('bull')">&#9650; Simulate bullish</button>
+        <button id="bear-btn" onclick="setEyeSignalManual('bear')">&#9660; Simulate bearish</button>
+        <button onclick="setEyeSignalManual('neutral')">&#9702; Neutral</button>
+      </div>
+    </div>
+  </div></div>
+</section>
 
-        <section id="sec-hub" class="hub-section">
-            <div class="hub-main-grid">
-        <!-- ============ CHART SECTION ============ -->
+<!-- 2. MARKET -->
+<section id="market">
+  <div class="wrap">
+    <div class="waypoint">Waypoint 01 &middot; Market feed</div>
+    <div class="sec-eyebrow">Market Chart</div>
+    <h2 class="sec">The market, with every tool</h2>
+    <p class="body">Multi-timeframe candles from 1m to 4h, with Fibonacci scales, UOTAM nodes, moving average, RSI, pattern recognition and projection lines &mdash; all toggleable, decoupled from the bot's fixed 15m analysis.</p>
+    <div class="mock">
+      <div class="mock-head"><span class="dot" style="background:var(--cyan);"></span><span class="mock-title">BTC/USDT &middot; 15m</span><span style="flex:1;"></span><span class="mono" style="font-size:0.8rem; color:var(--tx);" id="mkt-price">&mdash;</span></div>
+      <div class="mock-body">
         <div class="hud chart-clean">
             <div class="eyebrow chart-title"><span class="chart-bar"></span>Market Chart</div>
 
@@ -450,84 +597,256 @@
 
             <div id="chart-container"></div>
         </div>
-        <div id="flow-hud">
-            <span class="hud-corner" style="top:5px; left:5px; border-top-width:1.5px; border-left-width:1.5px;"></span>
-            <span class="hud-corner" style="top:5px; right:5px; border-top-width:1.5px; border-right-width:1.5px;"></span>
-            <span class="hud-corner" style="bottom:5px; left:5px; border-bottom-width:1.5px; border-left-width:1.5px;"></span>
-            <span class="hud-corner" style="bottom:5px; right:5px; border-bottom-width:1.5px; border-right-width:1.5px;"></span>
-            <div class="eye-head" onclick="toggleFlowHud()">
-                <span class="eye-title">&#9673; Ocular Core <span id="flow-hud-chev">&#9662;</span></span>
-                <span id="flow-price">&mdash;</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3. DATA -->
+<section id="data">
+  <div class="wrap">
+    <div class="waypoint">Waypoint 02 &middot; Signal layer</div>
+    <div class="sec-eyebrow">System Data</div>
+    <h2 class="sec">Meters, node timing, live pressure</h2>
+    <p class="body">VFM, ER, DB and the chaos index &mdash; each a validated rediscovery of a proven indicator. Plus node countdowns, live volume, volume rate and score, market sentiment, and the full price/volume history: collapsible and downloadable.</p>
+    <div class="mock">
+      <div class="mock-head"><span class="dot" style="background:var(--teal);"></span><span class="mock-title">System Data</span></div>
+      <div class="mock-body">
+            <div class="sec-eyebrow">Section 02 &middot; System Data</div>
+
+        <!-- ============ SYSTEM DATA SECTION ============ -->
+        <div class="hud violet">
+            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
+            <div class="eyebrow">SYSTEM DATA<span class="fill"></span></div>
+
+            <div class="subhead" style="margin-top:0;">VFM &middot; ER &middot; DB &middot; Chaos Index</div>
+            <div class="data-grid">
+                <div class="meter-card"><h3>VFM</h3><p id="vfm-display">0.00</p><small id="vfm-status">Wachten...</small></div>
+                <div class="meter-card"><h3>ER (Energy Ratio)</h3><p id="er-display">0.00</p><small id="er-status">Ref: 1.0</small></div>
+                <div class="meter-card"><h3>DB (Delta Balance)</h3><p id="db-display">0.00</p><small id="db-status">Bereik: -1 tot 1</small></div>
+                <div class="meter-card"><h3>Chaos Index</h3><p id="chaos-display">0.00%</p><small id="chaos-status">Limit: 8% / 15%</small></div>
             </div>
-            <div id="flow-hud-body">
-                <svg id="flow-svg" viewBox="0 0 700 320" preserveAspectRatio="xMidYMid meet">
-                    <defs>
-                        <radialGradient id="k-halo"><stop offset="0%" stop-color="#00d9ff" stop-opacity="0.15"/><stop offset="60%" stop-color="#0288d1" stop-opacity="0.06"/><stop offset="100%" stop-opacity="0"/></radialGradient>
-                        <radialGradient id="k-bed"><stop offset="0%" stop-color="#00d9ff" stop-opacity="0.3"/><stop offset="66%" stop-color="#06304d" stop-opacity="0.42"/><stop offset="100%" stop-color="#04070c" stop-opacity="0"/></radialGradient>
-                        <filter id="k-glow"><feGaussianBlur stdDeviation="2.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-                        <filter id="k-soft"><feGaussianBlur stdDeviation="1"/></filter>
-                    </defs>
-                    <ellipse cx="350" cy="160" rx="340" ry="155" fill="url(#k-halo)"/>
-                    <g id="w-spirals" filter="url(#k-soft)"></g>
-                    <g id="w-dust"></g>
-                    <ellipse cx="350" cy="160" rx="108" ry="104" fill="url(#k-bed)"/>
-                    <g id="w-iris"></g>
-                    <circle id="flow-pupil" cx="350" cy="160" r="28" fill="#02050a" stroke="#00d9ff" stroke-width="1.4" filter="url(#k-glow)"/>
-                    <circle cx="350" cy="160" r="6" fill="#7fe9ff" opacity="0.85"><animate attributeName="r" values="4;8;4" dur="3.2s" repeatCount="indefinite"/></circle>
-                    <g id="w-jarvis"></g>
-                    <g id="w-cells"></g>
-                    <text x="350" y="164" text-anchor="middle" font-size="10" font-weight="bold" fill="#04070c" font-family="'JetBrains Mono',monospace" id="flow-conf">&mdash;</text>
-                    <g id="w-parts"></g>
-                    <g font-family="'JetBrains Mono',monospace" font-size="9">
-                        <text x="10" y="38" fill="#456">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
-                        <text x="10" y="104" fill="#456">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
-                        <text x="10" y="220" fill="#456">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
-                        <text x="10" y="286" fill="#456">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
-                        <text x="690" y="38" fill="#456" text-anchor="end">KANS L/S <tspan fill="#00d9ff" id="flow-prob">&mdash;</tspan></text>
-                        <text x="690" y="104" fill="#456" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
-                        <text x="690" y="220" fill="#456" text-anchor="end">REGIME <tspan fill="#00d9ff" id="flow-regime">&mdash;</tspan></text>
-                        <text x="690" y="286" fill="#456" text-anchor="end">NODE <tspan fill="#4fc3f7" id="flow-node">&mdash;</tspan></text>
-                    </g>
-                </svg>
+
+            <div class="subhead">Osiris Market Status</div>
+            <div class="status-banner">
+                <p id="market-status-main">--</p>
+                <p id="probability-score">Confidence: --</p>
+            </div>
+            <div class="target-grid">
+                <div class="target-card" style="border-color:var(--teal);">
+                    <h4 style="color:var(--teal);">Micro (9)</h4>
+                    <small>Bull: <span id="mic-bull">--</span></small>
+                    <small>Bear: <span id="mic-bear">--</span></small>
+                </div>
+                <div class="target-card" style="border-color:var(--amber);">
+                    <h4 style="color:var(--amber);">Meso (36)</h4>
+                    <small>Bull: <span id="mes-bull">--</span></small>
+                    <small>Bear: <span id="mes-bear">--</span></small>
+                </div>
+                <div class="target-card" style="border-color:var(--violet);">
+                    <h4 style="color:var(--violet);">Macro (144)</h4>
+                    <small>Bull: <span id="mac-bull">--</span></small>
+                    <small>Bear: <span id="mac-bear">--</span></small>
+                </div>
+            </div>
+
+            <div class="subhead">Patroon &amp; Structuur</div>
+            <div class="target-grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="target-card" style="border-color:rgba(20,241,149,0.3);">
+                    <h4 style="color:var(--teal);">Candlestick-patroon</h4>
+                    <div id="current-pattern" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
+                </div>
+                <div class="target-card" style="border-color:rgba(153,69,255,0.3);">
+                    <h4 style="color:var(--violet);">Markt-structuur</h4>
+                    <div id="current-structure" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
+                </div>
+            </div>
+
+            <div class="subhead">Node Countdown</div>
+            <div id="info-panel" class="node-grid">
+                <div class="node-card" style="border-color:rgba(255,255,255,0.3);"><h4 style="color:#ffffff;">RESET [Vortex 9]</h4><p id="next-reset">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(255,255,0,0.4);"><h4 style="color:#ffff00;">VOLA [Node 1]</h4><p id="next-vola">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(0,255,204,0.4);"><h4 style="color:#00ffcc;">CORE [Vortex 3/6]</h4><p id="next-core">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(136,136,136,0.4);"><h4 style="color:#888888;">OSC [Node 2/4/5/7]</h4><p id="next-osc">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(255,204,0,0.4);"><h4 style="color:#ffcc00;">MID PULSE</h4><p id="mid-pulse-display">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(20,241,149,0.4);"><h4 style="color:var(--teal);">NEXT NODE</h4><p id="next-node-display">Berekenen...</p></div>
+            </div>
+
+            <div class="subhead">Live Volume &amp; Market Pressure</div>
+            <div class="volrow">
+                <div class="meter-card">
+                    <h3>Live Volume (BTC)</h3>
+                    <p id="live-volume" style="color:var(--amber);">Wachten...</p>
+                </div>
+                <div class="meter-card">
+                    <h3>Volume Rate / Score</h3>
+                    <p style="font-size:0.95rem;">Rate: <span id="vol-rate">0%</span> &middot; Score: <span id="vol-score" style="color:var(--amber);">0/100</span></p>
+                </div>
+            </div>
+            <div id="sentiment-bar-container">
+                <div id="sentiment-bar-green" style="width: 50%; height: 100%; background: var(--teal); transition: width 0.3s ease;"></div>
+                <div id="sentiment-bar-red" style="width: 50%; height: 100%; background: var(--red); transition: width 0.3s ease;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-family:'JetBrains Mono',monospace; font-size: 0.62rem; margin-top: 6px; color: var(--text-dim);">
+                <span>BUYERS</span><span>SELLERS</span>
             </div>
         </div>
+
+        <!-- ============ PRIJS & VOLUME HISTORIE ============ -->
+        <div class="hud">
+            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
+            <div class="eyebrow">PRIJS &amp; VOLUME HISTORIE — 15M<span class="fill"></span><button onclick="downloadPriceVolumeHistory()" class="btn btn-ghost btn-mini">&darr; Download Historie</button></div>
+            <div id="history-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. ENGINE -->
+<section id="engine">
+  <div class="wrap">
+    <div class="waypoint">Waypoint 03 &middot; Autonomous engine</div>
+    <div class="split">
+      <div>
+        <div class="sec-eyebrow">The autonomous engine</div>
+        <h2 class="sec">Osiris trades.<br>And learns from every trade.</h2>
+        <p class="body">A deterministic engine scanning every 10 seconds, weighing and smoothing probabilities, protecting positions with multiple exit mechanisms. Every closed trade feeds a calibration table that keeps the bot honest about its own certainty.</p>
+        <div class="cards" style="grid-template-columns:1fr 1fr; margin-top:26px;">
+          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Calibrated</h4><p>Raw score &rarr; measured win rate, continuously updated.</p></div>
+          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Protected</h4><p>Profit-lock, time-stop, harvest &mdash; no thesis left hanging.</p></div>
+          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Quantum market tracking</h4><p>UOTAM node timing + four proprietary meters, live every cycle.</p></div>
+          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Self-learning</h4><p>Level-1 adaptive weights shift with the last 20+ trades.</p></div>
+          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Cost-aware</h4><p>Fees and slippage priced into every entry and exit.</p></div>
+          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Regime-gated</h4><p>Pauses entries when the market goes quiet or dead.</p></div>
+        </div>
+      </div>
+      <div style="display:flex; justify-content:center;"><svg id="engine-eye" viewBox="0 0 400 380" style="width:100%; max-width:360px;"></svg></div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. HUB -->
+<section id="sec-hub">
+  <div class="wrap">
+    <div class="waypoint">Waypoint 04 &middot; Control hub</div>
+    <div class="sec-eyebrow">Bot Control Hub</div>
+    <h2 class="sec">Everything the bot does, in one place</h2>
+    <div class="mock">
+      <div class="kpi-strip" style="border-bottom:1px solid var(--line);">
+        <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
+        <div class="kpi"><small>win rate</small><b id="kpi-winrate">&mdash;</b></div>
+        <div class="kpi"><small>cal. edge</small><b id="kpi-cal" style="color:var(--amber);">&mdash;</b></div>
+        <div class="kpi"><small>break-even</small><b id="kpi-breakeven" style="color:var(--cyan);">&mdash;</b></div>
+        <div class="kpi"><small>alloc</small><b id="kpi-alloc">&mdash;</b></div>
+        <div class="kpi"><small>equity</small><b id="hub-equity">&mdash;</b><span id="hub-equity-pct" style="display:none;"></span></div>
+      </div>
+      <div class="mock-body">
+
+        <div id="bot-monitor" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px;">
+          <div class="meter"><div class="l">STATUS</div><div class="v" style="font-size:0.9rem; color:var(--teal);" id="bot-status">STANDBY</div></div>
+          <div class="meter"><div class="l">LIVE P/L</div><div class="v" style="font-size:0.9rem;" id="bot-pnl">0.00%</div></div>
+          <div class="meter"><div class="l">OPEN POSITIES</div><div class="v" style="font-size:0.9rem;" id="bot-position">Geen</div></div>
+          <div class="meter"><div class="l">LAATSTE ACTIE</div><div class="v" style="font-size:0.7rem; line-height:1.3;" id="bot-last-action">-</div></div>
+        </div>
+        <div style="text-align:center; margin:26px 0 4px;">
+          <div class="mock-title" style="display:inline-flex; gap:10px; align-items:center; justify-content:center;">
+            <span style="width:26px; height:1px; background:var(--cyan);"></span>Ocular Core &middot; the heart of the bot <span id="flow-hud-chev" style="display:none;">&#9662;</span><span style="width:26px; height:1px; background:var(--cyan);"></span>
+          </div>
+          <div class="livep" id="flow-price" style="font-size:0.82rem; margin-top:6px;">&mdash;</div>
+        </div>
+        <div id="flow-hud">
+          <div id="flow-hud-body">
+            <svg id="flow-svg" viewBox="0 0 560 340" preserveAspectRatio="xMidYMid meet" style="width:100%; max-width:560px; display:block; margin:0 auto;">
+              <g id="w-eye"></g>
+              <g font-family="'JetBrains Mono',monospace" font-size="9">
+                <text x="8" y="40" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
+                <text x="8" y="112" fill="#5c7488">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
+                <text x="8" y="234" fill="#5c7488">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
+                <text x="8" y="306" fill="#5c7488">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
+                <text x="552" y="40" fill="#5c7488" text-anchor="end">KANS L/S <tspan fill="#00d9ff" id="flow-prob">&mdash;</tspan></text>
+                <text x="552" y="112" fill="#5c7488" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
+                <text x="552" y="234" fill="#5c7488" text-anchor="end">REGIME <tspan fill="#00d9ff" id="flow-regime">&mdash;</tspan></text>
+                <text x="552" y="306" fill="#5c7488" text-anchor="end">NODE <tspan fill="#4fc3f7" id="flow-node">&mdash;</tspan></text>
+              </g>
+              <text x="280" y="176" text-anchor="middle" font-size="10" font-weight="bold" fill="#7fe9ff" font-family="'JetBrains Mono',monospace" id="flow-conf" style="pointer-events:none;">&mdash;</text>
+              <circle id="flow-pupil" cx="280" cy="170" r="1" fill="none" stroke="none"/>
+            </svg>
+            <div class="hub-statusbar" style="margin-top:10px;">
+              <div class="eye-foot">
+                <span class="live-dot" style="flex:none;"></span>
+                <span id="flow-console">Ocular core initialiseert...</span>
+                <span class="hud-micro" style="animation:hudBlink 2s infinite;">SYS <span id="flow-sys" style="color:#00d9ff;">NOMINAAL</span></span>
+              </div>
             </div>
-
-            <div class="hub-panel-row">
-                <div class="hub-panel">
-                    <h5>Kalibratie &middot; voorspeld vs. gemeten</h5>
-                    <svg id="calib-svg" viewBox="0 0 100 58" preserveAspectRatio="xMidYMid meet">
-                        <line x1="8" y1="50" x2="94" y2="4" stroke="#1a2a38" stroke-width="0.6" stroke-dasharray="2 3"/>
-                        <text x="72" y="12" font-size="4.5" fill="#1a2a38" font-family="'JetBrains Mono',monospace">perfect</text>
-                        <g id="calib-plot"></g>
-                    </svg>
-                    <div id="calib-note">Wacht op 50+ trades met entry-kans.</div>
+          </div>
+        </div>
+        <div class="subhead">Wallet status</div>
+        <div class="meter-row" style="grid-template-columns:repeat(4,1fr);">
+          <div class="meter"><div class="l">REALISED P/L</div><div class="v" style="font-size:0.95rem;" id="wallet-realized-pnl">&mdash;</div></div>
+          <div class="meter"><div class="l">OPEN P/L</div><div class="v" style="font-size:0.95rem;" id="wallet-unrealized-pnl">&mdash;</div></div>
+          <div class="meter"><div class="l">EQUITY (LIVE)</div><div class="v" style="font-size:0.95rem;" id="wallet-equity-mirror">&mdash;</div></div>
+          <div class="meter"><div class="l">ALLOCATION</div><div class="v" style="font-size:0.95rem;" id="wallet-alloc-mirror">&mdash;</div></div>
+        </div>
+        <div class="subhead">Live reasoning feed</div>
+            <div id="bot-reasoning-wrap">
+                <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
+                    <span>&#9679; Beredenering (live) — continue unpacking van elke berekeningsstap</span>
+                    <span id="reasoning-chevron" class="open">&#9662;</span>
                 </div>
-                <div class="hub-panel">
-                    <h5>Exits &middot; bijdrage</h5>
-                    <div id="exit-dist">Nog geen gesloten trades.</div>
-                </div>
-                <div class="hub-panel">
-                    <h5>Posities</h5>
-                    <div id="hub-positions">Geen open posities.</div>
-                </div>
-            </div>
-
-            <div class="hub-statusbar">
-                <div class="eye-foot">
-                    <span class="live-dot" style="flex:none;"></span>
-                    <span id="flow-console">Ocular core initialiseert...</span>
-                    <span class="hud-micro">POS <span id="flow-pos" style="color:#00d9ff;">&mdash;</span></span>
-                    <span class="hud-micro">ALLOC <span id="flow-alloc" style="color:#ffb627;">&mdash;</span></span>
-                    <span class="hud-micro">SCAN <span id="flow-scan" style="color:#00d9ff;">&mdash;</span></span>
-                    <span class="hud-micro">BUFFER <span id="flow-buf" style="color:#00d9ff;">&mdash;</span></span>
-                    <span class="hud-micro" style="animation:hudBlink 2s infinite;">SYS <span id="flow-sys" style="color:#00d9ff;">NOMINAAL</span></span>
+                <div id="reasoning-body" class="open">
+                    <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
                 </div>
             </div>
-
-
-        <!-- ============ OCULAR CORE: binaire iris + melkweg-vortex + Jarvis-ringen ============ -->
-
+        <div class="subhead">Adaptive learning &middot; Level 1</div>
+                <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
+                    <span>&#9679; Adaptive Learning — Level 1</span>
+                    <span id="learning-chevron">&#9662;</span>
+                </div>
+                <div id="learning-body" class="open" style="margin-top:10px;">
+                    <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
+                </div>
+        <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer;"><span>Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
+        <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:16px; align-items:center;">
+          <svg id="calib-svg" viewBox="0 0 300 150" style="width:100%;">
+            <line x1="26" y1="128" x2="286" y2="14" stroke="#1a2a38" stroke-width="1" stroke-dasharray="3 4"/>
+            <text x="250" y="26" font-size="8" fill="#33485a" font-family="'JetBrains Mono',monospace">perfect</text>
+            <g id="calib-plot"></g>
+            <line x1="26" y1="14" x2="26" y2="130" stroke="#10202c" stroke-width="1"/><line x1="26" y1="130" x2="288" y2="130" stroke="#10202c" stroke-width="1"/>
+          </svg>
+          <div class="mono" id="calib-note" style="font-size:0.64rem; color:var(--dim); line-height:1.7;">Wacht op 50+ trades met entry-kans.</div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
+          <div>
+            <div class="mock-title" style="margin-bottom:8px;">Exit &middot; bijdrage</div>
+            <div class="mono" id="exit-dist" style="font-size:0.62rem; color:#7d99ac;">Nog geen gesloten trades.</div>
+          </div>
+          <div>
+            <div class="mock-title" style="margin-bottom:8px;">Posities &middot; samenvatting</div>
+            <div class="mono" id="hub-positions" style="font-size:0.62rem; color:#7d99ac;">Geen open posities.</div>
+          </div>
+        </div>
+        <div class="subhead">Open Posities</div>
+        <div class="table-wrap" style="overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
+            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size (BTC)</th><th>Size</th><th>Alloc %</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
+            <tbody id="open-positions-body">
+              <tr><td colspan="10" style="text-align:center; color:var(--dim); padding:8px;">Geen open posities</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="subhead">Pending Orders <span style="font-weight:400; color:var(--dimmer); font-size:0.85em; text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
+        <div id="pending-orders-list" style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--tx);">
+          <span style="color:var(--dim);">Geen pending orders</span>
+        </div>
+        <div class="subhead">Gesloten Posities &mdash; Huidige Sessie</div>
+        <div class="table-wrap scrollable" style="max-height:220px; overflow-y:auto;">
+          <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
+            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Side</th><th>Prijs</th><th>Amount (BTC)</th><th>Size</th><th>P/L</th></tr></thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
+        <div class="subhead">Engine Config &middot; presets &middot; toggles</div>
             <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
             <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.23<span class="fill"></span></div>
@@ -678,179 +997,14 @@
                 <button onclick="downloadAllData()" class="btn btn-ghost btn-mini" style="color:var(--teal); border-color:rgba(20,241,149,0.4);">&darr; Download All Data</button>
             </div>
             </div>
-
-
-            <div class="hud">
-            <!-- BOT STATUS STRIP -->
-            <div id="bot-monitor">
-                <div class="stat"><small>Status</small><div id="bot-status" style="color:var(--teal);">STANDBY</div></div>
-                <div class="stat"><small>Live P/L</small><div id="bot-pnl">0.00%</div></div>
-                <div class="stat"><small>Open Posities</small><div id="bot-position">Geen</div></div>
-                <div class="stat"><small>Laatste Actie</small><div id="bot-last-action" style="font-size:0.7rem; font-weight:500; line-height:1.4;">-</div></div>
-            </div>
-
-            <!-- WALLET STATUS: neon rand + icoon -->
-            <div class="wallet-panel">
-                <div class="wallet-header">
-                    <div class="titlewrap">
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><circle cx="17" cy="14" r="1.3" fill="currentColor" stroke="none"/></svg>
-                        Wallet Status
-                    </div>
-                    <button onclick="resetWallet()" class="btn btn-ghost btn-mini">&#9851; Reset Wallet</button>
-                </div>
-                <div class="wallet-grid">
-                    <div><div class="wlabel">Equity (dynamisch)</div><div id="wallet-equity" class="wvalue">€1000.00</div></div>
-                    <div><div class="wlabel">Balance (gerealiseerd)</div><div id="wallet-balance" class="wvalue">€1000.00</div></div>
-                    <div><div class="wlabel">Gerealiseerd P/L</div><div id="wallet-realized-pnl" class="wvalue">€0.00</div></div>
-                    <div><div class="wlabel">Open P/L (unrealized)</div><div id="wallet-unrealized-pnl" class="wvalue">€0.00</div></div>
-                    <div><div class="wlabel">Allocatie</div><div id="wallet-allocated-pct" class="wvalue">0.0%</div></div>
-                    <div><div class="wlabel">Open Posities</div><div id="wallet-open-count" class="wvalue">0</div></div>
-                    <div><div class="wlabel">Win Rate</div><div id="wallet-winrate" class="wvalue">--</div></div>
-                </div>
-            </div>
-
-            <div class="subhead" style="margin-top:8px;">Open Posities</div>
-            <div class="table-wrap">
-                <table>
-                    <thead><tr><th>Type</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size (BTC)</th><th>Size (€)</th><th>Alloc %</th><th>P/L %</th><th>P/L €</th><th></th></tr></thead>
-                    <tbody id="open-positions-body">
-                        <tr><td colspan="9" style="text-align:center; color:var(--text-dim); padding: 8px;">Geen open posities</td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="subhead">Pending Orders <span style="font-weight:400; color:var(--text-dimmer); font-size:0.85em; text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
-            <div id="pending-orders-list" style="font-family: 'JetBrains Mono',monospace; font-size: 0.8em; color: var(--text-primary);">
-                <span style="color:var(--text-dim);">Geen pending orders</span>
-            </div>
-
-            <div class="subhead">Gesloten Posities — Huidige Sessie</div>
-            <div class="table-wrap scrollable">
-                <table>
-                    <thead><tr><th>Datum/Tijd</th><th>Type</th><th>Side</th><th>Prijs</th><th>Amount (BTC)</th><th>Size (€)</th><th>P/L</th></tr></thead>
-                    <tbody id="history-body"></tbody>
-                </table>
-            </div>
-            </div>
-        </section>
-
-        <section id="sec-markt" class="hub-section" style="display:none;">
-
-        <!-- ============ SYSTEM DATA SECTION ============ -->
-        <div class="hud violet">
-            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow">SYSTEM DATA<span class="fill"></span></div>
-
-            <div class="subhead" style="margin-top:0;">VFM &middot; ER &middot; DB &middot; Chaos Index</div>
-            <div class="data-grid">
-                <div class="meter-card"><h3>VFM</h3><p id="vfm-display">0.00</p><small id="vfm-status">Wachten...</small></div>
-                <div class="meter-card"><h3>ER (Energy Ratio)</h3><p id="er-display">0.00</p><small id="er-status">Ref: 1.0</small></div>
-                <div class="meter-card"><h3>DB (Delta Balance)</h3><p id="db-display">0.00</p><small id="db-status">Bereik: -1 tot 1</small></div>
-                <div class="meter-card"><h3>Chaos Index</h3><p id="chaos-display">0.00%</p><small id="chaos-status">Limit: 8% / 15%</small></div>
-            </div>
-
-            <div class="subhead">Osiris Market Status</div>
-            <div class="status-banner">
-                <p id="market-status-main">--</p>
-                <p id="probability-score">Confidence: --</p>
-            </div>
-            <div class="target-grid">
-                <div class="target-card" style="border-color:var(--teal);">
-                    <h4 style="color:var(--teal);">Micro (9)</h4>
-                    <small>Bull: <span id="mic-bull">--</span></small>
-                    <small>Bear: <span id="mic-bear">--</span></small>
-                </div>
-                <div class="target-card" style="border-color:var(--amber);">
-                    <h4 style="color:var(--amber);">Meso (36)</h4>
-                    <small>Bull: <span id="mes-bull">--</span></small>
-                    <small>Bear: <span id="mes-bear">--</span></small>
-                </div>
-                <div class="target-card" style="border-color:var(--violet);">
-                    <h4 style="color:var(--violet);">Macro (144)</h4>
-                    <small>Bull: <span id="mac-bull">--</span></small>
-                    <small>Bear: <span id="mac-bear">--</span></small>
-                </div>
-            </div>
-
-            <div class="subhead">Patroon &amp; Structuur</div>
-            <div class="target-grid" style="grid-template-columns: 1fr 1fr;">
-                <div class="target-card" style="border-color:rgba(20,241,149,0.3);">
-                    <h4 style="color:var(--teal);">Candlestick-patroon</h4>
-                    <div id="current-pattern" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
-                </div>
-                <div class="target-card" style="border-color:rgba(153,69,255,0.3);">
-                    <h4 style="color:var(--violet);">Markt-structuur</h4>
-                    <div id="current-structure" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
-                </div>
-            </div>
-
-            <div class="subhead">Node Countdown</div>
-            <div id="info-panel" class="node-grid">
-                <div class="node-card" style="border-color:rgba(255,255,255,0.3);"><h4 style="color:#ffffff;">RESET [Vortex 9]</h4><p id="next-reset">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(255,255,0,0.4);"><h4 style="color:#ffff00;">VOLA [Node 1]</h4><p id="next-vola">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(0,255,204,0.4);"><h4 style="color:#00ffcc;">CORE [Vortex 3/6]</h4><p id="next-core">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(136,136,136,0.4);"><h4 style="color:#888888;">OSC [Node 2/4/5/7]</h4><p id="next-osc">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(255,204,0,0.4);"><h4 style="color:#ffcc00;">MID PULSE</h4><p id="mid-pulse-display">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(20,241,149,0.4);"><h4 style="color:var(--teal);">NEXT NODE</h4><p id="next-node-display">Berekenen...</p></div>
-            </div>
-
-            <div class="subhead">Live Volume &amp; Market Pressure</div>
-            <div class="volrow">
-                <div class="meter-card">
-                    <h3>Live Volume (BTC)</h3>
-                    <p id="live-volume" style="color:var(--amber);">Wachten...</p>
-                </div>
-                <div class="meter-card">
-                    <h3>Volume Rate / Score</h3>
-                    <p style="font-size:0.95rem;">Rate: <span id="vol-rate">0%</span> &middot; Score: <span id="vol-score" style="color:var(--amber);">0/100</span></p>
-                </div>
-            </div>
-            <div id="sentiment-bar-container">
-                <div id="sentiment-bar-green" style="width: 50%; height: 100%; background: var(--teal); transition: width 0.3s ease;"></div>
-                <div id="sentiment-bar-red" style="width: 50%; height: 100%; background: var(--red); transition: width 0.3s ease;"></div>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-family:'JetBrains Mono',monospace; font-size: 0.62rem; margin-top: 6px; color: var(--text-dim);">
-                <span>BUYERS</span><span>SELLERS</span>
-            </div>
-        </div>
-
-        <!-- ============ PRIJS & VOLUME HISTORIE ============ -->
-        <div class="hud">
-            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow">PRIJS &amp; VOLUME HISTORIE — 15M<span class="fill"></span><button onclick="downloadPriceVolumeHistory()" class="btn btn-ghost btn-mini">&darr; Download Historie</button></div>
-            <div id="history-list"></div>
-        </div>
-        </section>
-
-        <section id="sec-leren" class="hub-section" style="display:none;">
-            <div class="hud violet">
-            <!-- LIVE REASONING PANEL -->
-            <div id="bot-reasoning-wrap">
-                <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
-                    <span>&#9679; Beredenering (live) — continue unpacking van elke berekeningsstap</span>
-                    <span id="reasoning-chevron" class="open">&#9662;</span>
-                </div>
-                <div id="reasoning-body" class="open">
-                    <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
-                </div>
-            </div>
-
-            <!-- LEVEL 1: ADAPTIVE WEIGHTS ("leren van fouten") - inklapbaar -->
-            <div id="learning-wrap" style="background:rgba(255,255,255,0.02); border:1px solid rgba(153,69,255,0.25); padding:14px 16px; margin-bottom:18px;">
-                <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
-                    <span>&#9679; Adaptive Learning — Level 1</span>
-                    <span id="learning-chevron">&#9662;</span>
-                </div>
-                <div id="learning-body" class="open" style="margin-top:10px;">
-                    <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
-                </div>
-            </div>
-
-            </div>
-        </section>
-
-
+      </div>
     </div>
-    <script src="/Osiris/app.js?v=20260717-hub4"></script>
+  </div>
+</section>
+
+<footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
+</div>
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script src="app.js?v=20260718-v4build1"></script>
 </body>
 </html>
