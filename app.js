@@ -5969,6 +5969,14 @@ function toggleLearningPanel() {
     const open = body.classList.toggle('open');
     if (chev) chev.innerHTML = open ? '&#9662;' : '&#9656;';
 }
+function toggleCalibPanel() {
+    const body = document.getElementById('calib-body');
+    const chev = document.getElementById('calib-chevron');
+    if (!body) return;
+    const dicht = body.style.display === 'none';
+    body.style.display = dicht ? 'grid' : 'none';
+    if (chev) chev.innerHTML = dicht ? '&#9662;' : '&#9656;';
+}
 
 // --- Handmatige trade-knoppen (counterfactuele data, zie openManualPosition) ---
 document.getElementById('manual-long-btn')?.addEventListener('click', () => openManualPosition('LONG'));
