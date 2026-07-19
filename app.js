@@ -5388,7 +5388,7 @@ let _eyeSig = [];          // elementen die op bull/bear verkleuren
 let _allEyeSig = [];       // kleurbare elementen van ALLE ogen (hub + hero + engine)
 let _eyeBits = [];         // binaire cijfers die op sentiment verkleuren
 let _eyePupil = null, _eyeHalo = null, _eyeConf = null;
-let _eyeCX = 410, _eyeCY = 182, _eyeR = 140;
+let _eyeCX = 500, _eyeCY = 200, _eyeR = 150;
 let EYE_SIGNAL = 'neutral', EYE_BUYERS = 50;
 
 function initFlowHud() {
@@ -5509,37 +5509,39 @@ function initFlowHud() {
 
     _allEyeSig = _allEyeSig.concat(_eyeSig);
 
-    // --- DATAFLOW PACKAGES: pakketjes stromen van de linker data-labels NAAR het
-    // oog (inkomende meters) en van het oog naar de rechter labels (uitgaande
-    // resultaten). Elk label heeft zijn eigen kleur (zoals fib-lijnen) zodat de
-    // stroom goed te volgen is. De labels staan ver aan de zijkanten (x=10 / x=810).
-    const leftYs = [40, 112, 234, 306], rightYs = [40, 112, 234, 306];
-    const leftCols = ['#00d9ff', '#4fc3f7', '#81d4fa', '#ffb627'];   // VFM, ER, DB, CHAOS
-    const rightCols = ['#00ff9f', '#ffb627', '#14f195', '#c792ea'];  // KANS, KAL, REGIME, NODE
-    const edgeR = R * 1.12;
-    // een subtiele geleiderlijn + meerdere pakketjes per kanaal
-    function maakStroom(idPrefix, x0, y0, x1, y1, col, i, ctrlY) {
-        // geleiderlijn (dun, gekleurd, halftransparant)
-        host.appendChild(mk('path', { d: `M${x0},${y0} Q${(x0 + x1) / 2},${ctrlY} ${x1},${y1}`, fill: 'none', stroke: col, 'stroke-width': 0.6, opacity: 0.18, 'stroke-dasharray': '2 4' }));
+    // --- DATAFLOW PACKAGES: 5 kanalen per kant. De startpunten liggen op de
+    // ooglid-vormige labelposities (verste in het midden, paren erboven/eronder
+    // steeds dichter bij het oog). Elk kanaal heeft een eigen kleur zoals fib-lijnen.
+    // Links: [x-start, y] van de labels  |  Rechts idem (gespiegeld).
+    const leftPts = [ [64, 200], [110, 105], [110, 295], [210, 40], [210, 360] ];   // VFM, ER, DB, CHAOS, SENT
+    const rightPts = [ [936, 200], [890, 105], [890, 295], [790, 40], [790, 360] ]; // KANS, KAL, REGIME, NODE, MID
+    const leftCols  = ['#00d9ff', '#4fc3f7', '#81d4fa', '#ffb627', '#c792ea'];
+    const rightCols = ['#00ff9f', '#ffb627', '#14f195', '#c792ea', '#4fc3f7'];
+    function maakStroom(idPrefix, x0, y0, x1, y1, col, i) {
+        const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2 + (y0 - CY) * 0.15;  // lichte boog
+        host.appendChild(mk('path', { d: `M${x0},${y0} Q${cx},${cy} ${x1},${y1}`, fill: 'none', stroke: col, 'stroke-width': 0.6, opacity: 0.16, 'stroke-dasharray': '2 4' }));
         const pid = idPrefix + i;
-        host.appendChild(mk('path', { id: pid, d: `M${x0},${y0} Q${(x0 + x1) / 2},${ctrlY} ${x1},${y1}`, fill: 'none', stroke: 'none' }));
-        // twee pakketjes per kanaal, versprongen, zodat er continu iets stroomt
+        host.appendChild(mk('path', { id: pid, d: `M${x0},${y0} Q${cx},${cy} ${x1},${y1}`, fill: 'none', stroke: 'none' }));
         for (let k = 0; k < 2; k++) {
-            const pkt = mk('rect', { x: -2, y: -2, width: 4, height: 4, fill: col, rx: 1, opacity: 0 });
-            const dur = (2.4 + i * 0.25).toFixed(1) + 's';
-            const am = mk('animateMotion', { dur, repeatCount: 'indefinite', begin: (-(i * 0.4 + k * 1.2)).toFixed(1) + 's', rotate: 'auto' });
+            const pkt = mk('rect', { x: -2.2, y: -2.2, width: 4.4, height: 4.4, fill: col, rx: 1, opacity: 0 });
+            const dur = (2.6 + i * 0.25).toFixed(1) + 's';
+            const am = mk('animateMotion', { dur, repeatCount: 'indefinite', begin: (-(i * 0.4 + k * 1.3)).toFixed(1) + 's', rotate: 'auto' });
             const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#' + pid); am.appendChild(mp); pkt.appendChild(am);
             pkt.appendChild(mk('animate', { attributeName: 'opacity', values: '0;1;1;0', keyTimes: '0;0.15;0.85;1', dur, begin: am.getAttribute('begin'), repeatCount: 'indefinite' }));
             host.appendChild(pkt);
         }
     }
-    leftYs.forEach((y, i) => {
-        // van label (x=70, net na de tekst) naar de linkerrand van het oog
-        maakStroom('flowInPath', 70, y, CX - edgeR, CY, leftCols[i], i, y);
+    const edgeR = R * 1.1;
+    // links: van label NAAR het oog (inkomend). Mik op een punt op de oogrand op de label-hoogte.
+    leftPts.forEach(([lx, ly], i) => {
+        const ang = Math.atan2(ly - CY, -1);
+        const ex = CX - Math.cos(Math.abs(ang)) * edgeR * 0.6, ey = CY + (ly - CY) * 0.35;
+        maakStroom('flowInPath', lx, ly, ex, ey, leftCols[i], i);
     });
-    rightYs.forEach((y, i) => {
-        // van de rechterrand van het oog naar het rechter label (x=750)
-        maakStroom('flowOutPath', CX + edgeR, CY, 750, y, rightCols[i], i, y);
+    // rechts: van het oog NAAR het label (uitgaand).
+    rightPts.forEach(([rx, ry], i) => {
+        const ex = CX + Math.cos(0) * edgeR * 0.6, ey = CY + (ry - CY) * 0.35;
+        maakStroom('flowOutPath', ex, ey, rx, ry, rightCols[i], i);
     });
 
 
@@ -5599,7 +5601,8 @@ function updateKpiStrip() {
     const pct = start > 0 ? (eq - start) / start * 100 : 0;
     set('hub-equity', formatMoney(eq));
     set('hub-equity-pct', `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, pct >= 0 ? '#00d9ff' : '#ff5f7e');
-    set('kpi-pnl', formatMoney(walletState.realizedPnL), walletState.realizedPnL >= 0 ? '#00d9ff' : '#ff5f7e');
+    const pnlPct = start > 0 ? (walletState.realizedPnL / start * 100) : 0;
+    set('kpi-pnl', `${formatMoney(walletState.realizedPnL)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%)`, walletState.realizedPnL >= 0 ? '#00d9ff' : '#ff5f7e');
     const totaal = (walletState.wins || 0) + (walletState.losses || 0);
     set('kpi-winrate', totaal > 0 ? `${walletState.wins || 0}/${totaal} ${(walletState.wins / totaal * 100).toFixed(0)}%` : '\u2014');
     // Gekalibreerde kans van de sterkste kant. Zonder live kansdata (bot staat
@@ -5737,6 +5740,7 @@ function updateFlowHud() {
     set('flow-er', isFinite(er) ? er.toFixed(2) : '\u2014');
     set('flow-db', isFinite(db) ? db.toFixed(2) : '\u2014');
     set('flow-chaos', isFinite(chaos) ? chaos.toFixed(2) + '%' : '\u2014');
+    if (typeof getMarketSentiment === 'function') { try { const b = getMarketSentiment(); if (isFinite(b)) set('flow-sent', `${b.toFixed(0)}%`); } catch (e) {} }
     const R = _eyeR;
     if (lastOsirisDecision && lastOsirisDecision.confluence != null) {
         const c9 = Math.max(0, Math.min(9, lastOsirisDecision.confluence));
@@ -5778,6 +5782,7 @@ function updateFlowHud() {
     try {
         const ctx = getNodeContext();
         if (ctx && ctx.nextNode) set('flow-node', `${(ctx.nextNode.type || '').slice(0, 8)} ${ctx.nextNode.minutesUntil.toFixed(0)}m`);
+        const midEl = document.getElementById('mid-pulse-display'); if (midEl) set('flow-mid', (midEl.textContent || '\u2014').slice(0, 8));
     } catch (e) {}
     if (typeof getAllocatedPct === 'function') set('flow-alloc', (getAllocatedPct() * 100).toFixed(0) + '%');
     renderCalibrationCurve();
