@@ -5925,24 +5925,34 @@ function initStarmap() {
     let W, H, stars, nodes, total;
     function init() {
         W = cv.width = innerWidth; H = cv.height = innerHeight; total = document.body.scrollHeight;
-        stars = [...Array(240)].map(() => ({ x: Math.random(), y: Math.random() * total, z: Math.random(), r: Math.random() * 1.3 }));
-        nodes = [...Array(38)].map(() => ({ x: Math.random() * W, y: Math.random() * total, vx: (Math.random() - 0.5) * 0.1, p: 0 }));
+        stars = [...Array(150)].map(() => ({ x: Math.random(), y: Math.random() * total, z: Math.random(), r: Math.random() * 1.3 }));
+        nodes = [...Array(28)].map(() => ({ x: Math.random() * W, y: Math.random() * total, vx: (Math.random() - 0.5) * 0.1, p: 0 }));
     }
     init(); addEventListener('resize', init);
     addEventListener('load', init);
     setTimeout(init, 400); setTimeout(init, 1200);
-    (function loop() {
-        ctx.clearRect(0, 0, W, H); const sy = scrollY;
-        stars.forEach(s => { const y = s.y - sy * (0.2 + s.z * 0.8); if (y < -10 || y > H + 10) return;
-            ctx.globalAlpha = 0.25 + s.z * 0.6; ctx.fillStyle = s.z > 0.66 ? '#7fd6ff' : (s.z > 0.33 ? '#3a6a86' : '#20384a');
-            ctx.beginPath(); ctx.arc(s.x * W, y, s.r * (0.5 + s.z), 0, 6.28); ctx.fill(); });
-        const vis = nodes.map(n => ({ x: n.x + (n.p += n.vx), y: n.y - sy * 0.5 })).filter(n => n.y > -50 && n.y < H + 50);
-        for (let i = 0; i < vis.length; i++) for (let j = i + 1; j < vis.length; j++) {
-            const dx = vis[i].x - vis[j].x, dy = vis[i].y - vis[j].y, d = Math.hypot(dx, dy);
-            if (d < 140) { ctx.globalAlpha = (1 - d / 140) * 0.13; ctx.strokeStyle = '#00d9ff'; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(vis[i].x, vis[i].y); ctx.lineTo(vis[j].x, vis[j].y); ctx.stroke(); }
-        }
-        vis.forEach(n => { ctx.globalAlpha = 0.55; ctx.fillStyle = '#00d9ff'; ctx.fillRect(n.x - 1, n.y - 1, 2, 2); });
+    let _lastFrame = 0;
+    (function loop(ts) {
         requestAnimationFrame(loop);
+        // throttle naar ~30fps: halveert de renderlast t.o.v. 60fps
+        if (ts - _lastFrame < 33) return;
+        _lastFrame = ts;
+        ctx.clearRect(0, 0, W, H); const sy = scrollY;
+        // alleen zichtbare sterren tekenen; vroege continue scheelt veel werk
+        for (let i = 0; i < stars.length; i++) {
+            const s = stars[i]; const y = s.y - sy * (0.2 + s.z * 0.8);
+            if (y < -10 || y > H + 10) continue;
+            ctx.globalAlpha = 0.35 + s.z * 0.6; ctx.fillStyle = s.z > 0.6 ? '#9fe4ff' : (s.z > 0.3 ? '#4a7a96' : '#2a4358');
+            ctx.beginPath(); ctx.arc(s.x * W, y, s.r * (0.7 + s.z) + 0.3, 0, 6.28); ctx.fill();
+        }
+        const vis = [];
+        for (let i = 0; i < nodes.length; i++) { const n = nodes[i]; const yy = n.y - sy * 0.5; if (yy > -50 && yy < H + 50) vis.push({ x: n.x + (n.p += n.vx), y: yy }); }
+        for (let i = 0; i < vis.length; i++) for (let j = i + 1; j < vis.length; j++) {
+            const dx = vis[i].x - vis[j].x, dy = vis[i].y - vis[j].y, d2 = dx * dx + dy * dy;
+            if (d2 < 19600) { ctx.globalAlpha = (1 - Math.sqrt(d2) / 140) * 0.13; ctx.strokeStyle = '#00d9ff'; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(vis[i].x, vis[i].y); ctx.lineTo(vis[j].x, vis[j].y); ctx.stroke(); }
+        }
+        ctx.globalAlpha = 0.55; ctx.fillStyle = '#00d9ff';
+        for (let i = 0; i < vis.length; i++) ctx.fillRect(vis[i].x - 1, vis[i].y - 1, 2, 2);
     })();
 }
 
