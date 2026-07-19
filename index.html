@@ -374,7 +374,7 @@ footer{padding:60px 0; text-align:center; font-family:'JetBrains Mono',monospace
         #hero-eye-wrap { display:flex; flex-direction:column; align-items:center; }
         #hero-eye { width:100%; max-width:440px; height:auto; aspect-ratio:460/440; display:block; }
         #engine-eye { width:100%; max-width:400px; height:auto; aspect-ratio:400/380; display:block; }
-        #flow-svg { width:100%; height:auto; aspect-ratio:560/380; display:block; }
+        #flow-svg { width:100%; height:auto; aspect-ratio:820/380; display:block; }
         .eye-toggle { display:flex; gap:8px; justify-content:center; margin-top:12px; }
         .eye-toggle button { font-family:'JetBrains Mono',monospace; font-size:0.58rem; letter-spacing:0.08em; text-transform:uppercase; padding:6px 14px; background:transparent; border:1px solid #33485a; color:#5c7488; cursor:pointer; }
         .eye-toggle button.on-bull { border-color:var(--teal); color:var(--teal); }
@@ -411,7 +411,7 @@ section { position:relative; z-index:2; }
 
 #hero-eye{ aspect-ratio:460/440; height:auto; }
 #engine-eye{ aspect-ratio:400/380; height:auto; }
-#flow-svg{ aspect-ratio:560/380; height:auto; }
+#flow-svg{ aspect-ratio:820/380; height:auto; }
 #chart-container{ width:100%; height:600px; max-width:100%; }
 @media (max-width:768px){ #chart-container{ height:360px; } }
 </style>
@@ -732,7 +732,7 @@ section { position:relative; z-index:2; }
   <div class="wrap">
     <div class="waypoint">Waypoint 04 &middot; Control hub</div>
     <div class="sec-eyebrow">Bot Control Hub</div>
-    <h2 class="sec">Osiris Intel Bot Engine V1.3.74</h2>
+    <h2 class="sec">Everything the bot does, in one place</h2>
     <div class="mock">
       <div class="mock-body">
 
@@ -750,19 +750,18 @@ section { position:relative; z-index:2; }
         </div>
         <div id="flow-hud">
           <div id="flow-hud-body">
-            <svg id="flow-svg" viewBox="0 0 560 380" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto;">
+            <svg id="flow-svg" viewBox="0 0 820 380" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto;">
               <g id="w-eye"></g>
               <g font-family="'JetBrains Mono',monospace" font-size="9">
-                <text x="8" y="40" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
-                <text x="8" y="112" fill="#5c7488">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
-                <text x="8" y="234" fill="#5c7488">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
-                <text x="8" y="306" fill="#5c7488">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
-                <text x="552" y="40" fill="#5c7488" text-anchor="end">KANS L/S <tspan fill="#00d9ff" id="flow-prob">&mdash;</tspan></text>
-                <text x="552" y="112" fill="#5c7488" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
-                <text x="552" y="234" fill="#5c7488" text-anchor="end">REGIME <tspan fill="#00d9ff" id="flow-regime">&mdash;</tspan></text>
-                <text x="552" y="306" fill="#5c7488" text-anchor="end">NODE <tspan fill="#4fc3f7" id="flow-node">&mdash;</tspan></text>
+                <text x="10" y="40" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
+                <text x="10" y="112" fill="#5c7488">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
+                <text x="10" y="234" fill="#5c7488">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
+                <text x="10" y="306" fill="#5c7488">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
+                <text x="810" y="40" fill="#5c7488" text-anchor="end">KANS L/S <tspan fill="#00d9ff" id="flow-prob">&mdash;</tspan></text>
+                <text x="810" y="112" fill="#5c7488" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
+                <text x="810" y="234" fill="#5c7488" text-anchor="end">REGIME <tspan fill="#00d9ff" id="flow-regime">&mdash;</tspan></text>
+                <text x="810" y="306" fill="#5c7488" text-anchor="end">NODE <tspan fill="#4fc3f7" id="flow-node">&mdash;</tspan></text>
               </g>
-              <text x="280" y="176" text-anchor="middle" font-size="10" font-weight="bold" fill="#7fe9ff" font-family="'JetBrains Mono',monospace" id="flow-conf" style="pointer-events:none;">&mdash;</text>
               <circle id="flow-pupil" cx="280" cy="170" r="1" fill="none" stroke="none"/>
             </svg>
             <div class="hub-statusbar" style="margin-top:10px;">
@@ -774,7 +773,7 @@ section { position:relative; z-index:2; }
             </div>
           </div>
         </div>
-        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center;"><span>Wallet status</span><button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button></div>
+        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center; gap:8px;"><span>Wallet status</span><span style="display:flex; gap:8px;"><button type="button" onclick="stopAutonomousBot()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);">&#9632; Stop bot</button><button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button></span></div>
         <div class="kpi-strip" style="border:1px solid var(--line);">
           <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
           <div class="kpi"><small>win rate</small><b id="kpi-winrate">&mdash;</b></div>
@@ -832,7 +831,7 @@ section { position:relative; z-index:2; }
                 <div id="learning-body" class="open" style="margin-top:10px;">
                     <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
                 </div>
-        <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer;" onclick="toggleCalibPanel()"><span><span id="calib-chevron">&#9662;</span> Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
+        <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer; margin-top:32px;" onclick="toggleCalibPanel()"><span><span id="calib-chevron">&#9662;</span> Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
         <div id="calib-body" style="display:grid; grid-template-columns:1.1fr 1fr; gap:20px; align-items:center; margin-top:8px;">
           <svg id="calib-svg" viewBox="0 0 100 62" preserveAspectRatio="xMinYMid meet" style="width:100%; height:300px; overflow:visible;">
             <line x1="8" y1="50" x2="94" y2="4" stroke="#3a5064" stroke-width="0.4" stroke-dasharray="1.2 1.2"/>
@@ -1010,6 +1009,6 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build6"></script>
+<script src="app.js?v=20260718-v4build7"></script>
 </body>
 </html>
