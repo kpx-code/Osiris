@@ -5404,8 +5404,8 @@ function initFlowHud() {
     // --- melkweg-vortex ---
     for (let a = 0; a < 9; a++) {
         let d = ''; const off = a / 9 * Math.PI * 2;
-        for (let t = 0; t <= 1; t += 0.03) { const r = R * 2.0 - (R * 2.0 - R * 0.95) * t, th = off + t * 2.7; d += (t ? 'L' : 'M') + (CX + Math.cos(th) * r).toFixed(1) + ',' + (CY + Math.sin(th) * r * 0.46).toFixed(1); }
-        host.appendChild(mk('path', { d, fill: 'none', stroke: HUD_BLUE[a % 5], 'stroke-width': 0.6, opacity: 0.13, id: 'weArm' + a }));
+        for (let t = 0; t <= 1; t += 0.03) { const r = R * 2.4 - (R * 2.4 - R * 0.95) * t, th = off + t * 2.7; d += (t ? 'L' : 'M') + (CX + Math.cos(th) * r).toFixed(1) + ',' + (CY + Math.sin(th) * r * 0.46).toFixed(1); }
+        host.appendChild(mk('path', { d, fill: 'none', stroke: HUD_BLUE[a % 5], 'stroke-width': 0.9, opacity: 0.22, id: 'weArm' + a }));
         for (let k = 0; k < 5; k++) {
             const c = mk('circle', { r: (0.8 + Math.random() * 1.4).toFixed(1), fill: HUD_BLUE[a % 5] });
             const am = mk('animateMotion', { dur: (4 + Math.random() * 5).toFixed(1) + 's', repeatCount: 'indefinite', begin: (-Math.random() * 8).toFixed(2) + 's', calcMode: 'spline', keyPoints: '0;1', keyTimes: '0;1', keySplines: '0.3 0 0.9 0.6' });
@@ -5531,16 +5531,18 @@ function initFlowHud() {
             host.appendChild(pkt);
         }
     }
-    const edgeR = R * 1.1;
-    // links: van label NAAR het oog (inkomend). Mik op een punt op de oogrand op de label-hoogte.
+    const edgeR = R * 1.14;
+    // links: van label NAAR het oog. Eindig op de BUITENRAND van het oog (op de
+    // label-hoogte geprojecteerd), zodat de pakketjes de iris/pupil niet doorkruisen.
     leftPts.forEach(([lx, ly], i) => {
-        const ang = Math.atan2(ly - CY, -1);
-        const ex = CX - Math.cos(Math.abs(ang)) * edgeR * 0.6, ey = CY + (ly - CY) * 0.35;
+        const dy = (ly - CY) * 0.6;                       // hoe hoger/lager het label, hoe hoger het inslagpunt
+        const ex = CX - Math.sqrt(Math.max(0, edgeR * edgeR - dy * dy)), ey = CY + dy;
         maakStroom('flowInPath', lx, ly, ex, ey, leftCols[i], i);
     });
-    // rechts: van het oog NAAR het label (uitgaand).
+    // rechts: van de buitenrand van het oog NAAR het label.
     rightPts.forEach(([rx, ry], i) => {
-        const ex = CX + Math.cos(0) * edgeR * 0.6, ey = CY + (ry - CY) * 0.35;
+        const dy = (ry - CY) * 0.6;
+        const ex = CX + Math.sqrt(Math.max(0, edgeR * edgeR - dy * dy)), ey = CY + dy;
         maakStroom('flowOutPath', ex, ey, rx, ry, rightCols[i], i);
     });
 
@@ -5831,8 +5833,8 @@ function buildDecorEye(hostId, R, showConf) {
     // vortex
     for (let a = 0; a < 9; a++) {
         let d = ''; const off = a / 9 * Math.PI * 2;
-        for (let t = 0; t <= 1; t += 0.03) { const r = R * 2.0 - (R * 2.0 - R * 0.95) * t, th = off + t * 2.7; d += (t ? 'L' : 'M') + (CX + Math.cos(th) * r).toFixed(1) + ',' + (CY + Math.sin(th) * r * 0.46).toFixed(1); }
-        svg.appendChild(mk('path', { d, fill: 'none', stroke: BLUE[a % 5], 'stroke-width': 0.6, opacity: 0.13, id: hostId + 'arm' + a }));
+        for (let t = 0; t <= 1; t += 0.03) { const r = R * 2.4 - (R * 2.4 - R * 0.95) * t, th = off + t * 2.7; d += (t ? 'L' : 'M') + (CX + Math.cos(th) * r).toFixed(1) + ',' + (CY + Math.sin(th) * r * 0.46).toFixed(1); }
+        svg.appendChild(mk('path', { d, fill: 'none', stroke: BLUE[a % 5], 'stroke-width': 0.9, opacity: 0.22, id: hostId + 'arm' + a }));
         for (let k = 0; k < 5; k++) {
             const c = mk('circle', { r: (0.8 + Math.random() * 1.4).toFixed(1), fill: BLUE[a % 5] });
             const am = mk('animateMotion', { dur: (4 + Math.random() * 5).toFixed(1) + 's', repeatCount: 'indefinite', begin: (-Math.random() * 8).toFixed(2) + 's', calcMode: 'spline', keyPoints: '0;1', keyTimes: '0;1', keySplines: '0.3 0 0.9 0.6' });
