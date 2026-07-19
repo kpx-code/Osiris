@@ -5513,8 +5513,8 @@ function initFlowHud() {
     // ooglid-vormige labelposities (verste in het midden, paren erboven/eronder
     // steeds dichter bij het oog). Elk kanaal heeft een eigen kleur zoals fib-lijnen.
     // Links: [x-start, y] van de labels  |  Rechts idem (gespiegeld).
-    const leftPts = [ [64, 200], [110, 105], [110, 295], [210, 40], [210, 360] ];   // VFM, ER, DB, CHAOS, SENT
-    const rightPts = [ [936, 200], [890, 105], [890, 295], [790, 40], [790, 360] ]; // KANS, KAL, REGIME, NODE, MID
+    const leftPts = [ [64, 200], [192, 105], [192, 295], [300, 40], [300, 360] ];   // VFM, ER, DB, CHAOS, SENT
+    const rightPts = [ [936, 200], [808, 105], [808, 295], [700, 40], [700, 360] ]; // KANS, KAL, REGIME, NODE, MID
     const leftCols  = ['#00d9ff', '#4fc3f7', '#81d4fa', '#ffb627', '#c792ea'];
     const rightCols = ['#00ff9f', '#ffb627', '#14f195', '#c792ea', '#4fc3f7'];
     function maakStroom(idPrefix, x0, y0, x1, y1, col, i) {
