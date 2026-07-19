@@ -5388,7 +5388,7 @@ let _eyeSig = [];          // elementen die op bull/bear verkleuren
 let _allEyeSig = [];       // kleurbare elementen van ALLE ogen (hub + hero + engine)
 let _eyeBits = [];         // binaire cijfers die op sentiment verkleuren
 let _eyePupil = null, _eyeHalo = null, _eyeConf = null;
-let _eyeCX = 280, _eyeCY = 182, _eyeR = 140;
+let _eyeCX = 410, _eyeCY = 182, _eyeR = 140;
 let EYE_SIGNAL = 'neutral', EYE_BUYERS = 50;
 
 function initFlowHud() {
@@ -5502,8 +5502,7 @@ function initFlowHud() {
     _eyeHalo = mk('circle', { cx: CX, cy: CY, r: R * 0.22, fill: 'none', stroke: '#00d9ff', 'stroke-width': 2, opacity: 0.85 }); _eyeSig.push(_eyeHalo); host.appendChild(_eyeHalo);
     _eyePupil = mk('circle', { cx: CX, cy: CY, r: R * 0.18, fill: '#02050a', stroke: '#00d9ff', 'stroke-width': 1.2, opacity: 0.95 }); _eyeSig.push(_eyePupil); host.appendChild(_eyePupil);
     // de confluence-teller-tekst uit de HTML halen we naar voren zodat hij bovenop ligt
-    _eyeConf = document.getElementById('flow-conf');
-    if (_eyeConf) { _eyeConf.setAttribute('x', CX); _eyeConf.setAttribute('y', CY); _eyeConf.setAttribute('dominant-baseline', 'central'); }
+    _eyeConf = null;  // confluence-tekst verwijderd uit het live oog (alleen de rode kern blijft)
     const coreC = mk('circle', { cx: CX, cy: CY, r: R * 0.05, fill: '#ff5f7e', opacity: 0.85 });
     coreC.appendChild(mk('animate', { attributeName: 'r', values: (R * 0.04) + ';' + (R * 0.08) + ';' + (R * 0.04), dur: '3.2s', repeatCount: 'indefinite' }));
     host.appendChild(coreC);
@@ -5512,29 +5511,37 @@ function initFlowHud() {
 
     // --- DATAFLOW PACKAGES: pakketjes stromen van de linker data-labels NAAR het
     // oog (inkomende meters) en van het oog naar de rechter labels (uitgaande
-    // resultaten). Puur visueel; de labels zelf blijven aan de zijkanten staan.
+    // resultaten). Elk label heeft zijn eigen kleur (zoals fib-lijnen) zodat de
+    // stroom goed te volgen is. De labels staan ver aan de zijkanten (x=10 / x=810).
     const leftYs = [40, 112, 234, 306], rightYs = [40, 112, 234, 306];
-    const edgeR = R * 1.24;  // waar de pakketjes het oog "raken"
+    const leftCols = ['#00d9ff', '#4fc3f7', '#81d4fa', '#ffb627'];   // VFM, ER, DB, CHAOS
+    const rightCols = ['#00ff9f', '#ffb627', '#14f195', '#c792ea'];  // KANS, KAL, REGIME, NODE
+    const edgeR = R * 1.12;
+    // een subtiele geleiderlijn + meerdere pakketjes per kanaal
+    function maakStroom(idPrefix, x0, y0, x1, y1, col, i, ctrlY) {
+        // geleiderlijn (dun, gekleurd, halftransparant)
+        host.appendChild(mk('path', { d: `M${x0},${y0} Q${(x0 + x1) / 2},${ctrlY} ${x1},${y1}`, fill: 'none', stroke: col, 'stroke-width': 0.6, opacity: 0.18, 'stroke-dasharray': '2 4' }));
+        const pid = idPrefix + i;
+        host.appendChild(mk('path', { id: pid, d: `M${x0},${y0} Q${(x0 + x1) / 2},${ctrlY} ${x1},${y1}`, fill: 'none', stroke: 'none' }));
+        // twee pakketjes per kanaal, versprongen, zodat er continu iets stroomt
+        for (let k = 0; k < 2; k++) {
+            const pkt = mk('rect', { x: -2, y: -2, width: 4, height: 4, fill: col, rx: 1, opacity: 0 });
+            const dur = (2.4 + i * 0.25).toFixed(1) + 's';
+            const am = mk('animateMotion', { dur, repeatCount: 'indefinite', begin: (-(i * 0.4 + k * 1.2)).toFixed(1) + 's', rotate: 'auto' });
+            const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#' + pid); am.appendChild(mp); pkt.appendChild(am);
+            pkt.appendChild(mk('animate', { attributeName: 'opacity', values: '0;1;1;0', keyTimes: '0;0.15;0.85;1', dur, begin: am.getAttribute('begin'), repeatCount: 'indefinite' }));
+            host.appendChild(pkt);
+        }
+    }
     leftYs.forEach((y, i) => {
-        const x0 = 40, y0 = y, x1 = CX - edgeR * 0.7, y1 = CY;   // van label naar oog-rand
-        const pkt = mk('rect', { x: -1.5, y: -1.5, width: 3, height: 3, fill: '#00d9ff', opacity: 0.9, rx: 0.5 });
-        const path = mk('path', { id: 'flowInPath' + i, d: `M${x0},${y0} Q${(x0 + x1) / 2},${y0} ${x1},${y1}`, fill: 'none', stroke: 'none' });
-        host.appendChild(path);
-        const am = mk('animateMotion', { dur: (2.2 + i * 0.3).toFixed(1) + 's', repeatCount: 'indefinite', begin: (-i * 0.5).toFixed(1) + 's', rotate: 'auto' });
-        const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#flowInPath' + i); am.appendChild(mp); pkt.appendChild(am);
-        pkt.appendChild(mk('animate', { attributeName: 'opacity', values: '0;0.95;0.95;0', dur: am.getAttribute('dur'), begin: am.getAttribute('begin'), repeatCount: 'indefinite' }));
-        host.appendChild(pkt);
+        // van label (x=70, net na de tekst) naar de linkerrand van het oog
+        maakStroom('flowInPath', 70, y, CX - edgeR, CY, leftCols[i], i, y);
     });
     rightYs.forEach((y, i) => {
-        const x0 = CX + edgeR * 0.7, y0 = CY, x1 = 520, y1 = y;   // van oog-rand naar rechter label
-        const pkt = mk('rect', { x: -1.5, y: -1.5, width: 3, height: 3, fill: '#14f195', opacity: 0.9, rx: 0.5 });
-        const path = mk('path', { id: 'flowOutPath' + i, d: `M${x0},${y0} Q${(x0 + x1) / 2},${y1} ${x1},${y1}`, fill: 'none', stroke: 'none' });
-        host.appendChild(path);
-        const am = mk('animateMotion', { dur: (2.4 + i * 0.3).toFixed(1) + 's', repeatCount: 'indefinite', begin: (-i * 0.6).toFixed(1) + 's', rotate: 'auto' });
-        const mp = document.createElementNS(NS, 'mpath'); mp.setAttributeNS(XL, 'href', '#flowOutPath' + i); am.appendChild(mp); pkt.appendChild(am);
-        pkt.appendChild(mk('animate', { attributeName: 'opacity', values: '0;0.95;0.95;0', dur: am.getAttribute('dur'), begin: am.getAttribute('begin'), repeatCount: 'indefinite' }));
-        host.appendChild(pkt);
+        // van de rechterrand van het oog naar het rechter label (x=750)
+        maakStroom('flowOutPath', CX + edgeR, CY, 750, y, rightCols[i], i, y);
     });
+
 
     applyEyeSignal(); applyEyeSentiment();
 }
@@ -5594,7 +5601,7 @@ function updateKpiStrip() {
     set('hub-equity-pct', `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, pct >= 0 ? '#00d9ff' : '#ff5f7e');
     set('kpi-pnl', formatMoney(walletState.realizedPnL), walletState.realizedPnL >= 0 ? '#00d9ff' : '#ff5f7e');
     const totaal = (walletState.wins || 0) + (walletState.losses || 0);
-    set('kpi-winrate', totaal > 0 ? `${(walletState.wins / totaal * 100).toFixed(0)}%` : '\u2014');
+    set('kpi-winrate', totaal > 0 ? `${walletState.wins || 0}/${totaal} ${(walletState.wins / totaal * 100).toFixed(0)}%` : '\u2014');
     // Gekalibreerde kans van de sterkste kant. Zonder live kansdata (bot staat
     // stil, buffers leeg) hoort hier een streepje: anders rekent de mapping op
     // een score van 0 en toont hij misleidend "1%".
