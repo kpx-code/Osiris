@@ -2379,6 +2379,15 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     score += momentumInfluence;        // "geheugen": trend uit metricsHistory bevestigt of ontkracht het signaal
     score += fibConfluenceInfluence;   // MES/MAC fib-niveaus (dezelfde lijnen als op de chart) die de MIC-trigger bevestigen
     score += patternInfluence;         // candlestick-patronen (hamer/engulfing/etc.) + markt-structuur (HH/HL vs LH/LL)
+    // NIEUW: volume-profile-bias. Prijs onder de value area (VAL) = koopzone
+    // (ondersteunt LONG); boven de value area (VAH) = verkoopzone (ondersteunt
+    // SHORT). Conservatief gewogen (max ~4 punten) zodat het de bestaande signalen
+    // aanvult i.p.v. domineert - order-boek/volume-muren zijn context, geen orakel.
+    if (_volumeProfile && side && isFinite(livePrice)) {
+        const vpb = volumeProfileBias(livePrice).bias;  // -0.5..+0.5 (positief = koopzone)
+        const gericht = side === 'LONG' ? vpb : -vpb;    // LONG profiteert van koopzone, SHORT van verkoopzone
+        score += gericht * 8;                            // ±4 punten maximaal
+    }
     // FIX (data 12-07): de harde clamp naar [0,100] maakte alle sterke signalen
     // identiek - 96 van 134 pending orders toonden "kans 100%" terwijl de echte
     // winrate 55% was. Daardoor filterden minProbabilityPct en de chase/reallocatie-
@@ -3992,6 +4001,168 @@ async function fetchViewKlines(iv) {
     return r.json();
 }
 
+// ============================================================
+// SESSION VOLUME PROFILE (SVP) + ORDER BOOK DEPTH
+// ============================================================
+// SVP: verdeelt het WERKELIJK VERHANDELDE volume van elke candle over de
+// prijs-bins die de candle raakte (high..low), en telt op over alle candles.
+// Levert per prijsniveau hoeveel er is verhandeld -> waar kopers/verkopers zich
+// echt hebben verzameld. De drukste bin is de POC (Point of Control); de zone
+// eromheen die 70% van het volume bevat is de Value Area (VAH..VAL).
+// Dit is een betrouwbare, kosteloze bot-parameter: prijs neigt terug te keren
+// naar de POC, en value-area-randen werken als support/resistance.
+let _volumeProfile = null;   // { bins:[{price,buy,sell,total}], poc, vah, val, binSize, maxTotal }
+const VP_BINS = 60;          // aantal prijs-bins in het profiel
+
+function computeVolumeProfile(klines) {
+    if (!klines || klines.length < 10) return null;
+    let hi = -Infinity, lo = Infinity;
+    for (const k of klines) { const h = +k[2], l = +k[3]; if (h > hi) hi = h; if (l < lo) lo = l; }
+    if (!isFinite(hi) || !isFinite(lo) || hi <= lo) return null;
+    const binSize = (hi - lo) / VP_BINS;
+    const bins = Array.from({ length: VP_BINS }, (_, i) => ({ price: lo + (i + 0.5) * binSize, buy: 0, sell: 0, total: 0 }));
+    for (const k of klines) {
+        const o = +k[1], h = +k[2], l = +k[3], c = +k[4], v = +k[5];
+        if (!isFinite(v) || v <= 0 || h <= l) continue;
+        // candle-volume evenredig verdelen over de bins die hij overspant
+        const loB = Math.max(0, Math.floor((l - lo) / binSize));
+        const hiB = Math.min(VP_BINS - 1, Math.floor((h - lo) / binSize));
+        const span = hiB - loB + 1;
+        const perBin = v / span;
+        // koop/verkoop-schatting: groene candle (c>=o) telt als buy-volume, rood als sell
+        const isBuy = c >= o;
+        for (let b = loB; b <= hiB; b++) {
+            bins[b].total += perBin;
+            if (isBuy) bins[b].buy += perBin; else bins[b].sell += perBin;
+        }
+    }
+    // POC = bin met het hoogste totaal
+    let pocIdx = 0, maxTotal = 0;
+    bins.forEach((b, i) => { if (b.total > maxTotal) { maxTotal = b.total; pocIdx = i; } });
+    // Value Area: groei vanaf POC tot 70% van het totale volume is bereikt
+    const totalVol = bins.reduce((s, b) => s + b.total, 0);
+    const target = totalVol * 0.7;
+    let lo2 = pocIdx, hi2 = pocIdx, acc = bins[pocIdx].total;
+    while (acc < target && (lo2 > 0 || hi2 < VP_BINS - 1)) {
+        const below = lo2 > 0 ? bins[lo2 - 1].total : -1;
+        const above = hi2 < VP_BINS - 1 ? bins[hi2 + 1].total : -1;
+        if (above >= below) { hi2++; acc += bins[hi2].total; } else { lo2--; acc += bins[lo2].total; }
+    }
+    return {
+        bins, binSize, maxTotal, totalVol,
+        poc: bins[pocIdx].price,
+        vah: bins[hi2].price,   // Value Area High
+        val: bins[lo2].price,   // Value Area Low
+    };
+}
+
+// Order Book Depth: haalt de VOLLEDIGE order book op (tot 1000 niveaus) en
+// aggregeert bids/asks in prijs-bins -> toont wachtende limietorders (COB).
+// Let op: order-book-muren zijn context, geen hard signaal (spoofing komt voor).
+let _orderBookDepth = null;  // { bins:[{price,bid,ask}], maxSize, mid }
+async function fetchOrderBookDepth() {
+    try {
+        const r = await fetch('https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=1000');
+        const ob = await r.json();
+        if (!ob.bids || !ob.asks) return null;
+        const bids = ob.bids.map(([p, q]) => [+p, +q]);
+        const asks = ob.asks.map(([p, q]) => [+p, +q]);
+        const mid = (bids[0][0] + asks[0][0]) / 2;
+        const allP = [...bids, ...asks];
+        let hi = -Infinity, lo = Infinity;
+        for (const [p] of allP) { if (p > hi) hi = p; if (p < lo) lo = p; }
+        const binSize = (hi - lo) / VP_BINS;
+        if (binSize <= 0) return null;
+        const bins = Array.from({ length: VP_BINS }, (_, i) => ({ price: lo + (i + 0.5) * binSize, bid: 0, ask: 0 }));
+        for (const [p, q] of bids) { const b = Math.min(VP_BINS - 1, Math.max(0, Math.floor((p - lo) / binSize))); bins[b].bid += q; }
+        for (const [p, q] of asks) { const b = Math.min(VP_BINS - 1, Math.max(0, Math.floor((p - lo) / binSize))); bins[b].ask += q; }
+        let maxSize = 0; bins.forEach(b => { maxSize = Math.max(maxSize, b.bid, b.ask); });
+        _orderBookDepth = { bins, maxSize, mid, binSize };
+        return _orderBookDepth;
+    } catch (e) { console.warn('Order book depth fetch faalde:', e); return null; }
+}
+
+// Bot-parameter: hoe ver zit de huidige prijs van de POC en value-area-randen?
+// Geeft een genormaliseerde score (-1..1): positief = prijs onder value area
+// (koopdruk-zone eronder), negatief = boven. Wordt in de confluence meegewogen.
+function volumeProfileBias(price) {
+    if (!_volumeProfile || !isFinite(price)) return { bias: 0, note: 'geen profiel' };
+    const { poc, vah, val } = _volumeProfile;
+    if (price < val) return { bias: +0.5, note: `onder value area (VAL ${val.toFixed(0)})` };
+    if (price > vah) return { bias: -0.5, note: `boven value area (VAH ${vah.toFixed(0)})` };
+    const range = vah - val;
+    const bias = range > 0 ? (poc - price) / range * 0.3 : 0;
+    return { bias, note: `binnen value area, POC ${poc.toFixed(0)}` };
+}
+
+let _depthMode = 'svp';   // 'svp' = volume profile | 'cob' = order book
+function setDepthMode(m) {
+    _depthMode = m;
+    const svpBtn = document.getElementById('vp-tab-svp'), cobBtn = document.getElementById('vp-tab-cob');
+    if (svpBtn) { svpBtn.style.color = m === 'svp' ? 'var(--teal)' : 'var(--dim)'; svpBtn.style.borderColor = m === 'svp' ? 'rgba(20,241,149,0.4)' : 'var(--dimmer)'; }
+    if (cobBtn) { cobBtn.style.color = m === 'cob' ? 'var(--amber)' : 'var(--dim)'; cobBtn.style.borderColor = m === 'cob' ? 'rgba(255,182,39,0.4)' : 'var(--dimmer)'; }
+    if (m === 'cob') fetchOrderBookDepth().then(renderDepthPanel);
+    else renderDepthPanel();
+}
+
+function renderDepthPanel() {
+    const cv = document.getElementById('vp-canvas');
+    if (!cv) return;
+    const rect = cv.getBoundingClientRect();
+    const W = cv.width = Math.max(120, rect.width), H = cv.height = Math.max(300, rect.height);
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+    const legend = document.getElementById('vp-legend');
+    const price = (typeof livePrice !== 'undefined' && livePrice > 0) ? livePrice : null;
+
+    if (_depthMode === 'svp') {
+        const vp = _volumeProfile;
+        if (!vp) { if (legend) legend.textContent = 'Wacht op chartdata...'; return; }
+        const bins = vp.bins, n = bins.length, bh = H / n;
+        const priceToY = p => H - ((p - bins[0].price) / (bins[n - 1].price - bins[0].price)) * H;
+        bins.forEach((b, i) => {
+            const y = H - (i + 1) * bh;
+            // buy-deel groen (links), sell-deel rood (rechts vanaf midden) - hier gestapeld naar rechts
+            const buyW = (b.buy / vp.maxTotal) * W;
+            const sellW = (b.sell / vp.maxTotal) * W;
+            ctx.fillStyle = 'rgba(20,241,149,0.55)'; ctx.fillRect(0, y + 0.5, buyW, bh - 1);
+            ctx.fillStyle = 'rgba(255,95,126,0.55)'; ctx.fillRect(buyW, y + 0.5, sellW, bh - 1);
+        });
+        // Value Area-band
+        const yVAH = priceToY(vp.vah), yVAL = priceToY(vp.val);
+        ctx.fillStyle = 'rgba(0,217,255,0.06)'; ctx.fillRect(0, yVAH, W, yVAL - yVAH);
+        ctx.strokeStyle = 'rgba(0,217,255,0.3)'; ctx.lineWidth = 0.5;
+        ctx.beginPath(); ctx.moveTo(0, yVAH); ctx.lineTo(W, yVAH); ctx.moveTo(0, yVAL); ctx.lineTo(W, yVAL); ctx.stroke();
+        // POC-lijn (amber)
+        const yPOC = priceToY(vp.poc);
+        ctx.strokeStyle = '#ffb627'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(0, yPOC); ctx.lineTo(W, yPOC); ctx.stroke();
+        // huidige prijs (wit)
+        if (price) { const yP = priceToY(price); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(0, yP); ctx.lineTo(W, yP); ctx.stroke(); ctx.setLineDash([]); }
+        if (legend) {
+            const bias = price ? volumeProfileBias(price) : { note: '' };
+            legend.innerHTML = `<span style="color:#ffb627;">POC ${vp.poc.toFixed(0)}</span> &middot; VA ${vp.val.toFixed(0)}-${vp.vah.toFixed(0)}<br><span style="color:var(--dimmer);">${bias.note}</span>`;
+        }
+    } else {
+        const ob = _orderBookDepth;
+        if (!ob) { if (legend) legend.textContent = 'Order book laden...'; return; }
+        const bins = ob.bins, n = bins.length, bh = H / n;
+        const priceToY = p => H - ((p - bins[0].price) / (bins[n - 1].price - bins[0].price)) * H;
+        bins.forEach((b, i) => {
+            const y = H - (i + 1) * bh;
+            const bidW = (b.bid / ob.maxSize) * W;
+            const askW = (b.ask / ob.maxSize) * W;
+            ctx.fillStyle = 'rgba(20,241,149,0.55)'; ctx.fillRect(0, y + 0.5, bidW, bh - 1);
+            ctx.fillStyle = 'rgba(255,95,126,0.55)'; ctx.fillRect(bidW, y + 0.5, askW, bh - 1);
+        });
+        if (ob.mid) { const yM = priceToY(ob.mid); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(0, yM); ctx.lineTo(W, yM); ctx.stroke(); ctx.setLineDash([]); }
+        // grootste muur markeren
+        let wallIdx = 0, wallSz = 0, wallSide = '';
+        bins.forEach((b, i) => { if (b.bid > wallSz) { wallSz = b.bid; wallIdx = i; wallSide = 'bid'; } if (b.ask > wallSz) { wallSz = b.ask; wallIdx = i; wallSide = 'ask'; } });
+        if (legend) legend.innerHTML = `<span style="color:${wallSide === 'bid' ? 'var(--teal)' : 'var(--red)'};">Grootste muur ${bins[wallIdx].price.toFixed(0)}</span><br><span style="color:var(--dimmer);">${wallSide === 'bid' ? 'koop' : 'verkoop'}-wand &middot; ${wallSz.toFixed(1)} BTC</span>`;
+    }
+}
+
 // Live 45m-bucket bijwerken vanuit de 15m bot-stream (geen aparte socket nodig).
 let _current45m = null;
 function update45mBucketFromLive(candle15m) {
@@ -4072,6 +4243,8 @@ async function refreshViewData() {
             close: parseFloat(d[4])
         }));
         candlestickSeries.setData(chartData);
+        _volumeProfile = computeVolumeProfile(viewData);
+        if (typeof renderDepthPanel === 'function') { if (_depthMode === 'cob') fetchOrderBookDepth().then(renderDepthPanel); else renderDepthPanel(); }
         updateHistoryList(viewData);
         applyUOTAMGrid(chartData, { updateTrading: false, viewInterval: currentInterval });
         renderMovingAverage();
@@ -4115,6 +4288,8 @@ async function initDashboard() {
             close: parseFloat(d[4])
         }));
         candlestickSeries.setData(chartData);
+        _volumeProfile = computeVolumeProfile(viewData);
+        if (typeof renderDepthPanel === 'function') { if (_depthMode === 'cob') fetchOrderBookDepth().then(renderDepthPanel); else renderDepthPanel(); }
         updateHistoryList(viewData);
         if (currentInterval !== BOT_INTERVAL) {
             applyUOTAMGrid(chartData, { updateTrading: false, viewInterval: currentInterval });
