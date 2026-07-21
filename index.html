@@ -867,7 +867,7 @@ section { position:relative; z-index:2; }
         <div class="subhead">Engine Config &middot; presets &middot; toggles</div>
             <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.86<span class="fill"></span></div>
+            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.23<span class="fill"></span></div>
             <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
@@ -986,6 +986,23 @@ section { position:relative; z-index:2; }
                         <div><label>Range-scalp alloc %</label><input type="number" id="range-scalp-alloc-pct" value="10"></div>
                     </div>
 
+                    <h4 style="color: var(--cyan); font-size: 0.7rem; letter-spacing:0.1em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin: 16px 0 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;">ICT / Smart-Money Cascade</h4>
+                    <div class="grid-row" style="margin-bottom: 14px;">
+                        <div><label>ICT-cascade aan/uit</label><select id="ict-enabled"><option value="false" selected>Uit</option><option value="true">Aan</option></select></div>
+                        <div><label>HTF-bias timeframe</label><select id="ict-htf-interval"><option value="4h" selected>4h</option><option value="1h">1h</option><option value="2h">2h</option></select></div>
+                        <div><label>Sweep timeframe</label><select id="ict-sweep-interval"><option value="15m" selected>15m</option><option value="5m">5m</option><option value="30m">30m</option></select></div>
+                        <div><label>Entry/MSS timeframe</label><select id="ict-entry-interval"><option value="1m" selected>1m</option><option value="3m">3m</option><option value="5m">5m</option></select></div>
+                        <div><label>Sweep-lookback (candles)</label><input type="number" id="ict-sweep-lookback" value="20" min="5" max="60"></div>
+                        <div><label>MSS-swing lookback</label><input type="number" id="ict-swing-lookback" value="10" min="3" max="40"></div>
+                        <div><label>Min. FVG-grootte %</label><input type="number" id="ict-fvg-min-gap" value="0.03" step="0.01" min="0"></div>
+                        <div><label>Target-swing lookback</label><input type="number" id="ict-target-swing-lookback" value="15" min="3" max="60"></div>
+                        <div><label>Micro-target %</label><input type="number" id="ict-micro-target" value="0.15" step="0.05" min="0.05"></div>
+                        <div><label>Micro-stop %</label><input type="number" id="ict-micro-stop" value="0.12" step="0.05" min="0.05"></div>
+                        <div><label>SVP-confluentie</label><select id="ict-use-svp"><option value="true" selected>Aan</option><option value="false">Uit</option></select></div>
+                        <div><label>ICT-allocatie %</label><input type="number" id="ict-alloc-pct" value="20" min="1" max="70"></div>
+                    </div>
+                    <div id="ict-status" style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--dim); margin:-6px 0 14px 0; padding:6px 8px; border:1px solid var(--line); border-radius:4px;">ICT-cascade staat uit.</div>
+
                     <h4 style="color: var(--amber); font-size: 0.7rem; letter-spacing:0.1em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin: 16px 0 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;">Gedeeld (beide engines)</h4>
                     <div class="grid-row" style="margin-bottom: 4px;">
                         <div><label>Max open posities (max 4)</label><input type="number" id="max-open-positions" value="3" min="1" max="4"></div>
@@ -1023,6 +1040,6 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build14"></script>
+<script src="app.js?v=20260718-v4build16"></script>
 </body>
 </html>
