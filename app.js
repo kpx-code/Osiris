@@ -182,8 +182,28 @@ let botSettings = {
     // In TESTNET-modus komen fill-prijs en commissie van de exchange en staat
     // de eigen fee/slippage-simulatie automatisch uit.
     executionMode: 'SIM',
+    // ---- ICT / Smart-Money cascade (4h bias -> 15m sweep -> 1m MSS -> FVG entry) ----
+    ictEnabled: false,               // hoofdschakelaar voor de ICT-cascade
+    ictHtfInterval: '4h',            // timeframe voor de directionele bias
+    ictSweepInterval: '15m',         // timeframe waarop we liquidity sweeps zoeken
+    ictEntryInterval: '1m',          // timeframe voor market-structure-shift + FVG-entry
+    ictSweepLookback: 20,            // aantal candles terug voor swing-high/low (sweep-detectie)
+    ictSwingLookback: 10,            // aantal candles voor MSS-swingpunten
+    ictFvgMinGapPct: 0.03,           // minimale FVG-grootte als % van de prijs (0.03 = 0.03%)
+    ictTargetSwingLookback: 15,      // hoever terug we de "nearest swing before the grab" zoeken
+    ictMicroTargetPct: 0.15,         // micro-margin doelwinst per trade (0.15%)
+    ictMicroStopPct: 0.12,           // krappe stop passend bij micro-targets
+    ictUseSvpConfluence: true,       // weeg SVP-context mee in de FVG-kwaliteit
+    ictAllocPct: 0.20,               // allocatie per ICT-trade
     isRunning: false
 };
+
+// Achtergrond-timeframes voor de ICT-cascade. Deze worden NIET gestreamd maar
+// periodiek via REST opgehaald (klines zijn afgeleid van dezelfde trades, dus een
+// 4h-candle is geaggregeerde 1m-data). De 4h-bias verandert traag -> elke 5 min;
+// de 1m-data voor de MSS -> elke bot-tick (10s) mee. Ruim binnen Binance-limieten
+// (klines kost 1-2 gewichtspunten van de 1200/min).
+let _ictData = { htf: [], sweep: [], entry: [], lastHtfFetch: 0, lastEntryFetch: 0 };
 
 // Round-trip TRANSACTIEKOSTEN (fees + slippage, beide zijden) als PERCENTAGE -
 // dit is het getal dat elke trade minimaal moet overwinnen om break-even te zijn.
@@ -1378,6 +1398,18 @@ function populateSettingsInputsFromState() {
     setVal('node-weight-mode', s.nodeWeightMode);
     setVal('node-weight-manual', s.nodeWeightManual);
     setVal('continuation-confirmation-sec', s.continuationConfirmationSeconds);
+    setVal('ict-enabled', String(s.ictEnabled ?? false));
+    setVal('ict-htf-interval', s.ictHtfInterval ?? '4h');
+    setVal('ict-sweep-interval', s.ictSweepInterval ?? '15m');
+    setVal('ict-entry-interval', s.ictEntryInterval ?? '1m');
+    setVal('ict-sweep-lookback', s.ictSweepLookback ?? 20);
+    setVal('ict-swing-lookback', s.ictSwingLookback ?? 10);
+    setVal('ict-fvg-min-gap', s.ictFvgMinGapPct ?? 0.03);
+    setVal('ict-target-swing-lookback', s.ictTargetSwingLookback ?? 15);
+    setVal('ict-micro-target', s.ictMicroTargetPct ?? 0.15);
+    setVal('ict-micro-stop', s.ictMicroStopPct ?? 0.12);
+    setVal('ict-use-svp', String(s.ictUseSvpConfluence ?? true));
+    setVal('ict-alloc-pct', ((s.ictAllocPct ?? 0.20) * 100).toFixed(0));
     setVal('range-scalp-target-pct', s.rangeScalpProfitTargetPct);
     setVal('range-scalp-stop-pct', s.rangeScalpStopLossPct);
     setVal('range-scalp-alloc-pct', (s.rangeScalpAllocationPct * 100).toFixed(0));
@@ -1613,6 +1645,31 @@ function readTradingSettingsFromInputs() {
     if (executionModeInput && ['SIM', 'TESTNET'].includes(executionModeInput.value)) {
         botSettings.executionMode = executionModeInput.value;
     }
+    // ---- ICT / Smart-Money cascade ----
+    const ictEn = document.getElementById('ict-enabled');
+    if (ictEn) botSettings.ictEnabled = ictEn.value === 'true';
+    const ictHtf = document.getElementById('ict-htf-interval');
+    if (ictHtf) botSettings.ictHtfInterval = ictHtf.value;
+    const ictSweepIv = document.getElementById('ict-sweep-interval');
+    if (ictSweepIv) botSettings.ictSweepInterval = ictSweepIv.value;
+    const ictEntryIv = document.getElementById('ict-entry-interval');
+    if (ictEntryIv) botSettings.ictEntryInterval = ictEntryIv.value;
+    const ictSwLb = document.getElementById('ict-sweep-lookback');
+    if (ictSwLb && !isNaN(parseInt(ictSwLb.value))) botSettings.ictSweepLookback = Math.max(5, parseInt(ictSwLb.value));
+    const ictSwingLb = document.getElementById('ict-swing-lookback');
+    if (ictSwingLb && !isNaN(parseInt(ictSwingLb.value))) botSettings.ictSwingLookback = Math.max(3, parseInt(ictSwingLb.value));
+    const ictFvg = document.getElementById('ict-fvg-min-gap');
+    if (ictFvg && !isNaN(parseFloat(ictFvg.value))) botSettings.ictFvgMinGapPct = Math.max(0, parseFloat(ictFvg.value));
+    const ictTgtLb = document.getElementById('ict-target-swing-lookback');
+    if (ictTgtLb && !isNaN(parseInt(ictTgtLb.value))) botSettings.ictTargetSwingLookback = Math.max(3, parseInt(ictTgtLb.value));
+    const ictMt = document.getElementById('ict-micro-target');
+    if (ictMt && !isNaN(parseFloat(ictMt.value))) botSettings.ictMicroTargetPct = Math.max(0.05, parseFloat(ictMt.value));
+    const ictMs = document.getElementById('ict-micro-stop');
+    if (ictMs && !isNaN(parseFloat(ictMs.value))) botSettings.ictMicroStopPct = Math.max(0.05, parseFloat(ictMs.value));
+    const ictSvp = document.getElementById('ict-use-svp');
+    if (ictSvp) botSettings.ictUseSvpConfluence = ictSvp.value === 'true';
+    const ictAlloc = document.getElementById('ict-alloc-pct');
+    if (ictAlloc && !isNaN(parseFloat(ictAlloc.value))) botSettings.ictAllocPct = Math.min(Math.max(parseFloat(ictAlloc.value) / 100, 0.01), 0.7);
 }
 
 // ============================================================
@@ -3320,6 +3377,99 @@ function openPositionFromOrder(order, entryTag = '') {
 // lopen hierdoor, zodat de bot in beide modi identiek redeneert en alleen de
 // uitvoering verschilt.
 // ============================================================
+// ============================================================
+// ICT-ENTRY: opent een positie op basis van een geslaagde cascade.
+// Gebruikt de ICT-specifieke micro-target, krappe stop en eigen allocatie,
+// en loopt via dezelfde commitPositionEntry-laag (SIM of TESTNET).
+// ============================================================
+let _ictLastSignalNote = 'ICT uit';
+let _ictLastEntryBar = 0;   // voorkomt dubbele entries op dezelfde 1m-candle
+
+// Toont de voortgang van de cascade in het status-vak onder de ICT-instellingen.
+function updateIctStatusUI(sig) {
+    const el = document.getElementById('ict-status');
+    if (!el) return;
+    if (!botSettings.ictEnabled) { el.textContent = 'ICT-cascade staat uit.'; el.style.color = 'var(--dim)'; return; }
+    if (!sig) { el.textContent = 'ICT actief - wacht op data...'; el.style.color = 'var(--dim)'; return; }
+    const stages = ['0 HTF-bias', '1 Liquidity sweep', '2 Market structure shift', '3 FVG/orderblock', '4 Entry klaar'];
+    const done = sig.ok ? 4 : sig.stage;
+    const bar = stages.map((s, i) => `<span style="color:${i < done ? 'var(--teal)' : (i === done ? 'var(--amber)' : 'var(--dimmer)')};">${i <= done || sig.ok ? '&#9679;' : '&#9675;'}</span>`).join(' ');
+    el.innerHTML = `${bar} &nbsp; <span style="color:${sig.ok ? 'var(--teal)' : 'var(--dim)'};">${sig.ok ? `${sig.side} @ ${sig.entry.toFixed(0)} &rarr; target ${sig.target.toFixed(0)}` : sig.reason}</span>`;
+}
+
+function scanForIctSetup() {
+    if (!botSettings.ictEnabled) { _ictLastSignalNote = 'ICT uit'; return; }
+    const sig = evaluateIctCascade();
+    if (!sig) { _ictLastSignalNote = 'ICT uit'; return; }
+    // toon de voortgang van de cascade in de reasoning/statustekst
+    _ictLastSignalNote = sig.ok
+        ? `ICT stap 4/4 klaar: ${sig.side} @ ${sig.entry.toFixed(0)} (q ${(sig.quality * 100).toFixed(0)}%)`
+        : `ICT stap ${sig.stage}/4: ${sig.reason}`;
+    if (typeof updateIctStatusUI === 'function') updateIctStatusUI(sig);
+    if (!sig.ok) return;
+
+    // Eén entry per 1m-candle voorkomen (de cascade blijft "waar" zolang de FVG open is).
+    const entryBar = _ictData.entry.length ? _ictData.entry[_ictData.entry.length - 1][0] : Date.now();
+    if (entryBar === _ictLastEntryBar) return;
+
+    // Al een open ICT-positie aan deze kant? Niet stapelen.
+    if (openPositions.some(p => p.isIct && p.side === sig.side)) return;
+
+    // Allocatie tegen de balance, met dezelfde currency-afhandeling als de trend-entry.
+    const price = livePrice;
+    if (!isFinite(price) || price <= 0) return;
+    const balance = getBalance();
+    const availablePct = Math.max(0, 1 - getAllocatedPct());
+    const sizePct = Math.min(botSettings.ictAllocPct, availablePct);
+    if (sizePct <= 0.001) { logBotAction('SKIPPED', price, sig.side, 0, 0, 'ICT: onvoldoende allocatie'); return; }
+    const notional = balance * sizePct;
+    let notionalUSD;
+    if (isQuoteCurrencyWallet()) notionalUSD = notional;
+    else notionalUSD = eurUsdtRate ? (notional * eurUsdtRate) : notional;
+    const amount = parseFloat((notionalUSD / price).toFixed(6));
+    if (amount <= 0) return;
+
+    const position = {
+        id: `ict_${Date.now()}_${sig.side}`,
+        side: sig.side,
+        entryPrice: price,
+        amount,
+        notional,
+        sizePct,
+        targetPrice: sig.target,
+        ictStopPrice: sig.stop,
+        probabilityPct: Math.round(sig.quality * 100),
+        nodeInfluence: 0,
+        openTime: Date.now(),
+        closeTime: null,
+        peakPnlPct: 0,
+        trailingStopPct: null,
+        isIct: true,                    // markeert dit als ICT-trade (aparte exit-regels)
+        ictChain: sig.chain,
+        factorsAtEntry: {
+            confluence: null, nodeInfluence: 0, momentumInfluence: 0,
+            fibConfluenceInfluence: 0, patternInfluence: 0,
+            probabilityPct: Math.round(sig.quality * 100)
+        }
+    };
+    _ictLastEntryBar = entryBar;
+    commitPositionEntry(position, `ICT | ${sig.reason} | target ${sig.target.toFixed(0)} stop ${sig.stop.toFixed(0)}`);
+}
+
+// ICT-posities hebben hun eigen, strakke exit: micro-target of krappe stop.
+// Wordt vanuit checkOpenPositionsExits aangeroepen vóór de reguliere exit-logica.
+function checkIctExit(pos) {
+    if (!pos.isIct) return false;
+    const price = livePrice;
+    if (!isFinite(price)) return false;
+    const pnlPct = pos.side === 'LONG' ? (price - pos.entryPrice) / pos.entryPrice : (pos.entryPrice - price) / pos.entryPrice;
+    const hitTarget = pos.side === 'LONG' ? price >= pos.targetPrice : price <= pos.targetPrice;
+    const hitStop = pos.side === 'LONG' ? price <= pos.ictStopPrice : price >= pos.ictStopPrice;
+    if (hitTarget) { closePosition(pos, pnlPct, 'ICT_TARGET'); return true; }
+    if (hitStop) { closePosition(pos, pnlPct, 'ICT_STOP'); return true; }
+    return false;
+}
+
 function commitPositionEntry(position, reasonText) {
     if (botSettings.executionMode !== 'TESTNET') {
         openPositions.push(position);
@@ -3596,6 +3746,13 @@ function checkOpenPositionsExits() {
 
     const survivors = [];
     openPositions.forEach(pos => {
+        // ICT-posities hebben hun eigen strakke micro-target/stop en slaan de
+        // reguliere (te vroeg sluitende) trend-exitlogica volledig over.
+        if (pos.isIct) {
+            if (checkIctExit(pos)) return;
+            survivors.push(pos);
+            return;
+        }
         const pnlPct = pos.side === 'LONG'
             ? (livePrice - pos.entryPrice) / pos.entryPrice
             : (pos.entryPrice - livePrice) / pos.entryPrice;
@@ -3941,6 +4098,7 @@ function botHeartbeat() {
 
         scanForOpportunities(decision, metrics);
         scanForRangeScalps();
+        if (botSettings.ictEnabled) { fetchIctTimeframes().then(() => scanForIctSetup()); }
         renderMovingAverage();
         renderRSI();
         renderPrediction();
@@ -4094,6 +4252,190 @@ function volumeProfileBias(price) {
     const bias = range > 0 ? (poc - price) / range * 0.3 : 0;
     return { bias, note: `binnen value area, POC ${poc.toFixed(0)}` };
 }
+
+// ============================================================
+// ICT / SMART-MONEY CASCADE
+// ============================================================
+// Volledige cascade in vier stappen, elk op zijn eigen timeframe:
+//   stap 0  HTF-bias        (4h)   -> welke richting mogen we handelen?
+//   stap 1  liquidity sweep (15m)  -> is een swing-high/low geveegd + hersteld?
+//   stap 2  market str. shift(1m)  -> draait de structuur na de sweep?
+//   stap 3  FVG/orderblock entry(1m) -> instap op de gap, target de nearest swing
+// De timeframes komen via REST (fetchIctTimeframes), niet via aparte streams.
+
+// --- REST-fetch van de achtergrond-timeframes (binnen Binance-limieten) ---
+async function fetchIctKlines(iv, limit) {
+    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${iv}&limit=${limit}`);
+    if (!r.ok) throw new Error('klines ' + iv + ' status ' + r.status);
+    return r.json();  // [ [openTime,o,h,l,c,v,...], ... ]
+}
+
+async function fetchIctTimeframes() {
+    if (!botSettings.ictEnabled) return;
+    const nu = Date.now();
+    try {
+        // 4h-bias traag verversen (elke 5 min); 1m-entry snel (elke tick ~10s)
+        if (nu - _ictData.lastHtfFetch > 5 * 60 * 1000 || _ictData.htf.length === 0) {
+            _ictData.htf = await fetchIctKlines(botSettings.ictHtfInterval, 60);
+            _ictData.sweep = await fetchIctKlines(botSettings.ictSweepInterval, 60);
+            _ictData.lastHtfFetch = nu;
+        }
+        if (nu - _ictData.lastEntryFetch > 8 * 1000 || _ictData.entry.length === 0) {
+            _ictData.entry = await fetchIctKlines(botSettings.ictEntryInterval, 60);
+            _ictData.lastEntryFetch = nu;
+        }
+    } catch (e) { console.warn('ICT timeframes fetch faalde:', e); }
+}
+
+// --- stap 0: HTF directionele bias (4h) ---
+// Simpel en robuust: hogere highs + hogere lows = bullish bias; omgekeerd bearish.
+// Gebruikt de laatste swingpunten op de 4h; geen bias => geen trade.
+function ictHtfBias() {
+    const k = _ictData.htf;
+    if (!k || k.length < 6) return { dir: null, reason: 'te weinig 4h-data' };
+    const closes = k.map(c => +c[4]);
+    const n = closes.length;
+    // eenvoudige structuur: vergelijk het gemiddelde van de laatste 3 met de 3 ervoor
+    const recent = (closes[n - 1] + closes[n - 2] + closes[n - 3]) / 3;
+    const older = (closes[n - 4] + closes[n - 5] + closes[n - 6]) / 3;
+    const hi = Math.max(...k.slice(-10).map(c => +c[2]));
+    const lo = Math.min(...k.slice(-10).map(c => +c[3]));
+    if (recent > older) return { dir: 'LONG', reason: `4h bullish (${lo.toFixed(0)}-${hi.toFixed(0)})` };
+    if (recent < older) return { dir: 'SHORT', reason: `4h bearish (${lo.toFixed(0)}-${hi.toFixed(0)})` };
+    return { dir: null, reason: '4h neutraal' };
+}
+
+// --- stap 1: liquidity sweep op 15m ---
+// Een sweep = de prijs breekt een recente swing-high (of -low), maar sluit er
+// weer terug binnen -> de "liquidity" boven/onder is opgehaald en afgewezen.
+function ictDetectSweep(bias) {
+    const k = _ictData.sweep;
+    const lb = botSettings.ictSweepLookback;
+    if (!k || k.length < lb + 2 || !bias) return { swept: false };
+    const recent = k.slice(-(lb + 1), -1);   // venster vóór de laatste candle
+    const last = k[k.length - 1];
+    const lastHigh = +last[2], lastLow = +last[3], lastClose = +last[4], lastOpen = +last[1];
+    const swingHigh = Math.max(...recent.map(c => +c[2]));
+    const swingLow = Math.min(...recent.map(c => +c[3]));
+    // Bij bearish bias zoeken we een sweep van de swing-HIGH (stop-hunt boven),
+    // gevolgd door afwijzing (sluit onder de high) -> ruimte voor SHORT.
+    if (bias === 'SHORT' && lastHigh > swingHigh && lastClose < swingHigh) {
+        return { swept: true, level: swingHigh, side: 'SHORT', note: `sweep swing-high ${swingHigh.toFixed(0)}` };
+    }
+    // Bij bullish bias: sweep van de swing-LOW, gevolgd door herstel boven de low.
+    if (bias === 'LONG' && lastLow < swingLow && lastClose > swingLow) {
+        return { swept: true, level: swingLow, side: 'LONG', note: `sweep swing-low ${swingLow.toFixed(0)}` };
+    }
+    return { swept: false };
+}
+
+// --- stap 2: market structure shift op 1m ---
+// Na de sweep willen we bevestiging dat de structuur draait: bij een LONG-setup
+// moet de prijs een recente 1m-swing-high breken (higher high); bij SHORT een
+// recente swing-low (lower low).
+function ictDetectMSS(side) {
+    const k = _ictData.entry;
+    const lb = botSettings.ictSwingLookback;
+    if (!k || k.length < lb + 2 || !side) return { shifted: false };
+    const recent = k.slice(-(lb + 1), -1);
+    const last = k[k.length - 1];
+    const lastClose = +last[4];
+    const swingHigh = Math.max(...recent.map(c => +c[2]));
+    const swingLow = Math.min(...recent.map(c => +c[3]));
+    if (side === 'LONG' && lastClose > swingHigh) return { shifted: true, note: `MSS: 1m break boven ${swingHigh.toFixed(0)}` };
+    if (side === 'SHORT' && lastClose < swingLow) return { shifted: true, note: `MSS: 1m break onder ${swingLow.toFixed(0)}` };
+    return { shifted: false };
+}
+
+// --- stap 3a: FVG / orderblock-detectie op 1m ---
+// Een (bullish) FVG is een 3-candle-gat waarbij de low van candle 3 boven de high
+// van candle 1 ligt: er is een prijszone die niet verhandeld is -> magneet/entry.
+// SVP-confluentie (optioneel): een FVG die samenvalt met een volumeknoop of juist
+// een volumegat krijgt een hogere kwaliteitsscore.
+function ictDetectFVG(side) {
+    const k = _ictData.entry;
+    if (!k || k.length < 4 || !side) return { found: false };
+    const minGap = botSettings.ictFvgMinGapPct / 100;
+    // loop van recent naar ouder; pak de dichtstbijzijnde geldige FVG
+    for (let i = k.length - 2; i >= 2; i--) {
+        const c1 = k[i - 2], c3 = k[i];
+        const c1High = +c1[2], c1Low = +c1[3], c3High = +c3[2], c3Low = +c3[3];
+        if (side === 'LONG') {
+            // bullish FVG: low van c3 boven high van c1
+            if (c3Low > c1High) {
+                const gap = (c3Low - c1High) / c1High;
+                if (gap >= minGap) {
+                    const entry = (c3Low + c1High) / 2;   // midden van de gap
+                    let quality = Math.min(1, gap / (minGap * 4));
+                    if (botSettings.ictUseSvpConfluence && _volumeProfile) {
+                        const b = volumeProfileBias(entry).bias;   // onder value area = koopzone
+                        quality *= (1 + Math.max(0, b));           // koopzone versterkt bullish FVG
+                    }
+                    return { found: true, entry, gapLo: c1High, gapHi: c3Low, quality, side, note: `bullish FVG ${entry.toFixed(0)}` };
+                }
+            }
+        } else {
+            // bearish FVG: high van c3 onder low van c1
+            if (c3High < c1Low) {
+                const gap = (c1Low - c3High) / c3High;
+                if (gap >= minGap) {
+                    const entry = (c3High + c1Low) / 2;
+                    let quality = Math.min(1, gap / (minGap * 4));
+                    if (botSettings.ictUseSvpConfluence && _volumeProfile) {
+                        const b = volumeProfileBias(entry).bias;   // boven value area = verkoopzone
+                        quality *= (1 + Math.max(0, -b));
+                    }
+                    return { found: true, entry, gapLo: c3High, gapHi: c1Low, quality, side, note: `bearish FVG ${entry.toFixed(0)}` };
+                }
+            }
+        }
+    }
+    return { found: false };
+}
+
+// --- stap 3b: target = nearest swing vóór de liquidity grab ---
+// We mikken op het dichtstbijzijnde swingpunt in de richting van de trade, maar
+// begrenzen door de micro-margin: consistent klein pakken wint van groot mikken.
+function ictComputeTarget(side, entry) {
+    const k = _ictData.entry;
+    const lb = botSettings.ictTargetSwingLookback;
+    const micro = botSettings.ictMicroTargetPct / 100;
+    let swingTarget;
+    if (k && k.length >= lb) {
+        const win = k.slice(-lb);
+        swingTarget = side === 'LONG' ? Math.max(...win.map(c => +c[2])) : Math.min(...win.map(c => +c[3]));
+    }
+    const microTarget = side === 'LONG' ? entry * (1 + micro) : entry * (1 - micro);
+    // pak de dichtstbijzijnde van de twee -> micro-margin economics
+    let target = microTarget;
+    if (swingTarget != null) {
+        target = side === 'LONG' ? Math.min(swingTarget, microTarget) : Math.max(swingTarget, microTarget);
+    }
+    const stop = side === 'LONG' ? entry * (1 - botSettings.ictMicroStopPct / 100) : entry * (1 + botSettings.ictMicroStopPct / 100);
+    return { target, stop };
+}
+
+// --- de volledige cascade -> geeft een kant-en-klaar entry-signaal of null ---
+function evaluateIctCascade() {
+    if (!botSettings.ictEnabled) return null;
+    const bias = ictHtfBias();
+    if (!bias.dir) return { stage: 0, ok: false, reason: bias.reason };
+    const sweep = ictDetectSweep(bias.dir);
+    if (!sweep.swept) return { stage: 1, ok: false, reason: `wacht op sweep (${bias.reason})` };
+    const mss = ictDetectMSS(sweep.side);
+    if (!mss.shifted) return { stage: 2, ok: false, reason: `sweep OK, wacht op MSS` };
+    const fvg = ictDetectFVG(sweep.side);
+    if (!fvg.found) return { stage: 3, ok: false, reason: `MSS OK, geen geldige FVG` };
+    const tgt = ictComputeTarget(sweep.side, fvg.entry);
+    return {
+        stage: 4, ok: true, side: sweep.side,
+        entry: fvg.entry, target: tgt.target, stop: tgt.stop,
+        quality: fvg.quality,
+        reason: `${bias.reason} -> ${sweep.note} -> ${mss.note} -> ${fvg.note}`,
+        chain: { bias: bias.reason, sweep: sweep.note, mss: mss.note, fvg: fvg.note }
+    };
+}
+
 
 let _depthMode = 'svp';   // 'svp' = volume profile | 'cob' = order book
 function setDepthMode(m) {
@@ -5580,7 +5922,7 @@ function initFlowHud() {
     for (let a = 0; a < 9; a++) {
         let d = ''; const off = a / 9 * Math.PI * 2;
         for (let t = 0; t <= 1; t += 0.03) { const r = R * 2.4 - (R * 2.4 - R * 0.95) * t, th = off + t * 2.7; d += (t ? 'L' : 'M') + (CX + Math.cos(th) * r).toFixed(1) + ',' + (CY + Math.sin(th) * r * 0.46).toFixed(1); }
-        host.appendChild(mk('path', { d, fill: 'none', stroke: HUD_BLUE[a % 5], 'stroke-width': 0.9, opacity: 0.22, id: 'weArm' + a }));
+        host.appendChild(mk('path', { d, fill: 'none', stroke: HUD_BLUE[a % 5], 'stroke-width': 0.5, opacity: 0.1, id: 'weArm' + a }));
         for (let k = 0; k < 5; k++) {
             const c = mk('circle', { r: (0.8 + Math.random() * 1.4).toFixed(1), fill: HUD_BLUE[a % 5] });
             const am = mk('animateMotion', { dur: (4 + Math.random() * 5).toFixed(1) + 's', repeatCount: 'indefinite', begin: (-Math.random() * 8).toFixed(2) + 's', calcMode: 'spline', keyPoints: '0;1', keyTimes: '0;1', keySplines: '0.3 0 0.9 0.6' });
@@ -6009,7 +6351,7 @@ function buildDecorEye(hostId, R, showConf) {
     for (let a = 0; a < 9; a++) {
         let d = ''; const off = a / 9 * Math.PI * 2;
         for (let t = 0; t <= 1; t += 0.03) { const r = R * 2.4 - (R * 2.4 - R * 0.95) * t, th = off + t * 2.7; d += (t ? 'L' : 'M') + (CX + Math.cos(th) * r).toFixed(1) + ',' + (CY + Math.sin(th) * r * 0.46).toFixed(1); }
-        svg.appendChild(mk('path', { d, fill: 'none', stroke: BLUE[a % 5], 'stroke-width': 0.9, opacity: 0.22, id: hostId + 'arm' + a }));
+        svg.appendChild(mk('path', { d, fill: 'none', stroke: BLUE[a % 5], 'stroke-width': 0.5, opacity: 0.1, id: hostId + 'arm' + a }));
         for (let k = 0; k < 5; k++) {
             const c = mk('circle', { r: (0.8 + Math.random() * 1.4).toFixed(1), fill: BLUE[a % 5] });
             const am = mk('animateMotion', { dur: (4 + Math.random() * 5).toFixed(1) + 's', repeatCount: 'indefinite', begin: (-Math.random() * 8).toFixed(2) + 's', calcMode: 'spline', keyPoints: '0;1', keyTimes: '0;1', keySplines: '0.3 0 0.9 0.6' });
