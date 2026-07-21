@@ -569,6 +569,14 @@ const candlestickSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
     wickDownColor: '#ef5350',
 });
 
+// Houd het SVP/COB-paneel uitgelijnd met de chart: bij elke zoom/pan opnieuw
+// tekenen zodat de prijsniveaus exact met de candles meelopen.
+try {
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+        if (typeof renderDepthPanel === 'function') renderDepthPanel();
+    });
+} catch (e) { /* oudere chart-versie zonder deze API - paneel valt terug op eigen schaal */ }
+
 // ============================================================
 // MOVING AVERAGE (SMA) - toggelbaar zoals de fib/node-lagen, en meewegend
 // in de bot-redenering (trend-bevestiging: ligt de prijs boven/onder de MA?)
@@ -4457,29 +4465,48 @@ function renderDepthPanel() {
     const legend = document.getElementById('vp-legend');
     const price = (typeof livePrice !== 'undefined' && livePrice > 0) ? livePrice : null;
 
+    // Prijs->Y die de PRIJSSCHAAL VAN DE CHART volgt zodat de niveaus exact
+    // gelijklopen met de candles. Valt terug op het eigen profielbereik als de
+    // chart (nog) geen coordinaat kan geven (bv. buiten het zichtbare bereik).
+    function makePriceToY(loFallback, hiFallback) {
+        let chartOK = false;
+        if (typeof candlestickSeries !== 'undefined' && candlestickSeries.priceToCoordinate) {
+            const a = candlestickSeries.priceToCoordinate(loFallback);
+            const b = candlestickSeries.priceToCoordinate(hiFallback);
+            chartOK = (a != null && b != null && isFinite(a) && isFinite(b) && Math.abs(a - b) > 4);
+        }
+        if (chartOK) {
+            // canvas kan hoger zijn dan de chart; schaal de chart-coordinaat naar canvas-hoogte
+            const cRect = chartContainer.getBoundingClientRect();
+            return p => {
+                const c = candlestickSeries.priceToCoordinate(p);
+                if (c == null) { return H - ((p - loFallback) / (hiFallback - loFallback)) * H; }
+                return (c / cRect.height) * H;   // chart-pixels -> canvas-pixels
+            };
+        }
+        return p => H - ((p - loFallback) / (hiFallback - loFallback)) * H;
+    }
+
     if (_depthMode === 'svp') {
         const vp = _volumeProfile;
         if (!vp) { if (legend) legend.textContent = 'Wacht op chartdata...'; return; }
-        const bins = vp.bins, n = bins.length, bh = H / n;
-        const priceToY = p => H - ((p - bins[0].price) / (bins[n - 1].price - bins[0].price)) * H;
-        bins.forEach((b, i) => {
-            const y = H - (i + 1) * bh;
-            // buy-deel groen (links), sell-deel rood (rechts vanaf midden) - hier gestapeld naar rechts
+        const bins = vp.bins, n = bins.length;
+        const priceToY = makePriceToY(bins[0].price, bins[n - 1].price);
+        const binPx = Math.max(1, Math.abs(priceToY(bins[0].price) - priceToY(bins[1] ? bins[1].price : bins[0].price + vp.binSize)));
+        bins.forEach((b) => {
+            const y = priceToY(b.price + vp.binSize / 2);   // bovenrand van de bin
             const buyW = (b.buy / vp.maxTotal) * W;
             const sellW = (b.sell / vp.maxTotal) * W;
-            ctx.fillStyle = 'rgba(20,241,149,0.55)'; ctx.fillRect(0, y + 0.5, buyW, bh - 1);
-            ctx.fillStyle = 'rgba(255,95,126,0.55)'; ctx.fillRect(buyW, y + 0.5, sellW, bh - 1);
+            ctx.fillStyle = 'rgba(20,241,149,0.55)'; ctx.fillRect(0, y + 0.5, buyW, binPx - 1);
+            ctx.fillStyle = 'rgba(255,95,126,0.55)'; ctx.fillRect(buyW, y + 0.5, sellW, binPx - 1);
         });
-        // Value Area-band
         const yVAH = priceToY(vp.vah), yVAL = priceToY(vp.val);
         ctx.fillStyle = 'rgba(0,217,255,0.06)'; ctx.fillRect(0, yVAH, W, yVAL - yVAH);
         ctx.strokeStyle = 'rgba(0,217,255,0.3)'; ctx.lineWidth = 0.5;
         ctx.beginPath(); ctx.moveTo(0, yVAH); ctx.lineTo(W, yVAH); ctx.moveTo(0, yVAL); ctx.lineTo(W, yVAL); ctx.stroke();
-        // POC-lijn (amber)
         const yPOC = priceToY(vp.poc);
         ctx.strokeStyle = '#ffb627'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.moveTo(0, yPOC); ctx.lineTo(W, yPOC); ctx.stroke();
-        // huidige prijs (wit)
         if (price) { const yP = priceToY(price); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(0, yP); ctx.lineTo(W, yP); ctx.stroke(); ctx.setLineDash([]); }
         if (legend) {
             const bias = price ? volumeProfileBias(price) : { note: '' };
@@ -4488,17 +4515,17 @@ function renderDepthPanel() {
     } else {
         const ob = _orderBookDepth;
         if (!ob) { if (legend) legend.textContent = 'Order book laden...'; return; }
-        const bins = ob.bins, n = bins.length, bh = H / n;
-        const priceToY = p => H - ((p - bins[0].price) / (bins[n - 1].price - bins[0].price)) * H;
-        bins.forEach((b, i) => {
-            const y = H - (i + 1) * bh;
+        const bins = ob.bins, n = bins.length;
+        const priceToY = makePriceToY(bins[0].price, bins[n - 1].price);
+        const binPx = Math.max(1, Math.abs(priceToY(bins[0].price) - priceToY(bins[1] ? bins[1].price : bins[0].price + ob.binSize)));
+        bins.forEach((b) => {
+            const y = priceToY(b.price + ob.binSize / 2);
             const bidW = (b.bid / ob.maxSize) * W;
             const askW = (b.ask / ob.maxSize) * W;
-            ctx.fillStyle = 'rgba(20,241,149,0.55)'; ctx.fillRect(0, y + 0.5, bidW, bh - 1);
-            ctx.fillStyle = 'rgba(255,95,126,0.55)'; ctx.fillRect(bidW, y + 0.5, askW, bh - 1);
+            ctx.fillStyle = 'rgba(20,241,149,0.55)'; ctx.fillRect(0, y + 0.5, bidW, binPx - 1);
+            ctx.fillStyle = 'rgba(255,95,126,0.55)'; ctx.fillRect(bidW, y + 0.5, askW, binPx - 1);
         });
         if (ob.mid) { const yM = priceToY(ob.mid); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(0, yM); ctx.lineTo(W, yM); ctx.stroke(); ctx.setLineDash([]); }
-        // grootste muur markeren
         let wallIdx = 0, wallSz = 0, wallSide = '';
         bins.forEach((b, i) => { if (b.bid > wallSz) { wallSz = b.bid; wallIdx = i; wallSide = 'bid'; } if (b.ask > wallSz) { wallSz = b.ask; wallIdx = i; wallSide = 'ask'; } });
         if (legend) legend.innerHTML = `<span style="color:${wallSide === 'bid' ? 'var(--teal)' : 'var(--red)'};">Grootste muur ${bins[wallIdx].price.toFixed(0)}</span><br><span style="color:var(--dimmer);">${wallSide === 'bid' ? 'koop' : 'verkoop'}-wand &middot; ${wallSz.toFixed(1)} BTC</span>`;
