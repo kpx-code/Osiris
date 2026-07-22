@@ -188,6 +188,7 @@ let botSettings = {
     ictSweepInterval: '15m',         // timeframe waarop we liquidity sweeps zoeken
     ictEntryInterval: '1m',          // timeframe voor market-structure-shift + FVG-entry
     ictSweepLookback: 20,            // aantal candles terug voor swing-high/low (sweep-detectie)
+    ictSweepValidMinutes: 45,        // hoe lang een sweep geldig blijft om MSS/FVG op af te wachten
     ictSwingLookback: 10,            // aantal candles voor MSS-swingpunten
     ictFvgMinGapPct: 0.03,           // minimale FVG-grootte als % van de prijs (0.03 = 0.03%)
     ictTargetSwingLookback: 15,      // hoever terug we de "nearest swing before the grab" zoeken
@@ -1411,6 +1412,7 @@ function populateSettingsInputsFromState() {
     setVal('ict-sweep-interval', s.ictSweepInterval ?? '15m');
     setVal('ict-entry-interval', s.ictEntryInterval ?? '1m');
     setVal('ict-sweep-lookback', s.ictSweepLookback ?? 20);
+    setVal('ict-sweep-valid', s.ictSweepValidMinutes ?? 45);
     setVal('ict-swing-lookback', s.ictSwingLookback ?? 10);
     setVal('ict-fvg-min-gap', s.ictFvgMinGapPct ?? 0.03);
     setVal('ict-target-swing-lookback', s.ictTargetSwingLookback ?? 15);
@@ -1662,6 +1664,8 @@ function readTradingSettingsFromInputs() {
     if (ictSweepIv) botSettings.ictSweepInterval = ictSweepIv.value;
     const ictEntryIv = document.getElementById('ict-entry-interval');
     if (ictEntryIv) botSettings.ictEntryInterval = ictEntryIv.value;
+    const ictSwVal = document.getElementById('ict-sweep-valid');
+    if (ictSwVal && !isNaN(parseInt(ictSwVal.value))) botSettings.ictSweepValidMinutes = Math.max(5, parseInt(ictSwVal.value));
     const ictSwLb = document.getElementById('ict-sweep-lookback');
     if (ictSwLb && !isNaN(parseInt(ictSwLb.value))) botSettings.ictSweepLookback = Math.max(5, parseInt(ictSwLb.value));
     const ictSwingLb = document.getElementById('ict-swing-lookback');
@@ -4316,23 +4320,51 @@ function ictHtfBias() {
 // --- stap 1: liquidity sweep op 15m ---
 // Een sweep = de prijs breekt een recente swing-high (of -low), maar sluit er
 // weer terug binnen -> de "liquidity" boven/onder is opgehaald en afgewezen.
+// De sweep wordt ONTHOUDEN als toestand. In de praktijk gebeurt een sweep eerst,
+// daarna volgt (minuten later) de MSS en pas daarna de retracement in de FVG.
+// Eisen dat alle drie op hetzelfde moment waar zijn, laat de cascade vrijwel
+// nooit vuren - dat was de fout in de eerste versie.
+let _ictSweepState = { active: false, side: null, level: null, atMs: 0, note: '', barTime: 0 };
+
 function ictDetectSweep(bias) {
     const k = _ictData.sweep;
     const lb = botSettings.ictSweepLookback;
-    if (!k || k.length < lb + 2 || !bias) return { swept: false };
-    const recent = k.slice(-(lb + 1), -1);   // venster vóór de laatste candle
-    const last = k[k.length - 1];
-    const lastHigh = +last[2], lastLow = +last[3], lastClose = +last[4], lastOpen = +last[1];
-    const swingHigh = Math.max(...recent.map(c => +c[2]));
-    const swingLow = Math.min(...recent.map(c => +c[3]));
-    // Bij bearish bias zoeken we een sweep van de swing-HIGH (stop-hunt boven),
-    // gevolgd door afwijzing (sluit onder de high) -> ruimte voor SHORT.
-    if (bias === 'SHORT' && lastHigh > swingHigh && lastClose < swingHigh) {
-        return { swept: true, level: swingHigh, side: 'SHORT', note: `sweep swing-high ${swingHigh.toFixed(0)}` };
+    const geldigMs = (botSettings.ictSweepValidMinutes || 45) * 60 * 1000;
+
+    // 1) verlopen sweep opruimen
+    if (_ictSweepState.active && Date.now() - _ictSweepState.atMs > geldigMs) {
+        _ictSweepState = { active: false, side: null, level: null, atMs: 0, note: '', barTime: 0 };
     }
-    // Bij bullish bias: sweep van de swing-LOW, gevolgd door herstel boven de low.
-    if (bias === 'LONG' && lastLow < swingLow && lastClose > swingLow) {
-        return { swept: true, level: swingLow, side: 'LONG', note: `sweep swing-low ${swingLow.toFixed(0)}` };
+    if (!k || k.length < lb + 2 || !bias) {
+        return _ictSweepState.active ? { swept: true, ..._ictSweepState, vers: false } : { swept: false };
+    }
+
+    // 2) nieuwe sweep zoeken op de laatst AFGESLOTEN candle (niet de vormende)
+    const closed = k.slice(0, -1);                       // laatste candle is nog in wording
+    const last = closed[closed.length - 1];
+    const recent = closed.slice(-(lb + 1), -1);
+    if (last && recent.length >= 3) {
+        const barTime = +last[0];
+        const lastHigh = +last[2], lastLow = +last[3], lastClose = +last[4];
+        const swingHigh = Math.max(...recent.map(c => +c[2]));
+        const swingLow = Math.min(...recent.map(c => +c[3]));
+        // alleen registreren als dit een NIEUWE candle is (niet dezelfde al bekende)
+        if (barTime !== _ictSweepState.barTime) {
+            if (bias === 'SHORT' && lastHigh > swingHigh && lastClose < swingHigh) {
+                _ictSweepState = { active: true, side: 'SHORT', level: swingHigh, atMs: Date.now(), barTime,
+                                   note: `sweep swing-high ${swingHigh.toFixed(0)}` };
+            } else if (bias === 'LONG' && lastLow < swingLow && lastClose > swingLow) {
+                _ictSweepState = { active: true, side: 'LONG', level: swingLow, atMs: Date.now(), barTime,
+                                   note: `sweep swing-low ${swingLow.toFixed(0)}` };
+            }
+        }
+    }
+
+    // 3) alleen een sweep gebruiken die past bij de huidige HTF-bias
+    if (_ictSweepState.active && _ictSweepState.side === bias) {
+        const minutenGeleden = Math.round((Date.now() - _ictSweepState.atMs) / 60000);
+        return { swept: true, side: _ictSweepState.side, level: _ictSweepState.level,
+                 note: `${_ictSweepState.note} (${minutenGeleden}m geleden)` };
     }
     return { swept: false };
 }
@@ -4341,17 +4373,36 @@ function ictDetectSweep(bias) {
 // Na de sweep willen we bevestiging dat de structuur draait: bij een LONG-setup
 // moet de prijs een recente 1m-swing-high breken (higher high); bij SHORT een
 // recente swing-low (lower low).
-function ictDetectMSS(side) {
+// Ook de MSS wordt onthouden: hij bevestigt de draai ná de sweep, waarna we nog
+// even de tijd krijgen om de retracement in de FVG af te wachten.
+let _ictMssState = { active: false, side: null, atMs: 0, note: '' };
+
+function ictDetectMSS(side, sweepAtMs) {
     const k = _ictData.entry;
     const lb = botSettings.ictSwingLookback;
-    if (!k || k.length < lb + 2 || !side) return { shifted: false };
-    const recent = k.slice(-(lb + 1), -1);
-    const last = k[k.length - 1];
-    const lastClose = +last[4];
-    const swingHigh = Math.max(...recent.map(c => +c[2]));
-    const swingLow = Math.min(...recent.map(c => +c[3]));
-    if (side === 'LONG' && lastClose > swingHigh) return { shifted: true, note: `MSS: 1m break boven ${swingHigh.toFixed(0)}` };
-    if (side === 'SHORT' && lastClose < swingLow) return { shifted: true, note: `MSS: 1m break onder ${swingLow.toFixed(0)}` };
+    const geldigMs = (botSettings.ictSweepValidMinutes || 45) * 60 * 1000;
+
+    // MSS vervalt met de sweep mee, of als de richting omdraait
+    if (_ictMssState.active && (Date.now() - _ictMssState.atMs > geldigMs || _ictMssState.side !== side)) {
+        _ictMssState = { active: false, side: null, atMs: 0, note: '' };
+    }
+    if (k && k.length >= lb + 2 && side && !_ictMssState.active) {
+        const recent = k.slice(-(lb + 1), -1);
+        const last = k[k.length - 1];
+        const lastClose = +last[4];
+        const swingHigh = Math.max(...recent.map(c => +c[2]));
+        const swingLow = Math.min(...recent.map(c => +c[3]));
+        // de MSS moet ná de sweep plaatsvinden
+        const naSweep = !sweepAtMs || Date.now() >= sweepAtMs;
+        if (naSweep && side === 'LONG' && lastClose > swingHigh) {
+            _ictMssState = { active: true, side: 'LONG', atMs: Date.now(), note: `MSS: 1m break boven ${swingHigh.toFixed(0)}` };
+        } else if (naSweep && side === 'SHORT' && lastClose < swingLow) {
+            _ictMssState = { active: true, side: 'SHORT', atMs: Date.now(), note: `MSS: 1m break onder ${swingLow.toFixed(0)}` };
+        }
+    }
+    if (_ictMssState.active && _ictMssState.side === side) {
+        return { shifted: true, note: _ictMssState.note };
+    }
     return { shifted: false };
 }
 
@@ -4430,8 +4481,8 @@ function evaluateIctCascade() {
     if (!bias.dir) return { stage: 0, ok: false, reason: bias.reason };
     const sweep = ictDetectSweep(bias.dir);
     if (!sweep.swept) return { stage: 1, ok: false, reason: `wacht op sweep (${bias.reason})` };
-    const mss = ictDetectMSS(sweep.side);
-    if (!mss.shifted) return { stage: 2, ok: false, reason: `sweep OK, wacht op MSS` };
+    const mss = ictDetectMSS(sweep.side, _ictSweepState.atMs);
+    if (!mss.shifted) return { stage: 2, ok: false, reason: `${sweep.note} - wacht op MSS` };
     const fvg = ictDetectFVG(sweep.side);
     if (!fvg.found) return { stage: 3, ok: false, reason: `MSS OK, geen geldige FVG` };
     const tgt = ictComputeTarget(sweep.side, fvg.entry);
