@@ -7002,9 +7002,13 @@ function _neoFrame(now) {
     const w = rect.width, h = rect.height;
 
     if (_neo.formStart === null) _neo.formStart = now;
-    const el = now - _neo.formStart - 300;
-    _neo.formed = el <= 0 ? 0 : Math.min(1, el / 5200);
-    const F = _neo.formed;
+    const tSec = Math.max(0, (now - _neo.formStart - 300) / 1000);
+    // CONTINUE OPBOUW: een bouwgolf trekt eindeloos van kruin naar schouders.
+    // Ringen vallen vlak voor de golf uiteen en vormen zich er direct achter
+    // opnieuw - de strepen-animatie van de vorming blijft dus altijd zichtbaar.
+    const NEO_CYCLE = 18, NEO_BUILD = 10, NEO_PRE = 5;
+    const F = Math.min(1, tSec / 5.2);
+    _neo.formed = F;
     _neo.rotY += dt * 0.18;
     const cosr = Math.cos(_neo.rotY), sinr = Math.sin(_neo.rotY);
 
@@ -7023,12 +7027,19 @@ function _neoFrame(now) {
 
     const cx = w * 0.5, cy = h * 0.43, scale = Math.min(w, h) * 0.43;
     const totalRings = _neo.rings.length;
+    const NEO_L = totalRings + NEO_BUILD + NEO_PRE;
+    const waveAbs = (tSec / NEO_CYCLE) * NEO_L;
 
     const proj = new Array(_neo.pts.length);
     for (let i = 0; i < _neo.pts.length; i++) {
         const p = _neo.pts[i];
-        const ringF = Math.max(0, Math.min(1, (F * (totalRings + 10) - p.ring) / 10));
-        const e = 1 - Math.pow(1 - ringF, 3);
+        let e = 0;
+        if (waveAbs >= p.ring) {
+            const db = (waveAbs - p.ring) % NEO_L;
+            if (db < NEO_BUILD) { const k = db / NEO_BUILD; e = 1 - Math.pow(1 - k, 3); }        // in aanbouw
+            else if (db > NEO_L - NEO_PRE) { const k = (NEO_L - db) / NEO_PRE; e = k * k; }      // valt uiteen voor de golf
+            else e = 1;                                                                          // volledig gevormd
+        }
         const x3 = p.x + (p.tx - p.x) * e, y3 = p.y + (p.ty - p.y) * e, z3 = p.z + (p.tz - p.z) * e;
         const rx = x3 * cosr + z3 * sinr, rz = -x3 * sinr + z3 * cosr;
         const persp = 1 / (2.5 - rz * 0.62);
