@@ -740,7 +740,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 1, 'min-probability-pct': 60,
         'hold-continuation-probability-pct': 70, 'min-projected-profit-pct': 0.5,
         'max-open-positions': 4, 'hedge-reserve-pct': 10, 'pending-order-ttl': 45,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80,
+        'min-loss-early-exit': 0.8, 'continuation-confirmation-sec': 10, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80,
         'prob-collapse-enabled': 'false', 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180, 'prob-smoothing-samples': 18,
         'regime-gate-enabled': 'true', 'max-position-age': 90, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 30,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 1.2, 'range-scalp-alloc-pct': 20,
@@ -761,7 +761,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 40, 'stop-loss-pct': 1.5, 'min-probability-pct': 80,
         'hold-continuation-probability-pct': 90, 'min-projected-profit-pct': 1.5,
         'max-open-positions': 2, 'hedge-reserve-pct': 25, 'pending-order-ttl': 20,
-        'min-loss-early-exit': 0.2, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 85,
+        'min-loss-early-exit': 0.6, 'continuation-confirmation-sec': 30, 'profit-protect-activation': 0.6, 'profit-protect-keep': 85,
         'prob-collapse-enabled': 'false', 'prob-collapse-threshold': 25, 'prob-collapse-confirm-sec': 240, 'prob-smoothing-samples': 24,
         'regime-gate-enabled': 'true', 'max-position-age': 120, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 45,
         'range-scalp-target-pct': 0.8, 'range-scalp-stop-pct': 0.8, 'range-scalp-alloc-pct': 0,
@@ -779,7 +779,7 @@ const PROFILE_PRESETS = {
         'max-allocation-pct': 70, 'stop-loss-pct': 2, 'min-probability-pct': 70,
         'hold-continuation-probability-pct': 85, 'min-projected-profit-pct': 1,
         'max-open-positions': 3, 'hedge-reserve-pct': 15, 'pending-order-ttl': 30,
-        'min-loss-early-exit': 0.3, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80,
+        'min-loss-early-exit': 0.8, 'continuation-confirmation-sec': 20, 'profit-protect-activation': 0.5, 'profit-protect-keep': 80,
         'prob-collapse-enabled': 'false', 'prob-collapse-threshold': 30, 'prob-collapse-confirm-sec': 180, 'prob-smoothing-samples': 18,
         'regime-gate-enabled': 'true', 'max-position-age': 90, 'node-weight-mode': 'adaptive', 'node-weight-manual': 1.0, 'small-profit-harvest': 30,
         'range-scalp-target-pct': 0.7, 'range-scalp-stop-pct': 0.7, 'range-scalp-alloc-pct': 10,
@@ -820,6 +820,11 @@ function applyPreset(name) {
         const el = document.getElementById(id);
         if (el) el.value = value;
     });
+
+    // ICT staat standaard UIT bij elk preset - de gebruiker zet hem bewust aan
+    // wanneer hij de cascade wil testen.
+    const ictEl = document.getElementById('ict-enabled');
+    if (ictEl) ictEl.value = 'false';
 
     // MA/RSI zijn live-instelbaar (zie applyMASettings/applyRSISettings) - dus
     // meteen toepassen op de chart, ook als de bot nog niet gestart is.
@@ -1761,6 +1766,11 @@ function startAutonomousBot(isAutoRestart = false) {
     }
     // Start je interval hier
     botInterval = setInterval(botHeartbeat, 1000); 
+    // Level 2: train het model bij de start (en elke 30 min opnieuw) op historische
+    // candles + schone trades, zodat de gekalibreerde kans meegroeit met de data.
+    l2BuildAndTrain().then(r => { if (r && r.ok) console.log(`Level 2 getraind op ${r.samples} samples (${r.trades} echte trades).`); });
+    if (window._l2Retrain) clearInterval(window._l2Retrain);
+    window._l2Retrain = setInterval(() => { l2BuildAndTrain(); }, 30 * 60 * 1000);
     document.getElementById('bot-status').innerText = "ACTIEF";
 
     const startBtn = document.getElementById('btn-start-bot');
@@ -2465,8 +2475,22 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     //   raw 50 -> 50 | raw 70 -> 75 | raw 90 -> 90 | raw 110 -> 97 | raw 131 -> 99
     // Zo blijft een ruwe 131 ook zichtbaar sterker dan een ruwe 101, en betekent
     // een reallocatie-marge van X punten weer echt iets.
-    return logisticCompress(score);
+    const base = logisticCompress(score);
+    // NIVEAU 2: als het getrainde model beschikbaar is, meng zijn gekalibreerde
+    // kans mee. L2 voorspelt de LONG-winstkans; voor een SHORT draaien we hem om.
+    // Conservatieve blend (40% L2, 60% bestaand) zodat het model bijstuurt maar
+    // niet plots domineert - het groeit mee met de data.
+    if (_l2 && _l2.trained && rawData && rawData.length > 22) {
+        const pl = l2Predict(rawData, rawData.length - 1);
+        if (pl != null && isFinite(pl)) {
+            const l2Pct = (side === 'SHORT' ? (1 - pl) : pl) * 100;
+            return Math.round(base * 0.6 + l2Pct * 0.4);
+        }
+    }
+    return base;
 }
+
+
 
 function logisticCompress(rawScore) {
     const compressed = 100 / (1 + Math.exp(-(rawScore - 50) / 18));
@@ -3607,7 +3631,14 @@ function finalizeClosePosition(pos, pnlPct, reason) {
             // en de gewichten-herijking (zie computeCalibrationMap /
             // recalibrateAdaptiveWeights).
             manual: pos.isManual === true,
-            botWouldEnter: pos.botWouldEnter ?? null
+            botWouldEnter: pos.botWouldEnter ?? null,
+            // ---- Datahygiëne voor Level 2 ----
+            // Een vingerafdruk van de config die actief was bij deze trade. Zo kan
+            // de leerlaag automatisch alleen trainen op trades uit hetzelfde regime
+            // (bijv. collapse-uit) en nooit meer oude en nieuwe data mengen.
+            configVersion: currentConfigVersion(),
+            entryHourUTC: pos.openTime ? new Date(pos.openTime).getUTCHours() : new Date().getUTCHours(),
+            isIct: pos.isIct === true
         });
         if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
         recalibrateAdaptiveWeights();
@@ -4264,6 +4295,162 @@ function volumeProfileBias(price) {
     const bias = range > 0 ? (poc - price) / range * 0.3 : 0;
     return { bias, note: `binnen value area, POC ${poc.toFixed(0)}` };
 }
+
+// ============================================================
+// LEVEL 2 — logistische regressie ("het eerste neuron")
+// ============================================================
+// Doel: een GEKALIBREERDE winstkans leren uit data, in plaats van de vaste,
+// overmoedige confluence-score. Draait volledig client-side, kosteloos.
+//
+// Twee databronnen:
+//   1) echte trades (learningLog) — weinig maar direct relevant
+//   2) historische candles — duizenden gratis "labels": van elke candle kunnen
+//      we achteraf berekenen of de prijs daarna steeg of daalde. Zo heeft het
+//      model genoeg data om stabiele gewichten te leren.
+//
+// Het model is bewust klein (1 neuron, 6 features + bias). Bij >500 schone
+// trades kan hier later een verborgen laag bovenop. Nu eerst stabiel en eerlijk.
+
+let _l2 = {
+    weights: null,        // [w_vfm, w_mom, w_er, w_fib, w_pattern, w_svp]
+    bias: 0,
+    mean: null, std: null, // feature-normalisatie
+    trained: false,
+    trainedOn: 0,         // aantal samples
+    lastTrainMs: 0,
+    lastActivation: null  // laatste forward-pass (voor de visualisatie)
+};
+const L2_FEATURES = ['vfm', 'momentum', 'er', 'fib', 'pattern', 'svp'];
+
+// Config-vingerafdruk: welke instellingen bepalen of trades vergelijkbaar zijn.
+function currentConfigVersion() {
+    const s = botSettings;
+    return `pc${s.probCollapseEnabled ? 1 : 0}_es${Math.round((s.minLossForEarlyExit || 0) * 1000)}_mp${s.minProbabilityPct}`;
+}
+
+// --- feature-vector uit een reeks candles op index i (kijkt alleen naar het
+// verleden t/m i, nooit vooruit) ---
+function l2ExtractFeatures(kl, i) {
+    if (i < 20 || i >= kl.length) return null;
+    const c = kl.slice(i - 20, i + 1).map(k => ({ o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5] }));
+    const last = c[c.length - 1], prev = c[c.length - 2];
+    const closes = c.map(x => x.c), vols = c.map(x => x.v);
+    // vfm: prijsverandering gewogen met volume (genormaliseerd)
+    const priceChg = (last.c - c[0].c) / c[0].c;
+    const avgVol = vols.reduce((a, b) => a + b, 0) / vols.length;
+    const volRatio = avgVol > 0 ? last.v / avgVol : 1;
+    const vfm = Math.tanh(priceChg * 40) * Math.min(2, volRatio);
+    // momentum: helling van de laatste 5 closes
+    const mom = closes.length >= 6 ? (closes[closes.length - 1] - closes[closes.length - 6]) / closes[closes.length - 6] : 0;
+    const momentum = Math.tanh(mom * 60);
+    // er (efficiency ratio): netto beweging / totale beweging (0..1)
+    let pathLen = 0; for (let j = 1; j < closes.length; j++) pathLen += Math.abs(closes[j] - closes[j - 1]);
+    const er = pathLen > 0 ? Math.abs(closes[closes.length - 1] - closes[0]) / pathLen : 0;
+    // fib: nabijheid van een 0.5/0.618-retracement in het venster (0..1)
+    const hi = Math.max(...c.map(x => x.h)), lo = Math.min(...c.map(x => x.l));
+    const rng = hi - lo;
+    let fib = 0;
+    if (rng > 0) { const pos = (last.c - lo) / rng; fib = 1 - Math.min(Math.abs(pos - 0.5), Math.abs(pos - 0.382), Math.abs(pos - 0.618)) * 2; }
+    // pattern: eenvoudige candle-signaalsterkte (bullish/bearish body vs wick)
+    const body = last.c - last.o, range = last.h - last.l || 1;
+    const pattern = Math.tanh((body / range) * 2);
+    // svp: positie t.o.v. value area indien beschikbaar, anders 0
+    let svp = 0;
+    if (_volumeProfile) { const b = volumeProfileBias(last.c); svp = b.bias * 2; }
+    return [vfm, momentum, er, fib, pattern, svp];
+}
+
+// --- label: steeg de prijs in de volgende `horizon` candles met > drempel? ---
+function l2Label(kl, i, horizon = 5, thr = 0.001) {
+    if (i + horizon >= kl.length) return null;
+    const entry = +kl[i][4], future = +kl[i + horizon][4];
+    return (future - entry) / entry > thr ? 1 : 0;   // 1 = long zou gewonnen hebben
+}
+
+function sigmoid(z) { return 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, z)))); }
+
+// --- training via gradient descent op genormaliseerde features ---
+function l2Train(samples, epochs = 220, lr = 0.12) {
+    if (!samples || samples.length < 40) return false;
+    const n = L2_FEATURES.length;
+    // normalisatie
+    const mean = Array(n).fill(0), std = Array(n).fill(0);
+    samples.forEach(s => s.x.forEach((v, k) => mean[k] += v));
+    mean.forEach((_, k) => mean[k] /= samples.length);
+    samples.forEach(s => s.x.forEach((v, k) => std[k] += (v - mean[k]) ** 2));
+    std.forEach((_, k) => std[k] = Math.sqrt(std[k] / samples.length) || 1);
+    const norm = x => x.map((v, k) => (v - mean[k]) / std[k]);
+
+    let w = Array(n).fill(0), b = 0;
+    for (let ep = 0; ep < epochs; ep++) {
+        const gw = Array(n).fill(0); let gb = 0;
+        for (const s of samples) {
+            const xn = norm(s.x);
+            const p = sigmoid(xn.reduce((a, v, k) => a + v * w[k], b));
+            const err = p - s.y;
+            for (let k = 0; k < n; k++) gw[k] += err * xn[k];
+            gb += err;
+        }
+        for (let k = 0; k < n; k++) w[k] -= lr * gw[k] / samples.length;
+        b -= lr * gb / samples.length;
+    }
+    _l2 = { weights: w, bias: b, mean, std, trained: true, trainedOn: samples.length, lastTrainMs: Date.now(), lastActivation: null };
+    try { localStorage.setItem('osirisL2', JSON.stringify({ weights: w, bias: b, mean, std, trainedOn: samples.length })); } catch (e) {}
+    return true;
+}
+
+// --- bouw de trainingsset: historische candles (veel) + echte trades (weinig) ---
+async function l2BuildAndTrain() {
+    const samples = [];
+    // 1) historische candles over meerdere timeframes voor variatie
+    for (const iv of ['15m', '1h']) {
+        try {
+            const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${iv}&limit=1000`);
+            const kl = await r.json();
+            for (let i = 20; i < kl.length - 6; i += 1) {
+                const x = l2ExtractFeatures(kl, i);
+                const y = l2Label(kl, i);
+                if (x && y !== null) samples.push({ x, y });
+            }
+        } catch (e) { console.warn('L2 historische fetch faalde', iv, e); }
+    }
+    // 2) echte schone trades zwaarder laten meewegen (dupliceren) - dezelfde
+    //    config, geen handmatige, met factoren.
+    const cfg = currentConfigVersion();
+    const schoon = learningLog.filter(l => !l.manual && l.factors && l.configVersion === cfg && l.outcome);
+    schoon.forEach(l => {
+        const f = l.factors;
+        const x = [
+            Math.tanh((f.confluence || 0) / 5), Math.tanh((f.momentumInfluence || 0)),
+            (f.erAtEntry || 0.5), (f.fibConfluenceInfluence || 0), Math.tanh((f.patternInfluence || 0)), 0
+        ];
+        const y = l.outcome === 'win' ? 1 : 0;
+        for (let d = 0; d < 8; d++) samples.push({ x, y });   // echte trades tellen 8x
+    });
+    const ok = l2Train(samples);
+    if (typeof updateL2UI === 'function') updateL2UI();
+    return ok ? { ok: true, samples: samples.length, trades: schoon.length } : { ok: false, samples: samples.length };
+}
+
+// --- voorspelling: gekalibreerde winstkans voor de huidige markt ---
+function l2Predict(kl, i) {
+    if (!_l2.trained || !_l2.weights) return null;
+    const x = (Array.isArray(kl) && typeof i === 'number') ? l2ExtractFeatures(kl, i) : kl;
+    if (!x) return null;
+    const xn = x.map((v, k) => (v - _l2.mean[k]) / _l2.std[k]);
+    const contrib = xn.map((v, k) => v * _l2.weights[k]);
+    const z = contrib.reduce((a, v) => a + v, _l2.bias);
+    const p = sigmoid(z);
+    _l2.lastActivation = { features: x, normalized: xn, contrib, z, prob: p };
+    return p;
+}
+
+// herstel een eerder getraind model bij het laden
+try {
+    const saved = localStorage.getItem('osirisL2');
+    if (saved) { const o = JSON.parse(saved); _l2 = { ..._l2, ...o, trained: true }; }
+} catch (e) {}
+
 
 // ============================================================
 // ICT / SMART-MONEY CASCADE
@@ -6411,6 +6598,10 @@ function updateFlowHud() {
 // Scroll-landing: de pagina begint altijd bovenaan bij de intro (geen
 // auto-scroll naar een opgeslagen sectie meer).
 setInterval(updateFlowHud, 1000);
+setInterval(() => { try {
+    if (_l2 && _l2.trained && typeof rawData !== 'undefined' && rawData && rawData.length > 22) l2Predict(rawData, rawData.length - 1);
+    if (typeof updateL2UI === 'function') updateL2UI();
+} catch (e) {} }, 2000);
 
 // ============================================================
 // SCROLL-LANDING (v4): decoratief oog (hero/engine), starmap, jump-rails,
@@ -6589,6 +6780,225 @@ function initScrollSpy() {
     addEventListener('scroll', spy); spy();
 }
 
+
+// ============================================================
+// NEO MARK 1 — 3D puntenwolk-kop naast het oog (Level-2 visualisatie)
+// ============================================================
+// Een anatomische kop van ~1700 punten in echte 3D: bij het laden vliegen de
+// punten vanuit alle richtingen naar hun plek (de kop "vormt zichzelf uit
+// data"), daarna roteert hij continu met perspectief. Gezichtskenmerken
+// (neusbrug, jukbeenderen) lichten feller op voor diepte. Synapsen vuren als
+// lichtgevende driehoeken die van plek naar plek springen. De puntdichtheid
+// groeit mee met het aantal schone trades; de synaps-frequentie met de
+// model-activiteit. Canvas-gebaseerd: licht genoeg naast de bot-loop (30fps).
+
+let _neo = { pts: [], links: [], tris: [], formed: 0, formStart: null, rotY: 0, raf: null, lastFrame: 0, visiblePts: 400 };
+
+function _neoHeadRadius(theta, phi) {
+    let r = 1;
+    r *= (0.86 + 0.14 * Math.sin(theta));
+    if (theta < 0.55) r *= (0.78 + 0.28 * (theta / 0.55));                       // afgeplatte kruin
+    if (theta > 0.75 && theta < 1.55 && Math.abs(phi) < 0.9) r += 0.05 * Math.exp(-Math.pow((theta - 1.05) / 0.35, 2)) * Math.max(0, Math.cos(phi));  // voorhoofd
+    if (theta > 1.55 && theta < 2.05 && Math.abs(phi) < 0.5) r -= 0.09 * Math.exp(-Math.pow((theta - 1.8) / 0.22, 2));   // oogkassen
+    if (theta > 1.35 && theta < 1.95 && Math.abs(phi) < 0.42) {                   // neusbrug + punt
+        const nose = Math.exp(-Math.pow((theta - 1.68) / 0.28, 2)) * Math.exp(-Math.pow(phi / 0.30, 2));
+        r += 0.20 * nose;
+    }
+    if (theta > 1.55 && theta < 1.85 && Math.abs(phi) < 0.55) r += 0.06 * Math.exp(-Math.pow((theta - 1.7) / 0.2, 2)) * Math.exp(-Math.pow((Math.abs(phi) - 0.35) / 0.2, 2));  // jukbeenderen
+    if (theta > 2.05) { const k = (theta - 2.05) / 0.75; r *= (1 - 0.30 * k); r -= 0.05 * Math.exp(-Math.pow(phi / 0.35, 2)) * k; }  // kaak versmalt naar kin
+    if (Math.abs(Math.abs(phi) - 1.5) < 0.30 && theta > 1.15 && theta < 1.65) r += 0.11 * Math.exp(-Math.pow((Math.abs(phi) - 1.5) / 0.16, 2));  // oren
+    r -= 0.10 * Math.pow(Math.max(0, Math.sin(phi * 2)), 1.5) * Math.max(0, Math.sin(theta - 0.6));  // slapen
+    if (theta > 2.6) r -= 0.65 * (theta - 2.6);
+    return Math.max(0.15, r);
+}
+
+function buildCortex() {
+    const cv = document.getElementById('neo-canvas');
+    if (!cv) return;
+    const N = 1500, pts = [];
+    for (let i = 0; i < N; i++) {
+        const u = Math.random(), v = Math.random();
+        const theta = Math.acos(1 - 2 * u) * 0.96 + 0.04;
+        const phi = (v * 2 - 1) * Math.PI;
+        const r = _neoHeadRadius(theta, phi);
+        const x = r * Math.sin(theta) * Math.sin(phi);
+        const y = r * Math.cos(theta) * 1.55 - 0.35;
+        const z = r * Math.sin(theta) * Math.cos(phi);
+        const glow = (theta > 1.35 && theta < 1.95 && Math.abs(phi) < 0.5) || (Math.abs(Math.abs(phi) - 1.5) < 0.30 && theta > 1.15 && theta < 1.65);
+        const ang0 = Math.random() * Math.PI * 2, rad0 = 2.5 + Math.random() * 2.5, el0 = (Math.random() - 0.5) * Math.PI;
+        pts.push({
+            tx: x, ty: y, tz: z,
+            x: Math.cos(el0) * Math.cos(ang0) * rad0, y: Math.sin(el0) * rad0, z: Math.cos(el0) * Math.sin(ang0) * rad0,
+            tw: Math.random() * Math.PI * 2, sp: 0.5 + Math.random() * 1.5, glow,
+            c: glow ? '#eaffff' : (Math.random() > 0.75 ? '#bfeeff' : (Math.random() > 0.4 ? '#7fd8ff' : '#3fa8e0'))
+        });
+    }
+    // hals + schouderaanzet
+    for (let i = 0; i < 180; i++) {
+        const t = i / 180, theta = 2.15 + t * 0.8 + Math.random() * 0.15, phi = (Math.random() - 0.5) * 2.6;
+        const rr = _neoHeadRadius(theta, phi) * (1.0 + t * 0.5);
+        const x = rr * Math.sin(theta) * Math.sin(phi) * 1.15, z = rr * Math.sin(theta) * Math.cos(phi) * 1.15;
+        const y = Math.cos(theta) * 1.55 - 0.35 - t * 0.9;
+        const ang0 = Math.random() * Math.PI * 2, rad0 = 2.5 + Math.random() * 2.5, el0 = (Math.random() - 0.5) * Math.PI;
+        pts.push({
+            tx: x, ty: y, tz: z,
+            x: Math.cos(el0) * Math.cos(ang0) * rad0, y: Math.sin(el0) * rad0, z: Math.cos(el0) * Math.sin(ang0) * rad0,
+            tw: Math.random() * Math.PI * 2, sp: 0.5 + Math.random() * 1.5, glow: false, c: '#3fa8e0'
+        });
+    }
+    // vaste netwerklijnen tussen nabije punten
+    const links = [];
+    for (let i = 0; i < 400; i++) {
+        const a = (Math.random() * N) | 0, b = (Math.random() * N) | 0;
+        const dx = pts[a].tx - pts[b].tx, dy = pts[a].ty - pts[b].ty, dz = pts[a].tz - pts[b].tz;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > 0.06 && d < 0.26) links.push({ a, b });
+        if (links.length >= 150) break;
+    }
+    // synaps-driehoeken: drie verbonden knopen die samen oplichten en rondspringen
+    const tris = [];
+    for (let i = 0; i < 40 && tris.length < 8; i++) {
+        const l1 = links[(Math.random() * links.length) | 0]; if (!l1) break;
+        const a = l1.a, b = l1.b;
+        const cand = links.filter(l => l.a === b || l.b === b);
+        if (!cand.length) continue;
+        const l2 = cand[(Math.random() * cand.length) | 0];
+        const c = l2.a === b ? l2.b : l2.a;
+        if (c === a) continue;
+        tris.push({ a, b, c, t: Math.random() * 3, dur: 2.4 + Math.random() * 1.4 });
+    }
+    _neo = { pts, links, tris, formed: 0, formStart: null, rotY: 0, raf: _neo.raf, lastFrame: 0, visiblePts: 400 };
+    if (!_neo.raf) _neo.raf = requestAnimationFrame(_neoFrame);
+}
+
+function _neoPickTri(f) {
+    const L = _neo.links; if (!L.length) return;
+    const l1 = L[(Math.random() * L.length) | 0];
+    const a = l1.a, b = l1.b;
+    const cand = L.filter(l => l.a === b || l.b === b);
+    const l2 = cand.length ? cand[(Math.random() * cand.length) | 0] : l1;
+    const c = l2.a === b ? l2.b : l2.a;
+    f.a = a; f.b = b; f.c = c === a ? l1.b : c; f.t = 0;
+}
+
+function _neoFrame(now) {
+    _neo.raf = requestAnimationFrame(_neoFrame);
+    if (now - _neo.lastFrame < 33) return;   // ~30fps, licht naast de bot-loop
+    const dt = Math.min(0.1, (now - _neo.lastFrame) / 1000) || 0.033;
+    _neo.lastFrame = now;
+    const cv = document.getElementById('neo-canvas');
+    if (!cv) return;
+    const rect = cv.getBoundingClientRect();
+    if (rect.width < 10) return;             // niet zichtbaar
+    if (cv.width !== Math.round(rect.width * 2)) { cv.width = rect.width * 2; cv.height = rect.height * 2; }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(2, 0, 0, 2, 0, 0);
+    const w = rect.width, h = rect.height;
+
+    if (_neo.formStart === null) _neo.formStart = now;
+    const el = now - _neo.formStart - 300;
+    const raw = el <= 0 ? 0 : Math.min(1, el / 3200);
+    _neo.formed = 1 - Math.pow(1 - raw, 3);
+    _neo.rotY += dt * 0.24;
+
+    ctx.fillStyle = '#05060d'; ctx.fillRect(0, 0, w, h);
+    const cx = w * 0.5, cy = h * 0.5, scale = Math.min(w, h) * 0.36;
+    const cosr = Math.cos(_neo.rotY), sinr = Math.sin(_neo.rotY);
+    const F = _neo.formed;
+
+    // groei: puntdichtheid stijgt met het aantal schone trades (300 = vol)
+    const zichtbaar = Math.min(_neo.pts.length, _neo.visiblePts);
+
+    const proj = new Array(_neo.pts.length);
+    for (let i = 0; i < _neo.pts.length; i++) {
+        const p = _neo.pts[i];
+        const x3 = p.x + (p.tx - p.x) * F, y3 = p.y + (p.ty - p.y) * F, z3 = p.z + (p.tz - p.z) * F;
+        const rx = x3 * cosr + z3 * sinr, rz = -x3 * sinr + z3 * cosr;
+        const persp = 1 / (2.4 - rz * 0.6);
+        proj[i] = { sx: cx + rx * scale * persp, sy: cy + y3 * scale * persp, persp };
+    }
+    // netwerklijnen (statisch web)
+    ctx.strokeStyle = `rgba(63,168,224,${0.09 * F})`;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    for (const l of _neo.links) {
+        if (l.a >= zichtbaar || l.b >= zichtbaar) continue;
+        const A = proj[l.a], B = proj[l.b];
+        ctx.moveTo(A.sx, A.sy); ctx.lineTo(B.sx, B.sy);
+    }
+    ctx.stroke();
+    // punten met twinkeling; gezichtskenmerken feller (diepte)
+    for (let i = 0; i < zichtbaar; i++) {
+        const p = _neo.pts[i], q = proj[i];
+        const tw = 0.35 + 0.5 * (0.5 + 0.5 * Math.sin(now / 700 * p.sp + p.tw));
+        const base = p.glow ? 1.4 : 0.85;
+        ctx.globalAlpha = F * (p.glow ? Math.max(tw, 0.55) : tw);
+        ctx.fillStyle = p.c;
+        ctx.beginPath(); ctx.arc(q.sx, q.sy, (base + 1.0 * q.persp) * (0.6 + 0.4 * tw) * (p.glow ? 1.25 : 1), 0, 6.283); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // synaps-driehoeken: frequentie schaalt met model-activiteit
+    const act = (_l2 && _l2.trained) ? 1 : 0.5;
+    for (const f of _neo.tris) {
+        f.t += dt * act;
+        if (f.t > f.dur) { _neoPickTri(f); continue; }
+        const k = f.t / f.dur, glow = Math.sin(k * Math.PI);
+        if (glow < 0.03) continue;
+        const A = proj[f.a], B = proj[f.b], C = proj[f.c];
+        if (!A || !B || !C) continue;
+        ctx.strokeStyle = `rgba(234,255,255,${glow * 0.85 * F})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(B.sx, B.sy); ctx.lineTo(C.sx, C.sy); ctx.closePath(); ctx.stroke();
+        ctx.fillStyle = '#eaffff'; ctx.globalAlpha = glow * F;
+        for (const P of [A, B, C]) { ctx.beginPath(); ctx.arc(P.sx, P.sy, 1.8, 0, 6.283); ctx.fill(); }
+        ctx.globalAlpha = 1;
+    }
+}
+
+// koppelt de NEO-groei en cijfers aan de Level-2 toestand
+function updateCortexActivation() {
+    const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : '';
+    const schoon = (typeof learningLog !== 'undefined') ? learningLog.filter(l => !l.manual && l.configVersion === cfg && l.outcome).length : 0;
+    // groei: van 400 basis-punten naar de volledige wolk bij 300 schone trades
+    const doel = 400 + Math.min(1, schoon / 300) * (_neo.pts.length - 400);
+    _neo.visiblePts = Math.round(doel);
+    const sEl = document.getElementById('neo-samples');
+    if (sEl) sEl.textContent = _l2 && _l2.trainedOn ? _l2.trainedOn : 0;
+    const pEl = document.getElementById('neo-prob');
+    if (pEl && _l2 && _l2.lastActivation) pEl.textContent = `${Math.round(_l2.lastActivation.prob * 100)}%`;
+}
+
+function updateL2UI() {
+    const st = document.getElementById('cortex-status');
+    const leg = document.getElementById('cortex-legend');
+    const tr = document.getElementById('cortex-trades');
+    const pr = document.getElementById('cortex-progress');
+    if (!_l2) return;
+    if (st) st.textContent = _l2.trained ? `getraind · ${_l2.trainedOn} samples` : 'nog niet getraind';
+    if (tr) tr.textContent = _l2.trainedOn || 0;
+    if (pr) {
+        // voortgang: schone trades richting een stabiel model (ruwweg 300)
+        const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : '';
+        const schoon = (typeof learningLog !== 'undefined') ? learningLog.filter(l => !l.manual && l.configVersion === cfg && l.outcome).length : 0;
+        pr.style.width = Math.min(100, (schoon / 300) * 100).toFixed(0) + '%';
+    }
+    if (leg && _l2.trained && _l2.weights) {
+        const labs = ['vfm', 'mom', 'er', 'fib', 'patroon', 'svp'];
+        const top = _l2.weights.map((w, i) => ({ l: labs[i], w })).sort((a, b) => Math.abs(b.w) - Math.abs(a.w)).slice(0, 3);
+        leg.innerHTML = 'sterkste signalen: ' + top.map(t => `<span style="color:${t.w > 0 ? 'var(--teal)' : 'var(--red)'};">${t.l} ${t.w > 0 ? '+' : ''}${t.w.toFixed(2)}</span>`).join(' · ');
+    }
+    updateCortexActivation();
+}
+
+function toggleCortexPanel() {
+    const body = document.getElementById('cortex-body');
+    const chev = document.getElementById('cortex-chevron');
+    if (!body) return;
+    const dicht = body.style.display === 'none';
+    body.style.display = dicht ? 'block' : 'none';
+    if (chev) chev.innerHTML = dicht ? '&#9662;' : '&#9656;';
+}
+
 // alles opstarten zodra de DOM klaar is
 (function bootLanding() {
     function go() {
@@ -6598,6 +7008,7 @@ function initScrollSpy() {
         // (v4 gebruikt waypoint-tekst i.p.v. SVG jump-rails)
         try { initScrollSpy(); } catch (e) {}
         try { initFlowHud(); } catch (e) {}
+        try { buildCortex(); updateL2UI(); } catch (e) {}
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
     else go();
