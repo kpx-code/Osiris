@@ -6168,38 +6168,6 @@ function toggleFlowHud() {
 const HUD_BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6', '#b3e5fc'];
 let _eyeSig = [];          // elementen die op bull/bear verkleuren
 let _allEyeSig = [];       // kleurbare elementen van ALLE ogen (hub + hero + engine)
-let _eyeWave = [], _eyeWaveRaf = null, _eyeWaveLast = 0, _eyeWaveStart = null;
-
-// BOUWGOLF voor het oog: dezelfde strepen-animatie als NEO, maar radiaal.
-// Een golf trekt continu van de kern naar de buitenrand; ringen vervagen vlak
-// voor de golf en tekenen zich er direct achter weer op. Loopt op dezelfde
-// 18s-klok als de NEO-bouwgolf zodat oog en kop samen "ademen".
-function _eyeWaveFrame(now) {
-    _eyeWaveRaf = requestAnimationFrame(_eyeWaveFrame);
-    if (now - _eyeWaveLast < 50) return;                    // 20fps volstaat voor opacity
-    _eyeWaveLast = now;
-    if (!_eyeWave.length) return;
-    const start = (typeof _neo !== 'undefined' && _neo.formStart) ? _neo.formStart : (_eyeWaveStart || (_eyeWaveStart = now));
-    const tSec = Math.max(0, (now - start - 300) / 1000);
-    const CYC = 18, SPAN = 1.4, BUILD = 0.28, PRE = 0.14;
-    const L = SPAN + BUILD + PRE;
-    const wave = (tSec / CYC) * L;
-    for (const it of _eyeWave) {
-        let e = 0;
-        if (wave >= it.rFrac) {
-            const db = (wave - it.rFrac) % L;
-            if (db < BUILD) { const k = db / BUILD; e = 1 - Math.pow(1 - k, 3); }       // vormt zich
-            else if (db > L - PRE) { const k = (L - db) / PRE; e = k * k; }             // valt uiteen voor de golf
-            else e = 1;
-        }
-        it.el.style.opacity = e.toFixed(3);
-    }
-}
-let _eyeBits = [];         // binaire cijfers die op sentiment verkleuren
-let _eyePupil = null, _eyeHalo = null, _eyeConf = null;
-let _eyeCX = 500, _eyeCY = 200, _eyeR = 150;
-let EYE_SIGNAL = 'neutral', EYE_BUYERS = 50;
-
 function initFlowHud() {
     if (_flowHudInit) return;
     const host = document.getElementById('w-eye');
@@ -6318,24 +6286,7 @@ function initFlowHud() {
 
     _allEyeSig = _allEyeSig.concat(_eyeSig);
 
-    // --- registratie voor de bouwgolf: straal per element schatten via bbox.
-    // Elementen met een eigen opacity-animatie (vortex-stipjes, radar-blips,
-    // confluence-runner) slaan we over zodat hun fade blijft werken; alles
-    // buiten R*1.4 (labels, dataflow) doet niet mee. ---
-    _eyeWave = [];
-    Array.from(host.children).forEach(el => {
-        if (el.tagName === 'defs') return;
-        try { if (el.querySelector && el.querySelector(':scope > animate[attributeName="opacity"]')) return; } catch (e) {}
-        let bb; try { bb = el.getBBox(); } catch (e) { return; }
-        if (!bb || !isFinite(bb.width) || (bb.width === 0 && bb.height === 0)) return;
-        const bcx = bb.x + bb.width / 2, bcy = bb.y + bb.height / 2;
-        const dist = Math.hypot(bcx - CX, (bcy - CY) / 0.96);
-        const rEst = Math.max(dist, (bb.width + bb.height) / 4);
-        const rFrac = rEst / R;
-        if (rFrac > 1.4) return;
-        _eyeWave.push({ el, rFrac });
-    });
-    if (!_eyeWaveRaf) _eyeWaveRaf = requestAnimationFrame(_eyeWaveFrame);
+
 
     // --- DATAFLOW PACKAGES: 5 kanalen per kant. De startpunten liggen op de
     // ooglid-vormige labelposities (verste in het midden, paren erboven/eronder
@@ -7339,3 +7290,64 @@ function toggleCalibPanel() {
 // --- Handmatige trade-knoppen (counterfactuele data, zie openManualPosition) ---
 document.getElementById('manual-long-btn')?.addEventListener('click', () => openManualPosition('LONG'));
 document.getElementById('manual-short-btn')?.addEventListener('click', () => openManualPosition('SHORT'));
+
+
+// ============================================================
+// SITE-PLEXUS — de vormings-strepen over de HELE website
+// ============================================================
+// Dezelfde beeldtaal als de strepen die NEO's kop vormen: driftende punten,
+// dun verbindingsweefsel en heldere vormings-flitsen, als vaste laag achter
+// de complete pagina zodat de hele site "leeft". Bewust subtiel en licht
+// (~22fps, pauzeert op verborgen tab) zodat de bot-loop er niets van merkt.
+(function initSitePlexus() {
+    function boot() {
+        const cv = document.getElementById('site-plexus');
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        let W = 0, H = 0, last = 0;
+        const N = 64, pts = [];
+        const PAL = ['#00d9ff', '#ff4fd8', '#ffb627', '#14f195', '#c792ea'];
+        for (let i = 0; i < N; i++) {
+            pts.push({ x: Math.random(), y: Math.random(),
+                vx: (Math.random() - 0.5) * 0.010, vy: (Math.random() - 0.5) * 0.008,
+                tw: Math.random() * Math.PI * 2, sp: 0.3 + Math.random(),
+                c: Math.random() < 0.16 ? PAL[(Math.random() * PAL.length) | 0] : '#5fb8e8' });
+        }
+        const stripes = [];
+        for (let i = 0; i < 7; i++) stripes.push({ a: (Math.random() * N) | 0, b: (Math.random() * N) | 0, t: Math.random() * 4, dur: 2.5 + Math.random() * 2 });
+        function frame(now) {
+            requestAnimationFrame(frame);
+            if (document.hidden || now - last < 45) return;
+            const dt = Math.min(0.1, (now - last) / 1000) || 0.045; last = now;
+            if (cv.width !== window.innerWidth || cv.height !== window.innerHeight) { cv.width = W = window.innerWidth; cv.height = H = window.innerHeight; }
+            ctx.clearRect(0, 0, W, H);
+            for (const p of pts) { p.x = (p.x + p.vx * dt + 1) % 1; p.y = (p.y + p.vy * dt + 1) % 1; }
+            ctx.lineWidth = 0.5;
+            for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+                const a = pts[i], b = pts[j];
+                const dx = (a.x - b.x) * W, dy = (a.y - b.y) * H;
+                const d2 = dx * dx + dy * dy;
+                if (d2 > 44100) continue;
+                ctx.strokeStyle = `rgba(70,150,210,${(1 - Math.sqrt(d2) / 210) * 0.10})`;
+                ctx.beginPath(); ctx.moveTo(a.x * W, a.y * H); ctx.lineTo(b.x * W, b.y * H); ctx.stroke();
+            }
+            for (const p of pts) {
+                const tw = 0.25 + 0.5 * (0.5 + 0.5 * Math.sin(now / 900 * p.sp + p.tw));
+                ctx.globalAlpha = tw; ctx.fillStyle = p.c;
+                ctx.fillRect(p.x * W - 1, p.y * H - 1, 2, 2);
+            }
+            ctx.globalAlpha = 1;
+            for (const s of stripes) {
+                s.t += dt;
+                if (s.t > s.dur) { s.a = (Math.random() * N) | 0; s.b = (Math.random() * N) | 0; s.t = 0; continue; }
+                const k = s.t / s.dur, glow = Math.sin(k * Math.PI);
+                const a = pts[s.a], b = pts[s.b];
+                ctx.strokeStyle = `rgba(180,230,255,${glow * 0.35})`;
+                ctx.lineWidth = 0.8;
+                ctx.beginPath(); ctx.moveTo(a.x * W, a.y * H); ctx.lineTo(b.x * W, b.y * H); ctx.stroke();
+            }
+        }
+        requestAnimationFrame(frame);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
