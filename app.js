@@ -6330,6 +6330,11 @@ function initFlowHud() {
     applyEyeSignal(); applyEyeSentiment();
 }
 
+// De actuele oog-richting ('bull' | 'bear' | 'neutral') - stuurt de kleuren
+// van alle ogen. Hersteld: deze declaratie verdween per ongeluk bij het
+// verwijderen van de bouwgolf-code.
+let EYE_SIGNAL = 'neutral';
+
 // bull/bear kleurt de structurele elementen; iris-cijfers slaan we over (sentiment stuurt die)
 function eyeColor() {
     if (EYE_SIGNAL === 'bull') return '#14f195';
