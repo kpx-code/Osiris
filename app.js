@@ -7358,3 +7358,71 @@ document.getElementById('manual-short-btn')?.addEventListener('click', () => ope
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
+
+
+// ============================================================
+// OOG-PLEXUS — de vormings-strepen rond het Ocular Core
+// ============================================================
+// Zelfde beeldtaal als de site-plexus en de strepen die NEO's kop vormen,
+// maar lokaal achter het oog: driftende punten, dun weefsel, en heldere
+// vormings-flitsen waarvan de helft naar het oogcentrum schiet - alsof de
+// strepen het oog continu vormen. Achter de SVG (z-index), raakt niets aan
+// de bestaande oog-animaties. ~22fps, pauzeert op verborgen tab.
+(function initEyePlexus() {
+    function boot() {
+        const cv = document.getElementById('eye-plexus');
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        let W = 0, H = 0, last = 0;
+        const N = 42, pts = [];
+        const PAL = ['#00d9ff', '#ff4fd8', '#ffb627', '#14f195', '#c792ea'];
+        for (let i = 0; i < N; i++) {
+            pts.push({ x: Math.random(), y: Math.random(),
+                vx: (Math.random() - 0.5) * 0.012, vy: (Math.random() - 0.5) * 0.010,
+                tw: Math.random() * Math.PI * 2, sp: 0.3 + Math.random(),
+                c: Math.random() < 0.18 ? PAL[(Math.random() * PAL.length) | 0] : '#5fb8e8' });
+        }
+        // flitsen: helft punt-naar-punt, helft punt-naar-oogcentrum (vormend)
+        const stripes = [];
+        for (let i = 0; i < 8; i++) stripes.push({ a: (Math.random() * N) | 0, b: (Math.random() * N) | 0, naarOog: i % 2 === 0, t: Math.random() * 4, dur: 2.2 + Math.random() * 2 });
+        function frame(now) {
+            requestAnimationFrame(frame);
+            if (document.hidden || now - last < 45) return;
+            const dt = Math.min(0.1, (now - last) / 1000) || 0.045; last = now;
+            const rect = cv.getBoundingClientRect();
+            if (rect.width < 10) return;
+            if (cv.width !== Math.round(rect.width)) { cv.width = W = Math.round(rect.width); cv.height = H = Math.round(rect.height); }
+            ctx.clearRect(0, 0, W, H);
+            const ecx = W * 0.5, ecy = H * 0.5;                 // oogcentrum (svg is gecentreerd)
+            for (const p of pts) { p.x = (p.x + p.vx * dt + 1) % 1; p.y = (p.y + p.vy * dt + 1) % 1; }
+            ctx.lineWidth = 0.5;
+            for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+                const a = pts[i], b = pts[j];
+                const dx = (a.x - b.x) * W, dy = (a.y - b.y) * H;
+                const d2 = dx * dx + dy * dy;
+                if (d2 > 32400) continue;                        // 180px
+                ctx.strokeStyle = `rgba(70,150,210,${(1 - Math.sqrt(d2) / 180) * 0.10})`;
+                ctx.beginPath(); ctx.moveTo(a.x * W, a.y * H); ctx.lineTo(b.x * W, b.y * H); ctx.stroke();
+            }
+            for (const p of pts) {
+                const tw = 0.25 + 0.5 * (0.5 + 0.5 * Math.sin(now / 900 * p.sp + p.tw));
+                ctx.globalAlpha = tw; ctx.fillStyle = p.c;
+                ctx.fillRect(p.x * W - 1, p.y * H - 1, 2, 2);
+            }
+            ctx.globalAlpha = 1;
+            for (const s of stripes) {
+                s.t += dt;
+                if (s.t > s.dur) { s.a = (Math.random() * N) | 0; s.b = (Math.random() * N) | 0; s.t = 0; continue; }
+                const k = s.t / s.dur, glow = Math.sin(k * Math.PI);
+                const a = pts[s.a];
+                const bx = s.naarOog ? ecx : pts[s.b].x * W, by = s.naarOog ? ecy : pts[s.b].y * H;
+                ctx.strokeStyle = `rgba(180,230,255,${glow * 0.35})`;
+                ctx.lineWidth = 0.8;
+                ctx.beginPath(); ctx.moveTo(a.x * W, a.y * H); ctx.lineTo(bx, by); ctx.stroke();
+                if (s.naarOog) { ctx.fillStyle = '#bfeeff'; ctx.globalAlpha = glow * 0.8; ctx.beginPath(); ctx.arc(bx, by, 1.8, 0, 6.283); ctx.fill(); ctx.globalAlpha = 1; }
+            }
+        }
+        requestAnimationFrame(frame);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
