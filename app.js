@@ -157,6 +157,17 @@ let botSettings = {
     rangeScalpProfitTargetPct: 0.3,  // klein, vast winstdoel (kan ook 0.2 zijn, instelbaar)
     rangeScalpStopLossPct: 0.5,      // eigen, krappere stop-loss dan de normale 2% - past bij het kleinere doel
     rangeScalpAllocationPct: 0.10,   // vaste, kleine allocatie per scalp (i.p.v. confluence-geschaald zoals trend-trades)
+    // --- MICRO-SCALP FAST-LANE: separate fast path, OFF by default ---
+    // Reacts within seconds on the RAW (un-smoothed) directional signal with a
+    // short confirmation window, so it can catch quick micro moves the smoothed
+    // trend engine misses. Fully separate from the trend engine and from the
+    // trend calibration; its trades feed only the scalp learning track.
+    microFastLaneEnabled: false,     // default OFF - user enables it in the config
+    microTargetPct: 0.25,            // small fixed profit target
+    microStopPct: 0.30,              // tight stop
+    microAllocPct: 0.05,             // small fixed allocation per micro-scalp
+    microMinProbPct: 72,             // raw probability needed to arm the entry
+    microConfirmSeconds: 4,          // raw signal must hold this long before entry
     // --- CHASE: pending order eerder invullen als het signaal heel sterk blijft ---
     chaseEnabled: true,
     chaseProbabilityThreshold: 90,  // pas chasen bij een duidelijk hogere kans dan de gewone entry-drempel
@@ -475,6 +486,11 @@ let lastOsirisDecision = null;
 // ============================================================
 let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0 };
 let learningLog = []; // { timestampMs, side, factors: {confluence, nodeInfluence, momentumInfluence, fibConfluenceInfluence, probabilityPct}, outcome: 'win'|'loss', pnlPct }
+// Separate scalp learning track. Range-scalps and micro-scalps have no confluence
+// factor breakdown, so they never enter learningLog / the trend calibration. Instead
+// they log here with scalp-relevant features (RSI band, range position, chaos level)
+// so each scalp still teaches something - in its own bucket, not the trend brain's.
+let scalpLog = []; // { timestampMs, side, isMicro, rsi, rangePos, chaos, outcome, pnlPct, holdMinutes, configVersion }
 let lastReallocationAt = 0; // timestamp (ms) van de laatste reallocatie - voor de cooldown-poort in tryReallocateForBetterOpportunity
 // FIX (crash 12-07): sessionLog stond gedeclareerd op ~regel 1200, terwijl
 // loadPersistentState() - dat sessionLog herstelt - al op ~regel 978 draait.
@@ -1324,6 +1340,7 @@ function savePersistentState() {
         }));
         // NIVEAU 1: leer-log en adaptieve gewichten - de kern van "leren van fouten"
         localStorage.setItem('osirisLearningLog', JSON.stringify(learningLog));
+        localStorage.setItem('osirisScalpLog', JSON.stringify(scalpLog.slice(-2000)));
         localStorage.setItem('osirisAdaptiveWeights', JSON.stringify(adaptiveWeights));
     } catch (e) { console.warn("Kon wallet/positie-status niet opslaan:", e); }
 }
@@ -1373,6 +1390,7 @@ function loadPersistentState() {
         }
         if (sl) sessionLog = JSON.parse(sl);
         if (ll) learningLog = JSON.parse(ll);
+        try { const scl = localStorage.getItem('osirisScalpLog'); if (scl) scalpLog = JSON.parse(scl); } catch (e) {}
         if (aw) adaptiveWeights = JSON.parse(aw);
         computeCalibrationMap(); // pas NA het herstellen van alle state - zodat een
                                  // fout hier nooit meer een herstel-regel kan blokkeren
@@ -1428,6 +1446,12 @@ function populateSettingsInputsFromState() {
     setVal('range-scalp-target-pct', s.rangeScalpProfitTargetPct);
     setVal('range-scalp-stop-pct', s.rangeScalpStopLossPct);
     setVal('range-scalp-alloc-pct', (s.rangeScalpAllocationPct * 100).toFixed(0));
+    setVal('micro-fastlane-enabled', String(s.microFastLaneEnabled ?? false));
+    setVal('micro-target-pct', s.microTargetPct ?? 0.25);
+    setVal('micro-stop-pct', s.microStopPct ?? 0.30);
+    setVal('micro-alloc-pct', ((s.microAllocPct ?? 0.05) * 100).toFixed(0));
+    setVal('micro-min-prob', s.microMinProbPct ?? 72);
+    setVal('micro-confirm-sec', s.microConfirmSeconds ?? 4);
     setVal('chase-probability-pct', s.chaseProbabilityThreshold);
     setVal('chase-after-minutes', s.chaseAfterMinutes);
     setVal('reallocation-enabled', s.reallocationEnabled ? 'true' : 'false');
@@ -1628,6 +1652,18 @@ function readTradingSettingsFromInputs() {
     if (rangeScalpAllocInput && !isNaN(parseFloat(rangeScalpAllocInput.value))) {
         botSettings.rangeScalpAllocationPct = Math.min(Math.max(parseFloat(rangeScalpAllocInput.value) / 100, 0), 1);
     }
+    const microEnabledInput = document.getElementById('micro-fastlane-enabled');
+    if (microEnabledInput) botSettings.microFastLaneEnabled = microEnabledInput.value === 'true';
+    const microTargetInput = document.getElementById('micro-target-pct');
+    if (microTargetInput && !isNaN(parseFloat(microTargetInput.value))) botSettings.microTargetPct = Math.max(parseFloat(microTargetInput.value), 0.05);
+    const microStopInput = document.getElementById('micro-stop-pct');
+    if (microStopInput && !isNaN(parseFloat(microStopInput.value))) botSettings.microStopPct = Math.max(parseFloat(microStopInput.value), 0.05);
+    const microAllocInput = document.getElementById('micro-alloc-pct');
+    if (microAllocInput && !isNaN(parseFloat(microAllocInput.value))) botSettings.microAllocPct = Math.min(Math.max(parseFloat(microAllocInput.value) / 100, 0), 1);
+    const microMinProbInput = document.getElementById('micro-min-prob');
+    if (microMinProbInput && !isNaN(parseFloat(microMinProbInput.value))) botSettings.microMinProbPct = Math.min(Math.max(parseFloat(microMinProbInput.value), 0), 100);
+    const microConfirmInput = document.getElementById('micro-confirm-sec');
+    if (microConfirmInput && !isNaN(parseFloat(microConfirmInput.value))) botSettings.microConfirmSeconds = Math.max(parseFloat(microConfirmInput.value), 0);
     if (chaseProbInput && !isNaN(parseFloat(chaseProbInput.value))) {
         botSettings.chaseProbabilityThreshold = Math.min(Math.max(parseFloat(chaseProbInput.value), 0), 100);
     }
@@ -3299,6 +3335,12 @@ function openRangeScalpPosition(side, evalResult) {
         peakPnlPct: 0,
         trailingStopPct: null,
         isScalp: true,
+        isMicro: false,
+        scalpFeaturesAtEntry: {
+            rsi: (evalResult.rsiAtEntry != null ? evalResult.rsiAtEntry : (typeof getCurrentRSIValue === 'function' ? getCurrentRSIValue() : null)),
+            rangePos: (evalResult.positionInRange != null ? evalResult.positionInRange : null),
+            chaos: (evalResult.chaosAtEntry != null ? evalResult.chaosAtEntry : chaos)
+        },
         customStopLossPct: botSettings.rangeScalpStopLossPct
     };
 
@@ -3316,6 +3358,132 @@ function scanForRangeScalps() {
             openRangeScalpPosition(side, evalResult);
         }
     });
+}
+
+// ============================================================
+// MICRO-SCALP FAST-LANE  +  SCALP LEARNING TRACK  +  RECALIBRATION
+// ============================================================
+// Separate fast path (OFF by default). Reacts on the RAW directional signal with
+// a short confirmation window, entirely apart from the smoothed trend engine and
+// its calibration. Its trades feed only the scalp learning track (scalpLog).
+let _microConfirm = null;
+
+function computeMicroSignal() {
+    if (!rawData || rawData.length < 6 || !livePrice) return null;
+    const dir = (db >= 0) ? 'LONG' : 'SHORT';           // raw directional bias, un-smoothed
+    let p = 50;
+    p += Math.min(22, Math.abs(vfm) * 9);               // directional force
+    p += Math.min(12, er * 5);                          // efficiency of the micro move
+    p += Math.max(-16, Math.min(10, (2 - chaos) * 3));  // calmer market scores higher
+    const rsi = (typeof getCurrentRSIValue === 'function') ? getCurrentRSIValue() : null;
+    if (rsi !== null) {
+        if (dir === 'LONG' && rsi < 45) p += 6;
+        if (dir === 'SHORT' && rsi > 55) p += 6;
+    }
+    p = Math.max(0, Math.min(100, Math.round(p)));
+    return { side: dir, rawProb: p };
+}
+
+function scanForMicroScalp() {
+    if (!botSettings.microFastLaneEnabled) { _microConfirm = null; return; }
+    if (!livePrice || openPositions.length >= botSettings.maxOpenPositions) return;
+    const sig = computeMicroSignal();
+    if (!sig || sig.rawProb < botSettings.microMinProbPct) { _microConfirm = null; return; }
+    if (openPositions.some(p => p.side === sig.side && p.isScalp)) { _microConfirm = null; return; }
+    const now = Date.now();
+    if (!_microConfirm || _microConfirm.side !== sig.side) {
+        _microConfirm = { side: sig.side, since: now, prob: sig.rawProb };
+        return;
+    }
+    _microConfirm.prob = sig.rawProb;
+    if (now - _microConfirm.since >= (botSettings.microConfirmSeconds || 0) * 1000) {
+        openMicroScalpPosition(sig.side, sig.rawProb);
+        _microConfirm = null;
+    }
+}
+
+function openMicroScalpPosition(side, rawProb) {
+    const price = livePrice;
+    const oppositeSide = side === 'LONG' ? 'SHORT' : 'LONG';
+    const oppositeHasPosition = openPositions.some(p => p.side === oppositeSide);
+    const hedgeReserve = oppositeHasPosition ? 0 : botSettings.minHedgeReservePct;
+    const availablePct = Math.max(0, 1 - getAllocatedPct() - hedgeReserve);
+    const finalSizePct = Math.min(botSettings.microAllocPct, availablePct);
+    if (finalSizePct <= 0.001) return;
+
+    const balance = getBalance();
+    const notional = balance * finalSizePct;
+    const notionalUSD = isQuoteCurrencyWallet() ? notional : (eurUsdtRate ? notional * eurUsdtRate : notional);
+    const amount = parseFloat((notionalUSD / price).toFixed(6));
+    const targetPrice = side === 'LONG'
+        ? price * (1 + botSettings.microTargetPct / 100)
+        : price * (1 - botSettings.microTargetPct / 100);
+
+    const position = {
+        id: `micro_${Date.now()}_${side}`,
+        side, entryPrice: price, amount, notional, sizePct: finalSizePct,
+        targetPrice, probabilityPct: null, nodeInfluence: 0,
+        openTime: Date.now(), closeTime: null, peakPnlPct: 0, trailingStopPct: null,
+        isScalp: true, isMicro: true,
+        scalpFeaturesAtEntry: {
+            rsi: (typeof getCurrentRSIValue === 'function' ? getCurrentRSIValue() : null),
+            rangePos: null,
+            chaos: chaos
+        },
+        customStopLossPct: botSettings.microStopPct
+    };
+    commitPositionEntry(position, `MICRO-SCALP ${rawProb}% \u00b7 alloc ${(finalSizePct * 100).toFixed(1)}%`);
+}
+
+// ---- Scalp learning track: winrate buckets per RSI band / range position / chaos ----
+function computeScalpStats() {
+    const rsiBands = [
+        { key: '<30', lo: -Infinity, hi: 30 }, { key: '30-45', lo: 30, hi: 45 },
+        { key: '45-55', lo: 45, hi: 55 }, { key: '55-70', lo: 55, hi: 70 }, { key: '>70', lo: 70, hi: Infinity }
+    ];
+    function bucketize(items, classify, labels) {
+        const map = {}; labels.forEach(l => map[l] = { n: 0, wins: 0 });
+        items.forEach(it => { const k = classify(it); if (k && map[k]) { map[k].n++; if (it.outcome === 'win') map[k].wins++; } });
+        return labels.map(l => ({ label: l, n: map[l].n, winrate: map[l].n ? Math.round(map[l].wins / map[l].n * 100) : null }));
+    }
+    const items = scalpLog;
+    const total = items.length, wins = items.filter(i => i.outcome === 'win').length;
+    const avgPnl = total ? items.reduce((a, b) => a + (b.pnlPct || 0), 0) / total : 0;
+    return {
+        total, wins, winrate: total ? Math.round(wins / total * 100) : null, avgPnl,
+        byRsi: bucketize(items, it => { if (it.rsi == null) return null; const b = rsiBands.find(bd => it.rsi >= bd.lo && it.rsi < bd.hi); return b ? b.key : null; }, rsiBands.map(b => b.key)),
+        byRange: bucketize(items, it => it.rangePos == null ? null : (it.rangePos <= 0.33 ? 'bottom' : it.rangePos >= 0.66 ? 'top' : 'mid'), ['bottom', 'mid', 'top']),
+        byChaos: bucketize(items, it => it.chaos == null ? null : (it.chaos < 4 ? 'calm' : it.chaos <= 8 ? 'normal' : 'wild'), ['calm', 'normal', 'wild']),
+        byType: bucketize(items, it => it.isMicro ? 'micro' : 'range', ['range', 'micro'])
+    };
+}
+
+function renderScalpStats() {
+    const el = document.getElementById('scalp-stats');
+    if (!el) return;
+    const s = computeScalpStats();
+    if (!s.total) { el.innerHTML = '<span style="color:var(--text-dim);">No closed scalps yet.</span>'; return; }
+    function row(title, arr) {
+        return `<div style="margin:7px 0 2px; color:var(--text-dim); letter-spacing:0.06em;">${title}</div>` +
+            arr.map(b => `<span style="display:inline-block; min-width:104px;">${b.label}: <b style="color:${b.winrate == null ? 'var(--text-dimmer)' : b.winrate >= 50 ? 'var(--teal)' : 'var(--red)'};">${b.winrate == null ? '\u2014' : b.winrate + '%'}</b> <small style="color:var(--text-dimmer);">(n=${b.n})</small></span>`).join(' ');
+    }
+    el.innerHTML =
+        `<div style="margin-bottom:4px;">Total scalps: <b>${s.total}</b> \u00b7 win rate <b style="color:${s.winrate >= 50 ? 'var(--teal)' : 'var(--red)'};">${s.winrate}%</b> \u00b7 avg P/L <b>${s.avgPnl.toFixed(3)}%</b></div>` +
+        row('By RSI band', s.byRsi) + row('By range position', s.byRange) +
+        row('By chaos level', s.byChaos) + row('By type', s.byType);
+}
+
+// ---- One-click recalibration for the active preset ----
+// Recomputes the trend calibration map from clean trades and refreshes the scalp
+// stats. It does NOT delete trades - it only rebaselines the mappings/diagnostics.
+function recalibrateForPreset() {
+    try { if (typeof computeCalibrationMap === 'function') computeCalibrationMap(); } catch (e) {}
+    try { renderScalpStats(); } catch (e) {}
+    try { if (typeof updateWalletUI === 'function') updateWalletUI(); } catch (e) {}
+    const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : '';
+    const note = document.getElementById('recalib-note');
+    if (note) note.textContent = `Recalibrated for preset "${cfg}" at ${new Date().toLocaleTimeString()} \u00b7 trend calibration + scalp stats refreshed.`;
+    try { if (typeof savePersistentState === 'function') savePersistentState(); } catch (e) {}
 }
 
 // ============================================================
@@ -3642,6 +3810,24 @@ function finalizeClosePosition(pos, pnlPct, reason) {
         });
         if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
         recalibrateAdaptiveWeights();
+    } else if (pos.isScalp) {
+        // SCALP LEARNING TRACK - range- and micro-scalps log here with their own
+        // rule-based features, fully separate from the trend brain / calibration.
+        const sf = pos.scalpFeaturesAtEntry || {};
+        scalpLog.push({
+            timestampMs: Date.now(),
+            side: pos.side,
+            isMicro: pos.isMicro === true,
+            rsi: (sf.rsi != null ? sf.rsi : null),
+            rangePos: (sf.rangePos != null ? sf.rangePos : null),
+            chaos: (sf.chaos != null ? sf.chaos : null),
+            outcome: pnlPct > 0 ? 'win' : 'loss',
+            pnlPct,
+            holdMinutes: pos.openTime ? Math.round((Date.now() - pos.openTime) / 60000) : null,
+            configVersion: (typeof currentConfigVersion === 'function' ? currentConfigVersion() : '')
+        });
+        if (scalpLog.length > 2000) scalpLog = scalpLog.slice(-2000);
+        if (typeof renderScalpStats === 'function') renderScalpStats();
     } else if (!pos.isScalp) {
         // DIAGNOSE: de sessie-export van 12-07 had 42 exits maar een LEGE
         // learningLog - trend-posities zonder factorsAtEntry (bijv. hersteld uit
@@ -4121,6 +4307,9 @@ function botHeartbeat() {
     checkPendingTriggers();
     checkOpenPositionsExits();
     updateWalletUI();
+
+    // Micro-scalp fast-lane: runs every second for fast reaction (OFF by default).
+    if (botSettings.microFastLaneEnabled) scanForMicroScalp();
 
     // 3. Elke 10 seconden: zwaardere Osiris-berekening + scan naar nieuwe kansen
     botTickCounter++;
@@ -7528,6 +7717,7 @@ function toggleCortexPanel() {
         try { initFlowHud(); } catch (e) {}
         try { buildCortex(); updateL2UI(); } catch (e) {}
         try { buildCortexBrain(); } catch (e) {}
+        try { renderScalpStats(); } catch (e) {}
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
     else go();
