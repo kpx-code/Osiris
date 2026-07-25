@@ -14,6 +14,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{scroll-behavior:smooth;}
 body{background:var(--void); color:var(--tx); font-family:'Chakra Petch',sans-serif; overflow-x:hidden;}
+#site-plexus{position:fixed; inset:0; width:100vw; height:100vh; z-index:-1; pointer-events:none;}
 #starmap{position:fixed; inset:0; z-index:0; pointer-events:none;}
 .mono{font-family:'JetBrains Mono',monospace;}
 .wrap{position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:0 24px;}
@@ -415,7 +416,26 @@ section { position:relative; z-index:2; }
 #chart-container{ width:100%; height:600px; max-width:100%; }
 @media (max-width:768px){ #chart-container{ height:360px; } }
 </style>
+<style>
+/* extra responsive (V4 NEO): alle onderdelen blijven, ze stapelen alleen op klein scherm */
+@media(max-width:900px){
+  #flow-hud-body > div[style*="grid-template-columns"]{grid-template-columns:1fr !important; gap:12px !important;}
+  #neo-canvas{height:420px !important;}
+}
+@media(max-width:720px){
+  div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr !important;}
+  div[style*="align-items:stretch"]{flex-direction:column !important;}
+  #vp-panel{width:100% !important; height:220px; border-left:none !important; border-top:1px solid var(--line);}
+  .meter-row{grid-template-columns:repeat(2,1fr);}
+  #bot-monitor{grid-template-columns:repeat(2,1fr);}
+  .volrow{grid-template-columns:1fr;}
+  .chart-frame{grid-template-columns:1fr 34px;}
+  .wrap{padding-left:14px; padding-right:14px;}
+  #flow-svg{min-height:220px;}
+}
+</style>
 <body>
+<canvas id="site-plexus"></canvas>
 <div id="dashboard">
 <canvas id="starmap"></canvas>
 
@@ -742,7 +762,7 @@ section { position:relative; z-index:2; }
   <div class="wrap">
     <div class="waypoint">Waypoint 04 &middot; Control hub</div>
     <div class="sec-eyebrow">Bot Control Hub</div>
-    <h2 class="sec">Everything the bot does, in one place</h2>
+    <h2 class="sec">OSIRIS ENGINE V4 NEO</h2>
     <div class="mock">
       <div class="mock-body">
 
@@ -883,7 +903,7 @@ section { position:relative; z-index:2; }
         <div class="subhead">Engine Config &middot; presets &middot; toggles</div>
             <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.23<span class="fill"></span></div>
+            <div class="eyebrow engine-title">OSIRIS ENGINE V4 NEO<span class="fill"></span></div>
             <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
@@ -1057,6 +1077,6 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build27"></script>
+<script src="app.js?v=20260718-v4build28"></script>
 </body>
 </html>
