@@ -781,7 +781,9 @@ section { position:relative; z-index:2; }
         <div id="flow-hud">
           <div id="flow-hud-body">
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0; align-items:center; background:#000004; border-radius:10px; padding:6px;">
-              <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto;">
+              <div id="eye-cell" style="position:relative;">
+              <canvas id="eye-plexus" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></canvas>
+              <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto; position:relative; z-index:1;">
               <g id="w-eye"></g>
               <g font-family="'JetBrains Mono',monospace" font-size="9">
                 <!-- LINKS: ooglid-vorm. Verste (x klein) in het midden, daarna paren hoger/lager en dichterbij -->
@@ -799,6 +801,7 @@ section { position:relative; z-index:2; }
               </g>
               <circle id="flow-pupil" cx="500" cy="200" r="1" fill="none" stroke="none"/>
               </svg>
+              </div>
               <div id="neo-panel" style="position:relative;">
                 <canvas id="neo-canvas" style="width:100%; height:540px; display:block; border-radius:8px;"></canvas>
                 <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">NEO &middot; MARK 1</div>
@@ -1077,6 +1080,6 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build29"></script>
+<script src="app.js?v=20260718-v4build30"></script>
 </body>
 </html>
