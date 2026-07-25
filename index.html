@@ -760,7 +760,7 @@ section { position:relative; z-index:2; }
         </div>
         <div id="flow-hud">
           <div id="flow-hud-body">
-            <div style="display:grid; grid-template-columns:1.3fr 1fr; gap:12px; align-items:center;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0; align-items:center; background:#000004; border-radius:10px; padding:6px;">
               <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto;">
               <g id="w-eye"></g>
               <g font-family="'JetBrains Mono',monospace" font-size="9">
@@ -780,7 +780,7 @@ section { position:relative; z-index:2; }
               <circle id="flow-pupil" cx="500" cy="200" r="1" fill="none" stroke="none"/>
               </svg>
               <div id="neo-panel" style="position:relative;">
-                <canvas id="neo-canvas" style="width:100%; height:430px; display:block; border-radius:8px;"></canvas>
+                <canvas id="neo-canvas" style="width:100%; height:540px; display:block; border-radius:8px;"></canvas>
                 <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">NEO &middot; MARK 1</div>
                 <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488;">level 2 &middot; lerend</div>
                 <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8;"><span id="neo-samples">0</span> samples</div>
@@ -883,7 +883,7 @@ section { position:relative; z-index:2; }
         <div class="subhead">Engine Config &middot; presets &middot; toggles</div>
             <div id="bot-control-hub" class="hud amber">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow engine-title">OSIRIS ENGINE V1.4.0 NEO Mark 1<span class="fill"></span></div>
+            <div class="eyebrow engine-title">OSIRIS ENGINE V1.3.23<span class="fill"></span></div>
             <div class="engine-scanline"></div>
 
             <div style="padding:12px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); margin-bottom:14px;">
@@ -1057,6 +1057,6 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build23"></script>
+<script src="app.js?v=20260718-v4build24"></script>
 </body>
 </html>
