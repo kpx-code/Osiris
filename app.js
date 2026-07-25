@@ -6794,8 +6794,8 @@ function initScrollSpy() {
 // driehoeken) flitsen over hoofd, hals en schouders; circuit-traces omlijsten
 // het geheel. De kop voltooit zichzelf met schone trades. Canvas, 30fps.
 
-let _neo = { pts: [], rings: [], links: [], tris: [], syn: [], amb: [], streams: [], feats: [], eyes: [], traces: [],
-             formed: 0, formStart: null, rotY: Math.PI / 2, raf: null, lastFrame: 0, growFrac: 0.55 };
+let _neo = { pts: [], rings: [], links: [], tris: [], syn: [], amb: [], streams: [], feats: [], eyes: [], bridge: [],
+             formed: 0, formStart: null, rotY: Math.PI / 2, raf: null, lastFrame: 0, actMul: 0.6 };
 
 const NEO_FACE = [
     [1.00, 0.02], [0.93, 0.34], [0.76, 0.55], [0.56, 0.63], [0.50, 0.545],
@@ -6871,15 +6871,20 @@ function buildCortex() {
         }
         rings.push(ring);
     }
-    // hals + BREDE schouders
-    for (let j = 0; j < 10; j++) {
-        const t = j / 10, y = -0.98 - t * 0.62;
-        const w = 0.20 + 0.85 * t * t;
-        const n = Math.max(14, Math.round(44 * (w + 0.3)));
+    // hals (smal) die overgaat in BREDE schouders met echte diepte
+    for (let j = 0; j < 14; j++) {
+        const t = j / 14, y = -0.98 - t * 0.72;
+        const nek = 0.20 + 0.02 * t;                          // smalle halskolom
+        const schouder = 1.15 * Math.pow(Math.max(0, (t - 0.30) / 0.70), 1.6);  // waaiert uit vanaf 30%
+        const w = nek + schouder;
+        const n = Math.max(16, Math.round(40 * (w + 0.35)));
         const ring = [];
         for (let k = 0; k < n; k++) {
             const phi = -Math.PI + (k / n) * Math.PI * 2;
-            ring.push(addPt(w * Math.sin(phi), y * 1.12, 0.13 * Math.cos(phi) * (0.4 + t) - 0.04, '#6fb8e8', false, RINGS + j));
+            const depth = (0.14 + 0.10 * t) * Math.cos(phi) * (0.5 + t * 0.8) - 0.04;
+            // schouders zakken licht af naar buiten (trapezius-lijn)
+            const sag = schouder > 0 ? 0.10 * Math.abs(Math.sin(phi)) * (schouder / 1.15) : 0;
+            ring.push(addPt(w * Math.sin(phi), (y - sag) * 1.12, depth, '#6fb8e8', false, RINGS + j));
         }
         rings.push(ring);
     }
@@ -6956,26 +6961,21 @@ function buildCortex() {
             c: NEO_PALET[(Math.random() * NEO_PALET.length) | 0]
         });
     }
-    // datastromen van alle kanten
+    // brug-synapsen: verbindingen die vanaf de oog-kant (links) de kop invoeden
+    const bridge = [];
+    for (let i = 0; i < 5; i++) {
+        bridge.push({ oy: 0.30 + Math.random() * 0.45, tgt: (Math.random() * pts.length) | 0, t: Math.random() * 3, dur: 2.0 + Math.random() * 1.6 });
+    }
+    // datastromen van alle kanten (links = vanuit het oog)
     const streams = [];
-    const origins = [[0.02, 0.15], [0.02, 0.80], [0.98, 0.18], [0.98, 0.82], [0.5, 0.02], [0.5, 0.98]];
+    const origins = [[0.0, 0.40], [0.0, 0.62], [0.98, 0.18], [0.98, 0.82], [0.5, 0.02], [0.5, 0.98]];
     for (let s = 0; s < origins.length; s++) {
         const deeltjes = [];
         for (let k = 0; k < 8; k++) deeltjes.push({ t: Math.random(), sp: 0.25 + Math.random() * 0.3, tgt: (Math.random() * pts.length) | 0, bow: (Math.random() - 0.5) * 0.5, px: 0, py: 0 });
         streams.push({ ox: origins[s][0], oy: origins[s][1], c: NEO_PALET[s % NEO_PALET.length], deeltjes });
     }
-    // digitale circuit-traces rondom (schermruimte-fracties)
-    const traces = [];
-    const trDef = [
-        [[0.03, 0.20], [0.11, 0.20], [0.11, 0.12], [0.19, 0.12]], [[0.02, 0.42], [0.09, 0.42], [0.09, 0.50], [0.16, 0.50]],
-        [[0.04, 0.72], [0.12, 0.72], [0.12, 0.64], [0.18, 0.64]], [[0.97, 0.16], [0.89, 0.16], [0.89, 0.24], [0.82, 0.24]],
-        [[0.98, 0.46], [0.90, 0.46], [0.90, 0.38], [0.84, 0.38]], [[0.97, 0.74], [0.88, 0.74], [0.88, 0.66], [0.82, 0.66]],
-        [[0.10, 0.93], [0.18, 0.93], [0.18, 0.87], [0.25, 0.87]], [[0.90, 0.94], [0.82, 0.94], [0.82, 0.88], [0.75, 0.88]]
-    ];
-    trDef.forEach((seg, i) => traces.push({ seg, c: NEO_PALET[i % NEO_PALET.length] }));
-
-    _neo = { pts, rings, links, tris, syn, amb, streams, feats, eyes, traces,
-             formed: 0, formStart: null, rotY: Math.PI / 2, raf: _neo.raf, lastFrame: 0, growFrac: 0.55 };
+    _neo = { pts, rings, links, tris, syn, amb, streams, feats, eyes, bridge,
+             formed: 0, formStart: null, rotY: Math.PI / 2, raf: _neo.raf, lastFrame: 0, actMul: 0.6 };
     if (!_neo.raf) _neo.raf = requestAnimationFrame(_neoFrame);
 }
 
@@ -7009,20 +7009,9 @@ function _neoFrame(now) {
     _neo.rotY += dt * 0.18;
     const cosr = Math.cos(_neo.rotY), sinr = Math.sin(_neo.rotY);
 
-    // ZWART: de kop zweeft
-    ctx.fillStyle = '#000004'; ctx.fillRect(0, 0, w, h);
-
-    // circuit-traces rondom
-    for (const tr of _neo.traces) {
-        ctx.strokeStyle = tr.c; ctx.globalAlpha = 0.4; ctx.lineWidth = 0.7;
-        ctx.beginPath();
-        tr.seg.forEach((p, i) => { const X = p[0] * w, Y = p[1] * h; if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y); });
-        ctx.stroke();
-        const last = tr.seg[tr.seg.length - 1];
-        ctx.globalAlpha = 0.75; ctx.fillStyle = tr.c;
-        ctx.fillRect(last[0] * w - 2, last[1] * h - 2, 4, 4);
-    }
-    ctx.globalAlpha = 1;
+    // transparant wissen: de gedeelde zwarte achtergrond van het blok toont door,
+    // zodat oog en hoofd in dezelfde ruimte zweven
+    ctx.clearRect(0, 0, w, h);
 
     // zwevende deeltjes
     for (const a of _neo.amb) {
@@ -7033,9 +7022,8 @@ function _neoFrame(now) {
     }
     ctx.globalAlpha = 1;
 
-    const cx = w * 0.5, cy = h * 0.47, scale = Math.min(w, h) * 0.44;
+    const cx = w * 0.5, cy = h * 0.40, scale = Math.min(w, h) * 0.37;
     const totalRings = _neo.rings.length;
-    const maxRing = totalRings * _neo.growFrac;
 
     const proj = new Array(_neo.pts.length);
     for (let i = 0; i < _neo.pts.length; i++) {
@@ -7053,7 +7041,6 @@ function _neoFrame(now) {
 
     // scan-ringen
     for (let ri = 0; ri < totalRings; ri++) {
-        if (ri > maxRing) break;
         const ring = _neo.rings[ri];
         const e0 = proj[ring[0]].e;
         if (e0 < 0.35) continue;
@@ -7073,7 +7060,6 @@ function _neoFrame(now) {
     // punten
     for (let i = 0; i < _neo.pts.length; i++) {
         const p = _neo.pts[i];
-        if (p.ring > maxRing) continue;
         const q = proj[i];
         if (q.e <= 0.01) continue;
         const tw = 0.32 + 0.5 * (0.5 + 0.5 * Math.sin(now / 700 * p.sp + p.tw));
@@ -7153,8 +7139,24 @@ function _neoFrame(now) {
     }
     ctx.globalAlpha = 1;
 
+    // BRUG-SYNAPSEN: flitsen tussen de oog-kant en de kop (zelfde ruimte)
+    for (const f of _neo.bridge) {
+        f.t += dt * (act || 0.6);
+        if (f.t > f.dur) { f.tgt = (Math.random() * _neo.pts.length) | 0; f.oy = 0.30 + Math.random() * 0.45; f.t = 0; continue; }
+        const k = f.t / f.dur, glow = Math.sin(k * Math.PI);
+        if (glow < 0.03) continue;
+        const B = proj[f.tgt];
+        if (!B || B.e < 0.5) continue;
+        ctx.strokeStyle = `rgba(127,232,255,${glow * 0.7 * F})`;
+        ctx.lineWidth = 0.9;
+        ctx.beginPath(); ctx.moveTo(0, f.oy * h); ctx.lineTo(B.sx, B.sy); ctx.stroke();
+        ctx.fillStyle = '#bfeeff'; ctx.globalAlpha = glow;
+        ctx.beginPath(); ctx.arc(B.sx, B.sy, 1.8, 0, 6.283); ctx.fill();
+        ctx.globalAlpha = 1;
+    }
+
     // synaps-LIJNEN (extra flitsen)
-    const act = (_l2 && _l2.trained) ? 1 : 0.5;
+    const act = ((_l2 && _l2.trained) ? 1 : 0.6) * (_neo.actMul || 0.6);
     for (const f of _neo.syn) {
         f.t += dt * act;
         if (f.t > f.dur) {
@@ -7193,7 +7195,8 @@ function _neoFrame(now) {
 function updateCortexActivation() {
     const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : '';
     const schoon = (typeof learningLog !== 'undefined') ? learningLog.filter(l => !l.manual && l.configVersion === cfg && l.outcome).length : 0;
-    _neo.growFrac = 0.55 + 0.45 * Math.min(1, schoon / 300);
+    // groei stuurt nu de synaps-activiteit (de anatomie is altijd volledig)
+    _neo.actMul = 0.6 + 0.8 * Math.min(1, schoon / 300);
     const sEl = document.getElementById('neo-samples');
     if (sEl) sEl.textContent = _l2 && _l2.trainedOn ? _l2.trainedOn : 0;
     const pEl = document.getElementById('neo-prob');
