@@ -6782,19 +6782,21 @@ function initScrollSpy() {
 
 
 // ============================================================
-// NEO MARK 1 — 3D puntenwolk-kop naast het oog (Level-2 visualisatie)
+// NEO MARK 1 — digitaal gezicht dat zichzelf bouwt uit datastromen
 // ============================================================
-// De kop wordt opgebouwd uit een GEDETAILLEERD ZIJPROFIEL (kruin, voorhoofd,
-// wenkbrauwrand, ooginval, neusbrug, neuspunt, philtrum, lippen, kin, kaak,
-// hals) dat in 3D om de verticale as wordt gedraaid. Gezichtsdetails (neus,
-// lippen) bestaan alleen dicht bij het middenvlak zodat het zijaanzicht exact
-// het profiel toont - dat maakt hem herkenbaar als gezicht. Kenmerken lichten
-// feller op voor diepte; synapsen vuren als lichtgevende driehoeken; de
-// puntdichtheid groeit mee met schone trades. Canvas, 30fps.
+// Het gezicht is opgebouwd uit SCAN-RINGEN: horizontale contourlijnen die de
+// gezichtsvorm volgen (zoals een digitaal weefsel), waardoor het als een echt
+// digitaal hoofd leest. De kop wordt zichtbaar OPGEBOUWD: ringen materialiseren
+// van boven naar beneden uit rondvliegende punten. Gekleurde datastromen
+// (cyaan/magenta/amber/teal/violet) vloeien van de randen naar de kop en worden
+// geabsorbeerd - daar licht het oppervlak op. Na de opbouw blijft een
+// trainings-scanband over het gezicht vegen. Deeltjes zweven overal.
+// De voltooiing van de kop groeit mee met schone trades. Canvas, 30fps.
 
-let _neo = { pts: [], links: [], tris: [], amb: [], formed: 0, formStart: null, rotY: Math.PI / 2, raf: null, lastFrame: 0, visiblePts: 500 };
+let _neo = { pts: [], rings: [], links: [], tris: [], amb: [], streams: [], flash: [],
+             formed: 0, formStart: null, rotY: Math.PI / 2, raf: null, lastFrame: 0, growFrac: 0.55 };
 
-// profieltabellen: [y (hoogte, +boven), z (naar voren +)] - aflopend op y
+// profieltabellen: [y (hoogte, +boven), z (naar voren +)]
 const NEO_FACE = [
     [1.00, 0.02], [0.93, 0.34], [0.76, 0.55], [0.56, 0.63], [0.50, 0.545],
     [0.40, 0.575], [0.24, 0.66], [0.155, 0.80], [0.10, 0.62], [0.045, 0.585],
@@ -6814,6 +6816,7 @@ const NEO_WIDTH = [
     [1.00, 0.08], [0.90, 0.32], [0.70, 0.47], [0.45, 0.53], [0.20, 0.51],
     [0.00, 0.465], [-0.20, 0.40], [-0.32, 0.30], [-0.44, 0.235], [-0.90, 0.20]
 ];
+const NEO_PALET = ['#00d9ff', '#ff4fd8', '#ffb627', '#14f195', '#c792ea'];
 
 function _neoInterp(tbl, y) {
     if (y >= tbl[0][0]) return tbl[0][1];
@@ -6826,17 +6829,15 @@ function _neoInterp(tbl, y) {
     return tbl[tbl.length - 1][1];
 }
 
-function _neoMakePoint(y, phi) {
+function _neoSurface(y, phi) {
     const w = _neoInterp(NEO_WIDTH, y);
     const smooth = _neoInterp(NEO_SMOOTH, y), back = _neoInterp(NEO_BACK, y);
     const zc = (smooth + back) / 2, d = (smooth - back) / 2;
     let x = w * Math.sin(phi);
     let z = zc + d * Math.cos(phi);
-    // gezichtsdetail (neus/lippen/wenkbrauw) alleen dicht bij het middenvlak
     const detail = _neoInterp(NEO_FACE, y) - smooth;
     const fw = Math.exp(-Math.pow(x / 0.15, 2)) * Math.max(0, Math.cos(phi));
     z += detail * fw;
-    // oren: bult op de zijkanten
     const earW = Math.exp(-Math.pow((Math.abs(phi) - Math.PI / 2) / 0.24, 2)) * Math.exp(-Math.pow((y - 0.18) / 0.16, 2));
     x += Math.sign(Math.sin(phi) || 1) * 0.11 * earW;
     const glow = (Math.abs(detail) > 0.05 && fw > 0.45) || earW > 0.5;
@@ -6846,64 +6847,84 @@ function _neoMakePoint(y, phi) {
 function buildCortex() {
     const cv = document.getElementById('neo-canvas');
     if (!cv) return;
-    const pts = [];
-    const HEAD_N = 1500, FACE_EXTRA = 420, NECK_N = 180;
-    for (let i = 0; i < HEAD_N; i++) {
-        const y = -0.90 + Math.random() * 1.90;
-        const phi = (Math.random() * 2 - 1) * Math.PI;
-        const q = _neoMakePoint(y, phi);
-        pts.push(q);
+    // SCAN-RINGEN: het gezicht als digitaal weefsel van contourlijnen
+    const RINGS = 46, pts = [], rings = [];
+    for (let ri = 0; ri < RINGS; ri++) {
+        const y = 1.0 - (ri / (RINGS - 1)) * 1.92;      // kruin -> kaak/hals
+        const w = _neoInterp(NEO_WIDTH, y);
+        const n = Math.max(12, Math.round(58 * (w + 0.25)));
+        const ring = [];
+        for (let k = 0; k < n; k++) {
+            const phi = -Math.PI + (k / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.03;
+            const q = _neoSurface(y, phi);
+            const ang0 = Math.random() * Math.PI * 2, rad0 = 2.6 + Math.random() * 2.6, el0 = (Math.random() - 0.5) * Math.PI;
+            ring.push(pts.length);
+            pts.push({
+                tx: q.x, ty: q.y, tz: q.z, glow: q.glow, ring: ri,
+                x: Math.cos(el0) * Math.cos(ang0) * rad0, y: Math.sin(el0) * rad0, z: Math.cos(el0) * Math.sin(ang0) * rad0,
+                tw: Math.random() * Math.PI * 2, sp: 0.5 + Math.random() * 1.5, fl: 0,
+                c: q.glow ? '#eaffff' : '#9fdcff'
+            });
+        }
+        rings.push(ring);
     }
-    // extra dichtheid op het gezicht (referentie: fijn bezaaid oppervlak)
-    for (let i = 0; i < FACE_EXTRA; i++) {
-        const y = -0.45 + Math.random() * 1.1;
-        const phi = (Math.random() * 2 - 1) * 0.85;
-        pts.push(_neoMakePoint(y, phi));
-    }
-    // hals + schouderaanzet die uitwaaiert
-    for (let i = 0; i < NECK_N; i++) {
-        const t = i / NECK_N;
-        const y = -0.95 - t * 0.55;
+    // hals/schouders als extra ringen die uitwaaieren
+    for (let j = 0; j < 8; j++) {
+        const t = j / 8, y = -0.98 - t * 0.5;
         const w = 0.20 + 0.55 * t * t;
-        const phi = (Math.random() * 2 - 1) * Math.PI;
-        pts.push({ x: w * Math.sin(phi), y: y * 1.12, z: 0.12 * Math.cos(phi) * (0.4 + t) - 0.04, glow: false });
+        const n = Math.max(14, Math.round(40 * (w + 0.3)));
+        const ring = [];
+        for (let k = 0; k < n; k++) {
+            const phi = -Math.PI + (k / n) * Math.PI * 2;
+            const ang0 = Math.random() * Math.PI * 2, rad0 = 2.6 + Math.random() * 2.6, el0 = (Math.random() - 0.5) * Math.PI;
+            ring.push(pts.length);
+            pts.push({
+                tx: w * Math.sin(phi), ty: y * 1.12, tz: 0.12 * Math.cos(phi) * (0.4 + t) - 0.04, glow: false, ring: RINGS + j,
+                x: Math.cos(el0) * Math.cos(ang0) * rad0, y: Math.sin(el0) * rad0, z: Math.cos(el0) * Math.sin(ang0) * rad0,
+                tw: Math.random() * Math.PI * 2, sp: 0.5 + Math.random() * 1.5, fl: 0, c: '#6fb8e8'
+            });
+        }
+        rings.push(ring);
     }
-    // start-posities: verspreid in een volle 3D-bol (dataflow van overal)
-    const P = pts.map(q => {
-        const ang0 = Math.random() * Math.PI * 2, rad0 = 2.6 + Math.random() * 2.6, el0 = (Math.random() - 0.5) * Math.PI;
-        return {
-            tx: q.x, ty: q.y, tz: q.z, glow: q.glow,
-            x: Math.cos(el0) * Math.cos(ang0) * rad0, y: Math.sin(el0) * rad0, z: Math.cos(el0) * Math.sin(ang0) * rad0,
-            tw: Math.random() * Math.PI * 2, sp: 0.5 + Math.random() * 1.5,
-            c: q.glow ? '#eaffff' : (Math.random() > 0.78 ? '#bfeaff' : (Math.random() > 0.42 ? '#6fc6ee' : '#2f7fc4'))
-        };
-    });
-    // netwerklijnen tussen nabije punten
+    // synaps-driehoeken op nabije punten
     const links = [];
     let guard = 0;
-    while (links.length < 150 && guard++ < 4000) {
-        const a = (Math.random() * P.length) | 0, b = (Math.random() * P.length) | 0;
-        const dx = P[a].tx - P[b].tx, dy = P[a].ty - P[b].ty, dz = P[a].tz - P[b].tz;
+    while (links.length < 120 && guard++ < 4000) {
+        const a = (Math.random() * pts.length) | 0, b = (Math.random() * pts.length) | 0;
+        const dx = pts[a].tx - pts[b].tx, dy = pts[a].ty - pts[b].ty, dz = pts[a].tz - pts[b].tz;
         const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-        if (d > 0.06 && d < 0.24) links.push({ a, b });
+        if (d > 0.05 && d < 0.22) links.push({ a, b });
     }
-    // synaps-driehoeken
     const tris = [];
-    for (let i = 0; i < 60 && tris.length < 8; i++) {
+    for (let i = 0; i < 60 && tris.length < 6; i++) {
         const l1 = links[(Math.random() * links.length) | 0]; if (!l1) break;
         const b = l1.b, cand = links.filter(l => l.a === b || l.b === b);
         if (!cand.length) continue;
         const l2 = cand[(Math.random() * cand.length) | 0];
         const c = l2.a === b ? l2.b : l2.a;
         if (c === l1.a) continue;
-        tris.push({ a: l1.a, b, c, t: Math.random() * 3, dur: 2.4 + Math.random() * 1.4 });
+        tris.push({ a: l1.a, b, c, t: Math.random() * 3, dur: 2.6 + Math.random() * 1.4 });
     }
-    // omgevingsveld: zwevende deeltjes rond de kop
+    // zwevende omgevingsdeeltjes in verschillende kleuren, langzaam driftend
     const amb = [];
-    for (let i = 0; i < 46; i++) {
-        amb.push({ ax: Math.random(), ay: Math.random(), r: 0.8 + Math.random() * 1.6, tw: Math.random() * Math.PI * 2, sp: 0.3 + Math.random() });
+    for (let i = 0; i < 70; i++) {
+        amb.push({
+            x: Math.random(), y: Math.random(),
+            vx: (Math.random() - 0.5) * 0.012, vy: (Math.random() - 0.5) * 0.010,
+            r: 0.7 + Math.random() * 1.8, tw: Math.random() * Math.PI * 2, sp: 0.3 + Math.random(),
+            c: NEO_PALET[(Math.random() * NEO_PALET.length) | 0]
+        });
     }
-    _neo = { pts: P, links, tris, amb, formed: 0, formStart: null, rotY: Math.PI / 2, raf: _neo.raf, lastFrame: 0, visiblePts: 500 };
+    // DATASTROMEN: gekleurde deeltjes die van de randen naar de kop vloeien
+    const streams = [];
+    const origins = [[0.02, 0.18], [0.02, 0.78], [0.98, 0.22], [0.98, 0.82], [0.5, 0.02]];
+    for (let s = 0; s < origins.length; s++) {
+        const deeltjes = [];
+        for (let k = 0; k < 9; k++) deeltjes.push({ t: Math.random(), sp: 0.25 + Math.random() * 0.3, tgt: (Math.random() * pts.length) | 0, bow: (Math.random() - 0.5) * 0.5, px: 0, py: 0 });
+        streams.push({ ox: origins[s][0], oy: origins[s][1], c: NEO_PALET[s % NEO_PALET.length], deeltjes });
+    }
+    _neo = { pts, rings, links, tris, amb, streams, flash: [],
+             formed: 0, formStart: null, rotY: Math.PI / 2, raf: _neo.raf, lastFrame: 0, growFrac: 0.55 };
     if (!_neo.raf) _neo.raf = requestAnimationFrame(_neoFrame);
 }
 
@@ -6918,7 +6939,7 @@ function _neoPickTri(f) {
 
 function _neoFrame(now) {
     _neo.raf = requestAnimationFrame(_neoFrame);
-    if (now - _neo.lastFrame < 33) return;   // ~30fps
+    if (now - _neo.lastFrame < 33) return;
     const dt = Math.min(0.1, (now - _neo.lastFrame) / 1000) || 0.033;
     _neo.lastFrame = now;
     const cv = document.getElementById('neo-canvas');
@@ -6932,53 +6953,112 @@ function _neoFrame(now) {
 
     if (_neo.formStart === null) _neo.formStart = now;
     const el = now - _neo.formStart - 300;
-    const raw = el <= 0 ? 0 : Math.min(1, el / 3200);
-    _neo.formed = 1 - Math.pow(1 - raw, 3);
-    _neo.rotY += dt * 0.20;
+    _neo.formed = el <= 0 ? 0 : Math.min(1, el / 5200);
+    const F = _neo.formed;
+    _neo.rotY += dt * 0.18;
 
     ctx.fillStyle = '#05060d'; ctx.fillRect(0, 0, w, h);
-    // omgevingsveld
+
+    // zwevende deeltjes overal (drift + twinkel, wrap rond de randen)
     for (const a of _neo.amb) {
-        const tw = 0.25 + 0.45 * (0.5 + 0.5 * Math.sin(now / 900 * a.sp + a.tw));
-        ctx.globalAlpha = tw;
-        ctx.fillStyle = '#1a4a7a';
-        ctx.beginPath(); ctx.arc(a.ax * w, a.ay * h, a.r, 0, 6.283); ctx.fill();
+        a.x = (a.x + a.vx * dt + 1) % 1; a.y = (a.y + a.vy * dt + 1) % 1;
+        const tw = 0.20 + 0.5 * (0.5 + 0.5 * Math.sin(now / 900 * a.sp + a.tw));
+        ctx.globalAlpha = tw; ctx.fillStyle = a.c;
+        ctx.fillRect(a.x * w - a.r / 2, a.y * h - a.r / 2, a.r, a.r);
     }
     ctx.globalAlpha = 1;
 
     const cx = w * 0.5, cy = h * 0.52, scale = Math.min(w, h) * 0.40;
     const cosr = Math.cos(_neo.rotY), sinr = Math.sin(_neo.rotY);
-    const F = _neo.formed;
-    const zichtbaar = Math.min(_neo.pts.length, _neo.visiblePts);
+    const totalRings = _neo.rings.length;
+    const maxRing = totalRings * _neo.growFrac;           // groei met schone trades
 
+    // projectie
     const proj = new Array(_neo.pts.length);
     for (let i = 0; i < _neo.pts.length; i++) {
         const p = _neo.pts[i];
-        const x3 = p.x + (p.tx - p.x) * F, y3 = p.y + (p.ty - p.y) * F, z3 = p.z + (p.tz - p.z) * F;
+        // opbouw per ring: bovenste ringen eerst, cascade naar beneden
+        const ringF = Math.max(0, Math.min(1, (F * (totalRings + 10) - p.ring) / 10));
+        const e = 1 - Math.pow(1 - ringF, 3);
+        const x3 = p.x + (p.tx - p.x) * e, y3 = p.y + (p.ty - p.y) * e, z3 = p.z + (p.tz - p.z) * e;
         const rx = x3 * cosr + z3 * sinr, rz = -x3 * sinr + z3 * cosr;
         const persp = 1 / (2.5 - rz * 0.62);
-        proj[i] = { sx: cx + rx * scale * persp, sy: cy - y3 * scale * persp, persp };
+        proj[i] = { sx: cx + rx * scale * persp, sy: cy - y3 * scale * persp, persp, e };
+        if (p.fl > 0) p.fl = Math.max(0, p.fl - dt * 2);
     }
-    // netwerklijnen
-    ctx.strokeStyle = `rgba(63,150,220,${0.10 * F})`;
-    ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    for (const l of _neo.links) {
-        if (l.a >= zichtbaar || l.b >= zichtbaar) continue;
-        const A = proj[l.a], B = proj[l.b];
-        ctx.moveTo(A.sx, A.sy); ctx.lineTo(B.sx, B.sy);
+
+    // trainings-scanband die na de opbouw over het gezicht blijft vegen
+    const scanY = ((now / 2600) % 1.3) * 2.6 - 1.4;
+
+    // SCAN-RINGEN tekenen: dit maakt het gezicht als digitaal weefsel leesbaar
+    for (let ri = 0; ri < totalRings; ri++) {
+        if (ri > maxRing) break;
+        const ring = _neo.rings[ri];
+        const e0 = proj[ring[0]].e;
+        if (e0 < 0.35) continue;
+        const py = _neo.pts[ring[0]].ty;
+        const scanGlow = F >= 1 ? Math.exp(-Math.pow((py - scanY) / 0.10, 2)) : 0;
+        const bouwGlow = (e0 > 0.35 && e0 < 0.98) ? (1 - e0) : 0;   // ring in aanbouw licht op
+        ctx.strokeStyle = `rgba(120,200,255,${(0.10 + 0.35 * scanGlow + 0.5 * bouwGlow) * e0})`;
+        ctx.lineWidth = 0.5 + scanGlow * 0.5;
+        ctx.beginPath();
+        let started = false;
+        for (let k = 0; k < ring.length; k++) {
+            const q = proj[ring[k]];
+            if (!started) { ctx.moveTo(q.sx, q.sy); started = true; }
+            else ctx.lineTo(q.sx, q.sy);
+        }
+        ctx.closePath(); ctx.stroke();
     }
-    ctx.stroke();
-    // punten (fillRect = snel); kenmerken groter en feller
-    for (let i = 0; i < zichtbaar; i++) {
-        const p = _neo.pts[i], q = proj[i];
+
+    // oppervlaktepunten
+    for (let i = 0; i < _neo.pts.length; i++) {
+        const p = _neo.pts[i];
+        if (p.ring > maxRing) continue;
+        const q = proj[i];
+        if (q.e <= 0.01) continue;
         const tw = 0.32 + 0.5 * (0.5 + 0.5 * Math.sin(now / 700 * p.sp + p.tw));
-        const s = ((p.glow ? 1.7 : 1.0) + 1.2 * q.persp) * (0.55 + 0.45 * tw);
-        ctx.globalAlpha = F * (p.glow ? Math.max(tw, 0.6) : tw * 0.9);
-        ctx.fillStyle = p.c;
+        const scanGlow = F >= 1 ? Math.exp(-Math.pow((p.ty - scanY) / 0.10, 2)) : 0;
+        const s = ((p.glow ? 1.6 : 0.95) + 1.1 * q.persp) * (0.55 + 0.45 * tw) + p.fl * 1.6 + scanGlow * 0.7;
+        ctx.globalAlpha = Math.min(1, q.e * ((p.glow ? Math.max(tw, 0.6) : tw * 0.9) + p.fl + scanGlow * 0.4));
+        ctx.fillStyle = p.fl > 0.3 ? '#ffffff' : p.c;
         ctx.fillRect(q.sx - s / 2, q.sy - s / 2, s, s);
     }
     ctx.globalAlpha = 1;
+
+    // DATASTROMEN: gekleurde deeltjes vloeien van de randen naar de kop
+    for (const st of _neo.streams) {
+        const ox = st.ox * w, oy = st.oy * h;
+        for (const d of st.deeltjes) {
+            d.t += d.sp * dt;
+            const tgtQ = proj[d.tgt];
+            if (d.t >= 1 || !tgtQ) {
+                if (tgtQ) { _neo.pts[d.tgt].fl = 1; }        // absorptie: oppervlak licht op
+                d.t = 0; d.tgt = (Math.random() * _neo.pts.length) | 0;
+                d.sp = 0.25 + Math.random() * 0.3; d.bow = (Math.random() - 0.5) * 0.5;
+                continue;
+            }
+            const t = d.t, mt = 1 - t;
+            // kwadratische boog met zijwaartse buiging
+            const mx = (ox + tgtQ.sx) / 2 - (tgtQ.sy - oy) * d.bow;
+            const my = (oy + tgtQ.sy) / 2 + (tgtQ.sx - ox) * d.bow;
+            const x = mt * mt * ox + 2 * mt * t * mx + t * t * tgtQ.sx;
+            const y = mt * mt * oy + 2 * mt * t * my + t * t * tgtQ.sy;
+            // staart
+            if (d.px) {
+                ctx.strokeStyle = st.c; ctx.globalAlpha = 0.35 * t;
+                ctx.lineWidth = 0.8;
+                ctx.beginPath(); ctx.moveTo(d.px, d.py); ctx.lineTo(x, y); ctx.stroke();
+            }
+            ctx.globalAlpha = 0.5 + 0.5 * t;
+            ctx.fillStyle = st.c;
+            const sz = 1.4 + t * 1.4;
+            ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
+            d.px = x; d.py = y;
+        }
+    }
+    ctx.globalAlpha = 1;
+
     // synaps-driehoeken
     const act = (_l2 && _l2.trained) ? 1 : 0.5;
     for (const f of _neo.tris) {
@@ -6987,12 +7067,12 @@ function _neoFrame(now) {
         const k = f.t / f.dur, glow = Math.sin(k * Math.PI);
         if (glow < 0.03) continue;
         const A = proj[f.a], B = proj[f.b], C = proj[f.c];
-        if (!A || !B || !C) continue;
-        ctx.strokeStyle = `rgba(234,255,255,${glow * 0.85 * F})`;
+        if (!A || !B || !C || A.e < 0.5) continue;
+        ctx.strokeStyle = `rgba(234,255,255,${glow * 0.8 * F})`;
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(B.sx, B.sy); ctx.lineTo(C.sx, C.sy); ctx.closePath(); ctx.stroke();
-        ctx.fillStyle = '#eaffff'; ctx.globalAlpha = glow * F;
-        for (const Pn of [A, B, C]) { ctx.beginPath(); ctx.arc(Pn.sx, Pn.sy, 1.8, 0, 6.283); ctx.fill(); }
+        ctx.fillStyle = '#eaffff'; ctx.globalAlpha = glow;
+        for (const Pn of [A, B, C]) { ctx.beginPath(); ctx.arc(Pn.sx, Pn.sy, 1.7, 0, 6.283); ctx.fill(); }
         ctx.globalAlpha = 1;
     }
 }
@@ -7001,8 +7081,8 @@ function _neoFrame(now) {
 function updateCortexActivation() {
     const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : '';
     const schoon = (typeof learningLog !== 'undefined') ? learningLog.filter(l => !l.manual && l.configVersion === cfg && l.outcome).length : 0;
-    const doel = 500 + Math.min(1, schoon / 300) * (_neo.pts.length - 500);
-    _neo.visiblePts = Math.round(doel);
+    // de kop voltooit zichzelf: 55% bij nul trades -> 100% bij 300 schone trades
+    _neo.growFrac = 0.55 + 0.45 * Math.min(1, schoon / 300);
     const sEl = document.getElementById('neo-samples');
     if (sEl) sEl.textContent = _l2 && _l2.trainedOn ? _l2.trainedOn : 0;
     const pEl = document.getElementById('neo-prob');
