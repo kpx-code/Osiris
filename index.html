@@ -760,7 +760,8 @@ section { position:relative; z-index:2; }
         </div>
         <div id="flow-hud">
           <div id="flow-hud-body">
-            <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto;">
+            <div style="display:grid; grid-template-columns:1.6fr 1fr; gap:12px; align-items:center;">
+              <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto;">
               <g id="w-eye"></g>
               <g font-family="'JetBrains Mono',monospace" font-size="9">
                 <!-- LINKS: ooglid-vorm. Verste (x klein) in het midden, daarna paren hoger/lager en dichterbij -->
@@ -777,7 +778,15 @@ section { position:relative; z-index:2; }
                 <text x="760" y="360" fill="#5c7488" text-anchor="end">MID <tspan fill="#4fc3f7" id="flow-mid">&mdash;</tspan></text>
               </g>
               <circle id="flow-pupil" cx="500" cy="200" r="1" fill="none" stroke="none"/>
-            </svg>
+              </svg>
+              <div id="neo-panel" style="position:relative;">
+                <canvas id="neo-canvas" style="width:100%; height:340px; display:block; border-radius:8px;"></canvas>
+                <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">NEO &middot; MARK 1</div>
+                <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488;">level 2 &middot; lerend</div>
+                <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8;"><span id="neo-samples">0</span> samples</div>
+                <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff;">kans <span id="neo-prob">&mdash;</span></div>
+              </div>
+            </div>
             <div class="hub-statusbar" style="margin-top:10px;">
               <div class="eye-foot">
                 <span class="live-dot" style="flex:none;"></span>
@@ -786,6 +795,13 @@ section { position:relative; z-index:2; }
               </div>
             </div>
           </div>
+        </div>
+
+        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleCortexPanel()"><span><span id="cortex-chevron">&#9662;</span> NEO Mark 1 &middot; Level 2 (lerend)</span><span id="cortex-status" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">initialiseert&hellip;</span></div>
+        <div id="cortex-body" style="border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin-bottom:8px;">
+          <div id="cortex-legend" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim); line-height:1.6;">Wacht op eerste training&hellip;</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--dimmer); margin-top:4px;">Leerfase &middot; <span id="cortex-trades">0</span> samples <span style="float:right;">doel: 90% winrate + positieve P/L</span></div>
+          <div style="height:6px; background:#0a1a24; border-radius:3px; margin-top:4px; overflow:hidden;"><div id="cortex-progress" style="height:100%; width:0%; background:var(--teal); border-radius:3px; transition:width 0.6s;"></div></div>
         </div>
         <div class="subhead" style="display:flex; justify-content:space-between; align-items:center; gap:8px;"><span>Wallet status</span><span style="display:flex; gap:8px;"><button type="button" onclick="stopAutonomousBot()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);">&#9632; Stop bot</button><button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button></span></div>
         <div class="kpi-strip" style="border:1px solid var(--line);">
@@ -1041,6 +1057,6 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build18"></script>
+<script src="app.js?v=20260718-v4build20"></script>
 </body>
 </html>
