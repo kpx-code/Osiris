@@ -6168,6 +6168,7 @@ function toggleFlowHud() {
 const HUD_BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6', '#b3e5fc'];
 let _eyeSig = [];          // elementen die op bull/bear verkleuren
 let _allEyeSig = [];       // kleurbare elementen van ALLE ogen (hub + hero + engine)
+let _eyeBits = [], _eyeCX = 500, _eyeCY = 200, _eyeR = 150, _eyePupil = null, _eyeHalo = null, _eyeConf = null;
 function initFlowHud() {
     if (_flowHudInit) return;
     const host = document.getElementById('w-eye');
@@ -6811,7 +6812,7 @@ const NEO_BACK = [
 ];
 const NEO_WIDTH = [
     [1.00, 0.10], [0.90, 0.36], [0.70, 0.53], [0.45, 0.59], [0.20, 0.57],
-    [0.00, 0.52], [-0.20, 0.45], [-0.32, 0.34], [-0.44, 0.27], [-0.55, 0.24]
+    [0.00, 0.52], [-0.20, 0.45], [-0.32, 0.35], [-0.44, 0.29], [-0.55, 0.24]
 ];
 const NEO_PALET = ['#00d9ff', '#ff4fd8', '#ffb627', '#14f195', '#c792ea'];
 
@@ -6844,7 +6845,7 @@ function _neoSurface(y, phi) {
 function buildCortex() {
     const cv = document.getElementById('neo-canvas');
     if (!cv) return;
-    const RINGS = 48, pts = [], rings = [];
+    const RINGS = 54, pts = [], rings = [];
     const ringIdx = y => Math.max(0, Math.min(RINGS - 1, Math.round((1.0 - y) / 1.92 * (RINGS - 1))));
     function addPt(x, y, z, c, glow, ring) {
         const ang0 = Math.random() * Math.PI * 2, rad0 = 2.6 + Math.random() * 2.6, el0 = (Math.random() - 0.5) * Math.PI;
@@ -6859,7 +6860,7 @@ function buildCortex() {
     for (let ri = 0; ri < RINGS; ri++) {
         const y = 1.0 - (ri / (RINGS - 1)) * 1.52;   // kruin -> kin, niet verder
         const w = _neoInterp(NEO_WIDTH, y);
-        const n = Math.max(12, Math.round(58 * (w + 0.25)));
+        const n = Math.max(12, Math.round(64 * (w + 0.25)));
         const ring = [];
         for (let k = 0; k < n; k++) {
             const phi = -Math.PI + (k / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.03;
@@ -6878,7 +6879,9 @@ function buildCortex() {
         const ring = [];
         for (let k = 0; k < n; k++) {
             const phi = -Math.PI + (k / n) * Math.PI * 2;
-            const depth = (0.15 + 0.10 * t) * Math.cos(phi) * (0.5 + t * 0.8) - 0.04;
+            // ronde hals: diepte ~ breedte (0.22 vs 0.23) zodat het zijaanzicht klopt;
+            // schouders worden geleidelijk platter (ellips), licht naar voren gecentreerd
+            const depth = 0.05 + (0.22 + 0.18 * t) * Math.cos(phi) * (1 - 0.30 * t);
             const sag = schouder > 0 ? 0.06 * Math.abs(Math.sin(phi)) * (schouder / 1.02) : 0;  // subtiele trapezius
             ring.push(addPt(w * Math.sin(phi), (y - sag) * 1.02, depth, '#6fb8e8', false, RINGS + j));
         }
@@ -6906,6 +6909,10 @@ function buildCortex() {
     featLine([[-0.128, -0.26], [-0.136, -0.13], [-0.14, 0], [-0.136, 0.13], [-0.128, 0.26]], 'front');
     // kinlijn
     featLine([[-0.30, -0.20], [-0.33, 0], [-0.30, 0.20]], 'front');
+    // kaaklijnen: van onder het oor naar de kin (beide zijden) - geeft het
+    // gezicht zijn herkenbare onderrand
+    featLine([[-0.06, 1.30], [-0.16, 1.02], [-0.25, 0.72], [-0.31, 0.42], [-0.335, 0.18]], 'front');
+    featLine([[-0.06, -1.30], [-0.16, -1.02], [-0.25, -0.72], [-0.31, -0.42], [-0.335, -0.18]], 'front');
     // oren (beide zijden, boog + lel)
     function ear(side) {
         const arr = [];
@@ -7045,6 +7052,7 @@ function _neoFrame(now) {
     }
 
     const scanY = ((now / 2600) % 1.3) * 2.6 - 1.4;
+    const act = ((_l2 && _l2.trained) ? 1 : 0.6) * (_neo.actMul || 0.6);   // synaps-tempo (voor brug en synapsen)
 
     // scan-ringen
     for (let ri = 0; ri < totalRings; ri++) {
@@ -7163,7 +7171,6 @@ function _neoFrame(now) {
     }
 
     // synaps-LIJNEN (extra flitsen)
-    const act = ((_l2 && _l2.trained) ? 1 : 0.6) * (_neo.actMul || 0.6);
     for (const f of _neo.syn) {
         f.t += dt * act;
         if (f.t > f.dur) {
