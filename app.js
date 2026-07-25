@@ -6168,6 +6168,33 @@ function toggleFlowHud() {
 const HUD_BLUE = ['#00d9ff', '#4fc3f7', '#81d4fa', '#0288d1', '#29b6f6', '#b3e5fc'];
 let _eyeSig = [];          // elementen die op bull/bear verkleuren
 let _allEyeSig = [];       // kleurbare elementen van ALLE ogen (hub + hero + engine)
+let _eyeWave = [], _eyeWaveRaf = null, _eyeWaveLast = 0, _eyeWaveStart = null;
+
+// BOUWGOLF voor het oog: dezelfde strepen-animatie als NEO, maar radiaal.
+// Een golf trekt continu van de kern naar de buitenrand; ringen vervagen vlak
+// voor de golf en tekenen zich er direct achter weer op. Loopt op dezelfde
+// 18s-klok als de NEO-bouwgolf zodat oog en kop samen "ademen".
+function _eyeWaveFrame(now) {
+    _eyeWaveRaf = requestAnimationFrame(_eyeWaveFrame);
+    if (now - _eyeWaveLast < 50) return;                    // 20fps volstaat voor opacity
+    _eyeWaveLast = now;
+    if (!_eyeWave.length) return;
+    const start = (typeof _neo !== 'undefined' && _neo.formStart) ? _neo.formStart : (_eyeWaveStart || (_eyeWaveStart = now));
+    const tSec = Math.max(0, (now - start - 300) / 1000);
+    const CYC = 18, SPAN = 1.4, BUILD = 0.28, PRE = 0.14;
+    const L = SPAN + BUILD + PRE;
+    const wave = (tSec / CYC) * L;
+    for (const it of _eyeWave) {
+        let e = 0;
+        if (wave >= it.rFrac) {
+            const db = (wave - it.rFrac) % L;
+            if (db < BUILD) { const k = db / BUILD; e = 1 - Math.pow(1 - k, 3); }       // vormt zich
+            else if (db > L - PRE) { const k = (L - db) / PRE; e = k * k; }             // valt uiteen voor de golf
+            else e = 1;
+        }
+        it.el.style.opacity = e.toFixed(3);
+    }
+}
 let _eyeBits = [];         // binaire cijfers die op sentiment verkleuren
 let _eyePupil = null, _eyeHalo = null, _eyeConf = null;
 let _eyeCX = 500, _eyeCY = 200, _eyeR = 150;
@@ -6290,6 +6317,25 @@ function initFlowHud() {
     host.appendChild(coreC);
 
     _allEyeSig = _allEyeSig.concat(_eyeSig);
+
+    // --- registratie voor de bouwgolf: straal per element schatten via bbox.
+    // Elementen met een eigen opacity-animatie (vortex-stipjes, radar-blips,
+    // confluence-runner) slaan we over zodat hun fade blijft werken; alles
+    // buiten R*1.4 (labels, dataflow) doet niet mee. ---
+    _eyeWave = [];
+    Array.from(host.children).forEach(el => {
+        if (el.tagName === 'defs') return;
+        try { if (el.querySelector && el.querySelector(':scope > animate[attributeName="opacity"]')) return; } catch (e) {}
+        let bb; try { bb = el.getBBox(); } catch (e) { return; }
+        if (!bb || !isFinite(bb.width) || (bb.width === 0 && bb.height === 0)) return;
+        const bcx = bb.x + bb.width / 2, bcy = bb.y + bb.height / 2;
+        const dist = Math.hypot(bcx - CX, (bcy - CY) / 0.96);
+        const rEst = Math.max(dist, (bb.width + bb.height) / 4);
+        const rFrac = rEst / R;
+        if (rFrac > 1.4) return;
+        _eyeWave.push({ el, rFrac });
+    });
+    if (!_eyeWaveRaf) _eyeWaveRaf = requestAnimationFrame(_eyeWaveFrame);
 
     // --- DATAFLOW PACKAGES: 5 kanalen per kant. De startpunten liggen op de
     // ooglid-vormige labelposities (verste in het midden, paren erboven/eronder
