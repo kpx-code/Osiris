@@ -6813,8 +6813,8 @@ const NEO_BACK = [
     [-0.06, -0.56], [-0.32, -0.40], [-0.56, -0.28], [-0.90, -0.24]
 ];
 const NEO_WIDTH = [
-    [1.00, 0.08], [0.90, 0.32], [0.70, 0.47], [0.45, 0.53], [0.20, 0.51],
-    [0.00, 0.465], [-0.20, 0.40], [-0.32, 0.30], [-0.44, 0.235], [-0.90, 0.20]
+    [1.00, 0.10], [0.90, 0.36], [0.70, 0.53], [0.45, 0.59], [0.20, 0.57],
+    [0.00, 0.52], [-0.20, 0.45], [-0.32, 0.34], [-0.44, 0.27], [-0.55, 0.24]
 ];
 const NEO_PALET = ['#00d9ff', '#ff4fd8', '#ffb627', '#14f195', '#c792ea'];
 
@@ -6841,7 +6841,7 @@ function _neoSurface(y, phi) {
     const earW = Math.exp(-Math.pow((Math.abs(phi) - Math.PI / 2) / 0.24, 2)) * Math.exp(-Math.pow((y - 0.18) / 0.16, 2));
     x += Math.sign(Math.sin(phi) || 1) * 0.11 * earW;
     const glow = (Math.abs(detail) > 0.05 && fw > 0.45) || earW > 0.5;
-    return { x, y: y * 1.12, z, glow };
+    return { x, y: y * 1.02, z, glow };
 }
 
 function buildCortex() {
@@ -6860,7 +6860,7 @@ function buildCortex() {
     }
     // scan-ringen kop
     for (let ri = 0; ri < RINGS; ri++) {
-        const y = 1.0 - (ri / (RINGS - 1)) * 1.92;
+        const y = 1.0 - (ri / (RINGS - 1)) * 1.52;   // kruin -> kin, niet verder
         const w = _neoInterp(NEO_WIDTH, y);
         const n = Math.max(12, Math.round(58 * (w + 0.25)));
         const ring = [];
@@ -6871,20 +6871,19 @@ function buildCortex() {
         }
         rings.push(ring);
     }
-    // hals (smal) die overgaat in BREDE schouders met echte diepte
-    for (let j = 0; j < 14; j++) {
-        const t = j / 14, y = -0.98 - t * 0.72;
-        const nek = 0.20 + 0.02 * t;                          // smalle halskolom
-        const schouder = 1.15 * Math.pow(Math.max(0, (t - 0.30) / 0.70), 1.6);  // waaiert uit vanaf 30%
+    // KORTE hals (ca. kwart hoofdhoogte) die snel overgaat in brede schouders
+    for (let j = 0; j < 12; j++) {
+        const t = j / 12, y = -0.54 - t * 0.56;               // hals -0.54..-0.78, schouders tot ~-1.10
+        const nek = 0.23;
+        const schouder = 1.02 * Math.pow(Math.max(0, (t - 0.40) / 0.60), 1.5);
         const w = nek + schouder;
         const n = Math.max(16, Math.round(40 * (w + 0.35)));
         const ring = [];
         for (let k = 0; k < n; k++) {
             const phi = -Math.PI + (k / n) * Math.PI * 2;
-            const depth = (0.14 + 0.10 * t) * Math.cos(phi) * (0.5 + t * 0.8) - 0.04;
-            // schouders zakken licht af naar buiten (trapezius-lijn)
-            const sag = schouder > 0 ? 0.10 * Math.abs(Math.sin(phi)) * (schouder / 1.15) : 0;
-            ring.push(addPt(w * Math.sin(phi), (y - sag) * 1.12, depth, '#6fb8e8', false, RINGS + j));
+            const depth = (0.15 + 0.10 * t) * Math.cos(phi) * (0.5 + t * 0.8) - 0.04;
+            const sag = schouder > 0 ? 0.06 * Math.abs(Math.sin(phi)) * (schouder / 1.02) : 0;  // subtiele trapezius
+            ring.push(addPt(w * Math.sin(phi), (y - sag) * 1.02, depth, '#6fb8e8', false, RINGS + j));
         }
         rings.push(ring);
     }
@@ -7022,7 +7021,7 @@ function _neoFrame(now) {
     }
     ctx.globalAlpha = 1;
 
-    const cx = w * 0.5, cy = h * 0.40, scale = Math.min(w, h) * 0.37;
+    const cx = w * 0.5, cy = h * 0.43, scale = Math.min(w, h) * 0.43;
     const totalRings = _neo.rings.length;
 
     const proj = new Array(_neo.pts.length);
