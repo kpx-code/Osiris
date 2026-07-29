@@ -418,9 +418,13 @@ section { position:relative; z-index:2; }
 </style>
 <style>
 /* extra responsive (V4 NEO): alle onderdelen blijven, ze stapelen alleen op klein scherm */
+/* gelijke cellen voor de 4 kwadranten (oog / neural net / hoofd / brein) */
+.neo-quad{position:relative; height:360px; background:#000004; border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center;}
+.neo-quad canvas{width:100%; height:100%; display:block; border-radius:8px;}
+.neo-quad #flow-svg{width:100%; height:100%;}
 @media(max-width:900px){
   #flow-hud-body > div[style*="grid-template-columns"]{grid-template-columns:1fr !important; gap:12px !important;}
-  #neo-canvas{height:420px !important;}
+  #neo-canvas{height:100% !important;}
 }
 @media(max-width:720px){
   div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr !important;}
@@ -783,9 +787,11 @@ section { position:relative; z-index:2; }
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:stretch; background:#000004; border-radius:10px; padding:6px;">
               <!-- LINKERKOLOM: oog boven, neuraal netwerk onder -->
               <div style="display:flex; flex-direction:column; gap:10px;">
-                <div id="eye-cell" style="position:relative;">
+                <div id="eye-cell" class="neo-quad">
                 <canvas id="eye-plexus" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></canvas>
-                <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto; position:relative; z-index:1;">
+                <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#00d9ff; letter-spacing:2px; z-index:2;">OSIRIS &middot; QUANTUM TRACKING</div>
+                <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">ocular core &middot; live feed</div>
+                <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="display:block; margin:0 auto; position:relative; z-index:1;">
                 <g id="w-eye"></g>
                 <g font-family="'JetBrains Mono',monospace" font-size="9">
                   <text x="14" y="200" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
@@ -802,27 +808,27 @@ section { position:relative; z-index:2; }
                 <circle id="flow-pupil" cx="500" cy="200" r="1" fill="none" stroke="none"/>
                 </svg>
                 </div>
-                <div id="neo-net-panel" style="position:relative;">
-                  <canvas id="neo-net-canvas" style="width:100%; height:420px; display:block; border-radius:8px;"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">NEO &middot; NEURAL NET</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488;">actieve verwerking &middot; live</div>
-                  <div id="neo-net-decision" style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff;">beslissing <span id="neo-net-out">&mdash;</span></div>
+                <div id="neo-net-panel" class="neo-quad">
+                  <canvas id="neo-net-canvas"></canvas>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">NEO &middot; NEURAL NET</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">actieve verwerking &middot; live</div>
+                  <div id="neo-net-decision" style="position:absolute; top:8px; right:10px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out" style="font-size:0.8rem;">&mdash;</span></div>
                 </div>
               </div>
               <!-- RECHTERKOLOM: hoofd boven, brein onder -->
               <div style="display:flex; flex-direction:column; gap:10px;">
-                <div id="neo-panel" style="position:relative;">
-                  <canvas id="neo-canvas" style="width:100%; height:420px; display:block; border-radius:8px;"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">NEO &middot; MARK 1</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488;">ultra-realistisch hoofd</div>
-                  <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8;"><span id="neo-samples">0</span> samples</div>
-                  <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff;">kans <span id="neo-prob">&mdash;</span></div>
+                <div id="neo-panel" class="neo-quad">
+                  <canvas id="neo-canvas"></canvas>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">NEO &middot; MARK 1</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">ultra-realistisch hoofd</div>
+                  <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8; z-index:2;"><span id="neo-samples">0</span> samples</div>
+                  <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff; z-index:2;">kans <span id="neo-prob">&mdash;</span></div>
                 </div>
-                <div id="neo-brain-panel" style="position:relative;">
-                  <canvas id="neo-brain-canvas" style="width:100%; height:420px; display:block; border-radius:8px;"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#c792ea; letter-spacing:2px;">NEO &middot; CORTEX</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488;">brein-plexus &middot; lerend</div>
-                  <div id="neo-brain-bias" style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff;">bias <span id="neo-brain-out">&mdash;</span></div>
+                <div id="neo-brain-panel" class="neo-quad">
+                  <canvas id="neo-brain-canvas"></canvas>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#c792ea; letter-spacing:2px; z-index:2;">NEO &middot; CORTEX</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">brein-plexus &middot; lerend</div>
+                  <div id="neo-brain-bias" style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff; z-index:2;">bias <span id="neo-brain-out">&mdash;</span></div>
                 </div>
               </div>
             </div>
