@@ -3901,10 +3901,15 @@ function computeCalibrationMap() {
     // Handmatige trades tellen NIET mee: die meten niet of de bot zijn eigen
     // score eerlijk inschat (ander beslisproces, andere momentkeuze).
     const withProb = learningLog.filter(l => l.entryProbabilityPct != null && !l.manual);
-    if (withProb.length < 50) { _calibMap = null; return; }
+    // 29-07: drempels verlaagd zodat de curve eerder (en bij elke trade) meebeweegt.
+    // Onder de 50 schone trades markeren we hem als VOORLOPIG (kleine steekproef) i.p.v.
+    // niets te tonen - zodat je 'm ziet leven, met de kanttekening dat het nog ruw is.
+    _calibProvisional = withProb.length < 50;
+    if (withProb.length < 10) { _calibMap = null; return; }
+    const minPerBucket = withProb.length < 50 ? 4 : 15;   // soepeler bij weinig data, streng bij veel
     for (const [lo, hi] of buckets) {
         const inB = withProb.filter(l => l.entryProbabilityPct >= lo && l.entryProbabilityPct < hi);
-        if (inB.length >= 15) {
+        if (inB.length >= minPerBucket) {
             pts.push([(lo + Math.min(hi, 100)) / 2, inB.filter(l => l.outcome === 'win').length / inB.length * 100]);
         }
     }
@@ -3913,6 +3918,7 @@ function computeCalibrationMap() {
     for (let i = 1; i < pts.length; i++) pts[i][1] = Math.max(pts[i][1], pts[i - 1][1]);
     _calibMap = pts;
 }
+let _calibProvisional = false;
 
 function calibrateProbability(raw) {
     if (!_calibMap || raw == null || !isFinite(raw)) return null;
@@ -6654,7 +6660,7 @@ function renderCalibrationCurve() {
     if (!_calibMap || _calibMap.length < 2) {
         plot.innerHTML = '';
         const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null).length;
-        if (note) note.textContent = `Wacht op 50+ trades met entry-kans (nu ${n}).`;
+        if (note) note.textContent = `Wacht op meer bot-trades met entry-kans (nu ${n}) \u2014 curve verschijnt vanaf ~10.`;
         return;
     }
     // x: ruwe score 50-100 -> 8..94 | y: gemeten winrate 0-100 -> 50..4
@@ -6678,7 +6684,7 @@ function renderCalibrationCurve() {
     }
     if (note) {
         const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null).length;
-        note.textContent = `${n} bot-trades \u00b7 hoe verder onder de stippellijn, hoe overmoediger de score.`;
+        note.textContent = `${n} bot-trades \u00b7 ${_calibProvisional ? 'VOORLOPIG (kleine steekproef) \u00b7 ' : ''}hoe verder onder de stippellijn, hoe overmoediger de score.`;
     }
 }
 
@@ -7683,22 +7689,46 @@ function _neoNetFrame(now) {
     layers[4][2].act = Math.max(0, -decisionBias);      // SHORT
 
     // ---- verbindingen: swingen + oplichten waar de compute-golf is ----
+    // Elke verbinding krijgt een duidelijke grondlaag (altijd zichtbaar, zodat de hele
+    // netwerkstructuur leesbaar is - ook tussen confluence/integratie/gewichten), plus
+    // een oplicht-component waar de compute-golf en activatie doorheen trekken.
+    // KLEUR: in rust volgt elke verbinding de kleur van zijn HERKOMST-input (geel/groen/
+    // paars/cyaan/...); zodra hij oplicht terwijl Neo rekent, kleurt hij Osiris-neonblauw.
+    const OSIRIS_NEON = '80,240,255';
+    // bepaal per node in de eerste laag zijn kleur (rgb), propageer die als "signaalkleur"
+    if (!_neonet._srcCol) {
+        // signaalkleur per node per laag: laag 0 = input-kleur, dieper = gemengd/overgeërfd
+        const hex2rgb = h => { const n = parseInt(h.slice(1), 16); return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; };
+        const src = layers.map(l => l.map(() => '130,180,230'));
+        layers[0].forEach((nd, i) => src[0][i] = hex2rgb(NEONET_INPUTS[i].c));
+        // elke diepere node erft de kleur van de sterkst-verbonden bron ervoor (grof, 1x)
+        for (let li = 1; li < layers.length; li++) {
+            layers[li].forEach((nd, j) => {
+                let best = null, bw = -1;
+                for (const cn of conns) if (cn.li === li - 1 && cn.b === j) { if (Math.abs(cn.w) > bw) { bw = Math.abs(cn.w); best = cn.a; } }
+                src[li][j] = best != null ? src[li - 1][best] : '130,180,230';
+            });
+        }
+        _neonet._srcCol = src;
+    }
+    const srcCol = _neonet._srcCol;
     for (const cn of conns) {
         const A = pos[cn.li][cn.a], B = pos[cn.li + 1][cn.b];
         const a0 = layers[cn.li][cn.a].act;
-        // golf-nabijheid: verbinding licht op als de puls door deze laag trekt
         const near = Math.exp(-Math.pow((wavePos - (cn.li + 0.5)) / 0.5, 2));
         const flow = (Math.sin(now / 1000 * cn.sp * 2 + cn.flow * 6.28) * 0.5 + 0.5);
         const active = a0 * (0.35 + 0.65 * near) * (0.4 + 0.6 * flow) * _neonet.actLevel;
-        const bull = cn.w >= 0;
-        const col = bull ? '90,150,255' : '255,90,120';   // blauw pos / rood neg (zoals referentie)
-        ctx.strokeStyle = `rgba(${col},${(0.05 + 0.85 * active).toFixed(3)})`;
-        ctx.lineWidth = 0.5 + active * 2.6;
-        // felle kern-glow op sterk actieve verbindingen zodat oplichten echt opvalt
-        if (active > 0.4) { ctx.save(); ctx.shadowColor = `rgba(${col},0.9)`; ctx.shadowBlur = 6 + active * 8; }
+        // grondkleur = herkomst-input-kleur; actieve verbinding verschuift naar Osiris-neon
+        const baseCol = srcCol[cn.li][cn.a];
+        const col = active > 0.35 ? OSIRIS_NEON : baseCol;
+        const baseVis = 0.20 + 0.16 * Math.abs(cn.w);     // sterkere gewichten iets zichtbaarder
+        ctx.strokeStyle = `rgba(${col},${Math.min(0.96, baseVis + 0.75 * active).toFixed(3)})`;
+        ctx.lineWidth = 0.7 + Math.abs(cn.w) * 0.5 + active * 2.6;
+        // felle Osiris-neon kern-glow op sterk actieve verbindingen
+        if (active > 0.35) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.95)`; ctx.shadowBlur = 7 + active * 10; }
         const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2 + Math.sin(now / 700 * cn.sp + cn.flow * 6.28) * 6 * near;
         ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(mx, my, B.x, B.y); ctx.stroke();
-        if (active > 0.4) ctx.restore();
+        if (active > 0.35) ctx.restore();
     }
 
     // ---- neuronen ----
