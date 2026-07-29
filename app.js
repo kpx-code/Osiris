@@ -157,17 +157,6 @@ let botSettings = {
     rangeScalpProfitTargetPct: 0.3,  // klein, vast winstdoel (kan ook 0.2 zijn, instelbaar)
     rangeScalpStopLossPct: 0.5,      // eigen, krappere stop-loss dan de normale 2% - past bij het kleinere doel
     rangeScalpAllocationPct: 0.10,   // vaste, kleine allocatie per scalp (i.p.v. confluence-geschaald zoals trend-trades)
-    // --- MICRO-SCALP FAST-LANE: separate fast path, OFF by default ---
-    // Reacts within seconds on the RAW (un-smoothed) directional signal with a
-    // short confirmation window, so it can catch quick micro moves the smoothed
-    // trend engine misses. Fully separate from the trend engine and from the
-    // trend calibration; its trades feed only the scalp learning track.
-    microFastLaneEnabled: false,     // default OFF - user enables it in the config
-    microTargetPct: 0.25,            // small fixed profit target
-    microStopPct: 0.30,              // tight stop
-    microAllocPct: 0.05,             // small fixed allocation per micro-scalp
-    microMinProbPct: 72,             // raw probability needed to arm the entry
-    microConfirmSeconds: 4,          // raw signal must hold this long before entry
     // --- CHASE: pending order eerder invullen als het signaal heel sterk blijft ---
     chaseEnabled: true,
     chaseProbabilityThreshold: 90,  // pas chasen bij een duidelijk hogere kans dan de gewone entry-drempel
@@ -486,11 +475,6 @@ let lastOsirisDecision = null;
 // ============================================================
 let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0 };
 let learningLog = []; // { timestampMs, side, factors: {confluence, nodeInfluence, momentumInfluence, fibConfluenceInfluence, probabilityPct}, outcome: 'win'|'loss', pnlPct }
-// Separate scalp learning track. Range-scalps and micro-scalps have no confluence
-// factor breakdown, so they never enter learningLog / the trend calibration. Instead
-// they log here with scalp-relevant features (RSI band, range position, chaos level)
-// so each scalp still teaches something - in its own bucket, not the trend brain's.
-let scalpLog = []; // { timestampMs, side, isMicro, rsi, rangePos, chaos, outcome, pnlPct, holdMinutes, configVersion }
 let lastReallocationAt = 0; // timestamp (ms) van de laatste reallocatie - voor de cooldown-poort in tryReallocateForBetterOpportunity
 // FIX (crash 12-07): sessionLog stond gedeclareerd op ~regel 1200, terwijl
 // loadPersistentState() - dat sessionLog herstelt - al op ~regel 978 draait.
@@ -1340,7 +1324,6 @@ function savePersistentState() {
         }));
         // NIVEAU 1: leer-log en adaptieve gewichten - de kern van "leren van fouten"
         localStorage.setItem('osirisLearningLog', JSON.stringify(learningLog));
-        localStorage.setItem('osirisScalpLog', JSON.stringify(scalpLog.slice(-2000)));
         localStorage.setItem('osirisAdaptiveWeights', JSON.stringify(adaptiveWeights));
     } catch (e) { console.warn("Kon wallet/positie-status niet opslaan:", e); }
 }
@@ -1390,7 +1373,6 @@ function loadPersistentState() {
         }
         if (sl) sessionLog = JSON.parse(sl);
         if (ll) learningLog = JSON.parse(ll);
-        try { const scl = localStorage.getItem('osirisScalpLog'); if (scl) scalpLog = JSON.parse(scl); } catch (e) {}
         if (aw) adaptiveWeights = JSON.parse(aw);
         computeCalibrationMap(); // pas NA het herstellen van alle state - zodat een
                                  // fout hier nooit meer een herstel-regel kan blokkeren
@@ -1446,12 +1428,6 @@ function populateSettingsInputsFromState() {
     setVal('range-scalp-target-pct', s.rangeScalpProfitTargetPct);
     setVal('range-scalp-stop-pct', s.rangeScalpStopLossPct);
     setVal('range-scalp-alloc-pct', (s.rangeScalpAllocationPct * 100).toFixed(0));
-    setVal('micro-fastlane-enabled', String(s.microFastLaneEnabled ?? false));
-    setVal('micro-target-pct', s.microTargetPct ?? 0.25);
-    setVal('micro-stop-pct', s.microStopPct ?? 0.30);
-    setVal('micro-alloc-pct', ((s.microAllocPct ?? 0.05) * 100).toFixed(0));
-    setVal('micro-min-prob', s.microMinProbPct ?? 72);
-    setVal('micro-confirm-sec', s.microConfirmSeconds ?? 4);
     setVal('chase-probability-pct', s.chaseProbabilityThreshold);
     setVal('chase-after-minutes', s.chaseAfterMinutes);
     setVal('reallocation-enabled', s.reallocationEnabled ? 'true' : 'false');
@@ -1652,18 +1628,6 @@ function readTradingSettingsFromInputs() {
     if (rangeScalpAllocInput && !isNaN(parseFloat(rangeScalpAllocInput.value))) {
         botSettings.rangeScalpAllocationPct = Math.min(Math.max(parseFloat(rangeScalpAllocInput.value) / 100, 0), 1);
     }
-    const microEnabledInput = document.getElementById('micro-fastlane-enabled');
-    if (microEnabledInput) botSettings.microFastLaneEnabled = microEnabledInput.value === 'true';
-    const microTargetInput = document.getElementById('micro-target-pct');
-    if (microTargetInput && !isNaN(parseFloat(microTargetInput.value))) botSettings.microTargetPct = Math.max(parseFloat(microTargetInput.value), 0.05);
-    const microStopInput = document.getElementById('micro-stop-pct');
-    if (microStopInput && !isNaN(parseFloat(microStopInput.value))) botSettings.microStopPct = Math.max(parseFloat(microStopInput.value), 0.05);
-    const microAllocInput = document.getElementById('micro-alloc-pct');
-    if (microAllocInput && !isNaN(parseFloat(microAllocInput.value))) botSettings.microAllocPct = Math.min(Math.max(parseFloat(microAllocInput.value) / 100, 0), 1);
-    const microMinProbInput = document.getElementById('micro-min-prob');
-    if (microMinProbInput && !isNaN(parseFloat(microMinProbInput.value))) botSettings.microMinProbPct = Math.min(Math.max(parseFloat(microMinProbInput.value), 0), 100);
-    const microConfirmInput = document.getElementById('micro-confirm-sec');
-    if (microConfirmInput && !isNaN(parseFloat(microConfirmInput.value))) botSettings.microConfirmSeconds = Math.max(parseFloat(microConfirmInput.value), 0);
     if (chaseProbInput && !isNaN(parseFloat(chaseProbInput.value))) {
         botSettings.chaseProbabilityThreshold = Math.min(Math.max(parseFloat(chaseProbInput.value), 0), 100);
     }
@@ -2703,7 +2667,206 @@ function detectCandlestickPattern(index = null, data = null) {
     return { pattern: null, bias: 'neutral' };
 }
 
-// ---- Markt-structuur: higher-highs/higher-lows vs. lower-highs/lower-lows ----
+// ============================================================
+// NEO CNN — MULTI-CANDLE PATROONHERKENNING (29-07)
+// ============================================================
+// Aanvulling op detectCandlestickPattern (die blijft ongewijzigd). Deze module
+// bekijkt COMBINATIES van 2 t/m 5 opeenvolgende candles - geen losse candles -
+// en herkent een brede bibliotheek reversal- én continuation-patronen. Werkt als
+// een sliding window (de "CNN"-benadering): het venster schuift over de recente
+// candles, elke positie levert een feature-vector, en de patroon-detector geeft
+// per venster een {pattern, bias, strength}. Referenties: Morning/Evening Star,
+// Three White Soldiers/Black Crows, Engulfing, Harami(+Cross), Piercing/Dark Cloud,
+// Three Inside/Outside Up-Down, Tri Star, Abandoned Baby, Rising/Falling Three
+// Methods, Tweezers, Kicker, Belt Hold, Marubozu, Doji-familie, Three Line Strike,
+// Tasuki Gap, Stick Sandwich, Matching High/Low, Separating Lines, e.v.a.
+const NEO_CNN_PATTERNS = {
+    // naam: {candles, bias, label} — voor de UI-legenda en het neurale net
+    three_white_soldiers:{n:3,bias:'bullish',label:'Three White Soldiers'},
+    three_black_crows:{n:3,bias:'bearish',label:'Three Black Crows'},
+    morning_star:{n:3,bias:'bullish',label:'Morning Star'},
+    evening_star:{n:3,bias:'bearish',label:'Evening Star'},
+    morning_doji_star:{n:3,bias:'bullish',label:'Morning Doji Star'},
+    evening_doji_star:{n:3,bias:'bearish',label:'Evening Doji Star'},
+    bull_abandoned_baby:{n:3,bias:'bullish',label:'Bullish Abandoned Baby'},
+    bear_abandoned_baby:{n:3,bias:'bearish',label:'Bearish Abandoned Baby'},
+    three_inside_up:{n:3,bias:'bullish',label:'Three Inside Up'},
+    three_inside_down:{n:3,bias:'bearish',label:'Three Inside Down'},
+    three_outside_up:{n:3,bias:'bullish',label:'Three Outside Up'},
+    three_outside_down:{n:3,bias:'bearish',label:'Three Outside Down'},
+    tri_star_bull:{n:3,bias:'bullish',label:'Bottom Tri Star'},
+    tri_star_bear:{n:3,bias:'bearish',label:'Top Tri Star'},
+    upside_tasuki_gap:{n:3,bias:'bullish',label:'Upside Tasuki Gap'},
+    downside_tasuki_gap:{n:3,bias:'bearish',label:'Downside Tasuki Gap'},
+    stick_sandwich:{n:3,bias:'bullish',label:'Stick Sandwich'},
+    bull_engulfing:{n:2,bias:'bullish',label:'Bullish Engulfing'},
+    bear_engulfing:{n:2,bias:'bearish',label:'Bearish Engulfing'},
+    piercing_line:{n:2,bias:'bullish',label:'Piercing Line'},
+    dark_cloud_cover:{n:2,bias:'bearish',label:'Dark Cloud Cover'},
+    harami_bull:{n:2,bias:'bullish',label:'Bullish Harami'},
+    harami_bear:{n:2,bias:'bearish',label:'Bearish Harami'},
+    harami_cross_bull:{n:2,bias:'bullish',label:'Bullish Harami Cross'},
+    harami_cross_bear:{n:2,bias:'bearish',label:'Bearish Harami Cross'},
+    tweezer_bottom:{n:2,bias:'bullish',label:'Tweezer Bottom'},
+    tweezer_top:{n:2,bias:'bearish',label:'Tweezer Top'},
+    bull_kicker:{n:2,bias:'bullish',label:'Bullish Kicker'},
+    bear_kicker:{n:2,bias:'bearish',label:'Bearish Kicker'},
+    matching_low:{n:2,bias:'bullish',label:'Matching Low'},
+    matching_high:{n:2,bias:'bearish',label:'Matching High'},
+    bull_separating:{n:2,bias:'bullish',label:'Bullish Separating Lines'},
+    bear_separating:{n:2,bias:'bearish',label:'Bearish Separating Lines'},
+    on_neck:{n:2,bias:'bearish',label:'On Neck'},
+    rising_three:{n:5,bias:'bullish',label:'Rising Three Methods'},
+    falling_three:{n:5,bias:'bearish',label:'Falling Three Methods'},
+    bull_three_line_strike:{n:4,bias:'bullish',label:'Bullish Three Line Strike'},
+    bear_three_line_strike:{n:4,bias:'bearish',label:'Bearish Three Line Strike'},
+    bull_belt_hold:{n:1,bias:'bullish',label:'Bullish Belt Hold'},
+    bear_belt_hold:{n:1,bias:'bearish',label:'Bearish Belt Hold'},
+    marubozu_bull:{n:1,bias:'bullish',label:'Bullish Marubozu'},
+    marubozu_bear:{n:1,bias:'bearish',label:'Bearish Marubozu'}
+};
+
+function _cnnMetrics(k){
+    const body=Math.abs(k.close-k.open), range=(k.high-k.low)||1e-9;
+    const up=k.high-Math.max(k.open,k.close), lo=Math.min(k.open,k.close)-k.low;
+    const isBull=k.close>=k.open;
+    return {o:k.open,h:k.high,l:k.low,c:k.close,body,range,up,lo,isBull,
+            bodyPct:body/range,top:Math.max(k.open,k.close),bot:Math.min(k.open,k.close),mid:(k.open+k.close)/2};
+}
+// Detecteer het sterkste multi-candle patroon dat EINDIGT op index i.
+// Retourneert {pattern,bias,label,n,strength} of null.
+function neoDetectMultiCandle(src, i){
+    if(!src||i<4) return null;
+    const g=j=>{const d=src[j];return _cnnMetrics({open:+d[1],high:+d[2],low:+d[3],close:+d[4]});};
+    const k=[g(i-4),g(i-3),g(i-2),g(i-1),g(i)];      // [c4,c3,c2,c1,c0], c0 = huidige
+    const [c4,c3,c2,c1,c0]=k;
+    const avgRange=(c4.range+c3.range+c2.range+c1.range+c0.range)/5;
+    const tol=avgRange*0.12;
+    const big=x=>x.bodyPct>0.55, small=x=>x.bodyPct<0.35, doji=x=>x.bodyPct<0.08;
+    const upTrend=c3.c<c2.c&&c2.c<c1.c, downTrend=c3.c>c2.c&&c2.c>c1.c;
+    const R=(pattern,strength)=>{const p=NEO_CNN_PATTERNS[pattern];return{pattern,bias:p.bias,label:p.label,n:p.n,strength:Math.max(0,Math.min(1,strength))};};
+
+    // ===== 5-candle continuation =====
+    // Rising Three Methods: grote groen, 3 kleine dalende binnen range, grote groen die hoger sluit
+    if(c4.isBull&&big(c4) && !c3.isBull&&!c2.isBull&&!c1.isBull &&
+       c3.top<c4.h&&c1.bot>c4.l && c0.isBull&&big(c0)&&c0.c>c4.h)
+        return R('rising_three',0.9);
+    if(!c4.isBull&&big(c4) && c3.isBull&&c2.isBull&&c1.isBull &&
+       c3.bot>c4.l&&c1.top<c4.h && !c0.isBull&&big(c0)&&c0.c<c4.l)
+        return R('falling_three',0.9);
+
+    // ===== 4-candle =====
+    // Three Line Strike: 3 in trend, 4e slokt ze in één keer op
+    if(c3.isBull&&c2.isBull&&c1.isBull&&c1.c>c2.c&&c2.c>c3.c && !c0.isBull&&c0.o>=c1.c&&c0.c<=c3.o)
+        return R('bull_three_line_strike',0.8);
+    if(!c3.isBull&&!c2.isBull&&!c1.isBull&&c1.c<c2.c&&c2.c<c3.c && c0.isBull&&c0.o<=c1.c&&c0.c>=c3.o)
+        return R('bear_three_line_strike',0.8);
+
+    // ===== 3-candle reversal =====
+    if(c2.isBull&&c1.isBull&&c0.isBull&&big(c2)&&big(c1)&&big(c0)&&c1.c>c2.c&&c0.c>c1.c&&c1.o>c2.o&&c0.o>c1.o)
+        return R('three_white_soldiers',0.95);
+    if(!c2.isBull&&!c1.isBull&&!c0.isBull&&big(c2)&&big(c1)&&big(c0)&&c1.c<c2.c&&c0.c<c1.c&&c1.o<c2.o&&c0.o<c1.o)
+        return R('three_black_crows',0.95);
+    // Tri Star: drie doji's op rij
+    if(doji(c2)&&doji(c1)&&doji(c0)){
+        if(c1.mid<c2.mid&&c0.mid>c1.mid) return R('tri_star_bull',0.7);
+        if(c1.mid>c2.mid&&c0.mid<c1.mid) return R('tri_star_bear',0.7);
+    }
+    // Abandoned Baby: groot - gap-geïsoleerde doji - groot terug
+    if(!c2.isBull&&big(c2)&&doji(c1)&&c1.h<c2.l&&c0.isBull&&c0.l>c1.h&&big(c0))
+        return R('bull_abandoned_baby',0.85);
+    if(c2.isBull&&big(c2)&&doji(c1)&&c1.l>c2.h&&!c0.isBull&&c0.h<c1.l&&big(c0))
+        return R('bear_abandoned_baby',0.85);
+    // Morning/Evening (Doji) Star
+    if(!c2.isBull&&big(c2)&&small(c1)&&c0.isBull&&big(c0)&&c0.c>c2.mid){
+        return R(doji(c1)?'morning_doji_star':'morning_star',0.85);
+    }
+    if(c2.isBull&&big(c2)&&small(c1)&&!c0.isBull&&big(c0)&&c0.c<c2.mid){
+        return R(doji(c1)?'evening_doji_star':'evening_star',0.85);
+    }
+    // Three Inside Up/Down (harami + bevestiging)
+    if(!c2.isBull&&big(c2)&&c1.isBull&&c1.top<c2.top&&c1.bot>c2.bot&&c0.isBull&&c0.c>c2.top)
+        return R('three_inside_up',0.8);
+    if(c2.isBull&&big(c2)&&!c1.isBull&&c1.top<c2.top&&c1.bot>c2.bot&&!c0.isBull&&c0.c<c2.bot)
+        return R('three_inside_down',0.8);
+    // Three Outside Up/Down (engulfing + bevestiging)
+    if(!c2.isBull&&c1.isBull&&c1.o<c2.c&&c1.c>c2.o&&c0.isBull&&c0.c>c1.c)
+        return R('three_outside_up',0.8);
+    if(c2.isBull&&!c1.isBull&&c1.o>c2.c&&c1.c<c2.o&&!c0.isBull&&c0.c<c1.c)
+        return R('three_outside_down',0.8);
+    // Tasuki Gap (continuation)
+    if(c2.isBull&&c1.isBull&&c1.l>c2.h&&!c0.isBull&&c0.o<c1.c&&c0.o>c1.o&&c0.c<c1.o&&c0.c>c2.h)
+        return R('upside_tasuki_gap',0.65);
+    if(!c2.isBull&&!c1.isBull&&c1.h<c2.l&&c0.isBull&&c0.o>c1.c&&c0.o<c1.o&&c0.c>c1.o&&c0.c<c2.l)
+        return R('downside_tasuki_gap',0.65);
+    // Stick Sandwich
+    if(!c2.isBull&&c1.isBull&&!c0.isBull&&Math.abs(c0.c-c2.c)<=tol&&c1.c>c2.c)
+        return R('stick_sandwich',0.6);
+
+    // ===== 2-candle =====
+    if(!c1.isBull&&c0.isBull&&c0.o<c1.c&&c0.c>c1.o){
+        // engulfing; harami cross indien c0 doji binnen c1
+        return R('bull_engulfing',0.8);
+    }
+    if(c1.isBull&&!c0.isBull&&c0.o>c1.c&&c0.c<c1.o)
+        return R('bear_engulfing',0.8);
+    if(!c1.isBull&&big(c1)&&c0.isBull&&c0.o<c1.l&&c0.c>c1.mid&&c0.c<c1.o)
+        return R('piercing_line',0.7);
+    if(c1.isBull&&big(c1)&&!c0.isBull&&c0.o>c1.h&&c0.c<c1.mid&&c0.c>c1.o)
+        return R('dark_cloud_cover',0.7);
+    // Harami (+cross)
+    if(big(c1)&&c0.body<c1.body*0.5&&c0.top<c1.top&&c0.bot>c1.bot){
+        if(doji(c0)) return R(c1.isBull?'harami_cross_bear':'harami_cross_bull',0.65);
+        return R(c1.isBull?'harami_bear':'harami_bull',0.6);
+    }
+    // Kicker: tegengestelde marubozu's met gap
+    if(!c1.isBull&&c1.bodyPct>0.8&&c0.isBull&&c0.bodyPct>0.8&&c0.o>=c1.o)
+        return R('bull_kicker',0.85);
+    if(c1.isBull&&c1.bodyPct>0.8&&!c0.isBull&&c0.bodyPct>0.8&&c0.o<=c1.o)
+        return R('bear_kicker',0.85);
+    // Tweezers
+    if(c1.isBull&&!c0.isBull&&Math.abs(c0.h-c1.h)<=tol&&c1.bodyPct>0.3)
+        return R('tweezer_top',0.55);
+    if(!c1.isBull&&c0.isBull&&Math.abs(c0.l-c1.l)<=tol&&c1.bodyPct>0.3)
+        return R('tweezer_bottom',0.55);
+    // Matching high/low
+    if(!c1.isBull&&!c0.isBull&&Math.abs(c0.c-c1.c)<=tol) return R('matching_low',0.5);
+    if(c1.isBull&&c0.isBull&&Math.abs(c0.c-c1.c)<=tol) return R('matching_high',0.5);
+    // Separating lines (continuation): zelfde open, tegengestelde richting terug in trend
+    if(downTrend&&!c1.isBull&&c0.isBull&&Math.abs(c0.o-c1.o)<=tol) return R('bull_separating',0.5);
+    if(upTrend&&c1.isBull&&!c0.isBull&&Math.abs(c0.o-c1.o)<=tol) return R('bear_separating',0.5);
+    // On Neck (bearish continuation)
+    if(!c1.isBull&&big(c1)&&c0.isBull&&Math.abs(c0.c-c1.l)<=tol) return R('on_neck',0.45);
+
+    // ===== 1-candle (alleen sterke overtuiging) =====
+    if(c0.bodyPct>0.92) return R(c0.isBull?'marubozu_bull':'marubozu_bear',0.6);
+    if(c0.bodyPct>0.7&&c0.lo<c0.range*0.05&&c0.isBull&&downTrend) return R('bull_belt_hold',0.45);
+    if(c0.bodyPct>0.7&&c0.up<c0.range*0.05&&!c0.isBull&&upTrend) return R('bear_belt_hold',0.45);
+    return null;
+}
+
+// Sliding-window scan over de laatste `lookback` candles: verzamelt alle
+// gedetecteerde multi-candle patronen (de "feature map" van de CNN-laag).
+function neoScanPatterns(src, lookback=40){
+    if(!src||src.length<5) return {hits:[], last:null, netBias:0};
+    const start=Math.max(4, src.length-lookback);
+    const hits=[];
+    for(let i=start;i<src.length;i++){
+        const r=neoDetectMultiCandle(src,i);
+        if(r){ r.index=i; r.agoBars=src.length-1-i; hits.push(r); }
+    }
+    // netto bias-score: recentere + sterkere patronen wegen zwaarder
+    let net=0;
+    for(const h of hits){
+        const recency=Math.exp(-h.agoBars/12);
+        const w=h.strength*recency*(h.bias==='bullish'?1:h.bias==='bearish'?-1:0);
+        net+=w;
+    }
+    const last=hits.length?hits[hits.length-1]:null;
+    return {hits, last, netBias:Math.max(-1,Math.min(1,net))};
+}
+window.neoScanPatterns = neoScanPatterns;
+window.neoDetectMultiCandle = neoDetectMultiCandle;
 // FIX (chart 12-07, 15m): de oude detectie telde ELKE order-3 pivot even zwaar,
 // zonder significantiefilter. Gevolg op echte data: de lows stegen perfect
 // (63826 -> 63959 -> 64042), maar één micro-piek van $37 (13:15, minder dan
@@ -2773,8 +2936,24 @@ function calculatePatternInfluence(side) {
     if (ms.structure.startsWith('HH/HL')) influence += (side === 'LONG' ? 2 : -2);
     else if (ms.structure.startsWith('LH/LL')) influence += (side === 'SHORT' ? 2 : -2);
 
-    return Math.max(-4, Math.min(4, influence));
+    // CNN multi-candle bias (29-07): de bredere sliding-window-detector voegt zijn
+    // netto bias toe zodat Neo OOK van de combinatie-patronen leert, niet alleen van
+    // de enkel-venster detector hierboven. Geschaald zodat het de bestaande factoren
+    // aanvult (max ~2) i.p.v. overheerst. Dit gaat via de pattern-weight mee in het
+    // adaptieve leren (adaptiveWeights.pattern) en in de kalibratie.
+    try {
+        if (typeof rawData !== 'undefined' && rawData && rawData.length > 5) {
+            const scan = neoScanPatterns(rawData, 40);
+            const cnn = scan.netBias || 0;                 // -1..1, + = bullish
+            influence += (side === 'LONG' ? cnn : -cnn) * 2;
+            // onthoud de laatste sterke CNN-hit voor de UI/legenda
+            if (scan.last) _lastCnnHit = scan.last;
+        }
+    } catch (e) {}
+
+    return Math.max(-6, Math.min(6, influence));
 }
+let _lastCnnHit = null;
 
 // Vult het "Patroon & Structuur"-kaartje in System Data - dezelfde detectie
 // als hierboven, puur voor het snelle overzicht zonder het beredeneringspaneel te hoeven openen.
@@ -3335,12 +3514,6 @@ function openRangeScalpPosition(side, evalResult) {
         peakPnlPct: 0,
         trailingStopPct: null,
         isScalp: true,
-        isMicro: false,
-        scalpFeaturesAtEntry: {
-            rsi: (evalResult.rsiAtEntry != null ? evalResult.rsiAtEntry : (typeof getCurrentRSIValue === 'function' ? getCurrentRSIValue() : null)),
-            rangePos: (evalResult.positionInRange != null ? evalResult.positionInRange : null),
-            chaos: (evalResult.chaosAtEntry != null ? evalResult.chaosAtEntry : chaos)
-        },
         customStopLossPct: botSettings.rangeScalpStopLossPct
     };
 
@@ -3358,132 +3531,6 @@ function scanForRangeScalps() {
             openRangeScalpPosition(side, evalResult);
         }
     });
-}
-
-// ============================================================
-// MICRO-SCALP FAST-LANE  +  SCALP LEARNING TRACK  +  RECALIBRATION
-// ============================================================
-// Separate fast path (OFF by default). Reacts on the RAW directional signal with
-// a short confirmation window, entirely apart from the smoothed trend engine and
-// its calibration. Its trades feed only the scalp learning track (scalpLog).
-let _microConfirm = null;
-
-function computeMicroSignal() {
-    if (!rawData || rawData.length < 6 || !livePrice) return null;
-    const dir = (db >= 0) ? 'LONG' : 'SHORT';           // raw directional bias, un-smoothed
-    let p = 50;
-    p += Math.min(22, Math.abs(vfm) * 9);               // directional force
-    p += Math.min(12, er * 5);                          // efficiency of the micro move
-    p += Math.max(-16, Math.min(10, (2 - chaos) * 3));  // calmer market scores higher
-    const rsi = (typeof getCurrentRSIValue === 'function') ? getCurrentRSIValue() : null;
-    if (rsi !== null) {
-        if (dir === 'LONG' && rsi < 45) p += 6;
-        if (dir === 'SHORT' && rsi > 55) p += 6;
-    }
-    p = Math.max(0, Math.min(100, Math.round(p)));
-    return { side: dir, rawProb: p };
-}
-
-function scanForMicroScalp() {
-    if (!botSettings.microFastLaneEnabled) { _microConfirm = null; return; }
-    if (!livePrice || openPositions.length >= botSettings.maxOpenPositions) return;
-    const sig = computeMicroSignal();
-    if (!sig || sig.rawProb < botSettings.microMinProbPct) { _microConfirm = null; return; }
-    if (openPositions.some(p => p.side === sig.side && p.isScalp)) { _microConfirm = null; return; }
-    const now = Date.now();
-    if (!_microConfirm || _microConfirm.side !== sig.side) {
-        _microConfirm = { side: sig.side, since: now, prob: sig.rawProb };
-        return;
-    }
-    _microConfirm.prob = sig.rawProb;
-    if (now - _microConfirm.since >= (botSettings.microConfirmSeconds || 0) * 1000) {
-        openMicroScalpPosition(sig.side, sig.rawProb);
-        _microConfirm = null;
-    }
-}
-
-function openMicroScalpPosition(side, rawProb) {
-    const price = livePrice;
-    const oppositeSide = side === 'LONG' ? 'SHORT' : 'LONG';
-    const oppositeHasPosition = openPositions.some(p => p.side === oppositeSide);
-    const hedgeReserve = oppositeHasPosition ? 0 : botSettings.minHedgeReservePct;
-    const availablePct = Math.max(0, 1 - getAllocatedPct() - hedgeReserve);
-    const finalSizePct = Math.min(botSettings.microAllocPct, availablePct);
-    if (finalSizePct <= 0.001) return;
-
-    const balance = getBalance();
-    const notional = balance * finalSizePct;
-    const notionalUSD = isQuoteCurrencyWallet() ? notional : (eurUsdtRate ? notional * eurUsdtRate : notional);
-    const amount = parseFloat((notionalUSD / price).toFixed(6));
-    const targetPrice = side === 'LONG'
-        ? price * (1 + botSettings.microTargetPct / 100)
-        : price * (1 - botSettings.microTargetPct / 100);
-
-    const position = {
-        id: `micro_${Date.now()}_${side}`,
-        side, entryPrice: price, amount, notional, sizePct: finalSizePct,
-        targetPrice, probabilityPct: null, nodeInfluence: 0,
-        openTime: Date.now(), closeTime: null, peakPnlPct: 0, trailingStopPct: null,
-        isScalp: true, isMicro: true,
-        scalpFeaturesAtEntry: {
-            rsi: (typeof getCurrentRSIValue === 'function' ? getCurrentRSIValue() : null),
-            rangePos: null,
-            chaos: chaos
-        },
-        customStopLossPct: botSettings.microStopPct
-    };
-    commitPositionEntry(position, `MICRO-SCALP ${rawProb}% \u00b7 alloc ${(finalSizePct * 100).toFixed(1)}%`);
-}
-
-// ---- Scalp learning track: winrate buckets per RSI band / range position / chaos ----
-function computeScalpStats() {
-    const rsiBands = [
-        { key: '<30', lo: -Infinity, hi: 30 }, { key: '30-45', lo: 30, hi: 45 },
-        { key: '45-55', lo: 45, hi: 55 }, { key: '55-70', lo: 55, hi: 70 }, { key: '>70', lo: 70, hi: Infinity }
-    ];
-    function bucketize(items, classify, labels) {
-        const map = {}; labels.forEach(l => map[l] = { n: 0, wins: 0 });
-        items.forEach(it => { const k = classify(it); if (k && map[k]) { map[k].n++; if (it.outcome === 'win') map[k].wins++; } });
-        return labels.map(l => ({ label: l, n: map[l].n, winrate: map[l].n ? Math.round(map[l].wins / map[l].n * 100) : null }));
-    }
-    const items = scalpLog;
-    const total = items.length, wins = items.filter(i => i.outcome === 'win').length;
-    const avgPnl = total ? items.reduce((a, b) => a + (b.pnlPct || 0), 0) / total : 0;
-    return {
-        total, wins, winrate: total ? Math.round(wins / total * 100) : null, avgPnl,
-        byRsi: bucketize(items, it => { if (it.rsi == null) return null; const b = rsiBands.find(bd => it.rsi >= bd.lo && it.rsi < bd.hi); return b ? b.key : null; }, rsiBands.map(b => b.key)),
-        byRange: bucketize(items, it => it.rangePos == null ? null : (it.rangePos <= 0.33 ? 'bottom' : it.rangePos >= 0.66 ? 'top' : 'mid'), ['bottom', 'mid', 'top']),
-        byChaos: bucketize(items, it => it.chaos == null ? null : (it.chaos < 4 ? 'calm' : it.chaos <= 8 ? 'normal' : 'wild'), ['calm', 'normal', 'wild']),
-        byType: bucketize(items, it => it.isMicro ? 'micro' : 'range', ['range', 'micro'])
-    };
-}
-
-function renderScalpStats() {
-    const el = document.getElementById('scalp-stats');
-    if (!el) return;
-    const s = computeScalpStats();
-    if (!s.total) { el.innerHTML = '<span style="color:var(--text-dim);">No closed scalps yet.</span>'; return; }
-    function row(title, arr) {
-        return `<div style="margin:7px 0 2px; color:var(--text-dim); letter-spacing:0.06em;">${title}</div>` +
-            arr.map(b => `<span style="display:inline-block; min-width:104px;">${b.label}: <b style="color:${b.winrate == null ? 'var(--text-dimmer)' : b.winrate >= 50 ? 'var(--teal)' : 'var(--red)'};">${b.winrate == null ? '\u2014' : b.winrate + '%'}</b> <small style="color:var(--text-dimmer);">(n=${b.n})</small></span>`).join(' ');
-    }
-    el.innerHTML =
-        `<div style="margin-bottom:4px;">Total scalps: <b>${s.total}</b> \u00b7 win rate <b style="color:${s.winrate >= 50 ? 'var(--teal)' : 'var(--red)'};">${s.winrate}%</b> \u00b7 avg P/L <b>${s.avgPnl.toFixed(3)}%</b></div>` +
-        row('By RSI band', s.byRsi) + row('By range position', s.byRange) +
-        row('By chaos level', s.byChaos) + row('By type', s.byType);
-}
-
-// ---- One-click recalibration for the active preset ----
-// Recomputes the trend calibration map from clean trades and refreshes the scalp
-// stats. It does NOT delete trades - it only rebaselines the mappings/diagnostics.
-function recalibrateForPreset() {
-    try { if (typeof computeCalibrationMap === 'function') computeCalibrationMap(); } catch (e) {}
-    try { renderScalpStats(); } catch (e) {}
-    try { if (typeof updateWalletUI === 'function') updateWalletUI(); } catch (e) {}
-    const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : '';
-    const note = document.getElementById('recalib-note');
-    if (note) note.textContent = `Recalibrated for preset "${cfg}" at ${new Date().toLocaleTimeString()} \u00b7 trend calibration + scalp stats refreshed.`;
-    try { if (typeof savePersistentState === 'function') savePersistentState(); } catch (e) {}
 }
 
 // ============================================================
@@ -3810,24 +3857,11 @@ function finalizeClosePosition(pos, pnlPct, reason) {
         });
         if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
         recalibrateAdaptiveWeights();
-    } else if (pos.isScalp) {
-        // SCALP LEARNING TRACK - range- and micro-scalps log here with their own
-        // rule-based features, fully separate from the trend brain / calibration.
-        const sf = pos.scalpFeaturesAtEntry || {};
-        scalpLog.push({
-            timestampMs: Date.now(),
-            side: pos.side,
-            isMicro: pos.isMicro === true,
-            rsi: (sf.rsi != null ? sf.rsi : null),
-            rangePos: (sf.rangePos != null ? sf.rangePos : null),
-            chaos: (sf.chaos != null ? sf.chaos : null),
-            outcome: pnlPct > 0 ? 'win' : 'loss',
-            pnlPct,
-            holdMinutes: pos.openTime ? Math.round((Date.now() - pos.openTime) / 60000) : null,
-            configVersion: (typeof currentConfigVersion === 'function' ? currentConfigVersion() : '')
-        });
-        if (scalpLog.length > 2000) scalpLog = scalpLog.slice(-2000);
-        if (typeof renderScalpStats === 'function') renderScalpStats();
+        // FIX (29-07): de kalibratie-kaart werd wel bij het laden berekend, maar
+        // NIET opnieuw wanneer er tijdens het draaien een trade sloot - de chart
+        // bleef dus staan op de waarde van de page-load. Nu herberekenen + hertekenen
+        // we zodra er nieuwe learning binnenkomt, zodat de curve live meebeweegt.
+        try { computeCalibrationMap(); renderCalibrationCurve(); } catch (e) { /* chart niet in beeld */ }
     } else if (!pos.isScalp) {
         // DIAGNOSE: de sessie-export van 12-07 had 42 exits maar een LEGE
         // learningLog - trend-posities zonder factorsAtEntry (bijv. hersteld uit
@@ -4307,9 +4341,6 @@ function botHeartbeat() {
     checkPendingTriggers();
     checkOpenPositionsExits();
     updateWalletUI();
-
-    // Micro-scalp fast-lane: runs every second for fast reaction (OFF by default).
-    if (botSettings.microFastLaneEnabled) scanForMicroScalp();
 
     // 3. Elke 10 seconden: zwaardere Osiris-berekening + scan naar nieuwe kansen
     botTickCounter++;
@@ -7039,7 +7070,7 @@ function _neoSurface(y, phi) {
 function buildCortex() {
     const cv = document.getElementById('neo-canvas');
     if (!cv) return;
-    const RINGS = 66, pts = [], rings = [];
+    const RINGS = 54, pts = [], rings = [];
     const ringIdx = y => Math.max(0, Math.min(RINGS - 1, Math.round((1.0 - y) / 1.92 * (RINGS - 1))));
     function addPt(x, y, z, c, glow, ring) {
         const ang0 = Math.random() * Math.PI * 2, rad0 = 2.6 + Math.random() * 2.6, el0 = (Math.random() - 0.5) * Math.PI;
@@ -7063,26 +7094,20 @@ function buildCortex() {
         }
         rings.push(ring);
     }
-    // KORTE hals (ca. kwart hoofdhoogte) die geleidelijk overgaat in brede,
-    // realistische schouders. Meer ringen = vloeiender drapé; de schouders lopen
-    // breder en iets lager door, met een trapezius-helling naar de hals toe.
-    const SH = 18;
-    for (let j = 0; j < SH; j++) {
-        const t = j / SH, y = -0.52 - t * 0.66;                // hals -0.52..-0.72, schouders tot ~-1.18
-        const nek = 0.225;
-        // schouder groeit vanaf t~0.32 en zwelt vloeiender aan (smoothstep i.p.v. harde macht)
-        const sRaw = Math.max(0, (t - 0.32) / 0.68);
-        const schouder = 1.24 * (sRaw * sRaw * (3 - 2 * sRaw));
+    // KORTE hals (ca. kwart hoofdhoogte) die snel overgaat in brede schouders
+    for (let j = 0; j < 12; j++) {
+        const t = j / 12, y = -0.54 - t * 0.56;               // hals -0.54..-0.78, schouders tot ~-1.10
+        const nek = 0.23;
+        const schouder = 1.02 * Math.pow(Math.max(0, (t - 0.40) / 0.60), 1.5);
         const w = nek + schouder;
-        const n = Math.max(20, Math.round(48 * (w + 0.35)));
+        const n = Math.max(16, Math.round(40 * (w + 0.35)));
         const ring = [];
         for (let k = 0; k < n; k++) {
             const phi = -Math.PI + (k / n) * Math.PI * 2;
-            // ronde hals -> platter wordende schouder-ellips, licht naar voren
-            const depth = 0.05 + (0.215 + 0.20 * t) * Math.cos(phi) * (1 - 0.32 * t);
-            // trapezius: de schouderlijn zakt naar buiten toe, met een lichte nek-welving
-            const sag = schouder > 0 ? (0.10 * Math.abs(Math.sin(phi)) * (schouder / 1.24)
-                                       + 0.05 * Math.pow(Math.abs(Math.sin(phi)), 3) * schouder) : 0;
+            // ronde hals: diepte ~ breedte (0.22 vs 0.23) zodat het zijaanzicht klopt;
+            // schouders worden geleidelijk platter (ellips), licht naar voren gecentreerd
+            const depth = 0.05 + (0.22 + 0.18 * t) * Math.cos(phi) * (1 - 0.30 * t);
+            const sag = schouder > 0 ? 0.06 * Math.abs(Math.sin(phi)) * (schouder / 1.02) : 0;  // subtiele trapezius
             ring.push(addPt(w * Math.sin(phi), (y - sag) * 1.02, depth, '#6fb8e8', false, RINGS + j));
         }
         rings.push(ring);
@@ -7124,29 +7149,123 @@ function buildCortex() {
         featLine([[0.10, side * (Math.PI / 2 - 0.05)], [0.065, side * (Math.PI / 2)], [0.09, side * (Math.PI / 2 + 0.08)]], side > 0 ? 'xpos' : 'xneg');
     }
     ear(1); ear(-1);
-    // EXTRA GEZICHTSDEFINITIE (realisme) - subtiele contourlijnen die de vorm
-    // van een echt gezicht suggereren, zonder de particle-look te veranderen.
-    // jukbeenderen (zygomatisch): van onder het oog richting het oor
-    featLine([[0.335, 0.16], [0.30, 0.30], [0.265, 0.44], [0.235, 0.56]], 'front');
-    featLine([[0.335, -0.16], [0.30, -0.30], [0.265, -0.44], [0.235, -0.56]], 'front');
-    // oogkassen (orbitale boog onder de wenkbrauw, boven het oog-anker)
-    featLine([[0.47, 0.20], [0.455, 0.30], [0.45, 0.40], [0.455, 0.48]], 'front');
-    featLine([[0.47, -0.20], [0.455, -0.30], [0.45, -0.40], [0.455, -0.48]], 'front');
-    // slaap/voorhoofd-welving (haarlijn-suggestie over het voorhoofd)
-    featLine([[0.62, -0.42], [0.645, -0.22], [0.652, 0], [0.645, 0.22], [0.62, 0.42]], 'front');
-    // wangholte / nasolabiale lijn (van neusvleugel naar mondhoek)
-    featLine([[0.115, 0.14], [0.05, 0.19], [-0.02, 0.24], [-0.08, 0.27]], 'front');
-    featLine([[0.115, -0.14], [0.05, -0.19], [-0.02, -0.24], [-0.08, -0.27]], 'front');
     // OGEN: Osiris-oog-ankers op het gezichtsoppervlak (roteren realistisch mee)
     const eyes = [];
     for (const side of [-1, 1]) {
         const q = _neoSurface(0.435, side * 0.34);
         eyes.push({ x: q.x, y: q.y, z: q.z + 0.03 });
     }
-    // links + synapsen (lijnen EN driehoeken - meer dan voorheen)
+    // ---- MESH die het GEZICHT opbouwt (29-07) ----
+    // Verbind naburige punten binnen elke ring EN tussen opeenvolgende ringen, zodat
+    // een echt wireframe-oppervlak ontstaat dat "de kop maakt". Dit vervangt niets -
+    // het komt bovenop de bestaande losse links/synapsen, maar geeft veel meer
+    // structuurlijnen (en we temperen straks de ruis-animatie).
+    const mesh = [];
+    for (let ri = 0; ri < rings.length; ri++) {
+        const ring = rings[ri];
+        // horizontale mesh: rond de ring
+        for (let k = 0; k < ring.length; k++) {
+            mesh.push({ a: ring[k], b: ring[(k + 1) % ring.length] });
+        }
+        // verticale mesh: verbind met de dichtstbijzijnde punten in de volgende ring
+        const nxt = rings[ri + 1];
+        if (nxt && ri < RINGS - 1) {
+            for (let k = 0; k < ring.length; k += 2) {
+                const p = pts[ring[k]];
+                let best = -1, bd = 1e9;
+                for (let j = 0; j < nxt.length; j++) {
+                    const q = pts[nxt[j]];
+                    const d = (p.tx - q.tx) ** 2 + (p.ty - q.ty) ** 2 + (p.tz - q.tz) ** 2;
+                    if (d < bd) { bd = d; best = nxt[j]; }
+                }
+                if (best >= 0 && bd < 0.09) mesh.push({ a: ring[k], b: best });
+            }
+        }
+    }
+    // ---- BREIN als apart ultra-realistisch orgaan (29-07) ----
+    // Veel meer knopen + eigen "creatie"-mesh die de punten verbindt (zoals het
+    // hoofd). Twee hemisferen als geribbelde ellipsoïden (gyri via ruis-golving),
+    // plus een cerebellum-knobbel onderaan en een hersenstam. Wordt in een eigen
+    // canvas getekend (_neoBrainFrame), niet meer binnen het hoofd.
+    const brain = [];
+    const brainLinks = [];
+    function brainPt(x, y, z, c, kind) {
+        brain.push({ tx: x, ty: y, tz: z, c, kind, tw: Math.random() * 6.28, sp: 0.6 + Math.random() * 1.5, fl: 0 });
+        return brain.length - 1;
+    }
+    const BRAIN_C1 = '#7fe9ff', BRAIN_C2 = '#c792ea', BRAIN_C3 = '#14f195';
+    // twee hemisferen: parametrisch oppervlak met gyri-golving voor realisme
+    for (const side of [1, -1]) {
+        const RINGS_B = 24;
+        for (let u = 0; u < RINGS_B; u++) {
+            const theta = (u / (RINGS_B - 1)) * Math.PI;          // kruin -> onder
+            const ny = Math.cos(theta);
+            const rr = Math.sin(theta);
+            const COLS = Math.max(7, Math.round(24 * rr));
+            for (let v = 0; v <= COLS; v++) {
+                const phi = (v / COLS) * Math.PI;                 // halve ring (buitenkant hemisfeer)
+                // gyri: hoogfrequente golving op de radius voor de hersenkronkels (dichter + dieper)
+                const gyri = 0.045 * Math.sin(phi * 13) * Math.sin(theta * 9) + 0.03 * Math.sin(phi * 7 + theta * 5);
+                const R = 0.34 + gyri;
+                let bx = side * (0.03 + R * rr * Math.sin(phi));   // naar buiten per hemisfeer
+                let by = 0.30 + R * ny * 0.86;                    // iets afgeplat
+                let bz = R * rr * Math.cos(phi) * 0.92;
+                // langsgroef tussen de hemisferen: duw punten dicht bij het midden weg
+                if (Math.abs(bx) < 0.05) bx += side * 0.05;
+                brainPt(bx, by, bz, side > 0 ? BRAIN_C1 : BRAIN_C2, 'cortex');
+            }
+        }
+    }
+    // cerebellum (kleine geribbelde knobbel onderaan-achter, dichter)
+    for (let i = 0; i < 44; i++) {
+        const a = Math.random() * Math.PI * 2, r = Math.random() ** 0.5 * 0.14;
+        brainPt(Math.cos(a) * r * 1.3, 0.03 + Math.sin(a) * r * 0.7, -0.16 - Math.random() * 0.08, BRAIN_C3, 'cereb');
+    }
+    // hersenstam (naar beneden)
+    for (let i = 0; i < 14; i++) {
+        brainPt((Math.random() - 0.5) * 0.05, 0.02 - i * 0.018, -0.05 - Math.random() * 0.03, BRAIN_C3, 'stem');
+    }
+    // CREATIE-MESH: verbind elke breinknoop met zijn dichtstbijzijnde buren (net als
+    // de hoofd-mesh). Dit geeft het brein zijn opbouwende contourlijnen.
+    for (let i = 0; i < brain.length; i++) {
+        const dists = [];
+        for (let j = 0; j < brain.length; j++) {
+            if (i === j) continue;
+            const d = (brain[i].tx - brain[j].tx) ** 2 + (brain[i].ty - brain[j].ty) ** 2 + (brain[i].tz - brain[j].tz) ** 2;
+            dists.push([d, j]);
+        }
+        dists.sort((a, b) => a[0] - b[0]);
+        const K = 3;                                            // verbind met 3 dichtstbijzijnde
+        for (let n = 0; n < K && n < dists.length; n++) {
+            const j = dists[n][1];
+            if (dists[n][0] > 0.02) break;                      // alleen echt nabije buren (geen lange spikes)
+            if (j > i) brainLinks.push({ a: i, b: j, t: Math.random() * 3, dur: 1.4 + Math.random() * 1.8, base: dists[n][0] });
+        }
+    }
+    // bouw-volgorde: van kruin (hoge y) naar onder, zodat de bouwgolf net als bij het
+    // hoofd de contouren "tekent". Elke knoop krijgt een genormaliseerde ring 0..1.
+    let bYmin = Infinity, bYmax = -Infinity;
+    for (const b of brain) { if (b.ty < bYmin) bYmin = b.ty; if (b.ty > bYmax) bYmax = b.ty; }
+    for (const b of brain) { b.ring = (bYmax - b.ty) / ((bYmax - bYmin) || 1); }   // 0 = kruin
+    // OUD PLEXUS-DESIGN: driftende ambient-punten + vormings-flitsen, gecombineerd
+    // met de anatomie. Zelfde beeldtaal als de eye-plexus.
+    const brainAmb = [];
+    const BR_PAL = ['#00d9ff', '#ff4fd8', '#ffb627', '#14f195', '#c792ea'];
+    for (let i = 0; i < 30; i++) brainAmb.push({
+        x: Math.random(), y: Math.random(), vx: (Math.random() - 0.5) * 0.012, vy: (Math.random() - 0.5) * 0.010,
+        tw: Math.random() * 6.28, sp: 0.3 + Math.random(),
+        c: Math.random() < 0.3 ? BR_PAL[(Math.random() * BR_PAL.length) | 0] : '#5fb8e8'
+    });
+    // vormings-flitsen: helft knoop-naar-knoop, helft knoop-naar-centrum (vormend)
+    const brainStripes = [];
+    for (let i = 0; i < 10; i++) brainStripes.push({ a: (Math.random() * brain.length) | 0, b: (Math.random() * brain.length) | 0, naarCentrum: i % 2 === 0, t: Math.random() * 4, dur: 2.0 + Math.random() * 2 });
+    _neo.brainAmb = brainAmb; _neo.brainStripes = brainStripes;
+    // links + synapsen (lijnen EN driehoeken)
+    // 29-07: teruggebracht van 170 -> 70 losse links; de nieuwe face-mesh levert nu
+    // de structuurlijnen, deze blijven alleen voor de flikkerende synaps-accenten.
     const links = [];
     let guard = 0;
-    while (links.length < 170 && guard++ < 5000) {
+    while (links.length < 70 && guard++ < 5000) {
         const a = (Math.random() * pts.length) | 0, b = (Math.random() * pts.length) | 0;
         const dx = pts[a].tx - pts[b].tx, dy = pts[a].ty - pts[b].ty, dz = pts[a].tz - pts[b].tz;
         const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -7167,9 +7286,10 @@ function buildCortex() {
         const l = links[(Math.random() * links.length) | 0];
         if (l) syn.push({ a: l.a, b: l.b, t: Math.random() * 3, dur: 2.0 + Math.random() * 1.5 });
     }
-    // zwevende deeltjes overal
+    // zwevende deeltjes overal (29-07: teruggebracht van 80 -> 34 zodat de nieuwe
+    // mesh-structuurlijnen de boventoon voeren i.p.v. de ruis-animatie)
     const amb = [];
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 34; i++) {
         amb.push({
             x: Math.random(), y: Math.random(),
             vx: (Math.random() - 0.5) * 0.014, vy: (Math.random() - 0.5) * 0.012,
@@ -7190,7 +7310,7 @@ function buildCortex() {
         for (let k = 0; k < 8; k++) deeltjes.push({ t: Math.random(), sp: 0.25 + Math.random() * 0.3, tgt: (Math.random() * pts.length) | 0, bow: (Math.random() - 0.5) * 0.5, px: 0, py: 0 });
         streams.push({ ox: origins[s][0], oy: origins[s][1], c: NEO_PALET[s % NEO_PALET.length], deeltjes });
     }
-    _neo = { pts, rings, links, tris, syn, amb, streams, feats, eyes, bridge,
+    _neo = { pts, rings, links, tris, syn, amb, streams, feats, eyes, bridge, mesh, brain, brainLinks,
              formed: 0, formStart: null, rotY: Math.PI / 2, raf: _neo.raf, lastFrame: 0, actMul: 0.6 };
     if (!_neo.raf) _neo.raf = requestAnimationFrame(_neoFrame);
 }
@@ -7285,6 +7405,22 @@ function _neoFrame(now) {
         ctx.closePath(); ctx.stroke();
     }
 
+    // FACE-MESH: het wireframe dat de kop opbouwt (29-07). See-through: lage alpha,
+    // zodat het brein binnenin zichtbaar blijft. Voor-facing lijnen iets feller.
+    if (_neo.mesh) {
+        ctx.lineWidth = 0.4;
+        for (const m of _neo.mesh) {
+            const qa = proj[m.a], qb = proj[m.b];
+            if (qa.e < 0.4 || qb.e < 0.4) continue;
+            const ee = Math.min(qa.e, qb.e);
+            const depth = (qa.persp + qb.persp) / 2;
+            ctx.strokeStyle = `rgba(110,190,240,${(0.05 + 0.10 * (depth - 0.3)) * ee})`;
+            ctx.beginPath(); ctx.moveTo(qa.sx, qa.sy); ctx.lineTo(qb.sx, qb.sy); ctx.stroke();
+        }
+    }
+
+    // (brein wordt nu in een eigen paneel getekend: _neoBrainFrame op neo-brain-canvas)
+
     // punten
     for (let i = 0; i < _neo.pts.length; i++) {
         const p = _neo.pts[i];
@@ -7293,6 +7429,7 @@ function _neoFrame(now) {
         const tw = 0.32 + 0.5 * (0.5 + 0.5 * Math.sin(now / 700 * p.sp + p.tw));
         const scanGlow = F >= 1 ? Math.exp(-Math.pow((p.ty - scanY) / 0.10, 2)) : 0;
         const s = ((p.glow ? 1.6 : 0.95) + 1.1 * q.persp) * (0.55 + 0.45 * tw) + p.fl * 1.6 + scanGlow * 0.7;
+        // hoofd is weer massief (brein is nu een apart paneel); volle alpha voor realisme
         ctx.globalAlpha = Math.min(1, q.e * ((p.glow ? Math.max(tw, 0.6) : tw * 0.9) + p.fl + scanGlow * 0.4));
         ctx.fillStyle = p.fl > 0.3 ? '#ffffff' : p.c;
         ctx.fillRect(q.sx - s / 2, q.sy - s / 2, s, s);
@@ -7419,134 +7556,73 @@ function _neoFrame(now) {
 }
 
 // ============================================================
-// NEO CORTEX - realistisch 3D-brein op de oog-kant (sectie 2)
+// NEO ACTIEF NEURAAL NETWERK (29-07)
 // ============================================================
-// Zelfde beeldtaal/particle-design als de kop: scan-ring-mesh met een continue
-// bouwgolf, twinkelende plexus-knopen, synaps-flitsen en datastromen die van
-// alle kanten naar binnen vloeien. Anatomie is realistischer gevormd: twee
-// hemisferen door een diepe sagittale groef, temporale kwabben, vollere frontale
-// lob, getapte occipitaal, gyri/sulci-plooien, plus een licht gevormde
-// hersenstam en cerebellum. NIEUW t.o.v. de kop: een deel van de synapsen kleurt
-// GROEN bij bullish en ROOD bij bearish confluence (bias = richting x sterkte).
-let _brain = { pts: [], rings: [], links: [], syn: [], amb: [], streams: [], feats: [],
-               rotY: 0.5, raf: null, last: 0, formStart: null, bias: 0 };
+// Een gelaagde netwerkvisualisatie die de ECHTE verwerking van Neo toont, geen
+// decoratie. Lagen: input-features (VFM, ER, DB, chaos, momentum, volume-Z,
+// CNN-patroonbias, fib-confluence) -> twee verborgen lagen (confluence-integratie)
+// -> adaptieve-gewichten-laag -> output (LONG / NEUTRAAL / SHORT). Verbindingen
+// swingen en lichten op terwijl Neo "rekent"; de kleur en dikte volgen het teken
+// en de grootte van de echte factor-waarden uit liveSnapshot / adaptiveWeights /
+// de CNN-scan. Rood = negatieve/bearish bijdrage, blauw = positieve/bullish.
+let _neonet = { raf: null, last: 0, layers: null, conns: null, pulse: 0, built: false, actLevel: 0 };
 
-const BRAIN_A = 0.56, BRAIN_B = 0.50, BRAIN_C = 0.82;
-function _brainSurface(y, phi) {
-    const yn = y / BRAIN_B;
-    const t = Math.max(0, 1 - yn * yn);
-    const r = Math.pow(t, 0.62);
-    let ax = BRAIN_A * r, az = BRAIN_C * r;
-    const temporal = Math.exp(-Math.pow((y + 0.04) / 0.20, 2));   // zijwaartse kwab, net onder het midden
-    ax *= 1 + 0.16 * temporal;
-    const wob = 1 + 0.05 * Math.sin(phi * 8 + y * 11) + 0.032 * Math.sin(phi * 5 - y * 7) + 0.02 * Math.sin(phi * 13 + y * 3);
-    ax *= wob; az *= wob;
-    let x = ax * Math.sin(phi);
-    let z = az * Math.cos(phi);
-    z *= z > 0 ? 1.07 : 0.90;                                     // frontaal vol, occipitaal getapt
-    const mid = Math.exp(-Math.pow(x / 0.09, 2)) * Math.max(0, (y + 0.05) / BRAIN_B);
-    let yo = y + 0.08 * mid;                                      // diepe sagittale groef -> hemisferen
-    const base = Math.max(0, (-y - 0.18) / 0.32); yo -= 0.05 * base * base;  // vlakkere basis
-    return { x, y: yo, z };
+const NEONET_INPUTS = [
+    { key: 'vfm',      label: 'VFM',      c: '#00d9ff' },
+    { key: 'er',       label: 'ER',       c: '#4fc3f7' },
+    { key: 'db',       label: 'DB',       c: '#81d4fa' },
+    { key: 'chaos',    label: 'CHAOS',    c: '#ffb627' },
+    { key: 'momentum', label: 'MOM',      c: '#14f195' },
+    { key: 'volz',     label: 'VOL-Z',    c: '#c792ea' },
+    { key: 'cnn',      label: 'CNN',      c: '#ff4fd8' },
+    { key: 'fib',      label: 'FIB',      c: '#ffd54a' }
+];
+
+function buildNeoNet() {
+    // laag-structuur: [inputs, hidden1, hidden2, weights, output]
+    const layerSizes = [NEONET_INPUTS.length, 10, 8, 5, 3];
+    const layers = layerSizes.map((n, li) => {
+        const nodes = [];
+        for (let i = 0; i < n; i++) nodes.push({ li, i, act: 0, tw: Math.random() * 6.28 });
+        return nodes;
+    });
+    // volledige verbindingen tussen opeenvolgende lagen, elk met een (semi-stabiel) gewicht
+    const conns = [];
+    for (let li = 0; li < layers.length - 1; li++) {
+        for (const a of layers[li]) {
+            for (const b of layers[li + 1]) {
+                conns.push({ li, a: a.i, b: b.i, w: (Math.random() * 2 - 1), flow: Math.random(), sp: 0.5 + Math.random() });
+            }
+        }
+    }
+    _neonet.layers = layers; _neonet.conns = conns; _neonet.built = true;
 }
 
-function buildCortexBrain() {
-    const cv = document.getElementById('brain-canvas');
-    if (!cv) return;
-    const RINGS = 46, pts = [], rings = [];
-    function addPt(x, y, z, c, glow, ring, dim) {
-        const a = Math.random() * Math.PI * 2, rad = 2.2 + Math.random() * 2.4, el = (Math.random() - 0.5) * Math.PI;
-        pts.push({ tx: x, ty: y, tz: z, glow, ring, c, dim: dim || 1,
-            x: Math.cos(el) * Math.cos(a) * rad, y: Math.sin(el) * rad, z: Math.cos(el) * Math.sin(a) * rad,
-            tw: Math.random() * Math.PI * 2, sp: 0.5 + Math.random() * 1.5, fl: 0 });
-        return pts.length - 1;
-    }
-    // cortex scan-ringen (kruin -> onderkant)
-    for (let ri = 0; ri < RINGS; ri++) {
-        const y = BRAIN_B - (ri / (RINGS - 1)) * (2 * BRAIN_B);
-        const t = Math.max(0.001, 1 - (y / BRAIN_B) * (y / BRAIN_B));
-        const n = Math.max(16, Math.round(52 * Math.pow(t, 0.6)));
-        const ring = [];
-        for (let k = 0; k < n; k++) {
-            const phi = -Math.PI + (k / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.04;
-            const q = _brainSurface(y, phi);
-            ring.push(addPt(q.x, q.y, q.z, '#9fdcff', false, ri));
-        }
-        rings.push(ring);
-    }
-    // CEREBELLUM: kwab achter-onder met eigen fijne ribbels
-    for (let j = 0; j < 7; j++) {
-        const y = -0.26 - j * 0.045, ring = [], n = 18, rr = 0.28 * (1 - j / 9);
-        for (let k = 0; k < n; k++) {
-            const phi = -Math.PI + (k / n) * Math.PI * 2;
-            ring.push(addPt(rr * Math.sin(phi) * 0.95, y, -0.52 - 0.12 * Math.cos(phi) - rr * 0.25, '#8fd0ff', false, RINGS + j));
-        }
-        rings.push(ring);
-    }
-    // HERSENSTAM: licht gevormde, taps toelopende kolom omlaag (dimmer)
-    for (let j = 0; j < 7; j++) {
-        const y = -0.40 - j * 0.05, ring = [], n = 11, rr = 0.115 - j * 0.008;
-        const pons = Math.exp(-Math.pow((j - 1) / 1.5, 2)) * 0.03;
-        for (let k = 0; k < n; k++) {
-            const phi = -Math.PI + (k / n) * Math.PI * 2;
-            ring.push(addPt((rr + pons) * Math.sin(phi), y, -0.06 + (rr + pons) * Math.cos(phi), '#6fb8e8', false, RINGS + 7 + j, 0.6));
-        }
-        rings.push(ring);
-    }
-    // feature-lijnen: sagittale fissuur + gyri/sulci-plooien
-    const feats = [];
-    function featLine(list, side, dim) {
-        const idx = list.map(([y, phi]) => {
-            const q = _brainSurface(y, phi);
-            return addPt(q.x, q.y, q.z + 0.02, '#dff4ff', true, Math.round((BRAIN_B - y) / (2 * BRAIN_B) * (RINGS - 1)), dim);
-        });
-        feats.push({ idx, side });
-    }
-    const fis = []; for (let f = -1; f <= 1.001; f += 0.14) { const zc = f; const y = Math.sqrt(Math.max(0, 1 - zc * zc)) * 0.30 + 0.14; fis.push([y, zc > 0 ? 0.001 : Math.PI]); }
-    featLine(fis, 'top');                                          // sagittale fissuur
-    featLine([[0.32, 0.85], [0.18, 1.02], [0.03, 1.14], [-0.12, 1.2], [-0.25, 1.12]], 'xpos');   // laterale (Sylvische) sulcus
-    featLine([[0.32, -0.85], [0.18, -1.02], [0.03, -1.14], [-0.12, -1.2], [-0.25, -1.12]], 'xneg');
-    featLine([[0.45, 0.55], [0.47, 0.28], [0.46, 0], [0.47, -0.28], [0.45, -0.55]], 'top');       // centrale sulcus
-    featLine([[0.30, 0.45], [0.26, 0.6], [0.20, 0.72], [0.12, 0.8]], 'top');
-    featLine([[0.30, -0.45], [0.26, -0.6], [0.20, -0.72], [0.12, -0.8]], 'top');
-    featLine([[0.05, 0.5], [-0.02, 0.68], [-0.08, 0.82]], 'xpos');
-    featLine([[0.05, -0.5], [-0.02, -0.68], [-0.08, -0.82]], 'xneg');
-
-    const links = []; let g = 0;
-    while (links.length < 160 && g++ < 7000) {
-        const a = (Math.random() * pts.length) | 0, b = (Math.random() * pts.length) | 0;
-        const d = Math.hypot(pts[a].tx - pts[b].tx, pts[a].ty - pts[b].ty, pts[a].tz - pts[b].tz);
-        if (d > 0.06 && d < 0.28) links.push({ a, b });
-    }
-    const syn = [];
-    for (let i = 0; i < 30; i++) { const l = links[(Math.random() * links.length) | 0]; if (!l) continue; syn.push({ a: l.a, b: l.b, t: Math.random() * 3, dur: 1.5 + Math.random() * 1.4, role: i % 2 ? -1 : 1 }); }
-    const amb = [];
-    for (let i = 0; i < 70; i++) amb.push({ x: Math.random(), y: Math.random(), vx: (Math.random() - 0.5) * 0.012, vy: (Math.random() - 0.5) * 0.010, r: 0.7 + Math.random() * 1.7, tw: Math.random() * Math.PI * 2, sp: 0.3 + Math.random(), c: NEO_PALET[(Math.random() * NEO_PALET.length) | 0] });
-    const streams = []; const origins = [[0, 0.4], [0, 0.7], [1, 0.25], [1, 0.75], [0.5, 0.02], [0.5, 0.98]];
-    for (let s = 0; s < origins.length; s++) { const dl = []; for (let k = 0; k < 7; k++) dl.push({ t: Math.random(), sp: 0.22 + Math.random() * 0.28, tgt: (Math.random() * pts.length) | 0, bow: (Math.random() - 0.5) * 0.5 }); streams.push({ ox: origins[s][0], oy: origins[s][1], c: NEO_PALET[s % NEO_PALET.length], dl }); }
-
-    _brain = { pts, rings, links, syn, amb, streams, feats, rotY: 0.5, raf: _brain.raf, last: 0, formStart: null, bias: 0 };
-    if (!_brain.raf) _brain.raf = requestAnimationFrame(_brainFrame);
+// haal de echte, genormaliseerde input-activaties op uit Neo's live-state
+function neoNetInputs() {
+    const snap = (typeof lastOsirisMetrics !== 'undefined' && lastOsirisMetrics) ? lastOsirisMetrics : {};
+    const lv = (typeof lastVolumeMetrics !== 'undefined' && lastVolumeMetrics) ? lastVolumeMetrics : {};
+    const norm = (v, s) => Math.max(-1, Math.min(1, (v || 0) / s));
+    // CNN-patroonbias uit de recente candles
+    let cnnBias = 0;
+    try { if (typeof rawData !== 'undefined' && rawData && rawData.length > 5) cnnBias = neoScanPatterns(rawData, 40).netBias; } catch (e) {}
+    return {
+        vfm: norm(snap.vfm, 1.5),
+        er: norm(snap.er, 1),
+        db: norm(snap.db, 1),
+        chaos: norm(snap.chaos, 1),
+        momentum: norm(snap.momentum != null ? snap.momentum : (snap.isBullish ? 0.6 : -0.6), 1),
+        volz: norm(lv.zScore, 2.5),
+        cnn: cnnBias,
+        fib: norm(snap.fibConfluence != null ? snap.fibConfluence : 0, 5)
+    };
 }
 
-// bias = richting (bullish/bearish) x sterkte (confluence). Voor de bot draait,
-// een rustige idle-shimmer zodat het paneel altijd leeft.
-function _brainBiasTarget(now) {
-    if (typeof lastOsirisDecision !== 'undefined' && lastOsirisDecision && typeof lastOsirisDecision.confluence === 'number') {
-        const dir = (typeof isBullish !== 'undefined' && isBullish) ? 1 : -1;
-        const mag = Math.min(1, lastOsirisDecision.confluence / 9);   // max confluence = 9
-        return dir * mag;
-    }
-    return Math.sin(now / 6000) * 0.55;
-}
-function _brainHash(sy) { return Math.sin(sy.a * 13.1 + sy.b * 7.7); }
-
-function _brainFrame(now) {
-    _brain.raf = requestAnimationFrame(_brainFrame);
-    if (now - _brain.last < 33) return;
-    const dt = Math.min(0.1, (now - _brain.last) / 1000) || 0.033;
-    _brain.last = now;
-    const cv = document.getElementById('brain-canvas');
+function _neoNetFrame(now) {
+    _neonet.raf = requestAnimationFrame(_neoNetFrame);
+    if (now - _neonet.last < 33) return;
+    _neonet.last = now;
+    const cv = document.getElementById('neo-net-canvas');
     if (!cv) return;
     const rect = cv.getBoundingClientRect();
     if (rect.width < 10) return;
@@ -7555,115 +7631,274 @@ function _brainFrame(now) {
     ctx.setTransform(2, 0, 0, 2, 0, 0);
     const w = rect.width, h = rect.height;
     ctx.clearRect(0, 0, w, h);
+    if (!_neonet.built) buildNeoNet();
 
-    // bias smoothen richting live confluence
-    const bt = _brainBiasTarget(now);
-    _brain.bias += (bt - _brain.bias) * Math.min(1, dt * 1.6);
-    const bull = Math.max(0, _brain.bias), bear = Math.max(0, -_brain.bias);
-    const lab = document.getElementById('brain-bias');
-    if (lab) { lab.textContent = _brain.bias > 0.15 ? 'BULLISH' : _brain.bias < -0.15 ? 'BEARISH' : 'NEUTRAAL'; lab.style.color = _brain.bias > 0.15 ? '#00ff9f' : _brain.bias < -0.15 ? '#ff5f7e' : '#e3f6ff'; }
-    const bl = document.getElementById('brain-bull'); if (bl) bl.textContent = Math.round(bull * 100) + '%';
-    const br = document.getElementById('brain-bear'); if (br) br.textContent = Math.round(bear * 100) + '%';
+    const layers = _neonet.layers, conns = _neonet.conns;
+    const padX = w * 0.13, padTop = h * 0.20, padBot = h * 0.12, padY = padTop;
+    const colW = (w - padX * 2) / (layers.length - 1);
+    // posities per node
+    const pos = layers.map((nodes, li) => nodes.map((nd, i) => {
+        const colH = h - padTop - padBot, gap = colH / Math.max(1, nodes.length - 1);
+        return { x: padX + li * colW, y: nodes.length === 1 ? padTop + colH / 2 : padTop + i * gap };
+    }));
 
-    if (_brain.formStart === null) _brain.formStart = now;
-    const tSec = Math.max(0, (now - _brain.formStart - 200) / 1000);
-    _brain.rotY += dt * 0.20;
-    const cosr = Math.cos(_brain.rotY), sinr = Math.sin(_brain.rotY);
+    // ---- echte input-activaties injecteren + forward-propagatie (visueel) ----
+    const inp = neoNetInputs();
+    const running = (typeof botState !== 'undefined' && botState && botState.isRunning) ||
+                    (typeof isRunning !== 'undefined' && isRunning) || false;
+    // "compute-puls": loopt continu door de lagen; sneller als de bot actief rekent
+    _neonet.actLevel += (( (_l2 && _l2.trained) ? 1 : 0.6) * (running ? 1 : 0.7) - _neonet.actLevel) * 0.05;
+    _neonet.pulse = (_neonet.pulse + 0.010 + 0.012 * _neonet.actLevel) % 1;
+    const wavePos = _neonet.pulse * (layers.length - 1);
 
-    // zwevende deeltjes
-    for (const a of _brain.amb) {
-        a.x = (a.x + a.vx * dt + 1) % 1; a.y = (a.y + a.vy * dt + 1) % 1;
-        const tw = 0.16 + 0.5 * (0.5 + 0.5 * Math.sin(now / 900 * a.sp + a.tw));
-        ctx.globalAlpha = tw; ctx.fillStyle = a.c; ctx.fillRect(a.x * w - a.r / 2, a.y * h - a.r / 2, a.r, a.r);
+    // zet input-laag activaties
+    layers[0].forEach((nd, i) => { nd.act = Math.abs(inp[NEONET_INPUTS[i].key] || 0); nd.sign = Math.sign(inp[NEONET_INPUTS[i].key] || 0); });
+    // propageer ruwweg naar diepere lagen (gewogen gemiddelde) zodat activaties betekenis dragen
+    for (let li = 1; li < layers.length; li++) {
+        layers[li].forEach((nd, j) => {
+            let s = 0, wsum = 0, sgn = 0;
+            for (const a of layers[li - 1]) {
+                const cn = conns.find(c => c.li === li - 1 && c.a === a.i && c.b === j);
+                if (cn) { s += a.act * cn.w; wsum += Math.abs(cn.w); sgn += a.act * a.sign * cn.w; }
+            }
+            nd.act = Math.max(0, Math.min(1, wsum ? Math.abs(s) / wsum : 0));
+            nd.sign = Math.sign(sgn);
+        });
     }
-    ctx.globalAlpha = 1;
-
-    const cx = w * 0.5, cy = h * 0.50, scale = Math.min(w, h) * 0.44;
-    const rings = _brain.rings, totalR = rings.length;
-    const CYCLE = 16, BUILD = 9, PRE = 4, L = totalR + BUILD + PRE, wave = (tSec / CYCLE) * L;
-
-    const proj = new Array(_brain.pts.length);
-    for (let i = 0; i < _brain.pts.length; i++) {
-        const p = _brain.pts[i]; let e = 0;
-        if (wave >= p.ring) {
-            const db = (wave - p.ring) % L;
-            if (db < BUILD) { const k = db / BUILD; e = 1 - Math.pow(1 - k, 3); }
-            else if (db > L - PRE) { const k = (L - db) / PRE; e = k * k; }
-            else e = 1;
+    // adaptieve-gewichten-laag (li=3) kleuren met de ECHTE adaptiveWeights
+    try {
+        if (typeof adaptiveWeights !== 'undefined' && adaptiveWeights) {
+            const wk = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluence', 'pattern'];
+            layers[3].forEach((nd, i) => { nd.act = Math.max(0.15, Math.min(1, (adaptiveWeights[wk[i]] || 0.5) / 1.5)); });
         }
-        const x3 = p.x + (p.tx - p.x) * e, y3 = p.y + (p.ty - p.y) * e, z3 = p.z + (p.tz - p.z) * e;
-        const rx = x3 * cosr + z3 * sinr, rz = -x3 * sinr + z3 * cosr, persp = 1 / (2.5 - rz * 0.6);
-        proj[i] = { sx: cx + rx * scale * persp, sy: cy - y3 * scale * persp, persp, e };
-        if (p.fl > 0) p.fl = Math.max(0, p.fl - dt * 2);
-    }
-    const scanY = ((now / 2400) % 1.3) * 2 * BRAIN_B - BRAIN_B;
+    } catch (e) {}
+    // output-laag: LONG / NEUTRAAL / SHORT uit de laatste beslissing
+    let decisionBias = inp.momentum * 0.4 + inp.cnn * 0.3 + inp.vfm * 0.3;
+    try { if (typeof lastDecision !== 'undefined' && lastDecision && typeof lastDecision.decision === 'string') {
+        if (/bull|long|stijg/i.test(lastDecision.decision)) decisionBias = Math.max(decisionBias, 0.5);
+        else if (/bear|short|crash|daal/i.test(lastDecision.decision)) decisionBias = Math.min(decisionBias, -0.5);
+    } } catch (e) {}
+    layers[4][0].act = Math.max(0, decisionBias);       // LONG
+    layers[4][1].act = 1 - Math.abs(decisionBias);      // NEUTRAAL
+    layers[4][2].act = Math.max(0, -decisionBias);      // SHORT
 
-    // scan-ringen (mesh)
-    for (let ri = 0; ri < totalR; ri++) {
-        const ring = rings[ri]; if (!ring.length) continue;
-        const e0 = proj[ring[0]].e; if (e0 < 0.35) continue;
-        const py = _brain.pts[ring[0]].ty, sg = Math.exp(-Math.pow((py - scanY) / 0.10, 2)), bg = (e0 > 0.35 && e0 < 0.98) ? (1 - e0) : 0;
-        ctx.strokeStyle = `rgba(120,200,255,${(0.08 + 0.30 * sg + 0.5 * bg) * e0})`; ctx.lineWidth = 0.6 + sg * 0.5;
-        ctx.beginPath();
-        for (let k = 0; k < ring.length; k++) { const q = proj[ring[k]]; k ? ctx.lineTo(q.sx, q.sy) : ctx.moveTo(q.sx, q.sy); }
-        ctx.closePath(); ctx.stroke();
+    // ---- verbindingen: swingen + oplichten waar de compute-golf is ----
+    for (const cn of conns) {
+        const A = pos[cn.li][cn.a], B = pos[cn.li + 1][cn.b];
+        const a0 = layers[cn.li][cn.a].act;
+        // golf-nabijheid: verbinding licht op als de puls door deze laag trekt
+        const near = Math.exp(-Math.pow((wavePos - (cn.li + 0.5)) / 0.5, 2));
+        const flow = (Math.sin(now / 1000 * cn.sp * 2 + cn.flow * 6.28) * 0.5 + 0.5);
+        const active = a0 * (0.35 + 0.65 * near) * (0.4 + 0.6 * flow) * _neonet.actLevel;
+        const bull = cn.w >= 0;
+        const col = bull ? '90,150,255' : '255,90,120';   // blauw pos / rood neg (zoals referentie)
+        ctx.strokeStyle = `rgba(${col},${(0.05 + 0.85 * active).toFixed(3)})`;
+        ctx.lineWidth = 0.5 + active * 2.6;
+        // felle kern-glow op sterk actieve verbindingen zodat oplichten echt opvalt
+        if (active > 0.4) { ctx.save(); ctx.shadowColor = `rgba(${col},0.9)`; ctx.shadowBlur = 6 + active * 8; }
+        const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2 + Math.sin(now / 700 * cn.sp + cn.flow * 6.28) * 6 * near;
+        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(mx, my, B.x, B.y); ctx.stroke();
+        if (active > 0.4) ctx.restore();
     }
-    // rustig verbindingsweefsel
-    ctx.lineWidth = 0.5;
-    for (let i = 0; i < _brain.links.length; i++) {
-        const l = _brain.links[i], qa = proj[l.a], qb = proj[l.b];
-        if (qa.e < 0.6 || qb.e < 0.6) continue;
-        ctx.strokeStyle = `rgba(90,170,220,${0.05 * qa.e})`;
-        ctx.beginPath(); ctx.moveTo(qa.sx, qa.sy); ctx.lineTo(qb.sx, qb.sy); ctx.stroke();
-    }
-    // BULL/BEAR synaps-pulsen (groen/rood element)
-    for (const sy of _brain.syn) {
-        sy.t += dt / sy.dur;
-        if (sy.t > 1) { sy.t = 0; const nl = _brain.links[(Math.random() * _brain.links.length) | 0]; if (nl) { sy.a = nl.a; sy.b = nl.b; } }
-        const qa = proj[sy.a], qb = proj[sy.b]; if (qa.e < 0.6 || qb.e < 0.6) continue;
-        const strength = sy.role > 0 ? bull : bear, colored = strength > 0.08 && Math.abs(_brainHash(sy)) < 0.35 + 0.6 * strength;
-        const col = colored ? (sy.role > 0 ? '#00ff9f' : '#ff2e63') : '#bfe8ff', aMul = colored ? 0.5 + 0.5 * strength : 0.30;
-        const seg = 0.32, t0 = Math.max(0, sy.t - seg), t1 = Math.min(1, sy.t);
-        const ax = qa.sx + (qb.sx - qa.sx) * t0, ay = qa.sy + (qb.sy - qa.sy) * t0, bx = qa.sx + (qb.sx - qa.sx) * t1, by = qa.sy + (qb.sy - qa.sy) * t1;
-        const gr = ctx.createLinearGradient(ax, ay, bx, by); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, col);
-        ctx.strokeStyle = gr; ctx.globalAlpha = aMul * Math.min(qa.e, qb.e); ctx.lineWidth = colored ? 1.5 : 1;
-        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-        ctx.globalAlpha = aMul; ctx.fillStyle = col; ctx.beginPath(); ctx.arc(bx, by, colored ? 1.8 : 1.2, 0, 6.28); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-    // knopen
-    for (let i = 0; i < _brain.pts.length; i++) {
-        const p = _brain.pts[i], q = proj[i]; if (q.e <= 0.02) continue;
-        const tw = 0.32 + 0.5 * (0.5 + 0.5 * Math.sin(now / 700 * p.sp + p.tw)), sg = Math.exp(-Math.pow((p.ty - scanY) / 0.10, 2));
-        const s = ((p.glow ? 1.6 : 0.9) + 1.0 * q.persp) * (0.55 + 0.45 * tw) + p.fl * 1.6 + sg * 0.7;
-        ctx.globalAlpha = Math.min(1, q.e * ((p.glow ? Math.max(tw, 0.6) : tw * 0.9) + sg * 0.4)) * p.dim;
-        ctx.fillStyle = p.glow ? '#eaffff' : p.c; ctx.fillRect(q.sx - s / 2, q.sy - s / 2, s, s);
-    }
-    ctx.globalAlpha = 1;
-    // feature-lijnen (fissuur + sulci), alleen zichtbaar aan de goede kant
-    const visF = { top: 0.9, xpos: Math.max(0, -sinr), xneg: Math.max(0, sinr) };
-    for (const ftr of _brain.feats) {
-        const vf = visF[ftr.side] || 0; if (vf < 0.06) continue;
-        const e0 = proj[ftr.idx[0]].e; if (e0 < 0.5) continue;
-        ctx.strokeStyle = `rgba(210,244,255,${0.5 * vf * e0})`; ctx.lineWidth = 1; ctx.beginPath();
-        for (let k = 0; k < ftr.idx.length; k++) { const q = proj[ftr.idx[k]]; k ? ctx.lineTo(q.sx, q.sy) : ctx.moveTo(q.sx, q.sy); }
-        ctx.stroke();
-    }
-    // datastromen naar binnen
-    for (const st of _brain.streams) {
-        const ox = st.ox * w, oy = st.oy * h;
-        for (const d of st.dl) {
-            d.t += d.sp * dt; if (d.t > 1) { d.t = 0; d.tgt = (Math.random() * _brain.pts.length) | 0; }
-            const tg = proj[d.tgt]; if (!tg || tg.e < 0.4) continue;
-            const mx = (ox + tg.sx) / 2 + (oy - tg.sy) * d.bow, my = (oy + tg.sy) / 2 + (tg.sx - ox) * d.bow, t = d.t, it = 1 - t;
-            const px = it * it * ox + 2 * it * t * mx + t * t * tg.sx, py = it * it * oy + 2 * it * t * my + t * t * tg.sy;
-            ctx.globalAlpha = 0.5 * Math.sin(t * Math.PI); ctx.fillStyle = st.c; ctx.fillRect(px - 1, py - 1, 2, 2);
+
+    // ---- neuronen ----
+    const outLabels = ['LONG', 'NEUT', 'SHORT'], outCols = ['#00ff9f', '#5c7488', '#ff4f6d'];
+    for (let li = 0; li < layers.length; li++) {
+        for (let i = 0; i < layers[li].length; i++) {
+            const p = pos[li][i], nd = layers[li][i];
+            const near = Math.exp(-Math.pow((wavePos - li) / 0.6, 2));
+            const glow = nd.act * (0.5 + 0.5 * near);
+            const r = 5 + nd.act * 4 + near * 2;
+            // ring
+            ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283);
+            ctx.fillStyle = li === 0 ? `rgba(0,217,255,${0.15 + 0.6 * glow})`
+                         : li === layers.length - 1 ? outCols[i]
+                         : `rgba(130,200,255,${0.12 + 0.6 * glow})`;
+            if (li === layers.length - 1) ctx.globalAlpha = 0.3 + 0.7 * nd.act;
+            ctx.fill(); ctx.globalAlpha = 1;
+            ctx.lineWidth = 1; ctx.strokeStyle = `rgba(200,235,255,${0.2 + 0.6 * glow})`; ctx.stroke();
+            // kern-flits op de golf
+            if (near > 0.3) { ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.4, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${near * glow})`; ctx.fill(); }
         }
     }
-    ctx.globalAlpha = 1;
+
+    // ---- laag-labels (in de ondermarge, boven de HTML-voettekst) ----
+    ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = 'center';
+    const lnames = ['INPUT', 'CONFLUENCE', 'INTEGRATIE', 'GEWICHTEN', 'BESLISSING'];
+    for (let li = 0; li < layers.length; li++) {
+        ctx.fillStyle = 'rgba(92,116,136,0.85)';
+        ctx.fillText(lnames[li], pos[li][0].x, h - padBot * 0.45);
+    }
+    // input-labels links van de eerste kolom
+    ctx.textAlign = 'right'; ctx.font = "7px 'JetBrains Mono', monospace";
+    layers[0].forEach((nd, i) => { ctx.fillStyle = NEONET_INPUTS[i].c; ctx.fillText(NEONET_INPUTS[i].label, pos[0][i].x - 9, pos[0][i].y + 2.5); });
+    // output-labels rechts
+    ctx.textAlign = 'left';
+    layers[4].forEach((nd, i) => { ctx.fillStyle = outCols[i]; ctx.fillText(outLabels[i], pos[4][i].x + 9, pos[4][i].y + 2.5); });
+
+    // beslissing-tekst onderin het paneel bijwerken
+    const outEl = document.getElementById('neo-net-out');
+    if (outEl) {
+        const dz = decisionBias;
+        outEl.textContent = dz > 0.15 ? `LONG (${Math.round(Math.abs(dz) * 100)}%)` : dz < -0.15 ? `SHORT (${Math.round(Math.abs(dz) * 100)}%)` : 'NEUTRAAL';
+        outEl.style.color = dz > 0.15 ? '#00ff9f' : dz < -0.15 ? '#ff4f6d' : '#5c7488';
+    }
 }
 
-// koppelt NEO-groei en cijfers aan de Level-2 toestand
+function startNeoNet() {
+    if (!_neonet.raf) _neonet.raf = requestAnimationFrame(_neoNetFrame);
+}
+window.startNeoNet = startNeoNet;
+
+// ============================================================
+// NEO BREIN — apart ultra-realistisch orgaan (29-07)
+// ============================================================
+// Tekent _neo.brain / _neo.brainLinks in een eigen canvas met eigen rotatie. De
+// creatie-mesh (brainLinks) bouwt de contouren op net als bij het hoofd; pulsen
+// lopen langs de verbindingen ("denken"). De netto-bias uit de CNN + momentum
+// kleurt de gloed subtiel (bullish = cyaan-groen, bearish = magenta-rood).
+let _neobrain = { raf: null, last: 0, rotY: 0.5, formStart: null };
+
+function _neoBrainFrame(now) {
+    _neobrain.raf = requestAnimationFrame(_neoBrainFrame);
+    if (now - _neobrain.last < 33) return;
+    const dt = Math.min(0.1, (now - _neobrain.last) / 1000) || 0.033;
+    _neobrain.last = now;
+    const cv = document.getElementById('neo-brain-canvas');
+    if (!cv || !_neo.brain) return;
+    const rect = cv.getBoundingClientRect();
+    if (rect.width < 10) return;
+    if (cv.width !== Math.round(rect.width * 2)) { cv.width = rect.width * 2; cv.height = rect.height * 2; }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(2, 0, 0, 2, 0, 0);
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+
+    if (_neobrain.formStart === null) _neobrain.formStart = now;
+    const tSec = Math.max(0, (now - _neobrain.formStart - 200) / 1000);
+    _neobrain.rotY += dt * 0.22;
+    const cosr = Math.cos(_neobrain.rotY), sinr = Math.sin(_neobrain.rotY);
+    const cx = w * 0.5, cy = h * 0.5, scale = Math.min(w, h) * 0.72;
+    const act = ((_l2 && _l2.trained) ? 1 : 0.6) * (_neo.actMul || 0.6);
+
+    // BOUWGOLF (zoals het hoofd): trekt eindeloos van kruin naar onder; contouren
+    // vormen zich vlak achter de golf en vervagen ervoor - de "drawing"-animatie.
+    const B_CYCLE = 14, B_BUILD = 8, B_PRE = 4;
+    const B_L = 1 + B_BUILD / 20 + B_PRE / 20;
+    const waveAbs = (tSec / B_CYCLE) % 1 * (1 + 0.3) ;   // 0..1.3 over de ring-range
+    const F = Math.min(1, tSec / 3.0);                   // globale fade-in
+
+    // CNN/momentum bias voor de gloedkleur
+    let bias = 0;
+    try { const inp = neoNetInputs(); bias = inp.cnn * 0.6 + inp.momentum * 0.4; } catch (e) {}
+    const biasCol = bias > 0.12 ? '150,240,220' : bias < -0.12 ? '240,150,220' : '150,220,255';
+
+    // per-knoop opbouw-envelope e (0..1) op basis van de bouwgolf + ring-positie
+    const env = new Array(_neo.brain.length);
+    for (let i = 0; i < _neo.brain.length; i++) {
+        const ring = _neo.brain[i].ring;
+        let e = 0;
+        const db = waveAbs - ring;
+        if (db >= 0) {
+            if (db < 0.12) e = 1 - Math.pow(1 - db / 0.12, 3);        // net getekend (in aanbouw)
+            else e = 1;                                               // gevormd
+        } else if (db > -0.06) { e = Math.pow((db + 0.06) / 0.06, 2); } // vlak voor de golf: opkomend
+        env[i] = Math.max(e, F * 0.55);                              // nooit volledig weg na fade-in
+    }
+
+    // projectie
+    const proj = _neo.brain.map(b => {
+        const rx = b.tx * cosr + b.tz * sinr, rz = -b.tx * sinr + b.tz * cosr;
+        const persp = 1 / (2.4 - rz * 0.6);
+        return { sx: cx + rx * scale * persp, sy: cy - b.ty * scale * persp, persp, rz };
+    });
+
+    // --- OUD PLEXUS-DESIGN laag 1: driftende ambient-punten ---
+    if (_neo.brainAmb) {
+        for (const p of _neo.brainAmb) {
+            p.x = (p.x + p.vx * dt + 1) % 1; p.y = (p.y + p.vy * dt + 1) % 1;
+            const tw = 0.18 + 0.4 * (0.5 + 0.5 * Math.sin(now / 900 * p.sp + p.tw));
+            ctx.globalAlpha = tw * F; ctx.fillStyle = p.c;
+            ctx.fillRect(p.x * w - 1, p.y * h - 1, 2, 2);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // --- CREATIE-MESH (contouren die het brein opbouwen) met bouwgolf-gloed ---
+    for (const bl of _neo.brainLinks) {
+        const ea = env[bl.a], eb = env[bl.b];
+        if (ea < 0.15 || eb < 0.15) continue;
+        const ee = Math.min(ea, eb);
+        const qa = proj[bl.a], qb = proj[bl.b];
+        const ph = ((now / 1000) / bl.dur + bl.t) % 1;
+        const pulse = Math.exp(-Math.pow((ph - 0.5) / 0.20, 2));
+        const depth = (qa.persp + qb.persp) / 2;
+        const bouwGlow = (ee > 0.15 && ee < 0.98) ? (1 - ee) : 0;    // fel op het moment van "tekenen"
+        const a = ((0.05 + 0.12 * (depth - 0.3)) + 0.45 * pulse * act + 0.5 * bouwGlow) * ee;
+        ctx.strokeStyle = `rgba(${biasCol},${Math.min(0.9, a).toFixed(3)})`;
+        ctx.lineWidth = 0.4 + pulse * 1.0 + bouwGlow * 0.8;
+        ctx.beginPath(); ctx.moveTo(qa.sx, qa.sy); ctx.lineTo(qb.sx, qb.sy); ctx.stroke();
+    }
+
+    // --- OUD PLEXUS-DESIGN laag 2: afstand-gebaseerde verbindingen (KORT weefsel) ---
+    // Strakker gehouden (drempel omlaag) zodat er geen lange, chaotische spikes door
+    // het beeld schieten - alleen fijn weefsel dicht op het brein, zoals de referentie.
+    // Sampling op elke 3e knoop houdt het licht bij de hoge knoop-dichtheid (854).
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < proj.length; i += 3) {
+        if (env[i] < 0.4) continue;
+        for (let j = i + 3; j < proj.length; j += 3) {
+            if (env[j] < 0.4) continue;
+            const dx = proj[i].sx - proj[j].sx, dy = proj[i].sy - proj[j].sy;
+            const d2 = dx * dx + dy * dy;
+            if (d2 > 700) continue;                              // ~26px: kort weefsel
+            ctx.strokeStyle = `rgba(120,190,230,${((1 - Math.sqrt(d2) / 26) * 0.09 * F).toFixed(3)})`;
+            ctx.beginPath(); ctx.moveTo(proj[i].sx, proj[i].sy); ctx.lineTo(proj[j].sx, proj[j].sy); ctx.stroke();
+        }
+    }
+
+    // --- OUD PLEXUS-DESIGN laag 3: vormings-flitsen (kort, langs de mesh) ---
+    if (_neo.brainStripes) {
+        for (const s of _neo.brainStripes) {
+            s.t += dt;
+            if (s.t > s.dur) {
+                // kies een knoop en een NABIJE tweede knoop, zodat de flits kort blijft
+                s.a = (Math.random() * _neo.brain.length) | 0;
+                const bl = _neo.brainLinks[(Math.random() * _neo.brainLinks.length) | 0];
+                s.b = bl ? (bl.a === s.a ? bl.b : bl.a) : ((Math.random() * _neo.brain.length) | 0);
+                s.t = 0; continue;
+            }
+            const k = s.t / s.dur, glow = Math.sin(k * Math.PI);
+            const A = proj[s.a], Bp = proj[s.b];
+            if (!A || !Bp) continue;
+            const dx = A.sx - Bp.sx, dy = A.sy - Bp.sy;
+            if (dx * dx + dy * dy > 1600) continue;              // sla te lange over (geen spikes)
+            ctx.strokeStyle = `rgba(${biasCol},${(glow * 0.55 * F).toFixed(3)})`;
+            ctx.lineWidth = 0.6 + glow;
+            ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(Bp.sx, Bp.sy); ctx.stroke();
+        }
+    }
+
+    // --- knopen (met bouwgolf-flits) ---
+    for (let i = 0; i < _neo.brain.length; i++) {
+        const b = _neo.brain[i], q = proj[i], e = env[i];
+        if (e < 0.05) continue;
+        const tw = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(now / 600 * b.sp + b.tw));
+        const bouwGlow = (e > 0.15 && e < 0.98) ? (1 - e) : 0;
+        const s = (1.0 + 1.3 * q.persp) * (0.55 + 0.45 * tw) + bouwGlow * 1.6;
+        ctx.globalAlpha = Math.min(1, (0.45 + 0.55 * tw) * e);
+        ctx.fillStyle = bouwGlow > 0.3 ? '#ffffff' : b.c;
+        ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(0.3, s), 0, 6.283); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // bias-label
+    const el = document.getElementById('neo-brain-out');
+    if (el) { el.textContent = bias > 0.12 ? 'BULLISH' : bias < -0.12 ? 'BEARISH' : 'neutraal';
+        el.style.color = bias > 0.12 ? '#14f195' : bias < -0.12 ? '#ff4f6d' : '#5c7488'; }
+}
+function startNeoBrain() { if (!_neobrain.raf) _neobrain.raf = requestAnimationFrame(_neoBrainFrame); }
+window.startNeoBrain = startNeoBrain;
 function updateCortexActivation() {
     const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : '';
     const schoon = (typeof learningLog !== 'undefined') ? learningLog.filter(l => !l.manual && l.configVersion === cfg && l.outcome).length : 0;
@@ -7705,6 +7940,15 @@ function toggleCortexPanel() {
     body.style.display = dicht ? 'block' : 'none';
     if (chev) chev.innerHTML = dicht ? '&#9662;' : '&#9656;';
 }
+function toggleCortexHeadPanel() {
+    const body = document.getElementById('cortexhead-body');
+    const chev = document.getElementById('cortexhead-chevron');
+    if (!body) return;
+    const dicht = body.style.display === 'none';
+    body.style.display = dicht ? 'block' : 'none';
+    if (chev) chev.innerHTML = dicht ? '&#9662;' : '&#9656;';
+}
+window.toggleCortexHeadPanel = toggleCortexHeadPanel;
 
 // alles opstarten zodra de DOM klaar is
 (function bootLanding() {
@@ -7715,9 +7959,7 @@ function toggleCortexPanel() {
         // (v4 gebruikt waypoint-tekst i.p.v. SVG jump-rails)
         try { initScrollSpy(); } catch (e) {}
         try { initFlowHud(); } catch (e) {}
-        try { buildCortex(); updateL2UI(); } catch (e) {}
-        try { buildCortexBrain(); } catch (e) {}
-        try { renderScalpStats(); } catch (e) {}
+        try { buildCortex(); startNeoNet(); startNeoBrain(); updateL2UI(); } catch (e) {}
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
     else go();
