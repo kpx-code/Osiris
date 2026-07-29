@@ -1376,6 +1376,11 @@ function loadPersistentState() {
         if (aw) adaptiveWeights = JSON.parse(aw);
         computeCalibrationMap(); // pas NA het herstellen van alle state - zodat een
                                  // fout hier nooit meer een herstel-regel kan blokkeren
+        // 29-07: teken de curve ook meteen bij het laden (de DOM is er mogelijk nog
+        // niet, dus met een kleine vertraging + retry). Zonder dit bleef de chart
+        // leeg tot de VOLGENDE trade sloot, ook al was er ruim genoeg historie.
+        setTimeout(() => { try { renderCalibrationCurve(); } catch (e) {} }, 600);
+        setTimeout(() => { try { computeCalibrationMap(); renderCalibrationCurve(); } catch (e) {} }, 2000);
     } catch (e) { console.warn("Kon wallet/positie-status niet laden:", e); }
 }
 
