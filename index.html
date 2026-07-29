@@ -225,7 +225,7 @@ footer{padding:60px 0; text-align:center; font-family:'JetBrains Mono',monospace
         #config-chevron{ font-family:'JetBrains Mono',monospace; color:var(--teal); transition:transform 0.25s ease; font-size:0.9rem; }
         #config-chevron.open{ transform:rotate(180deg); }
         #config-body{ max-height:0; overflow:hidden; transition:max-height 0.35s ease; border-left:1px solid rgba(255,255,255,0.1); border-right:1px solid rgba(255,255,255,0.1); }
-        #config-body.open{ max-height:3600px; overflow-y:auto; border-bottom:1px solid rgba(255,255,255,0.1); }
+        #config-body.open{ max-height:1400px; border-bottom:1px solid rgba(255,255,255,0.1); }
         #config-body .config-inner{ padding:16px 15px 4px; }
         #active-settings-panel{ padding:12px 15px; border:1px solid rgba(255,255,255,0.1); border-top:none; font-size:0.8em; }
 
@@ -421,8 +421,6 @@ section { position:relative; z-index:2; }
 @media(max-width:900px){
   #flow-hud-body > div[style*="grid-template-columns"]{grid-template-columns:1fr !important; gap:12px !important;}
   #neo-canvas{height:420px !important;}
-  #brain-canvas{height:300px !important; min-height:0 !important;}
-  #brain-panel{flex:none !important;}
 }
 @media(max-width:720px){
   div[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr !important;}
@@ -782,42 +780,50 @@ section { position:relative; z-index:2; }
         </div>
         <div id="flow-hud">
           <div id="flow-hud-body">
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0; align-items:stretch; background:#000004; border-radius:10px; padding:6px;">
-              <div id="ocular-left" style="display:flex; flex-direction:column; gap:6px; min-width:0;">
-              <div id="eye-cell" style="position:relative;">
-              <canvas id="eye-plexus" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></canvas>
-              <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto; position:relative; z-index:1;">
-              <g id="w-eye"></g>
-              <g font-family="'JetBrains Mono',monospace" font-size="9">
-                <!-- LINKS: ooglid-vorm. Verste (x klein) in het midden, daarna paren hoger/lager en dichterbij -->
-                <text x="14" y="200" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
-                <text x="150" y="105" fill="#5c7488">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
-                <text x="150" y="295" fill="#5c7488">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
-                <text x="240" y="40" fill="#5c7488">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
-                <text x="240" y="360" fill="#5c7488">SENT <tspan fill="#c792ea" id="flow-sent">&mdash;</tspan></text>
-                <!-- RECHTS: gespiegelde ooglid-vorm -->
-                <text x="986" y="200" fill="#5c7488" text-anchor="end">KANS L/S <tspan fill="#00ff9f" id="flow-prob">&mdash;</tspan></text>
-                <text x="850" y="105" fill="#5c7488" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
-                <text x="850" y="295" fill="#5c7488" text-anchor="end">REGIME <tspan fill="#14f195" id="flow-regime">&mdash;</tspan></text>
-                <text x="760" y="40" fill="#5c7488" text-anchor="end">NODE <tspan fill="#c792ea" id="flow-node">&mdash;</tspan></text>
-                <text x="760" y="360" fill="#5c7488" text-anchor="end">MID <tspan fill="#4fc3f7" id="flow-mid">&mdash;</tspan></text>
-              </g>
-              <circle id="flow-pupil" cx="500" cy="200" r="1" fill="none" stroke="none"/>
-              </svg>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:stretch; background:#000004; border-radius:10px; padding:6px;">
+              <!-- LINKERKOLOM: oog boven, neuraal netwerk onder -->
+              <div style="display:flex; flex-direction:column; gap:10px;">
+                <div id="eye-cell" style="position:relative;">
+                <canvas id="eye-plexus" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></canvas>
+                <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="width:100%; display:block; margin:0 auto; position:relative; z-index:1;">
+                <g id="w-eye"></g>
+                <g font-family="'JetBrains Mono',monospace" font-size="9">
+                  <text x="14" y="200" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
+                  <text x="150" y="105" fill="#5c7488">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
+                  <text x="150" y="295" fill="#5c7488">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
+                  <text x="240" y="40" fill="#5c7488">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
+                  <text x="240" y="360" fill="#5c7488">SENT <tspan fill="#c792ea" id="flow-sent">&mdash;</tspan></text>
+                  <text x="986" y="200" fill="#5c7488" text-anchor="end">KANS L/S <tspan fill="#00ff9f" id="flow-prob">&mdash;</tspan></text>
+                  <text x="850" y="105" fill="#5c7488" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
+                  <text x="850" y="295" fill="#5c7488" text-anchor="end">REGIME <tspan fill="#14f195" id="flow-regime">&mdash;</tspan></text>
+                  <text x="760" y="40" fill="#5c7488" text-anchor="end">NODE <tspan fill="#c792ea" id="flow-node">&mdash;</tspan></text>
+                  <text x="760" y="360" fill="#5c7488" text-anchor="end">MID <tspan fill="#4fc3f7" id="flow-mid">&mdash;</tspan></text>
+                </g>
+                <circle id="flow-pupil" cx="500" cy="200" r="1" fill="none" stroke="none"/>
+                </svg>
+                </div>
+                <div id="neo-net-panel" style="position:relative;">
+                  <canvas id="neo-net-canvas" style="width:100%; height:420px; display:block; border-radius:8px;"></canvas>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">NEO &middot; NEURAL NET</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488;">actieve verwerking &middot; live</div>
+                  <div id="neo-net-decision" style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff;">beslissing <span id="neo-net-out">&mdash;</span></div>
+                </div>
               </div>
-              <div id="brain-panel" style="position:relative; flex:1; min-height:0;">
-                <canvas id="brain-canvas" style="width:100%; height:100%; min-height:260px; display:block; border-radius:8px;"></canvas>
-                <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">NEO &middot; CORTEX</div>
-                <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488;">confluence-brein &middot; lerend</div>
-                <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#5c7488; line-height:1.6;">bias <b id="brain-bias" style="color:#e3f6ff;">&mdash;</b> &middot; bull <b id="brain-bull" style="color:#00ff9f;">0%</b> &middot; bear <b id="brain-bear" style="color:#ff5f7e;">0%</b></div>
-              </div>
-              </div>
-              <div id="neo-panel" style="position:relative;">
-                <canvas id="neo-canvas" style="width:100%; height:540px; display:block; border-radius:8px;"></canvas>
-                <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">NEO &middot; MARK 1</div>
-                <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488;">level 2 &middot; lerend</div>
-                <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8;"><span id="neo-samples">0</span> samples</div>
-                <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff;">kans <span id="neo-prob">&mdash;</span></div>
+              <!-- RECHTERKOLOM: hoofd boven, brein onder -->
+              <div style="display:flex; flex-direction:column; gap:10px;">
+                <div id="neo-panel" style="position:relative;">
+                  <canvas id="neo-canvas" style="width:100%; height:420px; display:block; border-radius:8px;"></canvas>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">NEO &middot; MARK 1</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488;">ultra-realistisch hoofd</div>
+                  <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8;"><span id="neo-samples">0</span> samples</div>
+                  <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff;">kans <span id="neo-prob">&mdash;</span></div>
+                </div>
+                <div id="neo-brain-panel" style="position:relative;">
+                  <canvas id="neo-brain-canvas" style="width:100%; height:420px; display:block; border-radius:8px;"></canvas>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#c792ea; letter-spacing:2px;">NEO &middot; CORTEX</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488;">brein-plexus &middot; lerend</div>
+                  <div id="neo-brain-bias" style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff;">bias <span id="neo-brain-out">&mdash;</span></div>
+                </div>
               </div>
             </div>
             <div class="hub-statusbar" style="margin-top:10px;">
@@ -894,16 +900,6 @@ section { position:relative; z-index:2; }
                 <div id="learning-body" class="open" style="margin-top:10px;">
                     <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
                 </div>
-
-        <div class="subhead" style="margin-top:28px;">Scalp learning track <span style="font-weight:400; color:var(--dimmer); font-size:0.85em; text-transform:none; letter-spacing:0;">(range + micro scalps &mdash; separate from the trend brain)</span></div>
-                <div id="scalp-stats" style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7d99ac; line-height:1.75;"><span style="color:var(--text-dim);">No closed scalps yet.</span></div>
-
-        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:24px;">
-            <span>Recalibration</span>
-            <button type="button" onclick="recalibrateForPreset()" class="btn btn-ghost btn-mini" style="color:var(--cyan); border-color:rgba(0,217,255,0.4);">&#8635; Recalibrate for this preset</button>
-        </div>
-        <div id="recalib-note" style="font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:#567;">Rebaselines the trend calibration + scalp stats for the currently active preset. Does not delete any trades.</div>
-
         <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer; margin-top:32px;" onclick="toggleCalibPanel()"><span><span id="calib-chevron">&#9662;</span> Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
         <div id="calib-body" style="display:grid; grid-template-columns:1.1fr 1fr; gap:20px; align-items:center; margin-top:8px;">
           <svg id="calib-svg" viewBox="0 0 100 62" preserveAspectRatio="xMinYMid meet" style="width:100%; height:300px; overflow:visible;">
@@ -1044,19 +1040,6 @@ section { position:relative; z-index:2; }
                         <div><label>Range-scalp stop %</label><input type="number" id="range-scalp-stop-pct" value="0.5" step="0.1"></div>
                         <div><label>Range-scalp alloc %</label><input type="number" id="range-scalp-alloc-pct" value="10"></div>
                     </div>
-
-                    <h4 style="color: var(--violet); font-size: 0.7rem; letter-spacing:0.1em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin: 16px 0 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;">Micro-Scalp Fast-Lane <span style="color:#456; font-weight:400; text-transform:none; letter-spacing:0;">(separate fast path — off by default)</span></h4>
-                    <div class="grid-row" style="margin-bottom: 6px;">
-                        <div><label>Enabled</label><select id="micro-fastlane-enabled"><option value="false">Off</option><option value="true">On</option></select></div>
-                        <div><label>Target %</label><input type="number" id="micro-target-pct" value="0.25" step="0.05"></div>
-                        <div><label>Stop %</label><input type="number" id="micro-stop-pct" value="0.30" step="0.05"></div>
-                    </div>
-                    <div class="grid-row" style="margin-bottom: 6px;">
-                        <div><label>Alloc %</label><input type="number" id="micro-alloc-pct" value="5" step="1"></div>
-                        <div><label>Min. raw probability %</label><input type="number" id="micro-min-prob" value="72" step="1"></div>
-                        <div><label>Confirm (sec)</label><input type="number" id="micro-confirm-sec" value="4" step="1"></div>
-                    </div>
-                    <div class="hint" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#567; margin-bottom:14px;">Reacts within seconds on the raw, un-smoothed signal. Fully separate from the trend engine and its calibration; micro-scalps feed only the scalp learning track below.</div>
 
                     <h4 style="color: var(--cyan); font-size: 0.7rem; letter-spacing:0.1em; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin: 16px 0 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;">ICT / Smart-Money Cascade</h4>
                     <div class="grid-row" style="margin-bottom: 14px;">
