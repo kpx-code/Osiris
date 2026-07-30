@@ -905,6 +905,13 @@ section { position:relative; z-index:2; }
                 </div>
                 <div id="learning-body" class="open" style="margin-top:10px;">
                     <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
+                    <div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.08); display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <button onclick="exportOsirisData()" style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; padding:6px 12px; background:rgba(0,217,255,0.08); border:1px solid rgba(0,217,255,0.3); color:#7fd8ff; border-radius:6px; cursor:pointer;">&#11015; Back-up geheugen (export JSON)</button>
+                        <label style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; padding:6px 12px; background:rgba(199,146,234,0.08); border:1px solid rgba(199,146,234,0.3); color:#c792ea; border-radius:6px; cursor:pointer;">&#11014; Herstel geheugen (import JSON)
+                            <input type="file" accept="application/json,.json" style="display:none;" onchange="if(this.files[0])importOsirisData(this.files[0]); this.value='';">
+                        </label>
+                        <span style="font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--text-dimmer);">exporteer regelmatig &mdash; dit is je back-up als de browser-cache gewist wordt</span>
+                    </div>
                 </div>
         <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer; margin-top:32px;" onclick="toggleCalibPanel()"><span><span id="calib-chevron">&#9662;</span> Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
         <div id="calib-body" style="display:grid; grid-template-columns:1.1fr 1fr; gap:20px; align-items:center; margin-top:8px;">
