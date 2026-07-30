@@ -7458,18 +7458,15 @@ function buildCortex() {
         eyes.push({ x: q.x, y: q.y, z: q.z + 0.03 });
     }
     // ---- MESH die het GEZICHT opbouwt (29-07) ----
-    // Verbind naburige punten binnen elke ring EN tussen opeenvolgende ringen, zodat
-    // een echt wireframe-oppervlak ontstaat dat "de kop maakt". Dit vervangt niets -
-    // het komt bovenop de bestaande losse links/synapsen, maar geeft veel meer
-    // structuurlijnen (en we temperen straks de ruis-animatie).
+    // Alleen de essentiele structuurlijnen: de ring-contouren (horizontaal) plus één
+    // korte verticale verbinding per punt naar de volgende ring. Dun en rustig - de
+    // lange creatie-streams (hieronder) voeren het "opbouwende" effect, niet kriskras.
     const mesh = [];
     for (let ri = 0; ri < rings.length; ri++) {
         const ring = rings[ri];
-        // horizontale mesh: rond de ring
         for (let k = 0; k < ring.length; k++) {
             mesh.push({ a: ring[k], b: ring[(k + 1) % ring.length] });
         }
-        // verticale mesh: verbind met de dichtstbijzijnde punten in de volgende ring
         const nxt = rings[ri + 1];
         if (nxt && ri < RINGS - 1) {
             for (let k = 0; k < ring.length; k += 2) {
@@ -7484,90 +7481,19 @@ function buildCortex() {
             }
         }
     }
-    // ---- BREIN als apart ultra-realistisch orgaan (29-07) ----
-    // Veel meer knopen + eigen "creatie"-mesh die de punten verbindt (zoals het
-    // hoofd). Twee hemisferen als geribbelde ellipsoïden (gyri via ruis-golving),
-    // plus een cerebellum-knobbel onderaan en een hersenstam. Wordt in een eigen
-    // canvas getekend (_neoBrainFrame), niet meer binnen het hoofd.
-    const brain = [];
-    const brainLinks = [];
-    function brainPt(x, y, z, c, kind) {
-        brain.push({ tx: x, ty: y, tz: z, c, kind, tw: Math.random() * 6.28, sp: 0.6 + Math.random() * 1.5, fl: 0 });
-        return brain.length - 1;
-    }
-    const BRAIN_C1 = '#7fe9ff', BRAIN_C2 = '#c792ea', BRAIN_C3 = '#14f195';
-    // twee hemisferen: parametrisch oppervlak met gyri-golving voor realisme
-    for (const side of [1, -1]) {
-        const RINGS_B = 24;
-        for (let u = 0; u < RINGS_B; u++) {
-            const theta = (u / (RINGS_B - 1)) * Math.PI;          // kruin -> onder
-            const ny = Math.cos(theta);
-            const rr = Math.sin(theta);
-            const COLS = Math.max(7, Math.round(24 * rr));
-            for (let v = 0; v <= COLS; v++) {
-                const phi = (v / COLS) * Math.PI;                 // halve ring (buitenkant hemisfeer)
-                // gyri: hoogfrequente golving op de radius voor de hersenkronkels (dichter + dieper)
-                const gyri = 0.045 * Math.sin(phi * 13) * Math.sin(theta * 9) + 0.03 * Math.sin(phi * 7 + theta * 5);
-                const R = 0.34 + gyri;
-                let bx = side * (0.03 + R * rr * Math.sin(phi));   // naar buiten per hemisfeer
-                let by = 0.30 + R * ny * 0.86;                    // iets afgeplat
-                let bz = R * rr * Math.cos(phi) * 0.92;
-                // langsgroef tussen de hemisferen: duw punten dicht bij het midden weg
-                if (Math.abs(bx) < 0.05) bx += side * 0.05;
-                brainPt(bx, by, bz, side > 0 ? BRAIN_C1 : BRAIN_C2, 'cortex');
-            }
-        }
-    }
-    // cerebellum (kleine geribbelde knobbel onderaan-achter, dichter)
-    for (let i = 0; i < 44; i++) {
-        const a = Math.random() * Math.PI * 2, r = Math.random() ** 0.5 * 0.14;
-        brainPt(Math.cos(a) * r * 1.3, 0.03 + Math.sin(a) * r * 0.7, -0.16 - Math.random() * 0.08, BRAIN_C3, 'cereb');
-    }
-    // hersenstam (naar beneden)
-    for (let i = 0; i < 14; i++) {
-        brainPt((Math.random() - 0.5) * 0.05, 0.02 - i * 0.018, -0.05 - Math.random() * 0.03, BRAIN_C3, 'stem');
-    }
-    // CREATIE-MESH: verbind elke breinknoop met zijn dichtstbijzijnde buren (net als
-    // de hoofd-mesh). Dit geeft het brein zijn opbouwende contourlijnen.
-    for (let i = 0; i < brain.length; i++) {
-        const dists = [];
-        for (let j = 0; j < brain.length; j++) {
-            if (i === j) continue;
-            const d = (brain[i].tx - brain[j].tx) ** 2 + (brain[i].ty - brain[j].ty) ** 2 + (brain[i].tz - brain[j].tz) ** 2;
-            dists.push([d, j]);
-        }
-        dists.sort((a, b) => a[0] - b[0]);
-        const K = 3;                                            // verbind met 3 dichtstbijzijnde
-        for (let n = 0; n < K && n < dists.length; n++) {
-            const j = dists[n][1];
-            if (dists[n][0] > 0.02) break;                      // alleen echt nabije buren (geen lange spikes)
-            if (j > i) brainLinks.push({ a: i, b: j, t: Math.random() * 3, dur: 1.4 + Math.random() * 1.8, base: dists[n][0] });
-        }
-    }
-    // bouw-volgorde: van kruin (hoge y) naar onder, zodat de bouwgolf net als bij het
-    // hoofd de contouren "tekent". Elke knoop krijgt een genormaliseerde ring 0..1.
-    let bYmin = Infinity, bYmax = -Infinity;
-    for (const b of brain) { if (b.ty < bYmin) bYmin = b.ty; if (b.ty > bYmax) bYmax = b.ty; }
-    for (const b of brain) { b.ring = (bYmax - b.ty) / ((bYmax - bYmin) || 1); }   // 0 = kruin
-    // OUD PLEXUS-DESIGN: driftende ambient-punten + vormings-flitsen, gecombineerd
-    // met de anatomie. Zelfde beeldtaal als de eye-plexus.
-    const brainAmb = [];
-    const BR_PAL = ['#00d9ff', '#ff4fd8', '#ffb627', '#14f195', '#c792ea'];
-    for (let i = 0; i < 30; i++) brainAmb.push({
-        x: Math.random(), y: Math.random(), vx: (Math.random() - 0.5) * 0.012, vy: (Math.random() - 0.5) * 0.010,
-        tw: Math.random() * 6.28, sp: 0.3 + Math.random(),
-        c: Math.random() < 0.3 ? BR_PAL[(Math.random() * BR_PAL.length) | 0] : '#5fb8e8'
-    });
-    // vormings-flitsen: helft knoop-naar-knoop, helft knoop-naar-centrum (vormend)
-    const brainStripes = [];
-    for (let i = 0; i < 10; i++) brainStripes.push({ a: (Math.random() * brain.length) | 0, b: (Math.random() * brain.length) | 0, naarCentrum: i % 2 === 0, t: Math.random() * 4, dur: 2.0 + Math.random() * 2 });
-    _neo.brainAmb = brainAmb; _neo.brainStripes = brainStripes;
-    // links + synapsen (lijnen EN driehoeken)
-    // 29-07: teruggebracht van 170 -> 70 losse links; de nieuwe face-mesh levert nu
-    // de structuurlijnen, deze blijven alleen voor de flikkerende synaps-accenten.
+    // ---- BREIN (30-07): Trinity-stijl ultra-realistisch orgaan ----
+    // Overgenomen van het betere Trinity-brein: echte hersengroeven (sulci) met
+    // pulserend licht, gyri-schaduw via een fold-waarde per punt, gradient-synapsen,
+    // en een bouwgolf die de contouren "tekent". Uitgebreid palet (niet enkel
+    // rood/groen): de particles, synapsen en sulci-pulsen putten uit BR_PAL.
+    buildNeoBrain2();
+    // (de oude brainAmb/brainStripes/brainLinks blijven ongebruikt maar bestaan niet
+    //  meer hier; het nieuwe brein leeft in _neo.brain2 en wordt door _neoBrainFrame getekend)
+    // links + synapsen voor het HOOFD: alleen nog een handvol voor de flikkerende
+    // synaps-accenten (30-07: 70 -> 24; de dichtere face-mesh levert de structuur).
     const links = [];
     let guard = 0;
-    while (links.length < 70 && guard++ < 5000) {
+    while (links.length < 24 && guard++ < 5000) {
         const a = (Math.random() * pts.length) | 0, b = (Math.random() * pts.length) | 0;
         const dx = pts[a].tx - pts[b].tx, dy = pts[a].ty - pts[b].ty, dz = pts[a].tz - pts[b].tz;
         const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -7584,7 +7510,7 @@ function buildCortex() {
         tris.push({ a: l1.a, b, c, t: Math.random() * 3, dur: 2.4 + Math.random() * 1.6 });
     }
     const syn = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 5; i++) {   // 30-07: minder ruis-flitsen; de creatie-lijnen (streams) voeren nu de boventoon
         const l = links[(Math.random() * links.length) | 0];
         if (l) syn.push({ a: l.a, b: l.b, t: Math.random() * 3, dur: 2.0 + Math.random() * 1.5 });
     }
@@ -7606,13 +7532,20 @@ function buildCortex() {
     }
     // datastromen van alle kanten (links = vanuit het oog)
     const streams = [];
-    const origins = [[0.0, 0.40], [0.0, 0.62], [0.98, 0.18], [0.98, 0.82], [0.5, 0.02], [0.5, 0.98]];
+    // CREATIE-LIJNEN (30-07): meer bronpunten + meer deeltjes, zodat het hoofd
+    // duidelijk wordt "opgebouwd" door lijnen die de puntjes raken - i.p.v. losse
+    // ruis. 12 origins rondom, elk 14 deeltjes = ~168 creatie-lijnen.
+    const origins = [
+        [0.0, 0.25], [0.0, 0.45], [0.0, 0.65], [0.0, 0.85],
+        [1.0, 0.15], [1.0, 0.38], [1.0, 0.62], [1.0, 0.85],
+        [0.30, 0.0], [0.70, 0.0], [0.30, 1.0], [0.70, 1.0]
+    ];
     for (let s = 0; s < origins.length; s++) {
         const deeltjes = [];
-        for (let k = 0; k < 8; k++) deeltjes.push({ t: Math.random(), sp: 0.25 + Math.random() * 0.3, tgt: (Math.random() * pts.length) | 0, bow: (Math.random() - 0.5) * 0.5, px: 0, py: 0 });
+        for (let k = 0; k < 14; k++) deeltjes.push({ t: Math.random(), sp: 0.22 + Math.random() * 0.3, tgt: (Math.random() * pts.length) | 0, bow: (Math.random() - 0.5) * 0.5, px: 0, py: 0 });
         streams.push({ ox: origins[s][0], oy: origins[s][1], c: NEO_PALET[s % NEO_PALET.length], deeltjes });
     }
-    _neo = { pts, rings, links, tris, syn, amb, streams, feats, eyes, bridge, mesh, brain, brainLinks,
+    _neo = { pts, rings, links, tris, syn, amb, streams, feats, eyes, bridge, mesh,
              formed: 0, formStart: null, rotY: Math.PI / 2, raf: _neo.raf, lastFrame: 0, actMul: 0.6 };
     if (!_neo.raf) _neo.raf = requestAnimationFrame(_neoFrame);
 }
@@ -7710,13 +7643,13 @@ function _neoFrame(now) {
     // FACE-MESH: het wireframe dat de kop opbouwt (29-07). See-through: lage alpha,
     // zodat het brein binnenin zichtbaar blijft. Voor-facing lijnen iets feller.
     if (_neo.mesh) {
-        ctx.lineWidth = 0.4;
+        ctx.lineWidth = 0.3;
         for (const m of _neo.mesh) {
             const qa = proj[m.a], qb = proj[m.b];
             if (qa.e < 0.4 || qb.e < 0.4) continue;
             const ee = Math.min(qa.e, qb.e);
             const depth = (qa.persp + qb.persp) / 2;
-            ctx.strokeStyle = `rgba(110,190,240,${(0.05 + 0.10 * (depth - 0.3)) * ee})`;
+            ctx.strokeStyle = `rgba(110,190,240,${((0.05 + 0.09 * (depth - 0.3)) * ee).toFixed(3)})`;
             ctx.beginPath(); ctx.moveTo(qa.sx, qa.sy); ctx.lineTo(qb.sx, qb.sy); ctx.stroke();
         }
     }
@@ -7794,7 +7727,7 @@ function _neoFrame(now) {
             const x = mt * mt * ox + 2 * mt * t * mx + t * t * tgtQ.sx;
             const y = mt * mt * oy + 2 * mt * t * my + t * t * tgtQ.sy;
             if (d.px) {
-                ctx.strokeStyle = st.c; ctx.globalAlpha = 0.35 * t; ctx.lineWidth = 0.8;
+                ctx.strokeStyle = st.c; ctx.globalAlpha = 0.55 * t; ctx.lineWidth = 1.0;
                 ctx.beginPath(); ctx.moveTo(d.px, d.py); ctx.lineTo(x, y); ctx.stroke();
             }
             ctx.globalAlpha = 0.5 + 0.5 * t;
@@ -8081,151 +8014,153 @@ function startNeoNet() {
 window.startNeoNet = startNeoNet;
 
 // ============================================================
-// NEO BREIN — apart ultra-realistisch orgaan (29-07)
+// NEO BREIN — Trinity-stijl ultra-realistisch orgaan (30-07)
 // ============================================================
-// Tekent _neo.brain / _neo.brainLinks in een eigen canvas met eigen rotatie. De
-// creatie-mesh (brainLinks) bouwt de contouren op net als bij het hoofd; pulsen
-// lopen langs de verbindingen ("denken"). De netto-bias uit de CNN + momentum
-// kleurt de gloed subtiel (bullish = cyaan-groen, bearish = magenta-rood).
-let _neobrain = { raf: null, last: 0, rotY: 0.5, formStart: null };
-
+// Overgenomen van het betere Trinity-brein en aangepast voor Neo: echte sulci
+// (hersengroeven) met pulserend licht, gyri-schaduw via fold-waarde, gradient-
+// synapsen, bouwgolf die de contouren tekent. Uitgebreid kleurenpalet (BR_PAL2):
+// niet enkel rood/groen - de particles, synaps-accenten en sulci-pulsen putten uit
+// cyaan/blauw/paars/amber/roze/groen. De handels-bias (CNN+momentum) kleurt alleen
+// de "actieve" synapsen groen (bullish) / rood (bearish); de rest blijft kleurrijk.
+const BR_PAL2 = ['#00d9ff', '#4fc3f7', '#81d4fa', '#c792ea', '#ffb627', '#ff6ec7', '#14f195'];
+const _bA = 0.56, _bB = 0.50, _bC = 0.82, _FAMP = 0.085;
+function _foldVal(y, phi) {
+    const v = 0.55 * Math.sin(6.2 * phi + 5 * y) + 0.34 * Math.sin(9.3 * phi - 7 * y + 1.3)
+            + 0.22 * Math.sin(13.1 * phi + 3 * y + 2.1) + 0.15 * Math.sin(4 * phi - 11 * y + 0.6);
+    return Math.max(-1, Math.min(1, v / 1.26));
+}
+function _bSurf(y, phi) {
+    const yn = y / _bB, t = Math.max(0, 1 - yn * yn), r = Math.pow(t, 0.62);
+    let ax = _bA * r, az = _bC * r;
+    const temporal = Math.exp(-Math.pow((y + 0.04) / 0.20, 2)); ax *= 1 + 0.16 * temporal;
+    const f = _foldVal(y, phi), disp = 1 + _FAMP * f; ax *= disp; az *= disp;
+    let x = ax * Math.sin(phi), z = az * Math.cos(phi); z *= z > 0 ? 1.07 : 0.90;
+    const mid = Math.exp(-Math.pow(x / 0.09, 2)) * Math.max(0, (y + 0.05) / _bB); let yo = y + 0.08 * mid;
+    const base = Math.max(0, (-y - 0.18) / 0.32); yo -= 0.05 * base * base;
+    return { x, y: yo, z, fold: f };
+}
+let _brain2 = null;
+function buildNeoBrain2() {
+    const pts = [], rings = [], sulci = [];
+    function addPt(x, y, z, glow, ring, fold, dim) {
+        const a = Math.random() * 6.28, rad = 2.4 + Math.random() * 2.6, el = (Math.random() - 0.5) * Math.PI;
+        pts.push({ tx: x, ty: y, tz: z, glow, ring, fold: fold || 0, dim: dim || 1,
+            x: Math.cos(el) * Math.cos(a) * rad, y: Math.sin(el) * rad, z: Math.cos(el) * Math.sin(a) * rad,
+            tw: Math.random() * 6.28, sp: 0.5 + Math.random() * 1.5, fl: 0 });
+        return pts.length - 1;
+    }
+    const RINGS = 48;
+    for (let ri = 0; ri < RINGS; ri++) {
+        const y = _bB - (ri / (RINGS - 1)) * (2 * _bB), t = Math.max(0.001, 1 - (y / _bB) * (y / _bB)),
+            n = Math.max(18, Math.round(60 * Math.pow(t, 0.6))), ring = [];
+        for (let k = 0; k < n; k++) { const phi = -Math.PI + (k / n) * 6.283 + (Math.random() - 0.5) * 0.03, q = _bSurf(y, phi); ring.push(addPt(q.x, q.y, q.z, false, ri, q.fold)); }
+        rings.push(ring);
+    }
+    // cerebellum
+    for (let j = 0; j < 7; j++) { const y = -0.26 - j * 0.045, ring = [], n = 20, rr = 0.28 * (1 - j / 9);
+        for (let k = 0; k < n; k++) { const phi = -Math.PI + (k / n) * 6.283; ring.push(addPt(rr * Math.sin(phi) * 0.95, y, -0.52 - 0.12 * Math.cos(phi) - rr * 0.25, false, RINGS + j, 0.5 * Math.sin(k * 1.7))); } rings.push(ring); }
+    // hersenstam
+    for (let j = 0; j < 7; j++) { const y = -0.40 - j * 0.05, ring = [], n = 12, rr = 0.115 - j * 0.008, pons = Math.exp(-Math.pow((j - 1) / 1.5, 2)) * 0.03;
+        for (let k = 0; k < n; k++) { const phi = -Math.PI + (k / n) * 6.283; ring.push(addPt((rr + pons) * Math.sin(phi), y, -0.06 + (rr + pons) * Math.cos(phi), false, RINGS + 7 + j, 0, 0.6)); } rings.push(ring); }
+    // sulci (hersengroeven)
+    function sulcus(list, side) {
+        const idx = list.map(([y, phi]) => { const q = _bSurf(y, phi); return addPt(q.x * 0.99, q.y, q.z * 0.99 + 0.012, true, Math.round((_bB - y) / (2 * _bB) * (RINGS - 1)), -0.8); });
+        sulci.push({ idx, side, pulse: Math.random(), speed: 0.35 + Math.random() * 0.4, col: BR_PAL2[Math.random() * BR_PAL2.length | 0] });
+    }
+    const fis = []; for (let f = -1; f <= 1.001; f += 0.14) { const zc = f, y = Math.sqrt(Math.max(0, 1 - zc * zc)) * 0.30 + 0.14; fis.push([y, zc > 0 ? 0.001 : Math.PI]); } sulcus(fis, 'top');
+    sulcus([[0.32, 0.85], [0.18, 1.02], [0.03, 1.14], [-0.12, 1.2], [-0.25, 1.12]], 'xpos');
+    sulcus([[0.32, -0.85], [0.18, -1.02], [0.03, -1.14], [-0.12, -1.2], [-0.25, -1.12]], 'xneg');
+    sulcus([[0.45, 0.55], [0.47, 0.28], [0.46, 0], [0.47, -0.28], [0.45, -0.55]], 'top');
+    sulcus([[0.30, 0.45], [0.24, 0.62], [0.16, 0.76]], 'xpos');
+    sulcus([[0.30, -0.45], [0.24, -0.62], [0.16, -0.76]], 'xneg');
+    const links = []; let g = 0;
+    while (links.length < 50 && g++ < 7000) { const a = Math.random() * pts.length | 0, b = Math.random() * pts.length | 0, d = Math.hypot(pts[a].tx - pts[b].tx, pts[a].ty - pts[b].ty, pts[a].tz - pts[b].tz); if (d > 0.05 && d < 0.24) links.push({ a, b }); }
+    const syn = []; for (let i = 0; i < 14; i++) { const l = links[Math.random() * links.length | 0]; if (l) syn.push({ a: l.a, b: l.b, t: Math.random() * 3, dur: 1.5 + Math.random() * 1.3, role: i % 2 ? -1 : 1, col: BR_PAL2[Math.random() * BR_PAL2.length | 0] }); }
+    const amb = []; for (let i = 0; i < 34; i++) amb.push({ x: Math.random(), y: Math.random(), vx: (Math.random() - 0.5) * 0.012, vy: (Math.random() - 0.5) * 0.01, r: 0.7 + Math.random() * 1.6, tw: Math.random() * 6.28, sp: 0.3 + Math.random(), c: BR_PAL2[Math.random() * BR_PAL2.length | 0] });
+    // CREATIE-LIJNEN (30-07): net als bij het hoofd - deeltjes die vanaf randpunten
+    // een curve naar de brein-puntjes trekken en zo de vorm "opbouwen".
+    const streams = [];
+    const borigins = [[0.0, 0.30], [0.0, 0.55], [0.0, 0.80], [1.0, 0.20], [1.0, 0.50], [1.0, 0.78], [0.35, 0.0], [0.65, 1.0]];
+    for (let s = 0; s < borigins.length; s++) {
+        const deeltjes = [];
+        for (let k = 0; k < 10; k++) deeltjes.push({ t: Math.random(), sp: 0.22 + Math.random() * 0.28, tgt: (Math.random() * pts.length) | 0, bow: (Math.random() - 0.5) * 0.5, px: 0, py: 0 });
+        streams.push({ ox: borigins[s][0], oy: borigins[s][1], c: BR_PAL2[s % BR_PAL2.length], deeltjes });
+    }
+    _brain2 = { pts, rings, sulci, links, syn, amb, streams, rotY: 0.5, formStart: null, tSec: 0 };
+}
+const _bshade = f => 0.35 + 0.65 * (0.5 + 0.5 * f);
+let _neobrain = { raf: null, last: 0 };
 function _neoBrainFrame(now) {
     _neobrain.raf = requestAnimationFrame(_neoBrainFrame);
     if (now - _neobrain.last < 33) return;
-    const dt = Math.min(0.1, (now - _neobrain.last) / 1000) || 0.033;
-    _neobrain.last = now;
-    const cv = document.getElementById('neo-brain-canvas');
-    if (!cv || !_neo.brain) return;
-    const rect = cv.getBoundingClientRect();
-    if (rect.width < 10) return;
-    if (cv.width !== Math.round(rect.width * 2)) { cv.width = rect.width * 2; cv.height = rect.height * 2; }
-    const ctx = cv.getContext('2d');
-    ctx.setTransform(2, 0, 0, 2, 0, 0);
-    const w = rect.width, h = rect.height;
-    ctx.clearRect(0, 0, w, h);
-
-    if (_neobrain.formStart === null) _neobrain.formStart = now;
-    const tSec = Math.max(0, (now - _neobrain.formStart - 200) / 1000);
-    _neobrain.rotY += dt * 0.22;
-    const cosr = Math.cos(_neobrain.rotY), sinr = Math.sin(_neobrain.rotY);
-    const cx = w * 0.5, cy = h * 0.5, scale = Math.min(w, h) * 0.72;
-    const act = ((_l2 && _l2.trained) ? 1 : 0.6) * (_neo.actMul || 0.6);
-
-    // BOUWGOLF (zoals het hoofd): trekt eindeloos van kruin naar onder; contouren
-    // vormen zich vlak achter de golf en vervagen ervoor - de "drawing"-animatie.
-    const B_CYCLE = 14, B_BUILD = 8, B_PRE = 4;
-    const B_L = 1 + B_BUILD / 20 + B_PRE / 20;
-    const waveAbs = (tSec / B_CYCLE) % 1 * (1 + 0.3) ;   // 0..1.3 over de ring-range
-    const F = Math.min(1, tSec / 3.0);                   // globale fade-in
-
-    // CNN/momentum bias voor de gloedkleur
-    let bias = 0;
-    try { const inp = neoNetInputs(); bias = inp.cnn * 0.6 + inp.momentum * 0.4; } catch (e) {}
-    const biasCol = bias > 0.12 ? '150,240,220' : bias < -0.12 ? '240,150,220' : '150,220,255';
-
-    // per-knoop opbouw-envelope e (0..1) op basis van de bouwgolf + ring-positie
-    const env = new Array(_neo.brain.length);
-    for (let i = 0; i < _neo.brain.length; i++) {
-        const ring = _neo.brain[i].ring;
-        let e = 0;
-        const db = waveAbs - ring;
-        if (db >= 0) {
-            if (db < 0.12) e = 1 - Math.pow(1 - db / 0.12, 3);        // net getekend (in aanbouw)
-            else e = 1;                                               // gevormd
-        } else if (db > -0.06) { e = Math.pow((db + 0.06) / 0.06, 2); } // vlak voor de golf: opkomend
-        env[i] = Math.max(e, F * 0.55);                              // nooit volledig weg na fade-in
-    }
-
-    // projectie
-    const proj = _neo.brain.map(b => {
-        const rx = b.tx * cosr + b.tz * sinr, rz = -b.tx * sinr + b.tz * cosr;
-        const persp = 1 / (2.4 - rz * 0.6);
-        return { sx: cx + rx * scale * persp, sy: cy - b.ty * scale * persp, persp, rz };
-    });
-
-    // --- OUD PLEXUS-DESIGN laag 1: driftende ambient-punten ---
-    if (_neo.brainAmb) {
-        for (const p of _neo.brainAmb) {
-            p.x = (p.x + p.vx * dt + 1) % 1; p.y = (p.y + p.vy * dt + 1) % 1;
-            const tw = 0.18 + 0.4 * (0.5 + 0.5 * Math.sin(now / 900 * p.sp + p.tw));
-            ctx.globalAlpha = tw * F; ctx.fillStyle = p.c;
-            ctx.fillRect(p.x * w - 1, p.y * h - 1, 2, 2);
+    const dt = Math.min(0.06, (now - _neobrain.last) / 1000) || 0.033; _neobrain.last = now;
+    const cv = document.getElementById('neo-brain-canvas'); if (!cv || !_brain2) return;
+    const bs = _brain2;
+    const r = cv.getBoundingClientRect(); if (r.width < 10) return;
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    if (Math.abs(cv.width - r.width * dpr) > 2) { cv.width = Math.max(2, r.width * dpr); cv.height = Math.max(2, r.height * dpr); }
+    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = r.width, h = r.height; ctx.clearRect(0, 0, w, h);
+    if (bs.formStart == null) bs.formStart = now; bs.tSec = Math.max(0, (now - bs.formStart - 150) / 1000);
+    // bias uit CNN + momentum
+    let bias = 0; try { const inp = neoNetInputs(); bias = inp.cnn * 0.6 + inp.momentum * 0.4; } catch (e) {}
+    const bull = Math.max(0, bias), bear = Math.max(0, -bias);
+    bs.rotY += dt * 0.19;
+    // update
+    for (const a of bs.amb) { a.x = (a.x + a.vx * dt + 1) % 1; a.y = (a.y + a.vy * dt + 1) % 1; }
+    for (const s of bs.sulci) { s.pulse += dt * s.speed; if (s.pulse > 1.25) s.pulse -= 1.5; }
+    for (const sy of bs.syn) { sy.t += dt / sy.dur; if (sy.t > 1) { sy.t = 0; const nl = bs.links[Math.random() * bs.links.length | 0]; if (nl) { sy.a = nl.a; sy.b = nl.b; } } }
+    // ambient particles (kleurrijk)
+    for (const a of bs.amb) { const tw = 0.14 + 0.4 * (0.5 + 0.5 * Math.sin(now / 900 * a.sp + a.tw)); ctx.globalAlpha = tw; ctx.fillStyle = a.c; ctx.fillRect(a.x * w - a.r / 2, a.y * h - a.r / 2, a.r, a.r); } ctx.globalAlpha = 1;
+    const cx = w / 2, cy = h * 0.5, scale = Math.min(w, h) * 0.42, cosr = Math.cos(bs.rotY), sinr = Math.sin(bs.rotY);
+    const rings = bs.rings, totalR = rings.length, CYCLE = 16, BUILD = 9, PRE = 4, L = totalR + BUILD + PRE, wave = (bs.tSec / CYCLE) * L;
+    const pts = bs.pts, proj = new Array(pts.length);
+    for (let i = 0; i < pts.length; i++) { const p = pts[i]; let e = 0;
+        if (wave >= p.ring) { const db = (wave - p.ring) % L; if (db < BUILD) { const k = db / BUILD; e = 1 - Math.pow(1 - k, 3); } else if (db > L - PRE) { const k = (L - db) / PRE; e = k * k; } else e = 1; }
+        const x3 = p.x + (p.tx - p.x) * e, y3 = p.y + (p.ty - p.y) * e, z3 = p.z + (p.tz - p.z) * e, rx = x3 * cosr + z3 * sinr, rz = -x3 * sinr + z3 * cosr, persp = 1 / (2.5 - rz * 0.6);
+        proj[i] = { sx: cx + rx * scale * persp, sy: cy - y3 * scale * persp, persp, rz, e }; }
+    // CREATIE-LIJNEN: deeltjes trekken vanaf randpunten naar de brein-puntjes en
+    // laten een lijn achter die de vorm "opbouwt" (net als bij het hoofd).
+    if (bs.streams) {
+        for (const st of bs.streams) {
+            const ox = st.ox * w, oy = st.oy * h;
+            for (const d of st.deeltjes) {
+                d.t += d.sp * dt;
+                const tq = proj[d.tgt];
+                if (d.t >= 1 || !tq) { d.t = 0; d.tgt = (Math.random() * pts.length) | 0; d.sp = 0.18 + Math.random() * 0.22; d.bow = (Math.random() - 0.5) * 0.5; d.px = 0; d.trail = []; continue; }
+                const t = d.t, mt = 1 - t;
+                const mx = (ox + tq.sx) / 2 - (tq.sy - oy) * d.bow, my = (oy + tq.sy) / 2 + (tq.sx - ox) * d.bow;
+                const x = mt * mt * ox + 2 * mt * t * mx + t * t * tq.sx, y = mt * mt * oy + 2 * mt * t * my + t * t * tq.sy;
+                // langer, zichtbaarder spoor: teken een vervagende staart van recente posities
+                if (!d.trail) d.trail = [];
+                d.trail.push([x, y]); if (d.trail.length > 14) d.trail.shift();
+                ctx.strokeStyle = st.c; ctx.lineWidth = 1.0;
+                for (let s = 1; s < d.trail.length; s++) {
+                    ctx.globalAlpha = (s / d.trail.length) * 0.6 * t;
+                    ctx.beginPath(); ctx.moveTo(d.trail[s - 1][0], d.trail[s - 1][1]); ctx.lineTo(d.trail[s][0], d.trail[s][1]); ctx.stroke();
+                }
+                ctx.globalAlpha = 0.6 + 0.4 * t; ctx.fillStyle = st.c; const sz = 1.4 + t * 1.4; ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
+                d.px = x; d.py = y;
+            }
         }
         ctx.globalAlpha = 1;
     }
-
-    // --- CREATIE-MESH (contouren die het brein opbouwen) met bouwgolf-gloed ---
-    for (const bl of _neo.brainLinks) {
-        const ea = env[bl.a], eb = env[bl.b];
-        if (ea < 0.15 || eb < 0.15) continue;
-        const ee = Math.min(ea, eb);
-        const qa = proj[bl.a], qb = proj[bl.b];
-        const ph = ((now / 1000) / bl.dur + bl.t) % 1;
-        const pulse = Math.exp(-Math.pow((ph - 0.5) / 0.20, 2));
-        const depth = (qa.persp + qb.persp) / 2;
-        const bouwGlow = (ee > 0.15 && ee < 0.98) ? (1 - ee) : 0;    // fel op het moment van "tekenen"
-        const a = ((0.05 + 0.12 * (depth - 0.3)) + 0.45 * pulse * act + 0.5 * bouwGlow) * ee;
-        ctx.strokeStyle = `rgba(${biasCol},${Math.min(0.9, a).toFixed(3)})`;
-        ctx.lineWidth = 0.4 + pulse * 1.0 + bouwGlow * 0.8;
-        ctx.beginPath(); ctx.moveTo(qa.sx, qa.sy); ctx.lineTo(qb.sx, qb.sy); ctx.stroke();
-    }
-
-    // --- OUD PLEXUS-DESIGN laag 2: afstand-gebaseerde verbindingen (KORT weefsel) ---
-    // Strakker gehouden (drempel omlaag) zodat er geen lange, chaotische spikes door
-    // het beeld schieten - alleen fijn weefsel dicht op het brein, zoals de referentie.
-    // Sampling op elke 3e knoop houdt het licht bij de hoge knoop-dichtheid (854).
-    ctx.lineWidth = 0.5;
-    for (let i = 0; i < proj.length; i += 3) {
-        if (env[i] < 0.4) continue;
-        for (let j = i + 3; j < proj.length; j += 3) {
-            if (env[j] < 0.4) continue;
-            const dx = proj[i].sx - proj[j].sx, dy = proj[i].sy - proj[j].sy;
-            const d2 = dx * dx + dy * dy;
-            if (d2 > 700) continue;                              // ~26px: kort weefsel
-            ctx.strokeStyle = `rgba(120,190,230,${((1 - Math.sqrt(d2) / 26) * 0.09 * F).toFixed(3)})`;
-            ctx.beginPath(); ctx.moveTo(proj[i].sx, proj[i].sy); ctx.lineTo(proj[j].sx, proj[j].sy); ctx.stroke();
-        }
-    }
-
-    // --- OUD PLEXUS-DESIGN laag 3: vormings-flitsen (kort, langs de mesh) ---
-    if (_neo.brainStripes) {
-        for (const s of _neo.brainStripes) {
-            s.t += dt;
-            if (s.t > s.dur) {
-                // kies een knoop en een NABIJE tweede knoop, zodat de flits kort blijft
-                s.a = (Math.random() * _neo.brain.length) | 0;
-                const bl = _neo.brainLinks[(Math.random() * _neo.brainLinks.length) | 0];
-                s.b = bl ? (bl.a === s.a ? bl.b : bl.a) : ((Math.random() * _neo.brain.length) | 0);
-                s.t = 0; continue;
-            }
-            const k = s.t / s.dur, glow = Math.sin(k * Math.PI);
-            const A = proj[s.a], Bp = proj[s.b];
-            if (!A || !Bp) continue;
-            const dx = A.sx - Bp.sx, dy = A.sy - Bp.sy;
-            if (dx * dx + dy * dy > 1600) continue;              // sla te lange over (geen spikes)
-            ctx.strokeStyle = `rgba(${biasCol},${(glow * 0.55 * F).toFixed(3)})`;
-            ctx.lineWidth = 0.6 + glow;
-            ctx.beginPath(); ctx.moveTo(A.sx, A.sy); ctx.lineTo(Bp.sx, Bp.sy); ctx.stroke();
-        }
-    }
-
-    // --- knopen (met bouwgolf-flits) ---
-    for (let i = 0; i < _neo.brain.length; i++) {
-        const b = _neo.brain[i], q = proj[i], e = env[i];
-        if (e < 0.05) continue;
-        const tw = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(now / 600 * b.sp + b.tw));
-        const bouwGlow = (e > 0.15 && e < 0.98) ? (1 - e) : 0;
-        const s = (1.0 + 1.3 * q.persp) * (0.55 + 0.45 * tw) + bouwGlow * 1.6;
-        ctx.globalAlpha = Math.min(1, (0.45 + 0.55 * tw) * e);
-        ctx.fillStyle = bouwGlow > 0.3 ? '#ffffff' : b.c;
-        ctx.beginPath(); ctx.arc(q.sx, q.sy, Math.max(0.3, s), 0, 6.283); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
+    // gyri contourlijnen (per ring) met fold-schaduw
+    for (let ri = 0; ri < totalR; ri++) { const ring = rings[ri]; if (ring.length < 2) continue; const e0 = proj[ring[0]].e; if (e0 < 0.35) continue;
+        for (let k = 0; k < ring.length; k++) { const ia = ring[k], ib = ring[(k + 1) % ring.length], qa = proj[ia], qb = proj[ib]; const fold = (pts[ia].fold + pts[ib].fold) / 2, sh = _bshade(fold), depth = 0.5 + 0.5 * qa.rz, bg = (e0 > 0.35 && e0 < 0.98) ? (1 - e0) : 0;
+            ctx.strokeStyle = `rgba(${Math.round(80 + 130 * sh)},${Math.round(170 + 80 * sh)},${Math.round(220 + 35 * sh)},${((0.14 + 0.5 * sh + 0.4 * bg) * e0 * depth).toFixed(3)})`; ctx.lineWidth = 0.5 + 0.9 * sh; ctx.beginPath(); ctx.moveTo(qa.sx, qa.sy); ctx.lineTo(qb.sx, qb.sy); ctx.stroke(); } }
+    for (const s of bs.sulci) { const vis = s.side === 'top' ? 0.9 : s.side === 'xpos' ? Math.max(0, -sinr) : Math.max(0, sinr); if (vis < 0.06) continue; const e0 = proj[s.idx[0]].e; if (e0 < 0.5) continue; const pj = s.idx.map(i => proj[i]);
+        ctx.strokeStyle = `rgba(10,26,40,${(0.55 * vis * e0).toFixed(3)})`; ctx.lineWidth = 2.2; ctx.beginPath(); pj.forEach((q, i) => i ? ctx.lineTo(q.sx, q.sy) : ctx.moveTo(q.sx, q.sy)); ctx.stroke();
+        ctx.strokeStyle = `rgba(150,220,255,${(0.26 * vis * e0).toFixed(3)})`; ctx.lineWidth = 0.7; ctx.beginPath(); pj.forEach((q, i) => i ? ctx.lineTo(q.sx, q.sy) : ctx.moveTo(q.sx, q.sy)); ctx.stroke();
+        const seg = pj.length - 1, fp = s.pulse * seg; if (fp >= 0 && fp < seg) { const i0 = Math.floor(fp), fr = fp - i0, qa = pj[i0], qb = pj[i0 + 1], px = qa.sx + (qb.sx - qa.sx) * fr, py = qa.sy + (qb.sy - qa.sy) * fr; ctx.save(); ctx.shadowColor = s.col; ctx.shadowBlur = 13; ctx.fillStyle = s.col; ctx.globalAlpha = 0.9 * vis * e0; ctx.beginPath(); ctx.arc(px, py, 2.3, 0, 6.28); ctx.fill(); ctx.restore(); ctx.globalAlpha = 1; } }
+    // synapsen: gradient-staart; actieve (bias) worden groen/rood, rest kleurrijk
+    for (const sy of bs.syn) { const qa = proj[sy.a], qb = proj[sy.b]; if (qa.e < 0.6 || qb.e < 0.6) continue; const strength2 = sy.role > 0 ? bull : bear, colored = strength2 > 0.08, col = colored ? (sy.role > 0 ? '#00ff9f' : '#ff2e63') : sy.col, aMul = colored ? 0.5 + 0.5 * strength2 : 0.3;
+        const t1 = Math.min(1, sy.t), t0 = Math.max(0, sy.t - 0.3), ax = qa.sx + (qb.sx - qa.sx) * t0, ay = qa.sy + (qb.sy - qa.sy) * t0, bx = qa.sx + (qb.sx - qa.sx) * t1, by = qa.sy + (qb.sy - qa.sy) * t1; const gr = ctx.createLinearGradient(ax, ay, bx, by); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, col); ctx.strokeStyle = gr; ctx.globalAlpha = aMul * Math.min(qa.e, qb.e); ctx.lineWidth = colored ? 0.9 : 0.5; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(bx, by, colored ? 1.4 : 0.9, 0, 6.28); ctx.fill(); } ctx.globalAlpha = 1;
+    // knopen
+    for (let i = 0; i < pts.length; i++) { const p = pts[i], q = proj[i]; if (q.e <= 0.02) continue; const tw = 0.32 + 0.5 * (0.5 + 0.5 * Math.sin(now / 700 * p.sp + p.tw)), sh = _bshade(p.fold), depth = 0.55 + 0.45 * q.rz; const s = ((p.glow ? 1.4 : 0.85) + 1.0 * q.persp) * (0.5 + 0.5 * tw) * (0.5 + 0.7 * sh); ctx.globalAlpha = Math.min(1, q.e * (tw * 0.85 * sh + 0.1) * depth) * p.dim; ctx.fillStyle = p.glow ? '#eaffff' : (p.fold > 0.3 ? '#cdeeff' : '#7fb8d8'); ctx.fillRect(q.sx - s / 2, q.sy - s / 2, s, s); } ctx.globalAlpha = 1;
     // bias-label
     const el = document.getElementById('neo-brain-out');
-    if (el) { el.textContent = bias > 0.12 ? 'BULLISH' : bias < -0.12 ? 'BEARISH' : 'neutraal';
-        el.style.color = bias > 0.12 ? '#14f195' : bias < -0.12 ? '#ff4f6d' : '#5c7488'; }
+    if (el) { el.textContent = bias > 0.12 ? 'BULLISH' : bias < -0.12 ? 'BEARISH' : 'neutraal'; el.style.color = bias > 0.12 ? '#14f195' : bias < -0.12 ? '#ff4f6d' : '#5c7488'; }
 }
 function startNeoBrain() { if (!_neobrain.raf) _neobrain.raf = requestAnimationFrame(_neoBrainFrame); }
 window.startNeoBrain = startNeoBrain;
