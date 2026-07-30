@@ -493,6 +493,7 @@ let sessionLog = [];
 // ERNA (adaptiveWeights herstellen) bij ELKE page-load werd overgeslagen.
 // Declaratie hoort hier, bij de rest van de persistente state.
 let _calibMap = null; // gesorteerde [rawMid, observedWinratePct]-punten
+let _calibProvisional = false; // true zodra de curve op een kleine steekproef leunt
 const MIN_SAMPLE_SIZE = 20; // minimaal aantal trades per groep voordat een gewicht wordt aangepast
 let lastCalibrationSummary = null; // voor het transparantie-paneel
 
@@ -1374,6 +1375,9 @@ function loadPersistentState() {
         if (sl) sessionLog = JSON.parse(sl);
         if (ll) learningLog = JSON.parse(ll);
         if (aw) adaptiveWeights = JSON.parse(aw);
+        // migratie: oude opgeslagen gewichten misten rsi/ema/cnn - vul ze aan op 1.0
+        for (const k of ['confluence','nodeInfluence','momentumInfluence','fibConfluence','pattern','rsi','ema','cnn'])
+            if (adaptiveWeights[k] == null) adaptiveWeights[k] = 1.0;
         computeCalibrationMap(); // pas NA het herstellen van alle state - zodat een
                                  // fout hier nooit meer een herstel-regel kan blokkeren
         // 29-07: teken de curve ook meteen bij het laden (de DOM is er mogelijk nog
@@ -1816,11 +1820,11 @@ function renderLearningPanel() {
 
     Object.keys(labels).forEach(fk => {
         const wKey = weightKeys[fk];
-        const weight = adaptiveWeights[wKey];
+        const weight = (adaptiveWeights[wKey] != null) ? adaptiveWeights[wKey] : 1.0;   // oude data mist rsi/ema/cnn
         const s = lastCalibrationSummary ? lastCalibrationSummary.summary[fk] : null;
         const botOnly = learningLog.filter(l => !l.manual);
-        const nPresent = s ? s.nPresent : botOnly.filter(l => l.factors[fk] > 1).length;
-        const nAbsent = s ? s.nAbsent : botOnly.filter(l => l.factors[fk] !== null && l.factors[fk] <= 1).length;
+        const nPresent = s ? s.nPresent : botOnly.filter(l => l.factors && l.factors[fk] > 1).length;
+        const nAbsent = s ? s.nAbsent : botOnly.filter(l => l.factors && l.factors[fk] !== null && l.factors[fk] != null && l.factors[fk] <= 1).length;
         const weightColor = weight > 1.02 ? 'var(--teal)' : (weight < 0.98 ? 'var(--red)' : 'var(--text-primary)');
 
         html += `<div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); padding:10px 12px;">
@@ -4090,7 +4094,7 @@ function computeCalibrationMap() {
     for (let i = 1; i < pts.length; i++) pts[i][1] = Math.max(pts[i][1], pts[i - 1][1]);
     _calibMap = pts;
 }
-let _calibProvisional = false;
+
 
 function calibrateProbability(raw) {
     if (!_calibMap || raw == null || !isFinite(raw)) return null;
@@ -4568,7 +4572,50 @@ function downloadAllData() {
     URL.revokeObjectURL(url);
 }
 
-// ============================================================
+// IMPORT (30-07): zet Neo's geleerde geheugen terug uit een eerder geexporteerd
+// JSON-bestand. Dit maakt de export een ECHTE back-up: raak je localStorage kwijt
+// (cache/site-data gewist, ander apparaat), dan laad je hier je learningLog,
+// adaptieve gewichten, trade-historie en wallet weer in. Vraagt eerst bevestiging.
+function importOsirisData(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const d = JSON.parse(e.target.result);
+            const n = (d.learningLog || []).length;
+            const ok = confirm(
+                `Import: ${n} learning-entries, ${(d.tradeLog || []).length} trades.\n\n` +
+                `Dit VERVANGT Neo's huidige geheugen (learning, gewichten, trade-historie, wallet) ` +
+                `door de inhoud van dit bestand. Doorgaan?`
+            );
+            if (!ok) return;
+            if (Array.isArray(d.learningLog)) learningLog = d.learningLog;
+            if (d.adaptiveWeights) {
+                adaptiveWeights = d.adaptiveWeights;
+                for (const k of ['confluence','nodeInfluence','momentumInfluence','fibConfluence','pattern','rsi','ema','cnn'])
+                    if (adaptiveWeights[k] == null) adaptiveWeights[k] = 1.0;
+            }
+            if (Array.isArray(d.tradeLog)) botTradeLog = d.tradeLog;
+            if (Array.isArray(d.sessionLog)) sessionLog = d.sessionLog;
+            if (d.wallet && typeof d.wallet === 'object') {
+                // alleen de kernvelden overnemen, defensief
+                if (isFinite(d.wallet.balance)) walletState.balance = d.wallet.balance;
+                if (isFinite(d.wallet.realized ?? d.wallet.realizedPnL)) walletState.realizedPnL = d.wallet.realized ?? d.wallet.realizedPnL;
+                if (isFinite(d.wallet.wins)) walletState.wins = d.wallet.wins;
+                if (isFinite(d.wallet.losses)) walletState.losses = d.wallet.losses;
+            }
+            _factorProbCache = { at: 0, table: null };   // forceer herberekening op de nieuwe data
+            try { computeCalibrationMap(); } catch (er) {}
+            try { savePersistentState(); } catch (er) {}
+            try { renderLearningPanel(); renderCalibrationCurve(); updateWalletUI(); } catch (er) {}
+            alert(`Import geslaagd: ${n} learning-entries teruggezet. Neo gebruikt nu deze historie.`);
+        } catch (err) {
+            alert('Import mislukt: kon het bestand niet lezen (' + err.message + ').');
+        }
+    };
+    reader.readAsText(file);
+}
+window.importOsirisData = importOsirisData;
 // HEARTBEAT
 // ============================================================
 // Globale variabele om de 10-seconden cyclus bij te houden
