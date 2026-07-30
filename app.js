@@ -473,7 +473,7 @@ let lastOsirisDecision = null;
 // bewust traag en behoudend, om niet te "leren" van ruis bij te weinig data
 // (zie de node-correlatie-les eerder: te weinig samples geeft schijnpatronen).
 // ============================================================
-let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0 };
+let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0 };
 let learningLog = []; // { timestampMs, side, factors: {confluence, nodeInfluence, momentumInfluence, fibConfluenceInfluence, probabilityPct}, outcome: 'win'|'loss', pnlPct }
 let lastReallocationAt = 0; // timestamp (ms) van de laatste reallocatie - voor de cooldown-poort in tryReallocateForBetterOpportunity
 // FIX (crash 12-07): sessionLog stond gedeclareerd op ~regel 1200, terwijl
@@ -1805,9 +1805,10 @@ function renderLearningPanel() {
     const labels = {
         confluence: 'Confluence', nodeInfluence: 'Node-invloed',
         momentumInfluence: 'Momentum-invloed', fibConfluenceInfluence: 'Fib-confluentie',
-        patternInfluence: 'Patroon/structuur'
+        patternInfluence: 'Patroon/structuur',
+        rsiInfluence: 'RSI-invloed', emaInfluence: 'EMA-invloed', cnnInfluence: 'CNN multi-candle'
     };
-    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern' };
+    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn' };
 
     const totalTrades = learningLog.length;
     let html = `<div style="font-size:0.72em; color:var(--text-dim); margin-bottom:10px;">Gebaseerd op ${totalTrades} afgesloten trend-trade(s) sinds deze instellingen zijn gaan loggen (minimaal ${MIN_SAMPLE_SIZE} per groep nodig voordat een gewicht verandert).</div>`;
@@ -2438,6 +2439,96 @@ function formatConfidencePct(pct) {
     return `~${pct.toFixed(0)}%`;
 }
 
+// ============================================================
+// PER-FACTOR KANSSCHATTER (30-07)
+// ============================================================
+// Kern van de "elke factor berekent zijn eigen kans"-aanpak. Voor elke factor
+// leren we uit de eigen bot-historie hoe vaak een trade WON wanneer die factor
+// in een bepaalde toestand was (aanwezig/sterk vs. afwezig/zwak). Dat levert per
+// factor een empirische winstkans (0..1). Neo combineert die kansen daarna tot
+// één ensemble-score - naast de bestaande puntentelling, als versterking.
+//
+// Waarom sterker: een vaste puntentelling zegt "confluence = +9 punten". De
+// kansschatter zegt "in de praktijk wint een trade met deze confluence 63% van
+// de tijd" - dat is direct, meetbaar en zelf-corrigerend. Factoren die niet
+// blijken te werken zakken vanzelf naar ~50% (geen informatie) en tellen dan
+// nauwelijks mee in het ensemble.
+
+let _factorProbCache = { at: 0, table: null };
+
+// Bouw (gecachet) een kanstabel per factor uit de learningLog. Elke factor krijgt
+// bins; per bin de gemeten winstkans + het aantal samples (voor betrouwbaarheid).
+function buildFactorProbTable() {
+    const now = Date.now();
+    if (_factorProbCache.table && now - _factorProbCache.at < 20000) return _factorProbCache.table;
+    const bot = learningLog.filter(l => !l.manual && l.factors && l.outcome);
+    const globalWin = bot.length ? bot.filter(l => l.outcome === 'win').length / bot.length : 0.5;
+
+    // definieer per factor hoe we de waarde in een bin vertalen
+    const factorDefs = {
+        confluence:   l => l.factors.confluence,
+        node:         l => l.factors.nodeInfluence,
+        momentum:     l => l.factors.momentumInfluence,
+        fib:          l => l.factors.fibConfluenceInfluence,
+        pattern:      l => l.factors.patternInfluence,
+        rsi:          l => l.factors.rsiInfluence,
+        ema:          l => l.factors.emaInfluence,
+        cnn:          l => l.factors.cnnInfluence,
+        vfm:          l => l.factors.snapVfm,
+        er:           l => l.factors.snapEr,
+        db:           l => l.factors.snapDb,
+        chaos:        l => l.factors.snapChaos,
+        volz:         l => l.factors.snapVolZ
+    };
+
+    const table = {};
+    for (const [name, get] of Object.entries(factorDefs)) {
+        const vals = bot.map(l => ({ v: get(l), win: l.outcome === 'win' })).filter(x => x.v != null && isFinite(x.v));
+        if (vals.length < 8) { table[name] = { global: globalWin, bins: null, n: vals.length }; continue; }
+        // 3 bins op basis van kwantielen (laag / midden / hoog)
+        const sorted = vals.map(x => x.v).sort((a, b) => a - b);
+        const q1 = sorted[Math.floor(sorted.length / 3)], q2 = sorted[Math.floor(sorted.length * 2 / 3)];
+        const bin = v => v <= q1 ? 0 : v <= q2 ? 1 : 2;
+        const acc = [[0, 0], [0, 0], [0, 0]];
+        for (const x of vals) { const b = bin(x.v); acc[b][0] += x.win ? 1 : 0; acc[b][1]++; }
+        // Laplace-smoothing naar de globale winrate zodat kleine bins niet overdrijven
+        const binProb = acc.map(([w, n]) => n ? (w + globalWin * 4) / (n + 4) : globalWin);
+        table[name] = { global: globalWin, q1, q2, binProb, n: vals.length };
+    }
+    _factorProbCache = { at: now, table };
+    return table;
+}
+
+// De eigen winstkans van één factor gegeven zijn huidige waarde (0..1).
+function factorWinProbability(name, value) {
+    const t = buildFactorProbTable()[name];
+    if (!t || t.binProb == null || value == null || !isFinite(value)) return t ? t.global : 0.5;
+    const b = value <= t.q1 ? 0 : value <= t.q2 ? 1 : 2;
+    return t.binProb[b];
+}
+
+// RSI -> richtinggebonden influence (niet langer alleen een veto). Overbought
+// steunt SHORT, oversold steunt LONG; lineair geschaald tot ±een paar punten.
+function calculateRsiInfluence(side) {
+    const rsi = getCurrentRSIValue();
+    if (rsi == null) return 0;
+    // gecentreerd rond 50; +1 = maximaal oversold (bullish), -1 = overbought (bearish)
+    const norm = (50 - rsi) / 50;                 // rsi 0 -> +1 (oversold), rsi 100 -> -1 (overbought)
+    const dir = side === 'LONG' ? norm : -norm;   // LONG profiteert van oversold, SHORT van overbought
+    return Math.max(-6, Math.min(6, dir * 8));
+}
+
+// EMA -> trendbevestiging. Prijs boven EMA en stijgende EMA steunt LONG; eronder
+// en dalend steunt SHORT. Gebruikt de bestaande MA-waarde als die er is.
+function calculateEmaInfluence(side) {
+    let ema = null;
+    try { ema = (typeof maCurrentValue !== 'undefined' && maCurrentValue) ? maCurrentValue : null; } catch (e) {}
+    if (ema == null || !isFinite(livePrice) || !ema) return 0;
+    const rel = (livePrice - ema) / ema;          // + = boven EMA (bullish)
+    const dir = side === 'LONG' ? rel : -rel;
+    return Math.max(-6, Math.min(6, dir * 1500));  // ~0.4% afstand = volle bijdrage
+}
+
 function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 0, momentumInfluence = 0, fibConfluenceInfluence = 0, side = null, isBullishNow = null, patternInfluence = 0) {
     let confluenceContribution = confluence * 9; // default (oud gedrag) als side/isBullishNow niet zijn meegegeven
     if (side !== null && isBullishNow !== null) {
@@ -2463,6 +2554,25 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     score += momentumInfluence;        // "geheugen": trend uit metricsHistory bevestigt of ontkracht het signaal
     score += fibConfluenceInfluence;   // MES/MAC fib-niveaus (dezelfde lijnen als op de chart) die de MIC-trigger bevestigen
     score += patternInfluence;         // candlestick-patronen (hamer/engulfing/etc.) + markt-structuur (HH/HL vs LH/LL)
+    // NIEUW (30-07): RSI en EMA als VOLWAARDIGE gewogen factoren (niet langer enkel
+    // een veto). Elk met een eigen adaptief gewicht zodat Neo leert hoeveel ze waard
+    // zijn. Ze verschijnen hierdoor ook in de neural-net-weergave.
+    let rsiInfluence = 0, emaInfluence = 0, cnnInfluence = 0;
+    if (side !== null) {
+        rsiInfluence = calculateRsiInfluence(side) * (adaptiveWeights.rsi ?? 1);
+        emaInfluence = calculateEmaInfluence(side) * (adaptiveWeights.ema ?? 1);
+        // CNN als APARTE factor met eigen gewicht (los van de oude pattern-weight)
+        try {
+            if (typeof rawData !== 'undefined' && rawData && rawData.length > 5) {
+                const cnn = neoScanPatterns(rawData, 40).netBias || 0;
+                cnnInfluence = (side === 'LONG' ? cnn : -cnn) * 6 * (adaptiveWeights.cnn ?? 1);
+            }
+        } catch (e) {}
+        score += rsiInfluence + emaInfluence + cnnInfluence;
+    }
+    // onthoud de losse bijdragen zodat de entry ze kan vastleggen + de neural net ze toont
+    _lastFactorContrib = { confluence: confluenceContribution, node: nodeInfluence, momentum: momentumInfluence,
+        fib: fibConfluenceInfluence, pattern: patternInfluence, rsi: rsiInfluence, ema: emaInfluence, cnn: cnnInfluence };
     // NIEUW: volume-profile-bias. Prijs onder de value area (VAL) = koopzone
     // (ondersteunt LONG); boven de value area (VAH) = verkoopzone (ondersteunt
     // SHORT). Conservatief gewogen (max ~4 punten) zodat het de bestaande signalen
@@ -2481,19 +2591,48 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     // Zo blijft een ruwe 131 ook zichtbaar sterker dan een ruwe 101, en betekent
     // een reallocatie-marge van X punten weer echt iets.
     const base = logisticCompress(score);
+    // ENSEMBLE (30-07): naast de puntentelling berekent elke factor zijn EIGEN
+    // empirische winstkans (uit de historie). We combineren die via een
+    // log-odds-gemiddelde gewogen met betrouwbaarheid (aantal samples). Dit is
+    // de "elke factor apart -> dan als 1 score"-versterking. Alleen actief zodra
+    // er genoeg historie is; anders leunt Neo volledig op de puntentelling.
+    let ensembleScore = base;
+    try {
+        const table = buildFactorProbTable();
+        const dir = (side === 'SHORT') ? -1 : 1;
+        // waarde per factor "in de richting van de trade" (zodat bearish metrics een SHORT steunen)
+        const fvals = {
+            confluence: confluence, node: nodeInfluence, momentum: momentumInfluence,
+            fib: fibConfluenceInfluence, pattern: patternInfluence,
+            rsi: rsiInfluence, ema: emaInfluence, cnn: cnnInfluence,
+            vfm: (isBullishNow != null ? (isBullishNow ? 1 : -1) : 0) * dir
+        };
+        let logodds = 0, wsum = 0;
+        for (const [name, val] of Object.entries(fvals)) {
+            const t = table[name]; if (!t || t.n < 8) continue;
+            const p = Math.max(0.05, Math.min(0.95, factorWinProbability(name, val)));
+            const conf = Math.min(1, t.n / 40);            // betrouwbaarheid uit aantal samples
+            logodds += Math.log(p / (1 - p)) * conf; wsum += conf;
+        }
+        if (wsum > 0.5) {
+            const pEns = 1 / (1 + Math.exp(-logodds / Math.max(1, wsum)));   // terug naar kans
+            ensembleScore = pEns * 100;
+        }
+    } catch (e) {}
+    // meng: puntentelling en ensemble elk de helft (ensemble groeit mee met data)
+    const blended = ensembleScore !== base ? (base * 0.5 + ensembleScore * 0.5) : base;
     // NIVEAU 2: als het getrainde model beschikbaar is, meng zijn gekalibreerde
     // kans mee. L2 voorspelt de LONG-winstkans; voor een SHORT draaien we hem om.
-    // Conservatieve blend (40% L2, 60% bestaand) zodat het model bijstuurt maar
-    // niet plots domineert - het groeit mee met de data.
     if (_l2 && _l2.trained && rawData && rawData.length > 22) {
         const pl = l2Predict(rawData, rawData.length - 1);
         if (pl != null && isFinite(pl)) {
             const l2Pct = (side === 'SHORT' ? (1 - pl) : pl) * 100;
-            return Math.round(base * 0.6 + l2Pct * 0.4);
+            return Math.round(blended * 0.6 + l2Pct * 0.4);
         }
     }
-    return base;
+    return Math.round(blended);
 }
+let _lastFactorContrib = null;
 
 
 
@@ -3021,7 +3160,16 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
                       projectedProfitPct > (botSettings.minProjectedProfitPct + roundTripCostPct()) &&
                       !regime.dead;
 
-    return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence, fibConfluenceInfluence, confluence: decision.confluence, patternInfluence };
+    // NIEUW (30-07): oogst de losse factor-bijdragen (rsi/ema/cnn) die
+    // calculateProbabilityScore net heeft berekend, plus de ruwe metric-waarden,
+    // zodat ze bij entry worden vastgelegd en de per-factor kansschatter erop leert.
+    const fc = _lastFactorContrib || {};
+    const snap = (typeof lastOsirisMetrics !== 'undefined' && lastOsirisMetrics) ? lastOsirisMetrics : {};
+    const lv = (typeof lastVolumeMetrics !== 'undefined' && lastVolumeMetrics) ? lastVolumeMetrics : {};
+    return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence, fibConfluenceInfluence, confluence: decision.confluence, patternInfluence,
+        rsiInfluence: fc.rsi ?? 0, emaInfluence: fc.ema ?? 0, cnnInfluence: fc.cnn ?? 0,
+        snapVfm: snap.vfm ?? null, snapEr: snap.er ?? null, snapDb: snap.db ?? null, snapChaos: snap.chaos ?? null,
+        snapVolZ: (lv.zScore != null ? parseFloat(lv.zScore) : null) };
 }
 
 // ============================================================
@@ -3409,6 +3557,14 @@ function scanForOpportunities(decision, metrics) {
             fibConfluenceInfluence: evalResult.fibConfluenceInfluence,
             confluence: evalResult.confluence,
             patternInfluence: evalResult.patternInfluence,
+            rsiInfluence: evalResult.rsiInfluence ?? 0,
+            emaInfluence: evalResult.emaInfluence ?? 0,
+            cnnInfluence: evalResult.cnnInfluence ?? 0,
+            snapVfm: evalResult.snapVfm ?? null,
+            snapEr: evalResult.snapEr ?? null,
+            snapDb: evalResult.snapDb ?? null,
+            snapChaos: evalResult.snapChaos ?? null,
+            snapVolZ: evalResult.snapVolZ ?? null,
             createdAt: new Date().toISOString(),
             expiresAt: Date.now() + (botSettings.pendingOrderTtlMinutes * 60 * 1000)
         };
@@ -3617,6 +3773,17 @@ function openPositionFromOrder(order, entryTag = '') {
             momentumInfluence: order.momentumInfluence ?? 0,
             fibConfluenceInfluence: order.fibConfluenceInfluence ?? 0,
             patternInfluence: order.patternInfluence ?? 0,
+            // NIEUW (30-07): RSI, EMA en CNN als eigen vastgelegde factoren + de ruwe
+            // metric-waarden bij entry. Hierdoor kan elke factor zijn EIGEN winstkans
+            // leren (zie factorWinProbability) i.p.v. alleen een gewicht te krijgen.
+            rsiInfluence: order.rsiInfluence ?? 0,
+            emaInfluence: order.emaInfluence ?? 0,
+            cnnInfluence: order.cnnInfluence ?? 0,
+            snapVfm: order.snapVfm ?? null,
+            snapEr: order.snapEr ?? null,
+            snapDb: order.snapDb ?? null,
+            snapChaos: order.snapChaos ?? null,
+            snapVolZ: order.snapVolZ ?? null,
             probabilityPct: order.probabilityPct ?? null
         }
     };
@@ -3948,8 +4115,10 @@ function formatProbWithCalibration(rawPct) {
 
 function recalibrateAdaptiveWeights() {
     computeCalibrationMap();
-    const factorKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluenceInfluence', 'patternInfluence'];
-    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern' };
+    // defensief: oude opgeslagen weights misten rsi/ema/cnn - vul ze aan
+    for (const k of ['rsi', 'ema', 'cnn']) if (adaptiveWeights[k] == null) adaptiveWeights[k] = 1.0;
+    const factorKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluenceInfluence', 'patternInfluence', 'rsiInfluence', 'emaInfluence', 'cnnInfluence'];
+    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn' };
     const summary = {};
 
     factorKeys.forEach(fk => {
@@ -4015,6 +4184,75 @@ function checkPendingTriggers() {
 }
 
 // Elke seconde: stop-loss (-2%, hard) + de "houden of innen"-beslissing vanaf +2% winst.
+// AUTONOOM ZELF-STRETCHENDE WINST-GREEP (30-07)
+// Berekent hoeveel % van de piekwinst Neo wil vasthouden. Basis = de door de
+// gebruiker ingestelde profitProtectKeepPct. Die wordt omhoog gestretcht (winst
+// laten lopen) als de kans op verdere winst hoog is, en strakker aangetrokken
+// als de kans wegzakt. Alles begrensd zodat het nooit onveilig wordt.
+function dynamicProfitKeepPct(pos) {
+    const baseKeep = botSettings.profitProtectKeepPct;   // bijv. 80
+    // 1) hoe hoog is de kans dat deze richting doorzet? (live-continuation)
+    let contProb = null;
+    try {
+        const c = evaluateContinuationWithConfirmation ? null : null;   // niet de bevestigde variant (die heeft cooldown)
+    } catch (e) {}
+    // gebruik de directe kans-score voor deze richting als proxy voor "gaat het door?"
+    let dirProb = 50;
+    try {
+        if (lastOsirisDecision) {
+            const chaos = lastOsirisMetrics?.chaos ?? 0, er = lastOsirisMetrics?.er ?? 0;
+            const isBull = lastOsirisMetrics?.isBullish ?? null;
+            dirProb = calculateProbabilityScore(lastOsirisDecision.confluence ?? 0, chaos, er, 0, 0, 0, pos.side, isBull, 0);
+        }
+    } catch (e) {}
+    // 2) momentum aligned met de positie?
+    let aligned = 0;
+    try {
+        const mc = lastOsirisMetrics?.momentumContext;
+        if (mc) {
+            if (pos.side === 'LONG' && mc.consecutiveBullish > mc.consecutiveBearish) aligned = 1;
+            else if (pos.side === 'SHORT' && mc.consecutiveBearish > mc.consecutiveBullish) aligned = 1;
+            else aligned = -1;
+        }
+    } catch (e) {}
+    // 3) hoe groter de piekwinst, hoe meer we durven laten lopen (winst beschermt zichzelf al)
+    const peakBonus = Math.min(8, (pos.peakPnlPct || 0) * 100 * 4);   // +8% keep bij ~2% piek
+
+    // stretch: hoge kans + aligned momentum => hogere keep (laat lopen).
+    // dirProb 50 => 0 effect; 85 => +~10; plus momentum ±4; plus peakBonus.
+    let keep = baseKeep + (dirProb - 60) * 0.35 + aligned * 4 + peakBonus;
+    // veilige grenzen: nooit lager dan 40% (anders te los) of hoger dan 95% (anders te strak op de piek)
+    keep = Math.max(40, Math.min(95, keep));
+
+    // AUTONOME PRESET-BIJSTELLING: als deze stretch-strategie in de praktijk goed
+    // uitpakt, mag Neo de BASIS-preset langzaam mee laten schuiven (binnen grenzen).
+    maybeAutoTuneProfitKeep();
+    return keep;
+}
+
+// Neo stelt zijn eigen profitProtectKeepPct-basis heel langzaam bij op basis van
+// of PROFIT_PROTECT-exits gemiddeld winst of spijt opleverden. Zeer voorzichtig,
+// begrensd, en alleen met genoeg data - transparant, geen black box.
+let _lastKeepTune = 0;
+function maybeAutoTuneProfitKeep() {
+    const now = Date.now();
+    if (now - _lastKeepTune < 5 * 60 * 1000) return;      // hooguit elke 5 min
+    const pp = learningLog.filter(l => !l.manual && (l.exitReason || '').startsWith('PROFIT'));
+    if (pp.length < 20) return;
+    _lastKeepTune = now;
+    // gemiddelde pnl van profit-protect exits; als sterk positief -> we mogen losser
+    // (hoger laten lopen); als mager -> strakker grijpen.
+    const avg = pp.reduce((a, l) => a + (l.pnlPct || 0), 0) / pp.length;
+    let delta = 0;
+    if (avg > 0.006) delta = -1;        // winsten groot => greep iets losser (lager keep%) om meer te laten lopen
+    else if (avg < 0.002) delta = +1;   // winsten mager => greep strakker
+    if (delta !== 0) {
+        botSettings.profitProtectKeepPct = Math.max(50, Math.min(90, botSettings.profitProtectKeepPct + delta));
+        try { logBotAction('AUTO_TUNE', livePrice, '-', 0, 0, `winst-greep basis -> ${botSettings.profitProtectKeepPct}% (avg PP-exit ${(avg * 100).toFixed(2)}%)`); } catch (e) {}
+        try { savePersistentState(); } catch (e) {}
+    }
+}
+
 function checkOpenPositionsExits() {
     if (openPositions.length === 0 || !livePrice) return;
 
@@ -4045,14 +4283,20 @@ function checkOpenPositionsExits() {
         // dus geen giveback-bescherming had.
         pos.peakPnlPct = Math.max(pos.peakPnlPct || 0, pnlPct);
 
-        // 1c. WINST-BESCHERMING: is de piek ooit boven de activatiedrempel
-        // gekomen, sluit dan zodra de P/L onder profitProtectKeepPct% van die
-        // piek zakt. Bewust NIET krap afgesteld (zie comment bij de settings):
-        // pieken binnen de ruis+kostenband worden met rust gelaten.
-        if (!pos.isScalp && (pos.peakPnlPct || 0) >= botSettings.profitProtectActivationPct &&
-            pnlPct <= pos.peakPnlPct * (botSettings.profitProtectKeepPct / 100)) {
-            closePosition(pos, pnlPct, `PROFIT_PROTECT (piek +${(pos.peakPnlPct * 100).toFixed(2)}%, ${botSettings.profitProtectKeepPct}%-greep)`);
-            return;
+        // 1c. WINST-BESCHERMING (30-07: AUTONOOM ZELF-STRETCHEND).
+        // De greep is niet langer een vaste 80%. Neo berekent hem dynamisch: staat
+        // de positie in winst EN blijft de kans op verdere winst hoog (live-kans,
+        // momentum aligned, sterke confluence in dezelfde richting), dan STRETCHT de
+        // greep omhoog (bijv. 80% -> 92%) zodat de winst kan doorlopen. Zakt de kans,
+        // dan trekt de greep strakker aan om de winst veilig te stellen. De basis
+        // blijft de door de gebruiker ingestelde profitProtectKeepPct.
+        if (!pos.isScalp && (pos.peakPnlPct || 0) >= botSettings.profitProtectActivationPct) {
+            const dynKeep = dynamicProfitKeepPct(pos);
+            pos._dynKeep = dynKeep;   // voor de UI/logging zichtbaar
+            if (pnlPct <= pos.peakPnlPct * (dynKeep / 100)) {
+                closePosition(pos, pnlPct, `PROFIT_PROTECT (piek +${(pos.peakPnlPct * 100).toFixed(2)}%, ${dynKeep.toFixed(0)}%-greep${dynKeep > botSettings.profitProtectKeepPct + 1 ? ' \u2191gestretcht' : ''})`);
+                return;
+            }
         }
 
         // 2. Winst >= 2%: Osiris mag zelf beslissen om te blijven zitten als
@@ -7585,6 +7829,8 @@ const NEONET_INPUTS = [
     { key: 'chaos',    label: 'CHAOS',    c: '#ffb627' },
     { key: 'momentum', label: 'MOM',      c: '#14f195' },
     { key: 'volz',     label: 'VOL-Z',    c: '#c792ea' },
+    { key: 'rsi',      label: 'RSI',      c: '#ff6ec7' },
+    { key: 'ema',      label: 'EMA',      c: '#7fffd4' },
     { key: 'cnn',      label: 'CNN',      c: '#ff4fd8' },
     { key: 'fib',      label: 'FIB',      c: '#ffd54a' }
 ];
@@ -7624,6 +7870,8 @@ function neoNetInputs() {
         chaos: norm(snap.chaos, 1),
         momentum: norm(snap.momentum != null ? snap.momentum : (snap.isBullish ? 0.6 : -0.6), 1),
         volz: norm(lv.zScore, 2.5),
+        rsi: (() => { try { const r = getCurrentRSIValue(); return r == null ? 0 : (50 - r) / 50; } catch (e) { return 0; } })(),
+        ema: (() => { try { const e = (typeof maCurrentValue !== 'undefined' && maCurrentValue) ? maCurrentValue : null; return (e && isFinite(livePrice)) ? Math.max(-1, Math.min(1, (livePrice - e) / e * 200)) : 0; } catch (er) { return 0; } })(),
         cnn: cnnBias,
         fib: norm(snap.fibConfluence != null ? snap.fibConfluence : 0, 5)
     };
