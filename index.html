@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OSIRIS INTELLIGENCE — V4 Neo</title>
+<title>OSIRIS INTEL — V4 Neo</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -537,6 +537,13 @@ section { position:relative; z-index:2; }
                     </select>
                 </div>
                 <div class="toggle-item">
+                    <label>Neo's Node (NN) &middot; experimenteel</label>
+                    <select id="nn-markers-select" onchange="handleNNMarkersSelect(this.value)">
+                        <option value="HIDDEN" selected>Verborgen</option>
+                        <option value="VISIBLE">Zichtbaar</option>
+                    </select>
+                </div>
+                <div class="toggle-item">
                     <label>Valuta (chart)</label>
                     <select id="currency-select" onchange="handleCurrencySelect(this.value)">
                         <option value="USD" selected>USD ($)</option>
@@ -705,6 +712,8 @@ section { position:relative; z-index:2; }
                 <div class="node-card" style="border-color:rgba(136,136,136,0.4);"><h4 style="color:#888888;">OSC [Node 2/4/5/7]</h4><p id="next-osc">Berekenen...</p></div>
                 <div class="node-card" style="border-color:rgba(255,204,0,0.4);"><h4 style="color:#ffcc00;">MID PULSE</h4><p id="mid-pulse-display">Berekenen...</p></div>
                 <div class="node-card" style="border-color:rgba(20,241,149,0.4);"><h4 style="color:var(--teal);">NEXT NODE</h4><p id="next-node-display">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(199,146,234,0.5);"><h4 style="color:#c792ea;">NEO'S NODE (NN) &middot; exp.</h4><p id="nn-display" style="font-size:0.82em;">Zet NN zichtbaar op de chart om te meten...</p></div>
+                <div class="node-card" style="border-color:rgba(255,182,39,0.5);"><h4 style="color:#ffb627;">NODE-CONFLUENTIE &middot; exp.</h4><p id="nodeconf-display" style="font-size:0.82em;">standaard-node &times; NN samenval...</p></div>
             </div>
 
             <div class="subhead">Live Volume &amp; Market Pressure</div>
@@ -819,8 +828,8 @@ section { position:relative; z-index:2; }
               <div style="display:flex; flex-direction:column; gap:10px;">
                 <div id="neo-panel" class="neo-quad">
                   <canvas id="neo-canvas"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">NEO &middot; MARK 1</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">ultra-realistisch hoofd</div>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">NEO &middot; QUANTUM CORE</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">energie-kern &middot; live activiteit</div>
                   <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8; z-index:2;"><span id="neo-samples">0</span> samples</div>
                   <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff; z-index:2;">kans <span id="neo-prob">&mdash;</span></div>
                 </div>
