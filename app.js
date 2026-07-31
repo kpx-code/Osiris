@@ -1378,6 +1378,8 @@ function loadPersistentState() {
         // migratie: oude opgeslagen gewichten misten rsi/ema/cnn - vul ze aan op 1.0
         for (const k of ['confluence','nodeInfluence','momentumInfluence','fibConfluence','pattern','rsi','ema','cnn'])
             if (adaptiveWeights[k] == null) adaptiveWeights[k] = 1.0;
+        // 31-07: regime-specifieke gewichten herstellen
+        try { const rw = localStorage.getItem('osirisRegimeWeights'); if (rw) regimeWeights = JSON.parse(rw); } catch (e) {}
         computeCalibrationMap(); // pas NA het herstellen van alle state - zodat een
                                  // fout hier nooit meer een herstel-regel kan blokkeren
         // 29-07: teken de curve ook meteen bij het laden (de DOM is er mogelijk nog
@@ -2544,11 +2546,15 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     // die factor in de PRAKTIJK (afgesloten trades) daadwerkelijk voorspelde.
     // Zie recalibrateAdaptiveWeights() - blijft te allen tijde transparant en
     // inspecteerbaar, geen black box.
-    confluenceContribution *= adaptiveWeights.confluence;
+    // 31-07: REGIME-BEWUST. Gebruik de gewichten van het HUIDIGE marktregime
+    // (trend/range/dood) i.p.v. één globale set. In een trend telt momentum zwaarder,
+    // in een range de mean-reversion-factoren - elk regime leert zijn eigen mix.
+    const _w = (typeof activeWeights === 'function') ? activeWeights() : adaptiveWeights;
+    confluenceContribution *= _w.confluence;
     nodeInfluence *= effectiveNodeWeight();
-    momentumInfluence *= adaptiveWeights.momentumInfluence;
-    fibConfluenceInfluence *= adaptiveWeights.fibConfluence;
-    patternInfluence *= adaptiveWeights.pattern;
+    momentumInfluence *= _w.momentumInfluence;
+    fibConfluenceInfluence *= _w.fibConfluence;
+    patternInfluence *= _w.pattern;
 
     let score = 50 + confluenceContribution; // confluence 0-9 -> tot 50-131 (aligned) of omlaag (tegengesteld), geclamped naar [0,100]
     if (chaosVal > 15) score -= 15;    // extreme volatiliteit = onbetrouwbaarder
@@ -2563,13 +2569,13 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     // zijn. Ze verschijnen hierdoor ook in de neural-net-weergave.
     let rsiInfluence = 0, emaInfluence = 0, cnnInfluence = 0;
     if (side !== null) {
-        rsiInfluence = calculateRsiInfluence(side) * (adaptiveWeights.rsi ?? 1);
-        emaInfluence = calculateEmaInfluence(side) * (adaptiveWeights.ema ?? 1);
+        rsiInfluence = calculateRsiInfluence(side) * (_w.rsi ?? 1);
+        emaInfluence = calculateEmaInfluence(side) * (_w.ema ?? 1);
         // CNN als APARTE factor met eigen gewicht (los van de oude pattern-weight)
         try {
             if (typeof rawData !== 'undefined' && rawData && rawData.length > 5) {
                 const cnn = neoScanPatterns(rawData, 40).netBias || 0;
-                cnnInfluence = (side === 'LONG' ? cnn : -cnn) * 6 * (adaptiveWeights.cnn ?? 1);
+                cnnInfluence = (side === 'LONG' ? cnn : -cnn) * 6 * (_w.cnn ?? 1);
             }
         } catch (e) {}
         score += rsiInfluence + emaInfluence + cnnInfluence;
@@ -3320,9 +3326,14 @@ function evaluateMarketRegime() {
     if (metricsHistory.length < 60) return { dead: false, reason: 'te weinig historie' };
     const chaosVals = metricsHistory.map(m => m.chaos).filter(v => isFinite(v)).sort((a, b) => a - b);
     const vfmVals = metricsHistory.map(m => Math.abs(m.vfm)).filter(v => isFinite(v)).sort((a, b) => a - b);
-    const medChaos = chaosVals[Math.floor(chaosVals.length / 2)];
-    const medVfm = vfmVals[Math.floor(vfmVals.length / 2)];
-    const lowNow = chaos < medChaos && Math.abs(vfm) < medVfm;
+    // 31-07: drempel van mediaan (50e pct) -> 30e percentiel. De mediaan triggerde de
+    // poort ~de helft van de tijd (per definitie ligt 50% eronder), waardoor Neo in
+    // elke rustige markt vastliep. Het 30e percentiel betekent: alleen pauzeren als de
+    // markt tot de 30% STILSTE momenten behoort - echt dood, niet slechts "kalm".
+    const pIdx = a => a[Math.floor(a.length * 0.30)];
+    const loChaos = pIdx(chaosVals);
+    const loVfm = pIdx(vfmVals);
+    const lowNow = chaos < loChaos && Math.abs(vfm) < loVfm;
     if (!lowNow) { _regimeDeadSince = null; return { dead: false, reason: 'regime actief' }; }
     if (!_regimeDeadSince) _regimeDeadSince = Date.now();
     const deadMinutes = (Date.now() - _regimeDeadSince) / 60000;
@@ -3330,7 +3341,7 @@ function evaluateMarketRegime() {
     // Throttled loggen (max 1x per 5 min) - anders vult dit de tradelog met SKIPPED-spam
     if (Date.now() - _lastRegimeSkipLog > 5 * 60000) {
         _lastRegimeSkipLog = Date.now();
-        logBotAction("SKIPPED", livePrice, isBullish ? 'LONG' : 'SHORT', 0, 0, `REGIME_GATE: vol ${chaos.toFixed(2)} < mediaan ${medChaos.toFixed(2)} en |VFM| ${Math.abs(vfm).toFixed(2)} < mediaan ${medVfm.toFixed(2)} - al ${deadMinutes.toFixed(0)} min dood, entries gepauzeerd`);
+        logBotAction("SKIPPED", livePrice, isBullish ? 'LONG' : 'SHORT', 0, 0, `REGIME_GATE: vol ${chaos.toFixed(2)} < p30 ${loChaos.toFixed(2)} en |VFM| ${Math.abs(vfm).toFixed(2)} < p30 ${loVfm.toFixed(2)} - al ${deadMinutes.toFixed(0)} min dood, TREND-entries gepauzeerd (scalps lopen door)`);
     }
     return { dead: true, reason: `dood regime (${deadMinutes.toFixed(0)} min)` };
 }
@@ -3625,14 +3636,17 @@ function evaluateRangeScalpOpportunity(side) {
     if (side === 'SHORT' && vfm > 1.0) return { eligible: false };
     if (side === 'LONG' && vfm < -1.0) return { eligible: false };
 
-    // NIEUW: RSI als extra bevestiging voor de mean-reversion-thesis. Een
-    // range-top is een veel sterker short-signaal als RSI ook daadwerkelijk
-    // overbought staat; een range-bodem sterker als RSI oversold staat.
-    // Gebruikt de instelbare rsiOverbought/rsiOversold-drempels (standaard 70/30).
+    // RSI als bevestiging voor de mean-reversion-thesis, maar niet langer een HARDE
+    // eis van volledig oversold/overbought (31-07). Dat blokkeerde geldige scalps aan
+    // de range-rand in rustige markten waar RSI zelden <30 / >70 komt. Nu: een LONG
+    // aan de bodem wil LAGE RSI (oversold = goed) - blokkeer alleen als RSI juist hoog
+    // staat (>58, geen mean-reversion-kans). Een SHORT aan de top wil HOGE RSI -
+    // blokkeer alleen als RSI laag staat (<42). Echt oversold/overbought blijft een
+    // sterker signaal maar is geen strikte voorwaarde meer.
     const rsiValue = getCurrentRSIValue();
     if (rsiValue !== null) {
-        if (side === 'SHORT' && rsiValue < rsiOverbought) return { eligible: false };
-        if (side === 'LONG' && rsiValue > rsiOversold) return { eligible: false };
+        if (side === 'SHORT' && rsiValue < 42) return { eligible: false };  // top-short wil hoge RSI
+        if (side === 'LONG' && rsiValue > 58) return { eligible: false };   // bodem-long wil lage RSI
     }
 
     // Niet tegen een sterk bevestigde trend in scalpen (confluence >= 4 in de
@@ -3898,6 +3912,9 @@ function checkIctExit(pos) {
 }
 
 function commitPositionEntry(position, reasonText) {
+    // 31-07: leg het marktregime vast waarin deze positie wordt geopend, zodat de
+    // regime-bewuste laag er later per regime van kan leren.
+    if (!position.regimeAtEntry) { try { position.regimeAtEntry = classifyRegime(); } catch (e) { position.regimeAtEntry = 'RANGE'; } }
     if (botSettings.executionMode !== 'TESTNET') {
         openPositions.push(position);
         logBotAction("ENTRY", position.entryPrice, position.side, 0, position.amount, reasonText, 0, position.notional, position.isScalp || false);
@@ -4029,7 +4046,10 @@ function finalizeClosePosition(pos, pnlPct, reason) {
             // (bijv. collapse-uit) en nooit meer oude en nieuwe data mengen.
             configVersion: currentConfigVersion(),
             entryHourUTC: pos.openTime ? new Date(pos.openTime).getUTCHours() : new Date().getUTCHours(),
-            isIct: pos.isIct === true
+            isIct: pos.isIct === true,
+            // 31-07: regime waarin deze trade werd geopend, zodat de regime-bewuste
+            // laag per regime apart kan leren welke factoren daar werken.
+            regime: pos.regimeAtEntry || _lastActiveRegime || 'RANGE'
         });
         if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
         recalibrateAdaptiveWeights();
@@ -4117,6 +4137,56 @@ function formatProbWithCalibration(rawPct) {
     return cal === null ? formatConfidencePct(rawPct) : `${formatConfidencePct(rawPct)} (kal. ${cal.toFixed(0)}%)`;
 }
 
+// ============================================================
+// REGIME-BEWUSTE LAAG (31-07)
+// ============================================================
+// BTC gedraagt zich fundamenteel anders in een trending markt dan in een range of
+// een dode markt. Eén set gewichten op alle condities is suboptimaal: momentum is
+// goud in een trend maar een valstrik in een range (waar mean-reversion wint).
+// Deze laag classificeert het huidige regime en houdt APARTE adaptieve gewichten
+// per regime bij. calculateProbabilityScore gebruikt de gewichten van het regime
+// dat op dat moment actief is. Alles blijft transparant en zelf-lerend.
+
+// drie werkbare regimes voor de weight-scheiding
+function classifyRegime() {
+    // gebruikt live chaos (volatiliteit), |vfm| (richtingskracht) en de recente
+    // trend-consistentie. Valt terug op RANGE als er te weinig data is.
+    try {
+        if (typeof chaos === 'undefined') return 'RANGE';
+        const mc = (lastOsirisMetrics && lastOsirisMetrics.momentumContext) || null;
+        const consec = mc ? Math.max(mc.consecutiveBullish || 0, mc.consecutiveBearish || 0) : 0;
+        const compressed = mc ? mc.rangeCompressed : false;
+        // DOOD: heel lage volatiliteit en weinig richtingskracht
+        if (chaos < 6 && Math.abs(vfm) < 0.4 && consec < 3) return 'DEAD';
+        // TREND: duidelijke aanhoudende richting of hoge chaos met kracht
+        if (consec >= 4 || (chaos > 10 && Math.abs(vfm) > 1.0)) return 'TREND';
+        // anders RANGE (incl. samengedrukte markten - domein van de scalps)
+        return 'RANGE';
+    } catch (e) { return 'RANGE'; }
+}
+
+// aparte gewichten-set per regime; elk start als kopie van de globale defaults en
+// evolueert onafhankelijk op basis van de trades die IN dat regime plaatsvonden.
+let regimeWeights = {
+    TREND: null, RANGE: null, DEAD: null
+};
+function ensureRegimeWeights() {
+    for (const r of ['TREND', 'RANGE', 'DEAD']) {
+        if (!regimeWeights[r]) regimeWeights[r] = Object.assign({}, adaptiveWeights);
+        // vul ontbrekende sleutels aan (migratie)
+        for (const k of ['confluence','nodeInfluence','momentumInfluence','fibConfluence','pattern','rsi','ema','cnn'])
+            if (regimeWeights[r][k] == null) regimeWeights[r][k] = 1.0;
+    }
+}
+// geef de actieve gewichten-set terug (regime-specifiek als beschikbaar, anders globaal)
+function activeWeights() {
+    ensureRegimeWeights();
+    const r = classifyRegime();
+    _lastActiveRegime = r;
+    return regimeWeights[r] || adaptiveWeights;
+}
+let _lastActiveRegime = 'RANGE';
+
 function recalibrateAdaptiveWeights() {
     computeCalibrationMap();
     // defensief: oude opgeslagen weights misten rsi/ema/cnn - vul ze aan
@@ -4150,8 +4220,101 @@ function recalibrateAdaptiveWeights() {
     });
 
     lastCalibrationSummary = { timestamp: formatFullDateTime(), summary };
+    recalibrateRegimeWeights();
+    recalibrateExitPolicy();
     renderLearningPanel();
 }
+
+// ============================================================
+// REGIME-GEWICHTEN HERIJKING (31-07)
+// ============================================================
+// Zelfde mechaniek als de globale recalibratie, maar toegepast PER regime: voor
+// elk regime (trend/range/dood) vergelijkt het de winrate mét vs. zónder elke
+// factor, maar alleen over de trades die in DAT regime zijn geopend. Zo leert
+// bijv. het TREND-regime dat momentum zwaar telt, terwijl het RANGE-regime leert
+// dat de mean-reversion-factoren (rsi/ema) daar belangrijker zijn.
+function recalibrateRegimeWeights() {
+    ensureRegimeWeights();
+    const MIN = (typeof MIN_SAMPLE_SIZE !== 'undefined') ? MIN_SAMPLE_SIZE : 12;
+    const factorMap = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn' };
+    for (const regime of ['TREND', 'RANGE', 'DEAD']) {
+        const trades = learningLog.filter(l => !l.manual && l.outcome && l.factors && (l.regime || 'RANGE') === regime);
+        if (trades.length < MIN) continue;   // te weinig data voor dit regime -> ongewijzigd
+        for (const [fk, wk] of Object.entries(factorMap)) {
+            const present = trades.filter(l => l.factors[fk] != null && Math.abs(l.factors[fk]) > 1);
+            const absent = trades.filter(l => l.factors[fk] != null && Math.abs(l.factors[fk]) <= 1);
+            if (present.length < MIN || absent.length < 4) continue;
+            const wPresent = present.filter(l => l.outcome === 'win').length / present.length;
+            const wAbsent = absent.filter(l => l.outcome === 'win').length / absent.length;
+            const edge = wPresent - wAbsent;             // positief = factor helpt in dit regime
+            const cur = regimeWeights[regime][wk] ?? 1.0;
+            // langzame bijstelling, begrensd 0.3..2.0 (zoals de globale)
+            const next = Math.max(0.3, Math.min(2.0, cur + edge * 0.5));
+            regimeWeights[regime][wk] = cur + (next - cur) * 0.3;   // demping
+        }
+    }
+    try { localStorage.setItem('osirisRegimeWeights', JSON.stringify(regimeWeights)); } catch (e) {}
+}
+
+// ============================================================
+// EXIT-OPTIMALISATIE-LAAG (31-07)
+// ============================================================
+// Leert systematisch welke EXIT-mechanismes winst opleveren en welke bloeden,
+// uit de gesloten trades. De data liet zien dat exits (SMALL_PROFIT_HARVEST,
+// EARLY_STOP_TREND) een grote invloed op de P/L hebben. Deze laag berekent per
+// exit-reden de gemiddelde P/L en de trefkans, en stelt op basis daarvan een paar
+// exit-parameters voorzichtig bij (binnen veilige grenzen). Transparant + gelogd.
+let exitPolicy = { stats: {}, lastTune: 0 };
+function recalibrateExitPolicy() {
+    const bot = learningLog.filter(l => !l.manual && l.outcome && l.exitReason);
+    if (bot.length < 15) return;
+    // aggregeer per exit-reden
+    const stats = {};
+    for (const l of bot) {
+        const r = l.exitReason;
+        if (!stats[r]) stats[r] = { n: 0, wins: 0, sumPnl: 0, sumHold: 0 };
+        stats[r].n++; stats[r].wins += l.outcome === 'win' ? 1 : 0;
+        stats[r].sumPnl += l.pnlPct || 0; stats[r].sumHold += l.holdMinutes || 0;
+    }
+    for (const r in stats) { const s = stats[r]; s.winRate = s.wins / s.n; s.avgPnl = s.sumPnl / s.n; s.avgHold = s.sumHold / s.n; }
+    exitPolicy.stats = stats;
+
+    // AUTONOME BIJSTELLING (hooguit elke 5 min), binnen veilige grenzen:
+    const now = Date.now();
+    if (now - exitPolicy.lastTune < 5 * 60 * 1000) return;
+    exitPolicy.lastTune = now;
+    let changed = [];
+
+    // 1) EARLY_STOP_TREND bloedt structureel? -> vroege trend-stop minder gevoelig
+    //    maken (hogere minLossForEarlyExit = later pas uitstappen).
+    const est = stats['EARLY_STOP_TREND'];
+    if (est && est.n >= 8) {
+        if (est.avgPnl < -0.004) {   // gemiddeld verlies bij deze exit -> te vroeg eruit
+            const old = botSettings.minLossForEarlyExit;
+            botSettings.minLossForEarlyExit = Math.min(0.02, botSettings.minLossForEarlyExit + 0.001);
+            if (botSettings.minLossForEarlyExit !== old) changed.push(`early-stop drempel -> ${(botSettings.minLossForEarlyExit*100).toFixed(2)}%`);
+        } else if (est.avgPnl > 0.002 && est.winRate > 0.55) {   // werkt juist goed -> mag gevoeliger
+            const old = botSettings.minLossForEarlyExit;
+            botSettings.minLossForEarlyExit = Math.max(0.004, botSettings.minLossForEarlyExit - 0.001);
+            if (botSettings.minLossForEarlyExit !== old) changed.push(`early-stop drempel -> ${(botSettings.minLossForEarlyExit*100).toFixed(2)}%`);
+        }
+    }
+    // 2) SMALL_PROFIT_HARVEST te gulzig (pakt te vroeg kleine winst)? Als de gemiddelde
+    //    winst mager is EN de hold kort, geef trades meer tijd (langere harvest-window).
+    const sph = stats['SMALL_PROFIT'] || stats['SMALL_PROFIT_HARVEST'];
+    if (sph && sph.n >= 8) {
+        if (sph.avgPnl > 0 && sph.avgPnl < 0.003) {
+            const old = botSettings.smallProfitHarvestMinutes;
+            botSettings.smallProfitHarvestMinutes = Math.min(90, botSettings.smallProfitHarvestMinutes + 5);
+            if (botSettings.smallProfitHarvestMinutes !== old) changed.push(`harvest-window -> ${botSettings.smallProfitHarvestMinutes}min`);
+        }
+    }
+    if (changed.length) {
+        try { logBotAction('EXIT_TUNE', livePrice, '-', 0, 0, 'exit-optimalisatie: ' + changed.join(', ')); } catch (e) {}
+        try { savePersistentState(); } catch (e) {}
+    }
+}
+
 
 function isTargetReached(pos) {
     if (!pos.targetPrice || !livePrice) return false;
@@ -8074,16 +8237,20 @@ function buildNeoBrain2() {
     sulcus([[0.30, 0.45], [0.24, 0.62], [0.16, 0.76]], 'xpos');
     sulcus([[0.30, -0.45], [0.24, -0.62], [0.16, -0.76]], 'xneg');
     const links = []; let g = 0;
-    while (links.length < 50 && g++ < 7000) { const a = Math.random() * pts.length | 0, b = Math.random() * pts.length | 0, d = Math.hypot(pts[a].tx - pts[b].tx, pts[a].ty - pts[b].ty, pts[a].tz - pts[b].tz); if (d > 0.05 && d < 0.24) links.push({ a, b }); }
-    const syn = []; for (let i = 0; i < 14; i++) { const l = links[Math.random() * links.length | 0]; if (l) syn.push({ a: l.a, b: l.b, t: Math.random() * 3, dur: 1.5 + Math.random() * 1.3, role: i % 2 ? -1 : 1, col: BR_PAL2[Math.random() * BR_PAL2.length | 0] }); }
+    while (links.length < 8 && g++ < 3000) { const a = Math.random() * pts.length | 0, b = Math.random() * pts.length | 0, d = Math.hypot(pts[a].tx - pts[b].tx, pts[a].ty - pts[b].ty, pts[a].tz - pts[b].tz); if (d > 0.04 && d < 0.12) links.push({ a, b }); }
+    // GEEN losse synapsen meer (dat waren de zilverwitte flitslijnen). Alleen de
+    // kleurige particle-streams met trail blijven over als "beweging" in het brein.
+    const syn = [];
     const amb = []; for (let i = 0; i < 34; i++) amb.push({ x: Math.random(), y: Math.random(), vx: (Math.random() - 0.5) * 0.012, vy: (Math.random() - 0.5) * 0.01, r: 0.7 + Math.random() * 1.6, tw: Math.random() * 6.28, sp: 0.3 + Math.random(), c: BR_PAL2[Math.random() * BR_PAL2.length | 0] });
     // CREATIE-LIJNEN (30-07): net als bij het hoofd - deeltjes die vanaf randpunten
     // een curve naar de brein-puntjes trekken en zo de vorm "opbouwen".
     const streams = [];
+    // De kleurige particle-streams die van buiten het brein in gaan - DEZE blijven
+    // (de gebruiker wil ze houden). 8 bronnen, elk 10 deeltjes.
     const borigins = [[0.0, 0.30], [0.0, 0.55], [0.0, 0.80], [1.0, 0.20], [1.0, 0.50], [1.0, 0.78], [0.35, 0.0], [0.65, 1.0]];
     for (let s = 0; s < borigins.length; s++) {
         const deeltjes = [];
-        for (let k = 0; k < 10; k++) deeltjes.push({ t: Math.random(), sp: 0.22 + Math.random() * 0.28, tgt: (Math.random() * pts.length) | 0, bow: (Math.random() - 0.5) * 0.5, px: 0, py: 0 });
+        for (let k = 0; k < 10; k++) deeltjes.push({ t: Math.random(), sp: 0.20 + Math.random() * 0.26, tgt: (Math.random() * pts.length) | 0, bow: (Math.random() - 0.5) * 0.5, px: 0, py: 0 });
         streams.push({ ox: borigins[s][0], oy: borigins[s][1], c: BR_PAL2[s % BR_PAL2.length], deeltjes });
     }
     _brain2 = { pts, rings, sulci, links, syn, amb, streams, rotY: 0.5, formStart: null, tSec: 0 };
@@ -8127,27 +8294,26 @@ function _neoBrainFrame(now) {
             for (const d of st.deeltjes) {
                 d.t += d.sp * dt;
                 const tq = proj[d.tgt];
-                if (d.t >= 1 || !tq) { d.t = 0; d.tgt = (Math.random() * pts.length) | 0; d.sp = 0.18 + Math.random() * 0.22; d.bow = (Math.random() - 0.5) * 0.5; d.px = 0; d.trail = []; continue; }
+                if (d.t >= 1 || !tq) { d.t = 0; d.tgt = (Math.random() * pts.length) | 0; d.sp = 0.20 + Math.random() * 0.26; d.bow = (Math.random() - 0.5) * 0.5; d.trail = []; continue; }
                 const t = d.t, mt = 1 - t;
                 const mx = (ox + tq.sx) / 2 - (tq.sy - oy) * d.bow, my = (oy + tq.sy) / 2 + (tq.sx - ox) * d.bow;
                 const x = mt * mt * ox + 2 * mt * t * mx + t * t * tq.sx, y = mt * mt * oy + 2 * mt * t * my + t * t * tq.sy;
-                // langer, zichtbaarder spoor: teken een vervagende staart van recente posities
+                // lange, vervagende light-trail achter de gekleurde particle (blijft!)
                 if (!d.trail) d.trail = [];
-                d.trail.push([x, y]); if (d.trail.length > 14) d.trail.shift();
-                ctx.strokeStyle = st.c; ctx.lineWidth = 1.0;
+                d.trail.push([x, y]); if (d.trail.length > 16) d.trail.shift();
+                ctx.strokeStyle = st.c; ctx.lineWidth = 1.1;
                 for (let s = 1; s < d.trail.length; s++) {
                     ctx.globalAlpha = (s / d.trail.length) * 0.6 * t;
                     ctx.beginPath(); ctx.moveTo(d.trail[s - 1][0], d.trail[s - 1][1]); ctx.lineTo(d.trail[s][0], d.trail[s][1]); ctx.stroke();
                 }
-                ctx.globalAlpha = 0.6 + 0.4 * t; ctx.fillStyle = st.c; const sz = 1.4 + t * 1.4; ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
-                d.px = x; d.py = y;
+                ctx.globalAlpha = 0.6 + 0.4 * t; ctx.fillStyle = st.c; const sz = 1.6 + t * 1.6; ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
             }
         }
         ctx.globalAlpha = 1;
     }
     // gyri contourlijnen (per ring) met fold-schaduw
     for (let ri = 0; ri < totalR; ri++) { const ring = rings[ri]; if (ring.length < 2) continue; const e0 = proj[ring[0]].e; if (e0 < 0.35) continue;
-        for (let k = 0; k < ring.length; k++) { const ia = ring[k], ib = ring[(k + 1) % ring.length], qa = proj[ia], qb = proj[ib]; const fold = (pts[ia].fold + pts[ib].fold) / 2, sh = _bshade(fold), depth = 0.5 + 0.5 * qa.rz, bg = (e0 > 0.35 && e0 < 0.98) ? (1 - e0) : 0;
+        for (let k = 0; k < ring.length; k++) { const ia = ring[k], ib = ring[(k + 1) % ring.length], qa = proj[ia], qb = proj[ib]; const fold = (pts[ia].fold + pts[ib].fold) / 2, sh = _bshade(fold), depth = 0.5 + 0.5 * qa.rz, bg = (e0 > 0.35 && e0 < 0.98) ? (1 - e0) * 0.05 : 0;
             ctx.strokeStyle = `rgba(${Math.round(80 + 130 * sh)},${Math.round(170 + 80 * sh)},${Math.round(220 + 35 * sh)},${((0.14 + 0.5 * sh + 0.4 * bg) * e0 * depth).toFixed(3)})`; ctx.lineWidth = 0.5 + 0.9 * sh; ctx.beginPath(); ctx.moveTo(qa.sx, qa.sy); ctx.lineTo(qb.sx, qb.sy); ctx.stroke(); } }
     for (const s of bs.sulci) { const vis = s.side === 'top' ? 0.9 : s.side === 'xpos' ? Math.max(0, -sinr) : Math.max(0, sinr); if (vis < 0.06) continue; const e0 = proj[s.idx[0]].e; if (e0 < 0.5) continue; const pj = s.idx.map(i => proj[i]);
         ctx.strokeStyle = `rgba(10,26,40,${(0.55 * vis * e0).toFixed(3)})`; ctx.lineWidth = 2.2; ctx.beginPath(); pj.forEach((q, i) => i ? ctx.lineTo(q.sx, q.sy) : ctx.moveTo(q.sx, q.sy)); ctx.stroke();
