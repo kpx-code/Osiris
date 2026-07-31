@@ -473,7 +473,7 @@ let lastOsirisDecision = null;
 // bewust traag en behoudend, om niet te "leren" van ruis bij te weinig data
 // (zie de node-correlatie-les eerder: te weinig samples geeft schijnpatronen).
 // ============================================================
-let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0 };
+let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 0.5, nodeconf: 0.5 };
 let learningLog = []; // { timestampMs, side, factors: {confluence, nodeInfluence, momentumInfluence, fibConfluenceInfluence, probabilityPct}, outcome: 'win'|'loss', pnlPct }
 let lastReallocationAt = 0; // timestamp (ms) van de laatste reallocatie - voor de cooldown-poort in tryReallocateForBetterOpportunity
 // FIX (crash 12-07): sessionLog stond gedeclareerd op ~regel 1200, terwijl
@@ -640,7 +640,37 @@ function detectMACrossover() {
     return crossover;
 }
 
+// HEADLESS INDICATOREN (01-08): EMA/MA en RSI worden nu ALTIJD berekend uit de
+// kline-data, los van of de indicator zichtbaar is op de chart. Voorheen las de
+// EMA-invloed 'maCurrentValue', maar die werd nergens gezet -> EMA deed feitelijk
+// niet mee. En RSI-render hing van showRSI af. Nu rekent Neo altijd door, ook als de
+// gebruiker vergeet de indicator zichtbaar te maken. Cruciaal voor multi-crypto:
+// elke munt heeft zijn eigen headless EMA/RSI, onafhankelijk van de zichtbare chart.
+let maCurrentValue = null;       // laatste snelle MA-waarde (headless)
+let maSlowCurrentValue = null;   // laatste trage MA-waarde (headless)
+let rsiCurrentValue = null;      // laatste RSI-waarde (headless)
+function computeHeadlessIndicators(kl) {
+    const src = kl || rawData;
+    if (!src || src.length < 3) return;
+    const closes = src.map(d => parseFloat(d[4]));
+    // MA/EMA (snel + traag) - onafhankelijk van showMovingAverage
+    if (closes.length >= maFastPeriod) {
+        const f = calculateSMA(closes, maFastPeriod);
+        maCurrentValue = f.length ? f[f.length - 1] : null;
+    }
+    if (closes.length >= maSlowPeriod) {
+        const s = calculateSMA(closes, maSlowPeriod);
+        maSlowCurrentValue = s.length ? s[s.length - 1] : null;
+    }
+    // RSI - onafhankelijk van showRSI
+    if (closes.length >= rsiPeriod + 1) {
+        const series = calculateRSISeries(closes, rsiPeriod);
+        rsiCurrentValue = series.length ? series[series.length - 1].rsi : null;
+    }
+}
+
 function renderMovingAverage() {
+    computeHeadlessIndicators();   // altijd eerst de waarden bijwerken (ook als verborgen)
     if (!showMovingAverage) {
         if (maFastSeries) { chart.removeSeries(maFastSeries); maFastSeries = null; }
         if (maSlowSeries) { chart.removeSeries(maSlowSeries); maSlowSeries = null; }
@@ -861,6 +891,8 @@ function calculateRSISeries(closes, period) {
 // Actuele RSI-waarde voor gebruik in de beslislogica (niet afhankelijk van of
 // de lijn zichtbaar staat op de chart).
 function getCurrentRSIValue() {
+    // headless: altijd berekend, ongeacht of RSI zichtbaar is op de chart
+    if (rsiCurrentValue != null) return rsiCurrentValue;
     if (!rawData || rawData.length < rsiPeriod + 1) return null;
     const closes = rawData.map(d => parseFloat(d[4]));
     const series = calculateRSISeries(closes, rsiPeriod);
@@ -1378,6 +1410,8 @@ function loadPersistentState() {
         // migratie: oude opgeslagen gewichten misten rsi/ema/cnn - vul ze aan op 1.0
         for (const k of ['confluence','nodeInfluence','momentumInfluence','fibConfluence','pattern','rsi','ema','cnn'])
             if (adaptiveWeights[k] == null) adaptiveWeights[k] = 1.0;
+        if (adaptiveWeights.nn == null) adaptiveWeights.nn = 0.5;
+        if (adaptiveWeights.nodeconf == null) adaptiveWeights.nodeconf = 0.5;
         // 31-07: regime-specifieke gewichten herstellen
         try { const rw = localStorage.getItem('osirisRegimeWeights'); if (rw) regimeWeights = JSON.parse(rw); } catch (e) {}
         computeCalibrationMap(); // pas NA het herstellen van alle state - zodat een
@@ -1812,9 +1846,9 @@ function renderLearningPanel() {
         confluence: 'Confluence', nodeInfluence: 'Node-invloed',
         momentumInfluence: 'Momentum-invloed', fibConfluenceInfluence: 'Fib-confluentie',
         patternInfluence: 'Patroon/structuur',
-        rsiInfluence: 'RSI-invloed', emaInfluence: 'EMA-invloed', cnnInfluence: 'CNN multi-candle'
+        rsiInfluence: 'RSI-invloed', emaInfluence: 'EMA-invloed', cnnInfluence: 'CNN multi-candle', nnInfluence: "Neo's Node (NN)"
     };
-    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn' };
+    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn', nnInfluence: 'nn' };
 
     const totalTrades = learningLog.length;
     let html = `<div style="font-size:0.72em; color:var(--text-dim); margin-bottom:10px;">Gebaseerd op ${totalTrades} afgesloten trend-trade(s) sinds deze instellingen zijn gaan loggen (minimaal ${MIN_SAMPLE_SIZE} per groep nodig voordat een gewicht verandert).</div>`;
@@ -2567,7 +2601,7 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     // NIEUW (30-07): RSI en EMA als VOLWAARDIGE gewogen factoren (niet langer enkel
     // een veto). Elk met een eigen adaptief gewicht zodat Neo leert hoeveel ze waard
     // zijn. Ze verschijnen hierdoor ook in de neural-net-weergave.
-    let rsiInfluence = 0, emaInfluence = 0, cnnInfluence = 0;
+    let rsiInfluence = 0, emaInfluence = 0, cnnInfluence = 0, nnInfluence = 0;
     if (side !== null) {
         rsiInfluence = calculateRsiInfluence(side) * (_w.rsi ?? 1);
         emaInfluence = calculateEmaInfluence(side) * (_w.ema ?? 1);
@@ -2578,11 +2612,21 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
                 cnnInfluence = (side === 'LONG' ? cnn : -cnn) * 6 * (_w.cnn ?? 1);
             }
         } catch (e) {}
-        score += rsiInfluence + emaInfluence + cnnInfluence;
+        // NN (Neo's Node) als eigen factor met eigen adaptief gewicht. Standaardgewicht
+        // start bewust LAAG (0.5) omdat NN nog experimenteel is - Neo bouwt het op of af
+        // op basis van of NN-nabijheid in de praktijk met winst correleert.
+        try { nnInfluence = calculateNNInfluence(side) * (_w.nn ?? 0.5); } catch (e) { nnInfluence = 0; }
+        // NODE-CONFLUENTIE: extra bijdrage wanneer standaard-node en NN samenvallen.
+        // Eigen gewicht (nodeconf), start laag - de "samenval = sterkste signaal"-these
+        // is nog onbewezen, dus Neo bouwt dit gewicht zelf op of af.
+        let confNodeInfl = 0;
+        try { confNodeInfl = calculateConfluenceNodeInfluence(side) * (_w.nodeconf ?? 0.5); } catch (e) { confNodeInfl = 0; }
+        nnInfluence += confNodeInfl;
+        score += rsiInfluence + emaInfluence + cnnInfluence + nnInfluence;
     }
     // onthoud de losse bijdragen zodat de entry ze kan vastleggen + de neural net ze toont
     _lastFactorContrib = { confluence: confluenceContribution, node: nodeInfluence, momentum: momentumInfluence,
-        fib: fibConfluenceInfluence, pattern: patternInfluence, rsi: rsiInfluence, ema: emaInfluence, cnn: cnnInfluence };
+        fib: fibConfluenceInfluence, pattern: patternInfluence, rsi: rsiInfluence, ema: emaInfluence, cnn: cnnInfluence, nn: nnInfluence };
     // NIEUW: volume-profile-bias. Prijs onder de value area (VAL) = koopzone
     // (ondersteunt LONG); boven de value area (VAH) = verkoopzone (ondersteunt
     // SHORT). Conservatief gewogen (max ~4 punten) zodat het de bestaande signalen
@@ -3177,7 +3221,7 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const snap = (typeof lastOsirisMetrics !== 'undefined' && lastOsirisMetrics) ? lastOsirisMetrics : {};
     const lv = (typeof lastVolumeMetrics !== 'undefined' && lastVolumeMetrics) ? lastVolumeMetrics : {};
     return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence, fibConfluenceInfluence, confluence: decision.confluence, patternInfluence,
-        rsiInfluence: fc.rsi ?? 0, emaInfluence: fc.ema ?? 0, cnnInfluence: fc.cnn ?? 0,
+        rsiInfluence: fc.rsi ?? 0, emaInfluence: fc.ema ?? 0, cnnInfluence: fc.cnn ?? 0, nnInfluence: fc.nn ?? 0,
         snapVfm: snap.vfm ?? null, snapEr: snap.er ?? null, snapDb: snap.db ?? null, snapChaos: snap.chaos ?? null,
         snapVolZ: (lv.zScore != null ? parseFloat(lv.zScore) : null) };
 }
@@ -3575,6 +3619,7 @@ function scanForOpportunities(decision, metrics) {
             rsiInfluence: evalResult.rsiInfluence ?? 0,
             emaInfluence: evalResult.emaInfluence ?? 0,
             cnnInfluence: evalResult.cnnInfluence ?? 0,
+            nnInfluence: evalResult.nnInfluence ?? 0,
             snapVfm: evalResult.snapVfm ?? null,
             snapEr: evalResult.snapEr ?? null,
             snapDb: evalResult.snapDb ?? null,
@@ -3797,6 +3842,7 @@ function openPositionFromOrder(order, entryTag = '') {
             rsiInfluence: order.rsiInfluence ?? 0,
             emaInfluence: order.emaInfluence ?? 0,
             cnnInfluence: order.cnnInfluence ?? 0,
+            nnInfluence: order.nnInfluence ?? 0,
             snapVfm: order.snapVfm ?? null,
             snapEr: order.snapEr ?? null,
             snapDb: order.snapDb ?? null,
@@ -4176,6 +4222,8 @@ function ensureRegimeWeights() {
         // vul ontbrekende sleutels aan (migratie)
         for (const k of ['confluence','nodeInfluence','momentumInfluence','fibConfluence','pattern','rsi','ema','cnn'])
             if (regimeWeights[r][k] == null) regimeWeights[r][k] = 1.0;
+        if (regimeWeights[r].nn == null) regimeWeights[r].nn = 0.5;
+        if (regimeWeights[r].nodeconf == null) regimeWeights[r].nodeconf = 0.5;
     }
 }
 // geef de actieve gewichten-set terug (regime-specifiek als beschikbaar, anders globaal)
@@ -4192,7 +4240,7 @@ function recalibrateAdaptiveWeights() {
     // defensief: oude opgeslagen weights misten rsi/ema/cnn - vul ze aan
     for (const k of ['rsi', 'ema', 'cnn']) if (adaptiveWeights[k] == null) adaptiveWeights[k] = 1.0;
     const factorKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluenceInfluence', 'patternInfluence', 'rsiInfluence', 'emaInfluence', 'cnnInfluence'];
-    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn' };
+    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn', nnInfluence: 'nn' };
     const summary = {};
 
     factorKeys.forEach(fk => {
@@ -4236,7 +4284,7 @@ function recalibrateAdaptiveWeights() {
 function recalibrateRegimeWeights() {
     ensureRegimeWeights();
     const MIN = (typeof MIN_SAMPLE_SIZE !== 'undefined') ? MIN_SAMPLE_SIZE : 12;
-    const factorMap = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn' };
+    const factorMap = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn', nnInfluence: 'nn' };
     for (const regime of ['TREND', 'RANGE', 'DEAD']) {
         const trades = learningLog.filter(l => !l.manual && l.outcome && l.factors && (l.regime || 'RANGE') === regime);
         if (trades.length < MIN) continue;   // te weinig data voor dit regime -> ongewijzigd
@@ -4815,6 +4863,7 @@ function botHeartbeat() {
         // Geheugen bijwerken vóór de scan, zodat getMomentumContext() hierbinnen
         // de meest recente sample al meeneemt.
         recordMetricsSnapshot();
+        computeHeadlessIndicators();   // EMA/RSI altijd vers, ook als indicatoren verborgen zijn
 
         const metrics = calculateVolumeMetrics(liveVol, db, isBullish, 9);
         const decision = getOrisisDecisionData(metrics, livePrice, vfm, er, db, chaos, isBullish);
@@ -5542,6 +5591,7 @@ async function refreshViewData() {
         renderMovingAverage();
         renderRSI();
         renderPatternMarkers();
+        renderNNMarkers();
         startChartStream(currentInterval);
     } catch (e) {
         console.error('View-wissel mislukt:', e);
@@ -5589,6 +5639,7 @@ async function initDashboard() {
         renderMovingAverage();
         renderRSI();
         renderPatternMarkers();
+        renderNNMarkers();
         startLiveUpdates();
         startChartStream(currentInterval);
         startSentimentStream();
@@ -5704,6 +5755,39 @@ function updateInfoPanel() {
         let type = ['RESET', 'VOLA', 'OSC', 'VORTEX 3', 'OSC', 'OSC', 'VORTEX 6', 'OSC'][relIdx];
         
         nextNodeEl.innerText = `${formatDateTime(nextTime)} (${formatCountdown(nextTime)}) | ${type}`;
+    }
+
+    // Neo's Node (NN) live-info: countdown tot de volgende NN-node + trefzekerheid.
+    // Passief meet-instrument; toont alleen wat NN uit de data heeft afgeleid.
+    const nnEl = document.getElementById('nn-display');
+    if (nnEl) {
+        try {
+            const ctx = nnContext('BTC', now);
+            if (!ctx) {
+                nnEl.innerText = showNNMarkers ? 'NN verzamelt capitulaties...' : 'Zet NN zichtbaar op de chart om te meten...';
+            } else {
+                const acc = ctx.accuracy;
+                const accTxt = acc ? ` | trefzekerheid: \u00b1${acc.avgErrorMin}min over ${acc.samples} reset(s)` : ' | nog geen reset gemeten';
+                const anchorTxt = ctx.anchorDir === 'low' ? 'bodem' : 'top';
+                nnEl.innerText = `volgende NN over ${formatCountdown(ctx.nextNode)} | ritme ~${Math.round(ctx.periodMin)}min | anker: ${anchorTxt} (${ctx.capsFound} caps)${accTxt}`;
+            }
+        } catch (e) { nnEl.innerText = 'NN: wachten op data'; }
+    }
+
+    // Node-confluentie: countdown tot het volgende moment waarop standaard-node en NN
+    // samenvallen (dynamisch - verschuift wanneer NN herankert).
+    const confEl = document.getElementById('nodeconf-display');
+    if (confEl) {
+        try {
+            const c = computeNodeConfluence(now);
+            if (!c || c.minsTo == null || c.score < 0.05) {
+                confEl.innerText = 'geen nabije samenval standaard-node \u00d7 NN';
+            } else {
+                const when = now + c.minsTo * 60000;
+                const sterk = c.score > 0.6 ? 'STERK' : c.score > 0.3 ? 'matig' : 'zwak';
+                confEl.innerText = `samenval over ${formatCountdown(when)} | overlap ${sterk} (${(c.score*100|0)}%, gap ${c.gapMin}min)`;
+            }
+        } catch (e) { confEl.innerText = 'confluentie: wachten op data'; }
     }
 }
 
@@ -6101,6 +6185,236 @@ function setChartMarkers(markers) {
     }
 }
 
+// ============================================================
+// NEO'S NODE (NN) — passieve, zelf-herankererende node-detector (31-07)
+// ============================================================
+// EXPERIMENTEEL MEET-INSTRUMENT. NN raakt de handelsbeslissing NIET aan. Het detecteert
+// de ECHTE energie-ontladingen (capitulaties) in de data van een munt, ankert op de
+// meest recente, meet uit de afstanden tussen recente ontladingen het EMPIRISCHE ritme
+// van díe munt, en projecteert de volgende verwachte node. Anders dan de standaard
+// UOTAM-node (vaste klok, vast T_pi) is NN een BEWEGENDE klok: bij elke nieuwe echte
+// capitulatie herankert hij en kan het ritme verschuiven - dus geen vaste countdown,
+// maar een reeks opnieuw-geankerde segmenten (parallelle tijdslijnen, zoals besproken).
+//
+// NN houdt zijn eigen TREFZEKERHEID bij: bij elke reset logt hij hoe ver zijn vorige
+// voorspelde node afweek van de werkelijke capitulatie. Zo bouwt zich een trackrecord
+// op waarmee je kunt TOETSEN of NN waarde toevoegt - vóórdat hij ooit meebeslist.
+
+let _nnState = {
+    BTC: null, ETH: null, SOL: null   // per munt een eigen NN-staat
+};
+function _emptyNN() {
+    return { caps: [], anchor: null, period: null, nextNode: null, log: [], lastComputedAt: 0 };
+}
+
+// Detecteer capitulaties in een kline-serie: candles met een extreme |VFM| die tevens
+// een lokale prijs-omkering markeren. Geeft een lijst {time, price, vfm, dir}.
+function nnDetectCapitulations(kl) {
+    if (!kl || kl.length < 40) return [];
+    const caps = [];
+    // rolling VFM per candle
+    const vfmSeries = [];
+    for (let i = 20; i < kl.length; i++) {
+        const hist = kl.slice(i - 20, i + 1);
+        const c = parseFloat(kl[i][4]), v = parseFloat(kl[i][5]);
+        const vfm = calculateVFM(c, v, hist);
+        vfmSeries.push({ i, t: kl[i][0], price: c, vfm: isFinite(vfm) ? vfm : 0 });
+    }
+    // drempel: |VFM| in de top ~20% van de recente reeks (was top 10%). Meer NN-punten
+    // detecteren zoals gevraagd - lagere drempel vangt ook de kleinere ontladingen.
+    const absSorted = vfmSeries.map(s => Math.abs(s.vfm)).sort((a, b) => a - b);
+    const thr = Math.max(0.9, absSorted[Math.floor(absSorted.length * 0.80)] || 1.2);
+    for (let k = 2; k < vfmSeries.length - 2; k++) {
+        const s = vfmSeries[k];
+        if (Math.abs(s.vfm) < thr) continue;
+        // lokale omkering: prijs draait binnen ±1 candle (soepeler = meer punten)
+        const p0 = vfmSeries[k - 1].price, p1 = s.price, p2 = vfmSeries[k + 1].price;
+        const isLow = p1 <= p0 && p1 <= p2, isHigh = p1 >= p0 && p1 >= p2;
+        if (!isLow && !isHigh) continue;
+        // niet te dicht op de vorige (minstens 3 candles ertussen, was 5)
+        if (caps.length && (s.i - caps[caps.length - 1].i) < 3) {
+            if (Math.abs(s.vfm) > Math.abs(caps[caps.length - 1].vfm)) caps[caps.length - 1] = { i: s.i, time: s.t, price: s.price, vfm: s.vfm, dir: isLow ? 'low' : 'high' };
+            continue;
+        }
+        caps.push({ i: s.i, time: s.t, price: s.price, vfm: s.vfm, dir: isLow ? 'low' : 'high' });
+    }
+    return caps;
+}
+
+// Bereken/actualiseer de NN-staat voor een munt uit zijn kline-serie.
+function nnCompute(sym, kl) {
+    if (!_nnState[sym]) _nnState[sym] = _emptyNN();
+    const st = _nnState[sym];
+    const caps = nnDetectCapitulations(kl);
+    if (caps.length < 3) { st.caps = caps; st.anchor = caps[caps.length - 1] || null; st.period = null; st.nextNode = null; return st; }
+    // empirisch ritme = mediaan van de afstanden tussen recente capitulaties (in ms)
+    const recent = caps.slice(-8);
+    const gaps = [];
+    for (let i = 1; i < recent.length; i++) gaps.push(recent[i].time - recent[i - 1].time);
+    gaps.sort((a, b) => a - b);
+    const periodMs = gaps[Math.floor(gaps.length / 2)];
+    const newAnchor = caps[caps.length - 1];
+
+    // TREFZEKERHEID: als er een vorige voorspelde node was, log hoe ver de nieuwe
+    // werkelijke capitulatie ervan afweek (alleen bij een echt nieuw anker).
+    if (st.anchor && newAnchor.time > st.anchor.time && st.nextNode) {
+        const errMin = Math.abs(newAnchor.time - st.nextNode) / 60000;
+        const periodMin = (st.period || periodMs) / 60000;
+        st.log.push({
+            at: newAnchor.time,
+            predicted: st.nextNode,
+            actual: newAnchor.time,
+            errorMin: Math.round(errMin),
+            errorPct: periodMin ? Math.round((errMin / periodMin) * 100) : null,
+            dir: newAnchor.dir
+        });
+        if (st.log.length > 200) st.log = st.log.slice(-200);
+    }
+
+    st.caps = caps;
+    st.anchor = newAnchor;
+    st.period = periodMs;
+    st.nextNode = newAnchor.time + periodMs;   // volgende verwachte node (reset bij nieuwe capitulatie)
+    st.lastComputedAt = Date.now();
+
+    // UITGEBREID (01-08): projecteer een REEKS toekomstige NN-nodes op het gemeten
+    // ritme, plus tussenliggende sub-nodes (halve-node punten, zoals de standaard
+    // OSC-punten tussen de hoofdnodes). Elk krijgt een type + relatieve sterkte.
+    const proj = [];
+    const HALF = periodMs / 2;
+    // NN-node-types cyclus (afgeleid uit de anker-richting): een reeks die om en om
+    // een verwachte omkering (RESET) en tussenliggende oscillatie (OSC/PULSE) markeert.
+    const nnTypes = ['NN-RESET', 'NN-OSC', 'NN-PULSE', 'NN-OSC'];
+    for (let k = 1; k <= 12; k++) {
+        const t = newAnchor.time + k * HALF;
+        const isMain = (k % 2 === 0);                  // hele node = verwachte omkering
+        const typeIdx = ((k / 2) | 0) % nnTypes.length;
+        proj.push({
+            time: t,
+            main: isMain,
+            type: isMain ? nnTypes[typeIdx] : 'NN-SUB',
+            strength: isMain ? 1.0 : 0.5
+        });
+    }
+    st.projected = proj;
+    return st;
+}
+
+// Meet hoe dicht de huidige tijd bij een NN-node zit (0..1), voor de trade-invloed.
+// Retourneert ook of het een hoofd- of sub-node is en het type.
+function nnProximity(sym = 'BTC', now = Date.now()) {
+    const st = _nnState[sym];
+    if (!st || !st.projected || !st.period) return { prox: 0, main: false, type: null, minsTo: null };
+    let best = null, bestDist = Infinity;
+    // check ook de eerstvolgende reeds-voorbije en komende nodes
+    for (const p of st.projected) {
+        const d = Math.abs(p.time - now);
+        if (d < bestDist) { bestDist = d; best = p; }
+    }
+    if (!best) return { prox: 0, main: false, type: null, minsTo: null };
+    const minsTo = (best.time - now) / 60000;
+    // nabijheids-gewicht: piek als we op de node zitten, valt af met ~halve node-breedte
+    const widthMin = (st.period / 60000) * 0.35;
+    const prox = Math.exp(-Math.pow((bestDist / 60000) / widthMin, 2));
+    return { prox, main: best.main, type: best.type, minsTo, strength: best.strength };
+}
+
+// NN-context voor de UI: countdown tot de volgende NN-node (kan resetten) + trefzekerheid.
+// NN-HANDELSINVLOED (01-08): vertaalt de nabijheid van een NN-node naar een kleine,
+// begrensde bijdrage aan de kans-score. Een NN-hoofdnode (verwachte omkering) dicht bij
+// nu versterkt een tegengesteld signaal (mean-reversion aan een verwacht keerpunt); een
+// NN-sub-node (oscillatie) geeft een zwakkere bijdrage. Begrensd op ±6, met eigen gewicht.
+function calculateNNInfluence(side) {
+    try {
+        const p = nnProximity('BTC');
+        if (!p || p.prox < 0.15) return 0;
+        // richting: bij een verwachte NN-omkering (hoofdnode) is een keerpunt waarschijnlijker.
+        // We laten NN het huidige signaal licht bevestigen naar rato van nabijheid+sterkte.
+        const base = p.prox * (p.strength || 0.5) * 6;
+        return Math.max(-6, Math.min(6, base));
+    } catch (e) { return 0; }
+}
+
+// NODE-CONFLUENTIE (01-08): detecteert wanneer een STANDAARD UOTAM-node en een NEO'S
+// NODE (NN) dicht bij elkaar in de tijd vallen. De hypothese (nog te toetsen) is dat
+// zo'n samenval het sterkste signaal geeft. Geeft een confluentie-score 0..1 + de tijd
+// tot het volgende confluentie-moment, met een eigen adaptief gewicht.
+let _nodeConfluenceState = { nextConfluence: null, lastComputed: 0, log: [] };
+function computeNodeConfluence(now = Date.now()) {
+    try {
+        const st = _nnState['BTC'];
+        if (!st || !st.projected || !st.period) return { score: 0, minsTo: null };
+        // standaard node-tijden in de komende periode
+        const HALF_MS = T_PI_MS / 2;
+        const stdNodes = [];
+        for (let k = 0; k <= 12; k++) {
+            const idx = Math.ceil((now - ANCHOR_TIME) / HALF_MS) + k;
+            stdNodes.push(ANCHOR_TIME + idx * HALF_MS);
+        }
+        // zoek het dichtstbijzijnde paar (standaard-node, NN-node)
+        let bestGap = Infinity, bestTime = null;
+        for (const nn of st.projected) {
+            for (const sd of stdNodes) {
+                const gap = Math.abs(nn.time - sd);
+                if (gap < bestGap) { bestGap = gap; bestTime = Math.min(nn.time, sd); }
+            }
+        }
+        if (bestTime == null) return { score: 0, minsTo: null };
+        // confluentie-score: hoog als de twee node-systemen samenvallen (kleine gap)
+        const tolMin = (st.period / 60000) * 0.20;                 // 20% van de NN-periode als tolerantie
+        const gapMin = bestGap / 60000;
+        const score = Math.exp(-Math.pow(gapMin / tolMin, 2));
+        _nodeConfluenceState.nextConfluence = bestTime;
+        return { score, minsTo: (bestTime - now) / 60000, gapMin: Math.round(gapMin) };
+    } catch (e) { return { score: 0, minsTo: null }; }
+}
+
+// Confluentie-invloed op de trade (eigen gewicht). Sterkste bijdrage precies wanneer
+// standaard-node en NN-node samenvallen EN we daar dichtbij zitten in de tijd.
+function calculateConfluenceNodeInfluence(side) {
+    try {
+        const c = computeNodeConfluence();
+        if (!c || c.score < 0.2 || c.minsTo == null) return 0;
+        // alleen invloed als het confluentie-moment dichtbij is
+        const st = _nnState['BTC'];
+        const periodMin = st && st.period ? st.period / 60000 : 180;
+        const nearTime = Math.exp(-Math.pow(c.minsTo / (periodMin * 0.3), 2));
+        return Math.max(-6, Math.min(6, c.score * nearTime * 6));
+    } catch (e) { return 0; }
+}
+window.computeNodeConfluence = computeNodeConfluence;
+
+function nnContext(sym = 'BTC', now = Date.now()) {
+    const st = _nnState[sym];
+    if (!st || !st.nextNode || !st.period) return null;
+    // als de voorspelde node al voorbij is zonder nieuwe capitulatie, projecteer door
+    // op hetzelfde ritme (de klok tikt door tot de echte capitulatie hem reset)
+    let next = st.nextNode;
+    while (next < now) next += st.period;
+    const acc = nnAccuracy(sym);
+    return {
+        anchorTime: st.anchor ? st.anchor.time : null,
+        anchorDir: st.anchor ? st.anchor.dir : null,
+        periodMin: st.period / 60000,
+        nextNode: next,
+        minutesUntil: Math.max(0, (next - now) / 60000),
+        capsFound: st.caps.length,
+        accuracy: acc
+    };
+}
+
+// Samenvattende trefzekerheid: gemiddelde absolute fout (min) en als % van de periode.
+function nnAccuracy(sym = 'BTC') {
+    const st = _nnState[sym];
+    if (!st || !st.log.length) return null;
+    const n = st.log.length;
+    const avgErrMin = st.log.reduce((a, l) => a + l.errorMin, 0) / n;
+    const avgErrPct = st.log.filter(l => l.errorPct != null).reduce((a, l, _, arr) => a + l.errorPct / arr.length, 0);
+    return { samples: n, avgErrorMin: Math.round(avgErrMin), avgErrorPct: Math.round(avgErrPct) };
+}
+window.nnContext = nnContext;
+window.nnAccuracy = nnAccuracy;
+
 function renderNodeMarkers() {
     updateAllChartMarkers();
 }
@@ -6111,6 +6425,8 @@ function renderNodeMarkers() {
 // overschrijft de een de ander.
 let patternMarkers = [];
 let showPatternMarkers = false;
+let nnMarkers = [];              // Neo's Node markers (capitulaties + volgende voorspelde node)
+let showNNMarkers = false;      // toggle via de chart-dropdown
 const PATTERN_MARKER_STYLE = {
     hammer: { text: '\u{1F528} Hamer', color: '#14f195' },
     hanging_man: { text: '\u{1FAA2} Hanging Man', color: '#ff3b5c' },
@@ -6138,11 +6454,69 @@ const PATTERN_MARKER_STYLE = {
 
 function updateAllChartMarkers() {
     const visibleNodeMarkers = gridMarkers.filter(m => activeNodeTypes[m.nodeTypeKey] !== false);
-    const combined = showPatternMarkers ? [...visibleNodeMarkers, ...patternMarkers] : visibleNodeMarkers;
+    let combined = showPatternMarkers ? [...visibleNodeMarkers, ...patternMarkers] : [...visibleNodeMarkers];
+    if (showNNMarkers) combined = [...combined, ...nnMarkers];
     // Lightweight Charts vereist markers gesorteerd op tijd
     combined.sort((a, b) => a.time - b.time);
     setChartMarkers(combined);
 }
+
+// Teken Neo's Node markers: de gedetecteerde capitulaties (echte ontladingen) +
+// de eerstvolgende voorspelde NN-node. Passief - beïnvloedt geen trades.
+function renderNNMarkers() {
+    nnMarkers = [];
+    const src = (viewData && viewData.length) ? viewData : rawData;
+    if (!showNNMarkers || !src || src.length < 40) { updateAllChartMarkers(); return; }
+    try {
+        const st = nnCompute('BTC', src);
+        // capitulatie-markers (laatste ~12) in NN-kleur (amber/violet)
+        const recentCaps = (st.caps || []).slice(-12);
+        for (const c of recentCaps) {
+            nnMarkers.push({
+                time: Math.floor(c.time / 1000),
+                position: c.dir === 'low' ? 'belowBar' : 'aboveBar',
+                color: c.dir === 'low' ? '#14f195' : '#ff4fd8',
+                shape: c.dir === 'low' ? 'arrowUp' : 'arrowDown',
+                text: `NN ${c.dir === 'low' ? '\u25B2' : '\u25BC'} cap`
+            });
+        }
+        // volgende voorspelde NN-nodes (reeks) + sub-nodes
+        const st2 = _nnState['BTC'];
+        if (st2 && st2.projected) {
+            for (const p of st2.projected.slice(0, 6)) {
+                nnMarkers.push({
+                    time: Math.floor(p.time / 1000),
+                    position: 'aboveBar',
+                    color: p.main ? '#c792ea' : 'rgba(199,146,234,0.5)',
+                    shape: 'circle',
+                    text: p.main ? `NN \u25C9 ${p.type.replace('NN-','')}` : 'NN \u00b7'
+                });
+            }
+        }
+        // node-confluentie: markeer het volgende samenval-moment (standaard \u00d7 NN)
+        try {
+            const c = computeNodeConfluence();
+            if (c && c.minsTo != null && c.score > 0.3) {
+                const when = Date.now() + c.minsTo * 60000;
+                nnMarkers.push({
+                    time: Math.floor(when / 1000),
+                    position: 'belowBar',
+                    color: '#ffb627',
+                    shape: 'arrowUp',
+                    text: `\u2605 CONFLUENTIE ${(c.score*100|0)}%`
+                });
+            }
+        } catch (e) {}
+    } catch (e) { /* stil - NN is passief */ }
+    updateAllChartMarkers();
+}
+window.renderNNMarkers = renderNNMarkers;
+
+function handleNNMarkersSelect(value) {
+    showNNMarkers = (value === 'VISIBLE');
+    renderNNMarkers();
+}
+window.handleNNMarkersSelect = handleNNMarkersSelect;
 
 // Scant de laatste SCAN_WINDOW candles op candlestick-patronen en zet voor
 // elke treffer een marker onderaan de betreffende candle (nodes staan
@@ -7532,9 +7906,165 @@ function _neoSurface(y, phi) {
     return { x, y: y * 1.02, z, glow };
 }
 
+// ============================================================
+// QUANTUM STARMAP (31-07) — Neo als centrale kern + munt-sub-orbs
+// ============================================================
+// Eén grote centrale orb (Neo, "the mother/father of all") met daaromheen drie
+// kleinere orbs die de munt-sub-breinen voorstellen (BTC/ETH/SOL). Energie-strengen
+// verbinden de kern met elke sub-orb en pulseren als data-overdracht (sub-breinen
+// geven data door aan Neo, Neo stuurt terug). Celgeboorte/starmap-beeldtaal. De
+// sub-orbs lichten op naar rato van hun kans; de sterkste "wint" en gloeit feller.
+let _orb = { raf: null, last: 0, rot: 0, formStart: null, orbs: null, strands: null };
+
+function _buildShell(cx, cy, cz, R, counts) {
+    const pts = [];
+    for (let si = 0; si < counts.length; si++) {
+        const { r, n } = counts[si];
+        for (let i = 0; i < n; i++) {
+            const t = i / n, inc = Math.acos(1 - 2 * t), az = Math.PI * (1 + Math.sqrt(5)) * i;
+            pts.push({ ox: Math.sin(inc)*Math.cos(az)*r*R, oy: Math.sin(inc)*Math.sin(az)*r*R, oz: Math.cos(inc)*r*R,
+                shell: si, tw: Math.random()*6.28, sp: 0.5+Math.random()*1.5 });
+        }
+    }
+    return pts;
+}
+
+function buildQuantumOrb() {
+    // centrale kern (Neo) + 3 sub-orbs in een driehoek eromheen
+    const orbs = [];
+    orbs.push({ role: 'neo', label: 'NEO', cx: 0, cy: 0.05, cz: 0, R: 0.62,
+        pts: _buildShell(0,0,0,0.62,[{r:1.0,n:200},{r:0.78,n:110},{r:0.55,n:60},{r:0.32,n:28}]),
+        rings: [0,0.7,1.4].map((tl,i)=>({tilt:tl,n:70,sp:0.35+i*0.12})), spin: Math.random()*6.28 });
+    // sub-orbs: driehoek onder de kern
+    const subDefs = [ {label:'BTC', ang:-2.4}, {label:'ETH', ang:-0.75}, {label:'SOL', ang:0.9} ];
+    for (const s of subDefs) {
+        const dist = 1.15, cx = Math.cos(s.ang)*dist, cy = Math.sin(s.ang)*dist*0.7 - 0.15;
+        orbs.push({ role: 'sub', label: s.label, cx, cy, cz: (Math.random()-0.5)*0.3, R: 0.28,
+            pts: _buildShell(0,0,0,0.28,[{r:1.0,n:70},{r:0.7,n:34},{r:0.4,n:14}]),
+            rings: [0,0.8].map((tl,i)=>({tilt:tl,n:48,sp:0.5+i*0.2})), spin: Math.random()*6.28,
+            prob: 0.5, active: false });
+    }
+    // energie-strengen kern<->sub (data-overdracht)
+    const strands = [];
+    for (let i = 1; i < orbs.length; i++) {
+        const deeltjes = [];
+        for (let k = 0; k < 6; k++) deeltjes.push({ t: Math.random(), sp: 0.3+Math.random()*0.4, dir: Math.random()<0.5?1:-1 });
+        strands.push({ from: 0, to: i, deeltjes });
+    }
+    _orb.orbs = orbs; _orb.strands = strands; _orb.formStart = null;
+}
+
+function _projPt(px, py, pz, cx, cy, cz, cosr, sinr, cosb, sinb) {
+    let x = (px+cx), y = (py+cy), z = (pz+cz);
+    let rx = x*cosr + z*sinr, rz = -x*sinr + z*cosr, ry = y;
+    const ry2 = ry*cosb - rz*sinb, rz2 = ry*sinb + rz*cosb;
+    return { x: rx, y: ry2, z: rz2 };
+}
+
+function _orbFrame(now) {
+    _orb.raf = requestAnimationFrame(_orbFrame);
+    if (now - _orb.last < 33) return;
+    const dt = Math.min(0.06,(now-_orb.last)/1000)||0.033; _orb.last = now;
+    const cv = document.getElementById('neo-canvas'); if (!cv || !_orb.orbs) return;
+    const r = cv.getBoundingClientRect(); if (r.width < 10) return;
+    const dpr = Math.min(2, devicePixelRatio||1);
+    if (Math.abs(cv.width - r.width*dpr) > 2) { cv.width = Math.max(2,r.width*dpr); cv.height = Math.max(2,r.height*dpr); }
+    const ctx = cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+    const w = r.width, h = r.height; ctx.clearRect(0,0,w,h);
+    if (_orb.formStart==null) _orb.formStart = now;
+    const tSec = Math.max(0,(now-_orb.formStart-150)/1000), F = Math.min(1, tSec/2.8);
+    const act = ((_l2 && _l2.trained)?1:0.6) * (_neo && _neo.actMul || 0.6);
+    _orb.rot += dt * (0.12 + act*0.14);
+    let bias = 0; try { const inp = neoNetInputs(); bias = inp.cnn*0.6 + inp.momentum*0.4; } catch(e){}
+    const core = bias>0.12 ? [20,255,159] : bias<-0.12 ? [255,46,99] : [120,210,255];
+    // sub-orb kansen ophalen uit de multi-crypto laag (indien aanwezig), anders demo
+    try {
+        if (typeof neoMultiState !== 'undefined' && neoMultiState && neoMultiState.markets) {
+            const order = ['BTC','ETH','SOL'];
+            let best = -1, bestP = -1;
+            for (const o of _orb.orbs) { if (o.role!=='sub') continue;
+                const m = neoMultiState.markets[o.label]; o.prob = m ? (m.bestProb||0.5) : 0.5;
+                if (o.prob > bestP) { bestP = o.prob; best = o.label; } }
+            for (const o of _orb.orbs) if (o.role==='sub') o.active = (o.label === best);
+        } else {
+            for (const o of _orb.orbs) if (o.role==='sub') { o.prob = 0.5 + 0.35*Math.sin(now/2000 + o.cx*3); }
+            let best=null,bp=-1; for (const o of _orb.orbs) if(o.role==='sub'&&o.prob>bp){bp=o.prob;best=o.label;}
+            for (const o of _orb.orbs) if(o.role==='sub') o.active=(o.label===best);
+        }
+    } catch(e){}
+    const cx0 = w/2, cy0 = h*0.48, scale = Math.min(w,h)*0.30;
+    const cosr = Math.cos(_orb.rot), sinr = Math.sin(_orb.rot), cosb = Math.cos(_orb.rot*0.35), sinb = Math.sin(_orb.rot*0.35);
+    const scanY = ((now/2600)%1.3)*2 - 1.15;
+    const S2 = (P) => { const persp = 1/(2.8 - P.z*0.5); return { sx: cx0 + P.x*scale*persp, sy: cy0 - P.y*scale*persp, persp, z: P.z }; };
+
+    // ENERGIE-STRENGEN (kern <-> sub) met stromende deeltjes = data-overdracht
+    for (const st of _orb.strands) {
+        const A = _orb.orbs[st.from], B = _orb.orbs[st.to];
+        const pa = S2(_projPt(0,0,0, A.cx,A.cy,A.cz, cosr,sinr,cosb,sinb));
+        const pb = S2(_projPt(0,0,0, B.cx,B.cy,B.cz, cosr,sinr,cosb,sinb));
+        const activeGlow = B.active ? 1 : 0.3;
+        ctx.strokeStyle = `rgba(${core[0]},${core[1]},${core[2]},${(0.10*activeGlow*F).toFixed(3)})`;
+        ctx.lineWidth = B.active ? 1.2 : 0.6;
+        ctx.beginPath(); ctx.moveTo(pa.sx,pa.sy); ctx.lineTo(pb.sx,pb.sy); ctx.stroke();
+        // stromende data-deeltjes langs de streng
+        for (const d of st.deeltjes) {
+            d.t += d.sp*dt*d.dir; if (d.t>1) d.t-=1; if (d.t<0) d.t+=1;
+            const x = pa.sx+(pb.sx-pa.sx)*d.t, y = pa.sy+(pb.sy-pa.sy)*d.t;
+            ctx.globalAlpha = activeGlow*F; ctx.fillStyle = B.active ? '#ffffff' : `rgb(${core[0]},${core[1]},${core[2]})`;
+            const sz = B.active ? 2.2 : 1.4; ctx.fillRect(x-sz/2,y-sz/2,sz,sz);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // teken elke orb (sub eerst, kern als laatste bovenop)
+    const drawList = [..._orb.orbs].sort((a,b)=> (a.role==='neo'?1:0)-(b.role==='neo'?1:0));
+    for (const o of drawList) {
+        o.spin += dt * (o.role==='neo' ? (0.3+act*0.3) : 0.5);
+        const cs = Math.cos(o.spin), sn = Math.sin(o.spin);
+        const glow = o.role==='neo' ? 1 : (0.4 + 0.6*(o.prob||0.5)) * (o.active?1.3:0.8);
+        const oc = o.role==='neo' ? core : (o.active ? [255,255,255] : core);
+        const proj = o.pts.map(p => {
+            // lokale spin om eigen as
+            let lx = p.ox*cs + p.oz*sn, lz = -p.ox*sn + p.oz*cs, ly = p.oy;
+            const P = _projPt(lx,ly,lz, o.cx,o.cy,o.cz, cosr,sinr,cosb,sinb);
+            return { ...S2(P), yt: P.y+o.cy, p };
+        });
+        proj.sort((a,b)=>a.z-b.z);
+        for (const q of proj) {
+            const p = q.p;
+            const tw = 0.4 + 0.6*(0.5+0.5*Math.sin(now/600*p.sp + p.tw));
+            const scanGlow = Math.exp(-Math.pow((q.yt - scanY)/0.10, 2));
+            const depth = 0.5+0.5*q.z;
+            const s = ((o.role==='neo'?0.8:0.6) + 1.2*q.persp)*(0.5+0.5*tw)*(0.55+0.45*depth)*glow + scanGlow*1.2;
+            ctx.globalAlpha = Math.min(1, F*(0.3 + tw*0.6*depth + scanGlow*0.5)*glow);
+            ctx.fillStyle = scanGlow>0.55 ? '#ffffff' : (p.shell>=2 ? '#eaffff' : `rgb(${oc[0]},${oc[1]},${oc[2]})`);
+            ctx.fillRect(q.sx-s/2, q.sy-s/2, s, s);
+        }
+        ctx.globalAlpha = 1;
+        // kern-glow per orb
+        const cen = S2(_projPt(0,0,0,o.cx,o.cy,o.cz,cosr,sinr,cosb,sinb));
+        const gr = ctx.createRadialGradient(cen.sx,cen.sy,0,cen.sx,cen.sy,scale*o.R*1.1);
+        gr.addColorStop(0, `rgba(${oc[0]},${oc[1]},${oc[2]},${((o.role==='neo'?0.20:0.14)*F*glow).toFixed(3)})`);
+        gr.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(cen.sx,cen.sy,scale*o.R*1.1,0,6.28); ctx.fill();
+        // sub-orb muntlabel
+        if (o.role==='sub') {
+            ctx.globalAlpha = F*(o.active?1:0.6); ctx.fillStyle = o.active ? '#ffffff' : '#7fb8d8';
+            ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign='center';
+            ctx.fillText(o.label, cen.sx, cen.sy + scale*o.R + 9);
+            if (o.active) ctx.fillText((o.prob*100|0)+'%', cen.sx, cen.sy + scale*o.R + 17);
+            ctx.globalAlpha = 1;
+        }
+    }
+}
+function startQuantumOrb() { if (!_orb.orbs) buildQuantumOrb(); if (!_orb.raf) _orb.raf = requestAnimationFrame(_orbFrame); }
+window.startQuantumOrb = startQuantumOrb;
+
 function buildCortex() {
     const cv = document.getElementById('neo-canvas');
     if (!cv) return;
+    // CYBER-ROBOT (31-07): hoekig/geometrisch silhouet (facet-panelen) maar in de
+    // originele cyaan-kleur. Herkenbaar menselijk, subtiel robot-achtig.
     const RINGS = 54, pts = [], rings = [];
     const ringIdx = y => Math.max(0, Math.min(RINGS - 1, Math.round((1.0 - y) / 1.92 * (RINGS - 1))));
     function addPt(x, y, z, c, glow, ring) {
@@ -7546,14 +8076,21 @@ function buildCortex() {
         });
         return pts.length - 1;
     }
-    // scan-ringen kop
+    // scan-ringen kop — nu met lichte FACETTERING (hoekig): quantiseer de hoek zodat
+    // ronde ringen kantige veelhoeken worden (paneel-look).
+    const FACETS = 9;   // minder facet-hoeken + sterkere snap -> duidelijk kantige robot-kop
     for (let ri = 0; ri < RINGS; ri++) {
         const y = 1.0 - (ri / (RINGS - 1)) * 1.52;   // kruin -> kin, niet verder
         const w = _neoInterp(NEO_WIDTH, y);
         const n = Math.max(12, Math.round(64 * (w + 0.25)));
         const ring = [];
         for (let k = 0; k < n; k++) {
-            const phi = -Math.PI + (k / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.03;
+            let phi = -Math.PI + (k / n) * Math.PI * 2 + (Math.random() - 0.5) * 0.03;
+            // facet-kwantisatie: trek de hoek sterk naar de dichtstbijzijnde facet-rand
+            // zodat het silhouet duidelijk kantig wordt (robot-panelen).
+            const fstep = (Math.PI * 2) / FACETS;
+            const snapped = Math.round(phi / fstep) * fstep;
+            phi = phi + (snapped - phi) * 0.75;   // 75% naar facet -> uitgesproken hoekig
             const q = _neoSurface(y, phi);
             ring.push(addPt(q.x, q.y, q.z, q.glow ? '#eaffff' : '#9fdcff', q.glow, ri));
         }
@@ -7803,23 +8340,25 @@ function _neoFrame(now) {
         ctx.closePath(); ctx.stroke();
     }
 
-    // FACE-MESH: het wireframe dat de kop opbouwt (29-07). See-through: lage alpha,
-    // zodat het brein binnenin zichtbaar blijft. Voor-facing lijnen iets feller.
+    // FACE-MESH: de paneel-randen van de cyber-robot-kop (facet-structuur), maar in
+    // de originele cyaan-kleur i.p.v. regenboog. Scan laat de randen mee-oplichten.
     if (_neo.mesh) {
-        ctx.lineWidth = 0.3;
+        ctx.lineWidth = 0.35;
         for (const m of _neo.mesh) {
             const qa = proj[m.a], qb = proj[m.b];
             if (qa.e < 0.4 || qb.e < 0.4) continue;
             const ee = Math.min(qa.e, qb.e);
             const depth = (qa.persp + qb.persp) / 2;
-            ctx.strokeStyle = `rgba(110,190,240,${((0.05 + 0.09 * (depth - 0.3)) * ee).toFixed(3)})`;
+            const scanGlow = F >= 1 ? Math.exp(-Math.pow((_neo.pts[m.a].ty - scanY) / 0.10, 2)) : 0;
+            const a = (0.06 + 0.11 * (depth - 0.3)) * ee + scanGlow * 0.5;
+            ctx.strokeStyle = `rgba(110,190,240,${a.toFixed(3)})`;
             ctx.beginPath(); ctx.moveTo(qa.sx, qa.sy); ctx.lineTo(qb.sx, qb.sy); ctx.stroke();
         }
     }
 
     // (brein wordt nu in een eigen paneel getekend: _neoBrainFrame op neo-brain-canvas)
 
-    // punten
+    // punten — origineel blauw + scan (robot-facet-vorm blijft, kleur terug naar cyaan)
     for (let i = 0; i < _neo.pts.length; i++) {
         const p = _neo.pts[i];
         const q = proj[i];
@@ -7827,9 +8366,8 @@ function _neoFrame(now) {
         const tw = 0.32 + 0.5 * (0.5 + 0.5 * Math.sin(now / 700 * p.sp + p.tw));
         const scanGlow = F >= 1 ? Math.exp(-Math.pow((p.ty - scanY) / 0.10, 2)) : 0;
         const s = ((p.glow ? 1.6 : 0.95) + 1.1 * q.persp) * (0.55 + 0.45 * tw) + p.fl * 1.6 + scanGlow * 0.7;
-        // hoofd is weer massief (brein is nu een apart paneel); volle alpha voor realisme
         ctx.globalAlpha = Math.min(1, q.e * ((p.glow ? Math.max(tw, 0.6) : tw * 0.9) + p.fl + scanGlow * 0.4));
-        ctx.fillStyle = p.fl > 0.3 ? '#ffffff' : p.c;
+        ctx.fillStyle = (p.fl > 0.3 || scanGlow > 0.55) ? '#ffffff' : p.c;   // origineel: wit accent, verder p.c (cyaan)
         ctx.fillRect(q.sx - s / 2, q.sy - s / 2, s, s);
     }
     ctx.globalAlpha = 1;
@@ -7975,7 +8513,9 @@ const NEONET_INPUTS = [
     { key: 'rsi',      label: 'RSI',      c: '#ff6ec7' },
     { key: 'ema',      label: 'EMA',      c: '#7fffd4' },
     { key: 'cnn',      label: 'CNN',      c: '#ff4fd8' },
-    { key: 'fib',      label: 'FIB',      c: '#ffd54a' }
+    { key: 'fib',      label: 'FIB',      c: '#ffd54a' },
+    { key: 'nn',       label: 'NN',       c: '#c792ea' },
+    { key: 'nodeconf', label: 'CONF',     c: '#ffb627' }
 ];
 
 function buildNeoNet() {
@@ -8016,7 +8556,10 @@ function neoNetInputs() {
         rsi: (() => { try { const r = getCurrentRSIValue(); return r == null ? 0 : (50 - r) / 50; } catch (e) { return 0; } })(),
         ema: (() => { try { const e = (typeof maCurrentValue !== 'undefined' && maCurrentValue) ? maCurrentValue : null; return (e && isFinite(livePrice)) ? Math.max(-1, Math.min(1, (livePrice - e) / e * 200)) : 0; } catch (er) { return 0; } })(),
         cnn: cnnBias,
-        fib: norm(snap.fibConfluence != null ? snap.fibConfluence : 0, 5)
+        fib: norm(snap.fibConfluence != null ? snap.fibConfluence : 0, 5),
+        // Neo's Node nabijheid (0..1, hoofdnode telt zwaarder) + node-confluentie score
+        nn: (() => { try { const p = nnProximity('BTC'); return p ? p.prox * (p.main ? 1 : 0.6) : 0; } catch (e) { return 0; } })(),
+        nodeconf: (() => { try { const c = computeNodeConfluence(); return c ? (c.score || 0) : 0; } catch (e) { return 0; } })()
     };
 }
 
@@ -8311,24 +8854,41 @@ function _neoBrainFrame(now) {
         }
         ctx.globalAlpha = 1;
     }
-    // gyri contourlijnen (per ring) met fold-schaduw
-    for (let ri = 0; ri < totalR; ri++) { const ring = rings[ri]; if (ring.length < 2) continue; const e0 = proj[ring[0]].e; if (e0 < 0.35) continue;
-        for (let k = 0; k < ring.length; k++) { const ia = ring[k], ib = ring[(k + 1) % ring.length], qa = proj[ia], qb = proj[ib]; const fold = (pts[ia].fold + pts[ib].fold) / 2, sh = _bshade(fold), depth = 0.5 + 0.5 * qa.rz, bg = (e0 > 0.35 && e0 < 0.98) ? (1 - e0) * 0.05 : 0;
-            ctx.strokeStyle = `rgba(${Math.round(80 + 130 * sh)},${Math.round(170 + 80 * sh)},${Math.round(220 + 35 * sh)},${((0.14 + 0.5 * sh + 0.4 * bg) * e0 * depth).toFixed(3)})`; ctx.lineWidth = 0.5 + 0.9 * sh; ctx.beginPath(); ctx.moveTo(qa.sx, qa.sy); ctx.lineTo(qb.sx, qb.sy); ctx.stroke(); } }
+    // (gyri-contourlijnen verwijderd 31-07: gebruiker wil geen teken-lijnen, alleen
+    //  de puntenwolk van het brein + de gekleurde deeltjes-streams eromheen)
+    // sulci-lijnen verwijderd; alleen het pulserende lichtpuntje langs de groef blijft
+    // als subtiel levend accent (een punt, geen lijn).
     for (const s of bs.sulci) { const vis = s.side === 'top' ? 0.9 : s.side === 'xpos' ? Math.max(0, -sinr) : Math.max(0, sinr); if (vis < 0.06) continue; const e0 = proj[s.idx[0]].e; if (e0 < 0.5) continue; const pj = s.idx.map(i => proj[i]);
-        ctx.strokeStyle = `rgba(10,26,40,${(0.55 * vis * e0).toFixed(3)})`; ctx.lineWidth = 2.2; ctx.beginPath(); pj.forEach((q, i) => i ? ctx.lineTo(q.sx, q.sy) : ctx.moveTo(q.sx, q.sy)); ctx.stroke();
-        ctx.strokeStyle = `rgba(150,220,255,${(0.26 * vis * e0).toFixed(3)})`; ctx.lineWidth = 0.7; ctx.beginPath(); pj.forEach((q, i) => i ? ctx.lineTo(q.sx, q.sy) : ctx.moveTo(q.sx, q.sy)); ctx.stroke();
         const seg = pj.length - 1, fp = s.pulse * seg; if (fp >= 0 && fp < seg) { const i0 = Math.floor(fp), fr = fp - i0, qa = pj[i0], qb = pj[i0 + 1], px = qa.sx + (qb.sx - qa.sx) * fr, py = qa.sy + (qb.sy - qa.sy) * fr; ctx.save(); ctx.shadowColor = s.col; ctx.shadowBlur = 13; ctx.fillStyle = s.col; ctx.globalAlpha = 0.9 * vis * e0; ctx.beginPath(); ctx.arc(px, py, 2.3, 0, 6.28); ctx.fill(); ctx.restore(); ctx.globalAlpha = 1; } }
-    // synapsen: gradient-staart; actieve (bias) worden groen/rood, rest kleurrijk
-    for (const sy of bs.syn) { const qa = proj[sy.a], qb = proj[sy.b]; if (qa.e < 0.6 || qb.e < 0.6) continue; const strength2 = sy.role > 0 ? bull : bear, colored = strength2 > 0.08, col = colored ? (sy.role > 0 ? '#00ff9f' : '#ff2e63') : sy.col, aMul = colored ? 0.5 + 0.5 * strength2 : 0.3;
-        const t1 = Math.min(1, sy.t), t0 = Math.max(0, sy.t - 0.3), ax = qa.sx + (qb.sx - qa.sx) * t0, ay = qa.sy + (qb.sy - qa.sy) * t0, bx = qa.sx + (qb.sx - qa.sx) * t1, by = qa.sy + (qb.sy - qa.sy) * t1; const gr = ctx.createLinearGradient(ax, ay, bx, by); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, col); ctx.strokeStyle = gr; ctx.globalAlpha = aMul * Math.min(qa.e, qb.e); ctx.lineWidth = colored ? 0.9 : 0.5; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(bx, by, colored ? 1.4 : 0.9, 0, 6.28); ctx.fill(); } ctx.globalAlpha = 1;
-    // knopen
-    for (let i = 0; i < pts.length; i++) { const p = pts[i], q = proj[i]; if (q.e <= 0.02) continue; const tw = 0.32 + 0.5 * (0.5 + 0.5 * Math.sin(now / 700 * p.sp + p.tw)), sh = _bshade(p.fold), depth = 0.55 + 0.45 * q.rz; const s = ((p.glow ? 1.4 : 0.85) + 1.0 * q.persp) * (0.5 + 0.5 * tw) * (0.5 + 0.7 * sh); ctx.globalAlpha = Math.min(1, q.e * (tw * 0.85 * sh + 0.1) * depth) * p.dim; ctx.fillStyle = p.glow ? '#eaffff' : (p.fold > 0.3 ? '#cdeeff' : '#7fb8d8'); ctx.fillRect(q.sx - s / 2, q.sy - s / 2, s, s); } ctx.globalAlpha = 1;
+    // (synaps-lijnen volledig verwijderd 31-07: alleen deeltjes-streams + puntenwolk)
+
+    // knopen — met SCAN-animatie (zoals het hoofd) en beter zichtbaar
+    // scanY beweegt verticaal op en neer door het brein; punten dicht bij de scan-lijn
+    // lichten fel op, zodat er een scan-golf over het brein trekt.
+    const scanYb = ((now / 2600) % 1.3) * 2 * _bB - _bB * 1.15;
+    for (let i = 0; i < pts.length; i++) {
+        const p = pts[i], q = proj[i]; if (q.e <= 0.02) continue;
+        const tw = 0.4 + 0.5 * (0.5 + 0.5 * Math.sin(now / 700 * p.sp + p.tw)), sh = _bshade(p.fold), depth = 0.55 + 0.45 * q.rz;
+        const scanGlow = Math.exp(-Math.pow((p.ty - scanYb) / 0.09, 2));
+        // basis-zichtbaarheid flink omhoog + scan-flits
+        const s = ((p.glow ? 1.6 : 1.15) + 1.1 * q.persp) * (0.6 + 0.4 * tw) * (0.6 + 0.6 * sh) + scanGlow * 1.4;
+        ctx.globalAlpha = Math.min(1, q.e * (0.35 + tw * 0.65 * sh + scanGlow * 0.6) * depth) * p.dim;
+        ctx.fillStyle = scanGlow > 0.5 ? '#ffffff' : (p.glow ? '#eaffff' : (p.fold > 0.3 ? '#d6f2ff' : '#9fd4f0'));
+        ctx.fillRect(q.sx - s / 2, q.sy - s / 2, s, s);
+    }
+    ctx.globalAlpha = 1;
+    // scan-lijn zelf (subtiele horizontale gloed-band die met scanYb meebeweegt)
+    {
+        const sy = cy - scanYb * scale;
+        const grd = ctx.createLinearGradient(0, sy - 8, 0, sy + 8);
+        grd.addColorStop(0, 'rgba(120,200,255,0)'); grd.addColorStop(0.5, 'rgba(120,210,255,0.10)'); grd.addColorStop(1, 'rgba(120,200,255,0)');
+        ctx.fillStyle = grd; ctx.fillRect(cx - scale, sy - 8, scale * 2, 16);
+    }
     // bias-label
     const el = document.getElementById('neo-brain-out');
     if (el) { el.textContent = bias > 0.12 ? 'BULLISH' : bias < -0.12 ? 'BEARISH' : 'neutraal'; el.style.color = bias > 0.12 ? '#14f195' : bias < -0.12 ? '#ff4f6d' : '#5c7488'; }
 }
-function startNeoBrain() { if (!_neobrain.raf) _neobrain.raf = requestAnimationFrame(_neoBrainFrame); }
+function startNeoBrain() { if (!_brain2) { try { buildNeoBrain2(); } catch (e) {} } if (!_neobrain.raf) _neobrain.raf = requestAnimationFrame(_neoBrainFrame); }
 window.startNeoBrain = startNeoBrain;
 function updateCortexActivation() {
     const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : '';
@@ -8390,7 +8950,7 @@ window.toggleCortexHeadPanel = toggleCortexHeadPanel;
         // (v4 gebruikt waypoint-tekst i.p.v. SVG jump-rails)
         try { initScrollSpy(); } catch (e) {}
         try { initFlowHud(); } catch (e) {}
-        try { buildCortex(); startNeoNet(); startNeoBrain(); updateL2UI(); } catch (e) {}
+        try { startQuantumOrb(); startNeoNet(); startNeoBrain(); updateL2UI(); } catch (e) {}
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go);
     else go();
