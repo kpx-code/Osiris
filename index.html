@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OSIRIS INTEL — V7</title>
+<title>OSIRIS INTEL — V7.1</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -421,6 +421,9 @@ section { position:relative; z-index:2; }
 .calib-tab{ font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.06em; font-weight:700; padding:5px 14px; background:rgba(255,255,255,0.03); color:var(--text-dim); border:1px solid var(--line); border-radius:5px; cursor:pointer; transition:all 0.15s; }
 .calib-tab:hover{ background:rgba(199,146,234,0.08); color:var(--text-primary); }
 .calib-tab.active{ background:rgba(199,146,234,0.14); color:#c792ea; border-color:rgba(199,146,234,0.5); }
+.learning-tab{ font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.05em; font-weight:700; padding:5px 12px; background:rgba(255,255,255,0.03); color:var(--text-dim); border:1px solid var(--line); border-radius:5px; cursor:pointer; transition:all 0.15s; }
+.learning-tab:hover{ background:rgba(0,217,255,0.08); color:var(--text-primary); }
+.learning-tab.active{ background:rgba(0,217,255,0.14); color:var(--teal,#00d9ff); border-color:rgba(0,217,255,0.5); }
 </style>
 <style>
 /* extra responsive (V4 NEO): alle onderdelen blijven, ze stapelen alleen op klein scherm */
@@ -873,7 +876,7 @@ section { position:relative; z-index:2; }
         </div>
 
         <div class="subhead" style="margin-top:20px;">&#9673; Multi-Brein Neuraal Netwerk &middot; Osiris + Neo BTC/ETH/SOL</div>
-        <div id="neonet-big-panel" style="position:relative; height:420px; background:#000004; border:1px solid rgba(0,217,255,0.2); border-radius:10px; overflow:hidden;">
+        <div id="neonet-big-panel" style="position:relative; height:560px; background:#000004; border:1px solid rgba(0,217,255,0.2); border-radius:10px; overflow:hidden;">
           <canvas id="neo-net-canvas-big"></canvas>
           <div style="position:absolute; top:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">MULTI-BREIN NEURAAL NETWERK</div>
           <div style="position:absolute; top:26px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">12 inputs &rarr; sub-breinen (BTC/ETH/SOL) &rarr; Osiris mainbrain &rarr; beslissing</div>
@@ -948,10 +951,16 @@ section { position:relative; z-index:2; }
                   </div>
                 </div>
             </div>
-        <div class="subhead">Adaptive learning &middot; Level 1</div>
+        <div class="subhead">Adaptive learning &middot; Level 1 &middot; per brein</div>
                 <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
-                    <span>&#9679; <span style="color:#f7931a;">Neo BTC</span> — Adaptive Learning · Level 1</span>
+                    <span>&#9679; Adaptive Learning · Level 1</span>
                     <span id="learning-chevron">&#9662;</span>
+                </div>
+                <div id="learning-brain-tabs" style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                    <button class="learning-tab active" data-brain="OSIRIS" onclick="switchLearningBrain('OSIRIS')">Osiris Mainbrain</button>
+                    <button class="learning-tab" data-brain="BTC" onclick="switchLearningBrain('BTC')">Neo BTC</button>
+                    <button class="learning-tab" data-brain="ETH" onclick="switchLearningBrain('ETH')">Neo ETH</button>
+                    <button class="learning-tab" data-brain="SOL" onclick="switchLearningBrain('SOL')">Neo SOL</button>
                 </div>
                 <div id="learning-body" class="open" style="margin-top:10px;">
                     <div id="learning-panel"><span style="color:var(--text-dim); font-size:0.85em;">Nog geen afgesloten trend-trades met vastgelegde factoren.</span></div>
