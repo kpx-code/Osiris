@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OSIRIS INTEL — V6 Neo</title>
+<title>OSIRIS INTEL — V7</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -682,7 +682,7 @@ section { position:relative; z-index:2; }
                 <span style="color:var(--text-dim); font-size:0.62rem;">Multi-markt data laadt bij botstart...</span>
             </div>
 
-            <div class="subhead" style="margin-top:0;">VFM &middot; ER &middot; DB &middot; Chaos Index</div>
+            <div class="subhead" style="margin-top:0;">VFM &middot; ER &middot; DB &middot; Chaos Index <span style="font-weight:400; color:var(--dimmer); font-size:0.8em; text-transform:none; letter-spacing:0;">(volgt de gekozen munt-tab)</span></div>
             <div class="data-grid">
                 <div class="meter-card"><h3>VFM</h3><p id="vfm-display">0.00</p><small id="vfm-status">Wachten...</small></div>
                 <div class="meter-card"><h3>ER (Energy Ratio)</h3><p id="er-display">0.00</p><small id="er-status">Ref: 1.0</small></div>
@@ -690,7 +690,7 @@ section { position:relative; z-index:2; }
                 <div class="meter-card"><h3>Chaos Index</h3><p id="chaos-display">0.00%</p><small id="chaos-status">Limit: 8% / 15%</small></div>
             </div>
 
-            <div class="subhead">Osiris Market Status</div>
+            <div class="subhead">Osiris Market Status <span style="font-weight:400; color:var(--dimmer); font-size:0.8em; text-transform:none; letter-spacing:0;">(Neo BTC · UOTAM-nodes)</span></div>
             <div class="status-banner">
                 <p id="market-status-main">--</p>
                 <p id="probability-score">Confidence: --</p>
@@ -872,7 +872,15 @@ section { position:relative; z-index:2; }
           </div>
         </div>
 
-        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleCortexPanel()"><span><span id="cortex-chevron">&#9662;</span> NEO Mark 1 &middot; Level 2 (lerend)</span><span id="cortex-status" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">initialiseert&hellip;</span></div>
+        <div class="subhead" style="margin-top:20px;">&#9673; Multi-Brein Neuraal Netwerk &middot; Osiris + Neo BTC/ETH/SOL</div>
+        <div id="neonet-big-panel" style="position:relative; height:420px; background:#000004; border:1px solid rgba(0,217,255,0.2); border-radius:10px; overflow:hidden;">
+          <canvas id="neo-net-canvas-big"></canvas>
+          <div style="position:absolute; top:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">MULTI-BREIN NEURAAL NETWERK</div>
+          <div style="position:absolute; top:26px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">12 inputs &rarr; sub-breinen (BTC/ETH/SOL) &rarr; Osiris mainbrain &rarr; beslissing</div>
+          <div style="position:absolute; top:10px; right:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out-big" style="font-size:0.85rem;">&mdash;</span></div>
+        </div>
+
+        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleCortexPanel()"><span><span id="cortex-chevron">&#9662;</span> <span style="color:#f7931a;">Neo BTC</span> &middot; NEO Mark 1 &middot; Level 2 (lerend)</span><span id="cortex-status" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">initialiseert&hellip;</span></div>
         <div id="cortex-body" style="border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin-bottom:8px;">
           <div id="cortex-legend" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim); line-height:1.6;">Wacht op eerste training&hellip;</div>
           <div style="font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--dimmer); margin-top:4px;">Leerfase &middot; <span id="cortex-trades">0</span> samples <span style="float:right;">doel: 90% winrate + positieve P/L</span></div>
@@ -901,7 +909,7 @@ section { position:relative; z-index:2; }
         <div class="subhead">Open Posities</div>
         <div class="table-wrap" style="overflow-x:auto;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th>Markt</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
+            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th>Markt</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size</th><th>Alloc</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
             <tbody id="open-positions-body">
               <tr><td colspan="10" style="text-align:center; color:var(--dim); padding:8px;">Geen open posities</td></tr>
             </tbody>
@@ -914,7 +922,7 @@ section { position:relative; z-index:2; }
         <div class="subhead">Gesloten Posities &mdash; Huidige Sessie</div>
         <div class="table-wrap scrollable" style="max-height:220px; overflow-y:auto;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Side</th><th>Prijs</th><th>Amount (BTC)</th><th>Size</th><th>P/L</th></tr></thead>
+            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>P/L</th></tr></thead>
             <tbody id="history-body"></tbody>
           </table>
         </div>
@@ -942,7 +950,7 @@ section { position:relative; z-index:2; }
             </div>
         <div class="subhead">Adaptive learning &middot; Level 1</div>
                 <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
-                    <span>&#9679; Adaptive Learning — Level 1</span>
+                    <span>&#9679; <span style="color:#f7931a;">Neo BTC</span> — Adaptive Learning · Level 1</span>
                     <span id="learning-chevron">&#9662;</span>
                 </div>
                 <div id="learning-body" class="open" style="margin-top:10px;">
