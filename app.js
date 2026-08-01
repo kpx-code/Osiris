@@ -340,18 +340,25 @@ async function testnetWsRequest(method, params = {}, signed = false) {
 
 // LOT_SIZE (stepSize/minQty) en NOTIONAL-filters ophalen en cachen - nodig om
 // BTC-hoeveelheden correct af te ronden, anders weigert de exchange de order.
-async function getTestnetSymbolFilters() {
-    if (testnetSymbolFilters) return testnetSymbolFilters;
-    const info = await testnetWsRequest('exchangeInfo', { symbol: TESTNET_SYMBOL });
-    const sym = info.symbols?.[0];
-    const lot = sym?.filters?.find(f => f.filterType === 'LOT_SIZE');
-    const notional = sym?.filters?.find(f => f.filterType === 'NOTIONAL' || f.filterType === 'MIN_NOTIONAL');
-    testnetSymbolFilters = {
+let _testnetFiltersBySymbol = {};   // cache per munt
+async function getTestnetSymbolFilters(symbol) {
+    const sym = symbol || TESTNET_SYMBOL;
+    if (_testnetFiltersBySymbol[sym]) return _testnetFiltersBySymbol[sym];
+    // behoud de oude cache voor BTC (backwards-compat)
+    if (sym === TESTNET_SYMBOL && testnetSymbolFilters) { _testnetFiltersBySymbol[sym] = testnetSymbolFilters; return testnetSymbolFilters; }
+    const info = await testnetWsRequest('exchangeInfo', { symbol: sym });
+    const s = info.symbols?.[0];
+    const lot = s?.filters?.find(f => f.filterType === 'LOT_SIZE');
+    const notional = s?.filters?.find(f => f.filterType === 'NOTIONAL' || f.filterType === 'MIN_NOTIONAL');
+    const filters = {
         stepSize: parseFloat(lot?.stepSize || '0.00001'),
         minQty: parseFloat(lot?.minQty || '0.00001'),
-        minNotional: parseFloat(notional?.minNotional || '5')
+        minNotional: parseFloat(notional?.minNotional || '5'),
+        baseAsset: s?.baseAsset || sym.replace('USDT', '')
     };
-    return testnetSymbolFilters;
+    _testnetFiltersBySymbol[sym] = filters;
+    if (sym === TESTNET_SYMBOL) testnetSymbolFilters = filters;
+    return filters;
 }
 
 function roundToStep(qty, stepSize) {
@@ -370,7 +377,10 @@ async function getTestnetBalances() {
 // of { quantity } (BTC-hoeveelheid, voor exits van een bestaande positie).
 // newOrderRespType FULL zodat de respons de individuele fills bevat.
 async function testnetMarketOrder(orderSide, opts) {
-    const params = { symbol: TESTNET_SYMBOL, side: orderSide, type: 'MARKET', newOrderRespType: 'FULL' };
+    // munt-bewust: gebruik het meegegeven symbool (ETHUSDT/SOLUSDT) of standaard BTC.
+    // Zo handelt Neo met dezelfde nepgeld-wallet op meerdere testnet-markten.
+    const symbol = (opts && opts.symbol) ? opts.symbol : TESTNET_SYMBOL;
+    const params = { symbol, side: orderSide, type: 'MARKET', newOrderRespType: 'FULL' };
     if (opts.quoteOrderQty != null) params.quoteOrderQty = opts.quoteOrderQty.toFixed(2);
     if (opts.quantity != null) params.quantity = String(opts.quantity);
     return testnetWsRequest('order.place', params, true);
@@ -379,14 +389,15 @@ async function testnetMarketOrder(orderSide, opts) {
 // Gewogen gemiddelde fill-prijs + commissie (omgerekend naar USDT) uit een
 // orderrespons. Commissie kan in USDT, BTC of BNB luiden; BNB is op het
 // testnet zeldzaam en wordt conservatief op 0 gezet met een waarschuwing.
-function summarizeTestnetFills(orderResponse) {
+function summarizeTestnetFills(orderResponse, baseAsset) {
     const fills = orderResponse.fills || [];
+    const base = baseAsset || 'BTC';
     let qty = 0, cost = 0, commissionQuote = 0;
     for (const f of fills) {
         const fQty = parseFloat(f.qty), fPrice = parseFloat(f.price), comm = parseFloat(f.commission || '0');
         qty += fQty; cost += fQty * fPrice;
         if (f.commissionAsset === 'USDT') commissionQuote += comm;
-        else if (f.commissionAsset === 'BTC') commissionQuote += comm * fPrice;
+        else if (f.commissionAsset === base) commissionQuote += comm * fPrice;
         else if (comm > 0) console.warn(`Testnet: commissie in ${f.commissionAsset} niet omgerekend (${comm}) - PnL telt deze niet mee.`);
     }
     const executedQty = parseFloat(orderResponse.executedQty || qty || '0');
@@ -1817,6 +1828,8 @@ function startAutonomousBot(isAutoRestart = false) {
     setTimeout(() => { try { autonomousEngineAdapt('start'); } catch (e) {} }, 3000);
     if (window._engineAdapt) clearInterval(window._engineAdapt);
     window._engineAdapt = setInterval(() => { try { autonomousEngineAdapt('periodiek'); } catch (e) {} }, 30 * 60 * 1000);
+    // MULTI-ASSET (fase 2): start de achtergrond-scan van BTC/ETH/SOL voor de tabs.
+    try { startMultiAssetEngine(); } catch (e) {}
     // Level 2: train het model bij de start (en elke 30 min opnieuw) op historische
     // candles + schone trades, zodat de gekalibreerde kans meegroeit met de data.
     l2BuildAndTrain().then(r => { if (r && r.ok) console.log(`Level 2 getraind op ${r.samples} samples (${r.trades} echte trades).`); });
@@ -3991,7 +4004,10 @@ function commitPositionEntry(position, reasonText) {
 
 async function commitPositionEntryOnTestnet(position, reasonText) {
     try {
-        const filters = await getTestnetSymbolFilters();
+        // munt-bewust: de positie draagt zijn eigen symbool (standaard BTC). Zo handelt
+        // Neo met dezelfde nepgeld-wallet op meerdere testnet-markten (BTC/ETH/SOL).
+        const symbol = position.symbol || TESTNET_SYMBOL;
+        const filters = await getTestnetSymbolFilters(symbol);
         const notionalUSD = position.amount * position.entryPrice; // amount is al in USD-termen gesized
         if (notionalUSD < filters.minNotional) {
             logBotAction("SKIPPED", position.entryPrice, position.side, 0, 0, `TESTNET: order (${notionalUSD.toFixed(2)} USDT) onder minNotional (${filters.minNotional})`);
@@ -3999,32 +4015,32 @@ async function commitPositionEntryOnTestnet(position, reasonText) {
         }
         let res;
         if (position.side === 'LONG') {
-            res = await testnetMarketOrder('BUY', { quoteOrderQty: notionalUSD });
+            res = await testnetMarketOrder('BUY', { quoteOrderQty: notionalUSD, symbol });
         } else {
-            // SHORT op spot = BTC uit het testnet-saldo verkopen ("inventory short").
+            // SHORT op spot = de base-asset uit het testnet-saldo verkopen ("inventory short").
             const qty = roundToStep(position.amount, filters.stepSize);
             const bal = await getTestnetBalances();
-            if ((bal.BTC || 0) < qty) {
-                logBotAction("SKIPPED", position.entryPrice, position.side, 0, 0, `TESTNET: onvoldoende BTC-saldo voor SHORT (nodig ${qty}, vrij ${(bal.BTC || 0).toFixed(5)}) - wacht op maandelijkse testnet-reset of koop eerst BTC`);
+            const baseAsset = filters.baseAsset || 'BTC';
+            if ((bal[baseAsset] || 0) < qty) {
+                logBotAction("SKIPPED", position.entryPrice, position.side, 0, 0, `TESTNET: onvoldoende ${baseAsset}-saldo voor SHORT (nodig ${qty}, vrij ${(bal[baseAsset] || 0).toFixed(5)}) - wacht op maandelijkse testnet-reset of koop eerst ${baseAsset}`);
                 return;
             }
             if (qty < filters.minQty) {
                 logBotAction("SKIPPED", position.entryPrice, position.side, 0, 0, `TESTNET: hoeveelheid ${qty} onder minQty (${filters.minQty})`);
                 return;
             }
-            res = await testnetMarketOrder('SELL', { quantity: qty });
+            res = await testnetMarketOrder('SELL', { quantity: qty, symbol });
         }
-        const fill = summarizeTestnetFills(res);
+        const fill = summarizeTestnetFills(res, filters.baseAsset);
         if (!fill.executedQty || !fill.avgPrice) throw new Error('order gaf geen fills terug');
-        // Positie krijgt de ECHTE uitvoeringsgegevens - hier zie je dus voortaan
-        // de werkelijke slippage t.o.v. de livePrice waarop de bot besloot.
         position.entryPrice = fill.avgPrice;
         position.amount = fill.executedQty;
         position.baseQty = fill.executedQty;
         position.entryCommissionQuote = fill.commissionQuote;
         position.isTestnet = true;
+        position.symbol = symbol;
         openPositions.push(position);
-        logBotAction("ENTRY", fill.avgPrice, position.side, 0, fill.executedQty, `${reasonText} [TESTNET fill]`, 0, position.notional, position.isScalp || false);
+        logBotAction("ENTRY", fill.avgPrice, position.side, 0, fill.executedQty, `${reasonText} [TESTNET ${symbol} fill]`, 0, position.notional, position.isScalp || false);
         savePersistentState();
         updateWalletUI();
         updatePositionLines();
@@ -4051,21 +4067,20 @@ async function closePositionOnTestnet(pos, reason) {
     if (pos.pendingExchangeClose) return; // dubbele close voorkomen terwijl de order onderweg is
     pos.pendingExchangeClose = true;
     try {
-        const filters = await getTestnetSymbolFilters();
+        const symbol = pos.symbol || TESTNET_SYMBOL;
+        const filters = await getTestnetSymbolFilters(symbol);
         const orderSide = pos.side === 'LONG' ? 'SELL' : 'BUY';
         const qty = roundToStep(pos.baseQty || pos.amount, filters.stepSize);
         if (qty < filters.minQty) throw new Error(`hoeveelheid ${qty} onder minQty (${filters.minQty})`);
-        const res = await testnetMarketOrder(orderSide, { quantity: qty });
-        const fill = summarizeTestnetFills(res);
+        const res = await testnetMarketOrder(orderSide, { quantity: qty, symbol });
+        const fill = summarizeTestnetFills(res, filters.baseAsset);
         if (!fill.executedQty || !fill.avgPrice) throw new Error('order gaf geen fills terug');
-        // PnL uit de ECHTE fill-prijzen; commissies (entry + exit) van de
-        // exchange zelf, omgerekend naar een percentage van de notional.
         const grossPnlPct = pos.side === 'LONG'
             ? (fill.avgPrice - pos.entryPrice) / pos.entryPrice
             : (pos.entryPrice - fill.avgPrice) / pos.entryPrice;
         const notionalUSD = pos.entryPrice * (pos.baseQty || pos.amount);
         const commPct = notionalUSD > 0 ? ((pos.entryCommissionQuote || 0) + fill.commissionQuote) / notionalUSD : 0;
-        finalizeClosePosition(pos, grossPnlPct - commPct, `${reason} [TESTNET fill]`);
+        finalizeClosePosition(pos, grossPnlPct - commPct, `${reason} [TESTNET ${symbol} fill]`);
     } catch (e) {
         pos.pendingExchangeClose = false; // positie blijft open; volgende scan-cyclus probeert opnieuw
         setTestnetStatus(`Exit-order mislukt: ${e.message}`, true);
@@ -4607,9 +4622,18 @@ function checkOpenPositionsExits() {
             survivors.push(pos);
             return;
         }
+        // MUNT-BEWUSTE PRIJS: BTC-posities gebruiken livePrice; Osiris ETH/SOL-posities
+        // gebruiken de prijs van hun eigen markt uit de multi-asset motor. Zo worden
+        // stops/targets/P-L voor elke munt op de JUISTE prijs berekend.
+        let posPrice = livePrice;
+        if (pos.isOsiris && pos.symbol) {
+            const symKey = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol);
+            const mm = symKey ? neoMultiState.markets[symKey] : null;
+            if (mm && mm.lastPrice != null) posPrice = mm.lastPrice;
+        }
         const pnlPct = pos.side === 'LONG'
-            ? (livePrice - pos.entryPrice) / pos.entryPrice
-            : (pos.entryPrice - livePrice) / pos.entryPrice;
+            ? (posPrice - pos.entryPrice) / pos.entryPrice
+            : (pos.entryPrice - posPrice) / pos.entryPrice;
 
         // 1. Harde stop-loss: -2% (of, voor een range-scalp, de eigen krappere
         // stop) - niet onderhandelbaar.
@@ -5074,6 +5098,8 @@ async function fetchViewKlines(iv) {
 // Dit is een betrouwbare, kosteloze bot-parameter: prijs neigt terug te keren
 // naar de POC, en value-area-randen werken als support/resistance.
 let _volumeProfile = null;   // { bins:[{price,buy,sell,total}], poc, vah, val, binSize, maxTotal }
+let _btcVolumeProfile = null; // ALTIJD op BTC-data - de handelslogica gebruikt DEZE, zodat
+                              // het bekijken van de ETH/SOL-tab de BTC-trades nooit beinvloedt.
 const VP_BINS = 60;          // aantal prijs-bins in het profiel
 
 function computeVolumeProfile(klines) {
@@ -5124,7 +5150,10 @@ function computeVolumeProfile(klines) {
 let _orderBookDepth = null;  // { bins:[{price,bid,ask}], maxSize, mid }
 async function fetchOrderBookDepth() {
     try {
-        const r = await fetch('https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=1000');
+        // munt-bewust: gebruik de actieve tab-munt (BTC standaard)
+        const sym = (typeof neoMultiState !== 'undefined' && neoMultiState) ? neoMultiState.active : 'BTC';
+        const pair = (typeof MULTI_BINANCE !== 'undefined' && MULTI_BINANCE[sym]) ? MULTI_BINANCE[sym] : 'BTCUSDT';
+        const r = await fetch(`https://api.binance.com/api/v3/depth?symbol=${pair}&limit=1000`);
         const ob = await r.json();
         if (!ob.bids || !ob.asks) return null;
         const bids = ob.bids.map(([p, q]) => [+p, +q]);
@@ -5148,8 +5177,11 @@ async function fetchOrderBookDepth() {
 // Geeft een genormaliseerde score (-1..1): positief = prijs onder value area
 // (koopdruk-zone eronder), negatief = boven. Wordt in de confluence meegewogen.
 function volumeProfileBias(price) {
-    if (!_volumeProfile || !isFinite(price)) return { bias: 0, note: 'geen profiel' };
-    const { poc, vah, val } = _volumeProfile;
+    // Handelslogica gebruikt ALTIJD het BTC-profiel (valt terug op _volumeProfile als
+    // het BTC-profiel nog niet gezet is, bv. vroeg bij het opstarten).
+    const vp = _btcVolumeProfile || _volumeProfile;
+    if (!vp || !isFinite(price)) return { bias: 0, note: 'geen profiel' };
+    const { poc, vah, val } = vp;
     if (price < val) return { bias: +0.5, note: `onder value area (VAL ${val.toFixed(0)})` };
     if (price > vah) return { bias: -0.5, note: `boven value area (VAH ${vah.toFixed(0)})` };
     const range = vah - val;
@@ -5712,6 +5744,7 @@ async function refreshViewData() {
         }));
         candlestickSeries.setData(chartData);
         _volumeProfile = computeVolumeProfile(viewData);
+        _btcVolumeProfile = _volumeProfile;   // handelslogica-profiel altijd op BTC
         if (typeof renderDepthPanel === 'function') { if (_depthMode === 'cob') fetchOrderBookDepth().then(renderDepthPanel); else renderDepthPanel(); }
         updateHistoryList(viewData);
         applyUOTAMGrid(chartData, { updateTrading: false, viewInterval: currentInterval });
@@ -5724,6 +5757,101 @@ async function refreshViewData() {
         console.error('View-wissel mislukt:', e);
     }
 }
+
+// ============================================================
+// COIN-TABS (01-08) — wissel de chart + system-data tussen BTC/ETH/SOL
+// ============================================================
+// BTC gedraagt zich exact zoals voorheen (de volledige handelslogica draait erop).
+// ETH/SOL tonen de achtergrond-data uit de multi-asset motor als WEERGAVE. De bot
+// verhandelt in deze fase alleen BTC; de tabs zijn puur om de markten te bekijken.
+async function switchCoin(sym) {
+    if (!MULTI_SYMBOLS.includes(sym)) return;
+    neoMultiState.active = sym;
+    // tab-knoppen bijwerken (actieve duidelijk markeren)
+    document.querySelectorAll('.coin-tab').forEach(b => b.classList.toggle('active', b.dataset.coin === sym));
+    const statusEl = document.getElementById('coin-tab-status');
+
+    if (sym === 'BTC') {
+        // terug naar de volledige BTC-chart (de echte handels-chart)
+        if (statusEl) statusEl.textContent = 'BTC · live handels-chart';
+        try {
+            const btcView = (viewData && viewData.length ? viewData : rawData);
+            const chartData = btcView.map(d => ({
+                time: Math.floor(d[0] / 1000), open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4])
+            }));
+            candlestickSeries.setData(chartData);
+            // CRUCIAAL: herstel _volumeProfile op BTC-data zodat de handelslogica (die
+            // volumeProfileBias gebruikt) weer op BTC rekent en niet op ETH/SOL blijft hangen.
+            try { _volumeProfile = computeVolumeProfile(btcView); } catch (e) {}
+            if (typeof renderDepthPanel === 'function') { if (_depthMode === 'cob') fetchOrderBookDepth().then(renderDepthPanel); else renderDepthPanel(); }
+            try { updateHistoryList(btcView); } catch (e) {}
+            renderMovingAverage(); renderRSI(); renderPatternMarkers(); renderNNMarkers();
+        } catch (e) {}
+        renderSystemDataTab('BTC');
+        return;
+    }
+
+    // ETH/SOL: toon de achtergrond-data (weergave)
+    const m = neoMultiState.markets[sym];
+    if (statusEl) statusEl.textContent = `${sym} · weergave (achtergrond-scan, niet verhandeld)`;
+    if (!m || !m.klines.length) {
+        // nog niet geladen -> nu ophalen
+        if (statusEl) statusEl.textContent = `${sym} · data laden...`;
+        await multiRefreshSymbol(sym);
+    }
+    try {
+        const km = neoMultiState.markets[sym];
+        if (km && km.klines.length) {
+            const chartData = km.klines.map(d => ({
+                time: Math.floor(d[0] / 1000), open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4])
+            }));
+            candlestickSeries.setData(chartData);
+            // SVP (volume profile) uit de klines van DEZE munt. We schrijven naar de
+            // globale _volumeProfile zodat renderDepthPanel hem tekent - maar de
+            // BTC-handelslogica draait op zijn eigen data, dus dit is puur weergave.
+            // Bij terugkeer naar BTC wordt _volumeProfile weer op BTC-data herbouwd.
+            try { _volumeProfile = computeVolumeProfile(km.klines); } catch (e) {}
+            // order book depth van deze munt (fetchOrderBookDepth is nu munt-bewust)
+            if (typeof renderDepthPanel === 'function') { if (_depthMode === 'cob') fetchOrderBookDepth().then(renderDepthPanel); else renderDepthPanel(); }
+            // history-lijst van deze munt
+            try { updateHistoryList(km.klines); } catch (e) {}
+            // NN-markers voor deze weergave-munt (op zijn eigen data)
+            renderNNMarkers();
+            if (statusEl) statusEl.textContent = `${sym} · weergave (achtergrond-scan, niet verhandeld)`;
+        }
+    } catch (e) {}
+    renderSystemDataTab(sym);
+}
+window.switchCoin = switchCoin;
+
+// Werk de System Data-sectie bij voor de gekozen munt (headless waarden uit de motor).
+function renderSystemDataTab(sym) {
+    const m = neoMultiState.markets[sym];
+    const el = document.getElementById('system-data-multi');
+    if (!el) return;
+    if (!m || m.lastPrice == null) { el.innerHTML = `<span style="color:var(--text-dim);">${sym}: nog geen data</span>`; return; }
+    const upd = m.lastUpdate ? Math.round((Date.now() - m.lastUpdate) / 1000) + 's geleden' : '-';
+    const nn = _nnState[sym];
+    const nnTxt = (nn && nn.period) ? `~${Math.round(nn.period / 60000)}min ritme, ${nn.caps.length} caps` : 'verzamelt...';
+    const b = m.brain;
+    const probTxt = b ? `${(b.lastProb * 100).toFixed(0)}% ${b.lastSide || ''}` : '-';
+    const probColor = b && b.lastProb > 0.6 ? 'var(--teal)' : (b && b.lastProb < 0.45 ? '#ff4f6d' : 'var(--text-primary)');
+    el.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:#c792ea; font-weight:700;">${b ? b.label : 'Neo ' + sym}</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; font-weight:700; color:${probColor};">kans ${probTxt}</span>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
+            <div><span style="color:var(--text-dim);">Prijs</span><br><b>$${m.lastPrice.toLocaleString()}</b></div>
+            <div><span style="color:var(--text-dim);">VFM</span><br><b style="color:${m.vfm > 0 ? 'var(--teal)' : '#ff4f6d'};">${m.vfm.toFixed(2)}</b></div>
+            <div><span style="color:var(--text-dim);">Chaos</span><br><b>${m.chaos.toFixed(2)}</b></div>
+            <div><span style="color:var(--text-dim);">RSI</span><br><b>${m.rsi != null ? m.rsi.toFixed(0) : '-'}</b></div>
+            <div><span style="color:var(--text-dim);">EMA</span><br><b>${m.ema != null ? '$' + m.ema.toFixed(0) : '-'}</b></div>
+            <div><span style="color:var(--text-dim);">NN</span><br><b style="color:#c792ea;">${nnTxt}</b></div>
+        </div>
+        <div style="margin-top:8px; font-size:0.56rem; color:var(--text-dimmer);">${b ? b.preset.note + ' · ' : ''}bijgewerkt: ${upd}${m.error ? ' · fout: ' + m.error : ''}</div>`;
+}
+window.renderSystemDataTab = renderSystemDataTab;
 
 // --- HOOFDFUNCTIE: INITIALISATIE ---
 async function initDashboard() {
@@ -5758,6 +5886,7 @@ async function initDashboard() {
         }));
         candlestickSeries.setData(chartData);
         _volumeProfile = computeVolumeProfile(viewData);
+        _btcVolumeProfile = _volumeProfile;   // handelslogica-profiel altijd op BTC
         if (typeof renderDepthPanel === 'function') { if (_depthMode === 'cob') fetchOrderBookDepth().then(renderDepthPanel); else renderDepthPanel(); }
         updateHistoryList(viewData);
         if (currentInterval !== BOT_INTERVAL) {
@@ -6334,6 +6463,512 @@ function _emptyNN() {
     return { caps: [], anchor: null, period: null, nextNode: null, log: [], lastComputedAt: 0 };
 }
 
+// ============================================================
+// MULTI-ASSET DATAMOTOR (01-08) — Fase 2
+// ============================================================
+// Houdt de drie markten (BTC/ETH/SOL) in het GEHEUGEN bij: per munt een kline-buffer,
+// headless EMA/RSI, laatste VFM/chaos en NN-staat. Draait op de ACHTERGROND naast de
+// bestaande BTC-engine - die blijft onaangeroerd de "actieve" munt aansturen. ETH/SOL
+// worden (nog) niet verhandeld; deze fase verzamelt alleen data en maakt ze zichtbaar
+// via de tabs. Round-robin verversing houdt elke tick licht en blijft ver onder de
+// Binance rate limit (3 munten x 2 intervallen x gewicht 2 = 12/cyclus, ~1% van 6000/min).
+const MULTI_SYMBOLS = ['BTC', 'ETH', 'SOL'];
+const MULTI_BINANCE = { BTC: 'BTCUSDT', ETH: 'ETHUSDT', SOL: 'SOLUSDT' };
+let neoMultiState = {
+    active: 'BTC',                 // welke munt de UI toont (chart/system tabs)
+    rrIndex: 0,                    // round-robin teller voor achtergrond-verversing
+    markets: {
+        BTC: _emptyMarket(), ETH: _emptyMarket(), SOL: _emptyMarket()
+    }
+};
+function _emptyMarket() {
+    return {
+        klines: [], lastPrice: null, lastVol: null,
+        ema: null, emaSlow: null, rsi: null, vfm: 0, chaos: 0,
+        bestProb: 0.5, bestSide: null, lastUpdate: 0, loading: false, error: null,
+        brain: null   // sub-brein (fase 3) - eigen gewichten/learning per munt
+    };
+}
+
+// ============================================================
+// SUB-BREINEN (01-08) — Fase 3
+// ============================================================
+// Elk sub-brein draait het volledige Neo-arsenaal maar kalibreert op ZIJN EIGEN munt.
+// Preset-profielen geven elke munt een startkarakter dat past bij zijn volatiliteit
+// (SOL beweegt heftiger dan BTC, ETH zit ertussenin). Vanaf daar leert elk sub-brein
+// zelfstandig - eigen adaptieve gewichten, eigen learningLog. BTC blijft de bestaande
+// hoofd-engine gebruiken (die is al bewezen); ETH/SOL krijgen hun eigen sub-brein.
+const SUBBRAIN_PRESETS = {
+    BTC: { label: 'Neo BTC', minProbabilityPct: 65, microMinProbPct: 72, stopLossPct: 2.0, rangeScalpProfitTargetPct: 0.7, note: 'basis-profiel (bewezen)' },
+    ETH: { label: 'Neo ETH', minProbabilityPct: 67, microMinProbPct: 73, stopLossPct: 2.4, rangeScalpProfitTargetPct: 0.85, note: 'iets ruimer - ETH volatieler dan BTC' },
+    SOL: { label: 'Neo SOL', minProbabilityPct: 70, microMinProbPct: 75, stopLossPct: 3.0, rangeScalpProfitTargetPct: 1.1, note: 'ruimste stops - SOL sterk volatiel' }
+};
+function _emptySubBrain(sym) {
+    const preset = SUBBRAIN_PRESETS[sym] || SUBBRAIN_PRESETS.BTC;
+    return {
+        label: preset.label,
+        preset: Object.assign({}, preset),
+        // eigen adaptieve gewichten (start als kopie van de globale defaults)
+        weights: { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 2.0, nodeconf: 2.0 },
+        learningLog: [],           // eigen trade-historie voor kalibratie
+        lastProb: 0.5, lastSide: null,
+        wins: 0, losses: 0, calibratedAt: 0
+    };
+}
+function ensureSubBrain(sym) {
+    const m = neoMultiState.markets[sym];
+    if (!m) return null;
+    if (!m.brain) m.brain = _emptySubBrain(sym);
+    return m.brain;
+}
+
+// Bereken de beste kans/kant voor een sub-brein uit zijn markt-data. Dit is een
+// LICHTE variant van de hoofd-kansberekening: hij gebruikt de kern-signalen (VFM,
+// momentum via EMA, RSI, NN-nabijheid) gewogen met de eigen sub-brein-gewichten.
+// De zware, bewezen hoofd-engine blijft exclusief voor BTC; dit geeft ETH/SOL een
+// eigen, zelfstandig kansoordeel zonder de BTC-logica te raken.
+function subBrainEvaluate(sym) {
+    const m = neoMultiState.markets[sym];
+    const b = ensureSubBrain(sym);
+    if (!m || !b || !m.klines || m.klines.length < 40) return { prob: 0.5, side: null };
+    try {
+        const w = b.weights;
+        const closes = m.klines.map(d => parseFloat(d[4]));
+        // richting-bepaling: EMA-helling + laatste momentum
+        const emaUp = (m.ema != null && m.emaSlow != null) ? (m.ema > m.emaSlow) : (closes[closes.length-1] > closes[closes.length-10]);
+        const side = emaUp ? 'LONG' : 'SHORT';
+        // score-opbouw (0..100), elk signaal met eigen gewicht
+        let score = 50;
+        // VFM (richting-bewust)
+        const vfmDir = (side === 'LONG' ? 1 : -1) * m.vfm;
+        score += vfmDir * 8 * (w.momentumInfluence || 1);
+        // RSI mean-reversion aan de randen
+        if (m.rsi != null) {
+            if (side === 'LONG' && m.rsi < 40) score += (40 - m.rsi) * 0.4 * (w.rsi || 1);
+            if (side === 'SHORT' && m.rsi > 60) score += (m.rsi - 60) * 0.4 * (w.rsi || 1);
+        }
+        // EMA-afstand (trend-sterkte)
+        if (m.ema != null && m.lastPrice) {
+            const emaDist = (m.lastPrice - m.ema) / m.ema * 100;
+            score += (side === 'LONG' ? emaDist : -emaDist) * 3 * (w.ema || 1);
+        }
+        // NN-nabijheid (eigen munt)
+        try { const p = nnProximity(sym); if (p && p.prox > 0.15) score += p.prox * (p.strength||0.5) * 6 * (w.nn || 2); } catch (e) {}
+        // chaos-rem: te veel chaos -> lagere zekerheid
+        score -= Math.min(15, m.chaos * 2);
+        const prob = Math.max(0, Math.min(100, score)) / 100;
+        b.lastProb = prob; b.lastSide = side;
+        m.bestProb = prob; m.bestSide = side;
+        return { prob, side };
+    } catch (e) { return { prob: 0.5, side: null }; }
+}
+window.subBrainEvaluate = subBrainEvaluate;
+
+// ============================================================
+// OSIRIS MAINBRAIN (01-08) — Fase 4
+// ============================================================
+// Osiris is het centrale brein ("the mother/father of all"). Het vergelijkt de drie
+// sub-breinen (Neo BTC/ETH/SOL), kiest welke munt(en) de beste trade-kans hebben, en
+// verdeelt de equity KANS-GEWOGEN over de markten die tegelijk een positie willen:
+// de munt met de hoogste kans krijgt de meeste equity, de laagste het minst; bij
+// gelijke kansen elk een gelijk deel. Osiris leert van alle drie de sub-breinen.
+// In deze fase BEREKENT Osiris de allocatie en toont die (transparantie); het
+// autonoom uitvoeren van ETH/SOL-trades komt in een latere stap - BTC blijft leidend.
+let osirisState = {
+    lastReview: 0,
+    allocations: {},      // { BTC: 0.5, ETH: 0.3, SOL: 0.2 }
+    picks: [],            // gesorteerde munten op kans
+    note: ''
+};
+
+function osirisReview() {
+    try {
+        // verzamel de kans/kant per munt uit de sub-breinen
+        const cands = [];
+        for (const sym of MULTI_SYMBOLS) {
+            const m = neoMultiState.markets[sym];
+            if (!m) continue;
+            // BTC gebruikt de bewezen hoofd-engine-kans indien beschikbaar, anders sub-brein
+            let prob = m.bestProb != null ? m.bestProb : 0.5;
+            let side = m.bestSide || null;
+            if (sym === 'BTC') {
+                try {
+                    if (typeof lastOsirisDecision !== 'undefined' && lastOsirisDecision && lastOsirisDecision.probabilityPct != null) {
+                        prob = lastOsirisDecision.probabilityPct / 100;
+                        side = lastOsirisDecision.side || side;
+                    }
+                } catch (e) {}
+            }
+            cands.push({ sym, prob, side });
+        }
+        if (!cands.length) return osirisState;
+
+        // sorteer op kans (hoogste eerst)
+        cands.sort((a, b) => b.prob - a.prob);
+        osirisState.picks = cands;
+
+        // EQUITY-STRATEGIE (aangepast 01-08): het doel is de BESTE kans traden, niet
+        // de equity spreiden. Osiris kiest daarom standaard de munt met de hoogste kans
+        // en zet daar de volledige equity op. Alleen als de top-kansen NAGENOEG GELIJK
+        // zijn (binnen een kleine marge) wordt verdeeld - want dan is er geen duidelijke
+        // beste keuze en spreidt verdelen het risico zonder verwachte winst op te geven.
+        const MIN_PROB = 0.55;
+        const EQUAL_MARGIN = 0.05;   // kansen binnen 5 procentpunt = "gelijk"
+        const eligible = cands.filter(c => c.side && c.prob >= MIN_PROB);
+        const alloc = {};
+        for (const c of cands) alloc[c.sym] = 0;
+        if (eligible.length === 0) {
+            osirisState.note = 'Geen munt boven de drempel - Osiris wacht.';
+        } else if (eligible.length === 1) {
+            osirisState.note = `${eligible[0].sym} is de enige kans (${(eligible[0].prob*100|0)}%) - volledige equity.`;
+            alloc[eligible[0].sym] = 1;
+        } else {
+            // bepaal welke munten binnen de gelijk-marge van de beste zitten
+            const best = eligible[0];   // al gesorteerd op kans (hoogste eerst)
+            const tied = eligible.filter(c => (best.prob - c.prob) <= EQUAL_MARGIN);
+            if (tied.length === 1) {
+                // duidelijke winnaar -> alles op de beste kans (winner-take-all)
+                alloc[best.sym] = 1;
+                const second = eligible[1];
+                osirisState.note = `${best.sym} heeft de beste kans (${(best.prob*100|0)}% vs ${(second.prob*100|0)}%) - volledige equity op de sterkste markt.`;
+            } else {
+                // meerdere munten vrijwel gelijk -> verdeel kans-gewogen over alleen die
+                const weights = tied.map(c => ({ sym: c.sym, w: c.prob * c.prob }));
+                const sumW = weights.reduce((a, x) => a + x.w, 0);
+                for (const x of weights) alloc[x.sym] = sumW > 0 ? x.w / sumW : 1 / tied.length;
+                // bij écht gelijk (binnen 3pt) exact gelijk verdelen
+                const probs = tied.map(c => c.prob);
+                const spread = Math.max(...probs) - Math.min(...probs);
+                if (spread < 0.03) {
+                    const eq = 1 / tied.length;
+                    for (const c of tied) alloc[c.sym] = eq;
+                    osirisState.note = `${tied.length} munten vrijwel gelijk (~${(probs[0]*100|0)}%) - elk ${(eq*100|0)}% equity.`;
+                } else {
+                    osirisState.note = `${tied.length} munten dicht bij elkaar - equity kans-gewogen over die markten.`;
+                }
+            }
+        }
+        osirisState.allocations = alloc;
+        osirisState.lastReview = Date.now();
+        try { renderOsirisPanel(); } catch (e) {}
+        return osirisState;
+    } catch (e) { return osirisState; }
+}
+window.osirisReview = osirisReview;
+
+// Toon Osiris' oordeel: de rangschikking van de munten + de equity-verdeling.
+function renderOsirisPanel() {
+    const el = document.getElementById('osiris-panel');
+    if (!el) return;
+    const picks = osirisState.picks || [];
+    const alloc = osirisState.allocations || {};
+    if (!picks.length) { el.innerHTML = '<span style="color:var(--text-dim); font-size:0.62rem;">Osiris verzamelt data van de sub-breinen...</span>'; return; }
+    const colors = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
+    let html = `<div style="font-family:'JetBrains Mono',monospace; font-size:0.62rem;">`;
+    for (const p of picks) {
+        const a = (alloc[p.sym] || 0) * 100;
+        const barCol = colors[p.sym] || '#00d9ff';
+        html += `<div style="margin-bottom:7px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                <span style="color:${barCol}; font-weight:700;">${p.sym} ${p.side || ''}</span>
+                <span>kans ${(p.prob*100|0)}% &middot; equity ${a.toFixed(0)}%</span>
+            </div>
+            <div style="height:5px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden;"><div style="height:100%; width:${a}%; background:${barCol};"></div></div>
+        </div>`;
+    }
+    html += `<div style="margin-top:6px; color:var(--text-dim); font-size:0.58rem;">${osirisState.note}</div>`;
+    html += `</div>`;
+    el.innerHTML = html;
+}
+window.renderOsirisPanel = renderOsirisPanel;
+
+// ============================================================
+// OSIRIS TRANSPARANTIE & BACKUP (01-08) — Fase 5
+// ============================================================
+// Via Osiris (de mainbrain) kun je ALLE VIER de breinen tegelijk backuppen en
+// herstellen: de BTC-hoofdengine (bestaande osiris-export) + de drie sub-breinen
+// (Neo BTC/ETH/SOL gewichten, learning, presets). Plus: alle multi-markt data en
+// candle-historie downloaden, en het overzicht van wat Osiris autonoom heeft aangepast.
+
+// Volledige backup van alles onder Osiris v1.
+function osirisFullBackup() {
+    try {
+        const backup = {
+            version: 'osiris-v1',
+            exportedAt: new Date().toISOString(),
+            // de bewezen BTC-hoofdengine (zelfde velden als de losse export)
+            mainbrain: {
+                walletState, openPositions, botTradeLog, botSettings,
+                adaptiveWeights, regimeWeights,
+                learningLog: (typeof learningLog !== 'undefined') ? learningLog : [],
+                l2: (typeof _l2 !== 'undefined') ? _l2 : null
+            },
+            // de drie sub-breinen (gewichten, learning, presets, NN-staat)
+            subbrains: {},
+            // Osiris' eigen staat + autonome aanpassingen
+            osiris: {
+                state: osirisState,
+                adaptationLog: (typeof _adaptationLog !== 'undefined') ? _adaptationLog : []
+            }
+        };
+        for (const sym of MULTI_SYMBOLS) {
+            const m = neoMultiState.markets[sym];
+            backup.subbrains[sym] = {
+                brain: m ? m.brain : null,
+                nn: _nnState[sym] || null,
+                lastPrice: m ? m.lastPrice : null
+            };
+        }
+        _downloadJSON(backup, `osiris_v1_volledige_backup_${Date.now()}.json`);
+        try { logAdaptation('Volledige backup gemaakt', 'alle 4 breinen (mainbrain + 3 sub-breinen) + Osiris-staat opgeslagen'); } catch (e) {}
+    } catch (e) { alert('Backup mislukt: ' + e.message); }
+}
+window.osirisFullBackup = osirisFullBackup;
+
+// Herstel alles uit een Osiris v1 backup-bestand.
+function osirisFullRestore(file) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        try {
+            const b = JSON.parse(ev.target.result);
+            if (b.version !== 'osiris-v1') { alert('Geen geldig Osiris v1 backup-bestand.'); return; }
+            // mainbrain herstellen
+            if (b.mainbrain) {
+                const mb = b.mainbrain;
+                if (mb.walletState) Object.assign(walletState, mb.walletState);
+                if (mb.botSettings) Object.assign(botSettings, mb.botSettings);
+                if (mb.adaptiveWeights) adaptiveWeights = mb.adaptiveWeights;
+                if (mb.regimeWeights) regimeWeights = mb.regimeWeights;
+                if (mb.openPositions) openPositions = mb.openPositions;
+                if (mb.botTradeLog) botTradeLog = mb.botTradeLog;
+                if (mb.learningLog && typeof learningLog !== 'undefined') learningLog = mb.learningLog;
+                if (mb.l2 && typeof _l2 !== 'undefined') _l2 = mb.l2;
+            }
+            // sub-breinen herstellen
+            if (b.subbrains) {
+                for (const sym of MULTI_SYMBOLS) {
+                    const sb = b.subbrains[sym];
+                    if (!sb) continue;
+                    const m = neoMultiState.markets[sym];
+                    if (m && sb.brain) m.brain = sb.brain;
+                    if (sb.nn) _nnState[sym] = sb.nn;
+                }
+            }
+            // Osiris-staat
+            if (b.osiris) {
+                if (b.osiris.state) osirisState = b.osiris.state;
+                if (b.osiris.adaptationLog && typeof _adaptationLog !== 'undefined') _adaptationLog = b.osiris.adaptationLog;
+            }
+            try { savePersistentState(); } catch (e) {}
+            try { renderOsirisPanel(); renderLearningPanel(); updateWalletUI(); } catch (e) {}
+            alert('Osiris v1 backup hersteld: alle 4 breinen teruggezet.');
+        } catch (e) { alert('Herstel mislukt: ' + e.message); }
+    };
+    reader.readAsText(file);
+}
+window.osirisFullRestore = osirisFullRestore;
+
+// Download alle multi-markt data + candle-historie van alle drie de markten.
+function downloadAllMarketData() {
+    try {
+        const out = { exportedAt: new Date().toISOString(), markets: {} };
+        for (const sym of MULTI_SYMBOLS) {
+            const m = neoMultiState.markets[sym];
+            if (!m) continue;
+            out.markets[sym] = {
+                lastPrice: m.lastPrice, ema: m.ema, emaSlow: m.emaSlow, rsi: m.rsi,
+                vfm: m.vfm, chaos: m.chaos, bestProb: m.bestProb, bestSide: m.bestSide,
+                subBrainLabel: m.brain ? m.brain.label : null,
+                nnRitmeMin: (_nnState[sym] && _nnState[sym].period) ? Math.round(_nnState[sym].period / 60000) : null,
+                nnCaps: (_nnState[sym] && _nnState[sym].caps) ? _nnState[sym].caps.length : 0,
+                // volledige candle-historie [tijd, o, h, l, c, v]
+                candles: m.klines || []
+            };
+        }
+        _downloadJSON(out, `osiris_multimarkt_data_${Date.now()}.json`);
+    } catch (e) { alert('Download mislukt: ' + e.message); }
+}
+window.downloadAllMarketData = downloadAllMarketData;
+
+// Download het overzicht van wat Osiris autonoom heeft aangepast.
+function downloadAdaptationLog() {
+    try {
+        const log = (typeof _adaptationLog !== 'undefined') ? _adaptationLog : [];
+        _downloadJSON({ exportedAt: new Date().toISOString(), adaptations: log }, `osiris_autonome_aanpassingen_${Date.now()}.json`);
+    } catch (e) { alert('Download mislukt: ' + e.message); }
+}
+window.downloadAdaptationLog = downloadAdaptationLog;
+
+// ============================================================
+// OSIRIS LIVE MULTI-MARKT TRADING (01-08) — Fase 5, deel 2
+// ============================================================
+// Osiris opent nu ECHTE testnet-posities voor ETH/SOL met dezelfde nepgeld-wallet als
+// BTC (één equity-pot, meerdere markten). Standaard UIT achter een veiligheidsschakelaar
+// - jij zet het bewust aan. BTC blijft altijd via de hoofd-engine handelen; Osiris voegt
+// ETH/SOL toe volgens zijn equity-verdeling. De echte executie loopt via dezelfde
+// (nu munt-bewuste) order-keten als BTC.
+let osirisLiveEnabled = false;     // veiligheidsschakelaar - standaard uit
+let _osirisLastEntry = {};         // cooldown per munt (voorkomt over-trading)
+
+function toggleOsirisShadow(on) {
+    // (schakelaar bestuurt nu de LIVE multi-markt trading; naam behouden voor de UI-binding)
+    osirisLiveEnabled = !!on;
+    try { logAdaptation(`Osiris multi-markt trading ${on ? 'AAN' : 'UIT'}`, on ? 'Osiris handelt nu ETH/SOL op de testnet met de gedeelde wallet volgens zijn equity-verdeling' : 'multi-markt trading gepauzeerd - alleen BTC handelt'); } catch (e) {}
+    renderOsirisShadowPanel();
+}
+window.toggleOsirisShadow = toggleOsirisShadow;
+
+function osirisShadowTick() {
+    if (!osirisLiveEnabled) return;
+    if (botSettings.executionMode !== 'TESTNET') return;   // alleen op de testnet
+    try {
+        const alloc = osirisState.allocations || {};
+        const picks = osirisState.picks || [];
+        const now = Date.now();
+        for (const p of picks) {
+            const sym = p.sym;
+            if (sym === 'BTC') continue;                    // BTC loopt via de hoofd-engine
+            const a = alloc[sym] || 0;
+            if (a <= 0 || !p.side) continue;
+            // al een open positie op deze munt? niet dubbelen
+            if (openPositions.some(x => (x.symbol === MULTI_BINANCE[sym]))) continue;
+            // cooldown: max 1 nieuwe entry per munt per 60s
+            if (_osirisLastEntry[sym] && (now - _osirisLastEntry[sym]) < 60000) continue;
+            const m = neoMultiState.markets[sym];
+            if (!m || m.lastPrice == null) continue;
+            // grootte uit de gedeelde wallet: allocatie x vrije equity x max-allocatie
+            const freeEquity = (walletState.balance != null ? walletState.balance : walletState.realizedPnL + 1000);
+            const notionalUSD = freeEquity * a * (botSettings.maxAllocationPct || 0.7);
+            if (notionalUSD < 5) continue;
+            const amount = notionalUSD / m.lastPrice;
+            const position = {
+                id: 'osiris-' + sym + '-' + now,
+                symbol: MULTI_BINANCE[sym],
+                side: p.side,
+                entryPrice: m.lastPrice,
+                amount,
+                notional: notionalUSD,
+                openTime: now,
+                isScalp: false,
+                isOsiris: true,
+                regimeAtEntry: 'MULTI',
+                targetPrice: null,
+                stopLossPct: (m.brain && m.brain.preset) ? m.brain.preset.stopLossPct : null
+            };
+            _osirisLastEntry[sym] = now;
+            try { logAdaptation(`Osiris opent ${sym} ${p.side}`, `kans ${(p.prob*100|0)}%, allocatie ${(a*100|0)}% van de gedeelde wallet ($${notionalUSD.toFixed(0)})`); } catch (e) {}
+            commitPositionEntry(position, `OSIRIS ${sym} ${p.side} (kans ${(p.prob*100|0)}%)`);
+        }
+        renderOsirisShadowPanel();
+    } catch (e) { /* stil */ }
+}
+window.osirisShadowTick = osirisShadowTick;
+
+function renderOsirisShadowPanel() {
+    const el = document.getElementById('osiris-shadow-panel');
+    if (!el) return;
+    const colors = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
+    const osirisPos = openPositions.filter(p => p.isOsiris);
+    let html = `<div style="font-family:'JetBrains Mono',monospace; font-size:0.6rem;">`;
+    if (!osirisLiveEnabled) {
+        html += `<div style="color:var(--text-dimmer);">multi-markt trading staat uit - alleen BTC handelt</div>`;
+    } else if (!osirisPos.length) {
+        html += `<div style="color:var(--text-dim);">Osiris actief - wacht op een ETH/SOL-kans boven de drempel</div>`;
+    } else {
+        html += `<div style="color:var(--text-dim); margin-bottom:3px;">Osiris open posities (gedeelde wallet):</div>`;
+        for (const pos of osirisPos) {
+            const symKey = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || pos.symbol;
+            const m = neoMultiState.markets[symKey];
+            const px = m ? m.lastPrice : pos.entryPrice;
+            const grossPct = (pos.side === 'LONG' ? (px - pos.entryPrice) / pos.entryPrice : (pos.entryPrice - px) / pos.entryPrice) * 100;
+            html += `<div style="display:flex; justify-content:space-between;"><span style="color:${colors[symKey]||'#00d9ff'};">${symKey} ${pos.side} $${(pos.notional||0).toFixed(0)}</span><span style="color:${grossPct>=0?'var(--teal)':'#ff4f6d'};">${grossPct>=0?'+':''}${grossPct.toFixed(2)}%</span></div>`;
+        }
+    }
+    html += `</div>`;
+    el.innerHTML = html;
+}
+window.renderOsirisShadowPanel = renderOsirisShadowPanel;
+
+
+
+// Hulpfunctie: download een object als JSON-bestand.
+function _downloadJSON(obj, filename) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+
+
+
+
+// Haal de klines voor één munt op en werk zijn markt-staat bij (headless).
+async function multiRefreshSymbol(sym) {
+    const m = neoMultiState.markets[sym];
+    if (!m || m.loading) return;
+    m.loading = true;
+    try {
+        const pair = MULTI_BINANCE[sym];
+        const iv = (typeof BOT_INTERVAL !== 'undefined') ? BOT_INTERVAL : '15m';
+        const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${iv}&limit=672`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const kl = await r.json();
+        if (!Array.isArray(kl) || kl.length < 30) throw new Error('te weinig candles');
+        m.klines = kl;
+        const closes = kl.map(d => parseFloat(d[4]));
+        // headless EMA/RSI voor deze munt (los van de zichtbare chart)
+        if (closes.length >= maFastPeriod) { const f = calculateSMA(closes, maFastPeriod); m.ema = f.length ? f[f.length - 1] : null; }
+        if (closes.length >= maSlowPeriod) { const s = calculateSMA(closes, maSlowPeriod); m.emaSlow = s.length ? s[s.length - 1] : null; }
+        if (closes.length >= rsiPeriod + 1) { const rs = calculateRSISeries(closes, rsiPeriod); m.rsi = rs.length ? rs[rs.length - 1].rsi : null; }
+        // laatste prijs/volume + VFM/chaos
+        const last = kl[kl.length - 1];
+        m.lastPrice = parseFloat(last[4]);
+        m.lastVol = parseFloat(last[5]);
+        try { m.vfm = calculateVFM(m.lastPrice, m.lastVol, kl.slice(-21)); } catch (e) { m.vfm = 0; }
+        // chaos = |3-candle % verandering| (zelfde definitie als UOTAM)
+        if (closes.length > 3) { const p3 = closes[closes.length - 4]; m.chaos = Math.abs((m.lastPrice - p3) / p3) * 100; }
+        // NN per munt (op zijn eigen data)
+        try { nnCompute(sym, kl); } catch (e) {}
+        // sub-brein-evaluatie: eigen kansoordeel voor deze munt (fase 3)
+        try { subBrainEvaluate(sym); } catch (e) {}
+        m.error = null; m.lastUpdate = Date.now();
+    } catch (e) {
+        m.error = e.message || 'fetch-fout';
+    } finally {
+        m.loading = false;
+    }
+}
+
+// Round-robin: ververs per aanroep één munt (BTC tick1, ETH tick2, SOL tick3, ...).
+// Zo blijft elke tick licht. BTC wordt daarnaast al door de hoofd-engine ververst,
+// dus we prioriteren ETH/SOL die anders geen updates krijgen.
+function multiRoundRobinTick() {
+    const sym = MULTI_SYMBOLS[neoMultiState.rrIndex % MULTI_SYMBOLS.length];
+    neoMultiState.rrIndex++;
+    multiRefreshSymbol(sym).then(() => {
+        // als de zojuist ververste munt de actieve tab is, werk de weergave bij
+        try { if (neoMultiState.active === sym && typeof renderSystemDataTab === 'function') renderSystemDataTab(sym); } catch (e) {}
+        // Osiris herziet de rangschikking + equity-verdeling na elke verse munt
+        try { osirisReview(); } catch (e) {}
+        // schaduw-trading (indien aan): simuleer ETH/SOL-trades met echte prijzen
+        try { osirisShadowTick(); } catch (e) {}
+    });
+}
+
+// Start de achtergrond-scan van alle markten (elke 10s één munt via round-robin).
+let _multiInterval = null;
+function startMultiAssetEngine() {
+    // meteen alle drie één keer laden zodat de tabs direct data hebben
+    MULTI_SYMBOLS.forEach((s, i) => setTimeout(() => multiRefreshSymbol(s), i * 400));
+    if (_multiInterval) clearInterval(_multiInterval);
+    _multiInterval = setInterval(multiRoundRobinTick, 10 * 1000);
+}
+window.startMultiAssetEngine = startMultiAssetEngine;
+window.neoMultiState = neoMultiState;
+
+
 // Detecteer capitulaties in een kline-serie: candles met een extreme |VFM| die tevens
 // een lokale prijs-omkering markeren. Geeft een lijst {time, price, vfm, dir}.
 function nnDetectCapitulations(kl) {
@@ -6592,10 +7227,18 @@ function updateAllChartMarkers() {
 // de eerstvolgende voorspelde NN-node. Passief - beïnvloedt geen trades.
 function renderNNMarkers() {
     nnMarkers = [];
-    const src = (viewData && viewData.length) ? viewData : rawData;
+    // munt-bewust: BTC gebruikt de handels-data, ETH/SOL de achtergrond-klines
+    const sym = (typeof neoMultiState !== 'undefined' && neoMultiState) ? neoMultiState.active : 'BTC';
+    let src;
+    if (sym === 'BTC') {
+        src = (viewData && viewData.length) ? viewData : rawData;
+    } else {
+        const m = neoMultiState.markets[sym];
+        src = (m && m.klines && m.klines.length) ? m.klines : null;
+    }
     if (!showNNMarkers || !src || src.length < 40) { updateAllChartMarkers(); return; }
     try {
-        const st = nnCompute('BTC', src);
+        const st = nnCompute(sym, src);
         // capitulatie-markers (laatste ~12) in NN-kleur (amber/violet)
         const recentCaps = (st.caps || []).slice(-12);
         for (const c of recentCaps) {
@@ -6608,7 +7251,7 @@ function renderNNMarkers() {
             });
         }
         // volgende voorspelde NN-nodes (reeks) + sub-nodes
-        const st2 = _nnState['BTC'];
+        const st2 = _nnState[sym];
         if (st2 && st2.projected) {
             for (const p of st2.projected.slice(0, 6)) {
                 nnMarkers.push({
@@ -6621,7 +7264,8 @@ function renderNNMarkers() {
             }
         }
         // node-confluentie: markeer het volgende samenval-moment (standaard \u00d7 NN)
-        try {
+        // (alleen voor BTC - de standaard UOTAM-nodes zijn op de BTC-anker gebaseerd)
+        if (sym === 'BTC') try {
             const c = computeNodeConfluence();
             if (c && c.minsTo != null && c.score > 0.3) {
                 const when = Date.now() + c.minsTo * 60000;
