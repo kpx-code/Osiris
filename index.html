@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OSIRIS INTELLIGENCE — V5</title>
+<title>OSIRIS INTEL — V6 Neo</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -418,6 +418,9 @@ section { position:relative; z-index:2; }
 .coin-tab{ font-family:'JetBrains Mono',monospace; font-size:0.66rem; letter-spacing:0.08em; font-weight:700; padding:7px 18px; background:rgba(255,255,255,0.03); color:var(--text-dim); border:1px solid var(--line); border-radius:6px; cursor:pointer; transition:all 0.15s; }
 .coin-tab:hover{ background:rgba(0,217,255,0.08); color:var(--text-primary); }
 .coin-tab.active{ background:rgba(0,217,255,0.14); color:var(--teal, #00d9ff); border-color:rgba(0,217,255,0.5); box-shadow:0 0 12px rgba(0,217,255,0.2); }
+.calib-tab{ font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.06em; font-weight:700; padding:5px 14px; background:rgba(255,255,255,0.03); color:var(--text-dim); border:1px solid var(--line); border-radius:5px; cursor:pointer; transition:all 0.15s; }
+.calib-tab:hover{ background:rgba(199,146,234,0.08); color:var(--text-primary); }
+.calib-tab.active{ background:rgba(199,146,234,0.14); color:#c792ea; border-color:rgba(199,146,234,0.5); }
 </style>
 <style>
 /* extra responsive (V4 NEO): alle onderdelen blijven, ze stapelen alleen op klein scherm */
@@ -678,28 +681,6 @@ section { position:relative; z-index:2; }
             <div id="system-data-multi" style="background:rgba(199,146,234,0.05); border:1px solid rgba(199,146,234,0.2); border-radius:6px; padding:10px 12px; margin-bottom:12px;">
                 <span style="color:var(--text-dim); font-size:0.62rem;">Multi-markt data laadt bij botstart...</span>
             </div>
-            <div style="background:rgba(0,217,255,0.04); border:1px solid rgba(0,217,255,0.25); border-radius:6px; padding:10px 12px; margin-bottom:12px;">
-                <div style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.1em; color:var(--teal,#00d9ff); margin-bottom:8px;">&#9673; OSIRIS &middot; MAINBRAIN &mdash; equity-verdeling over de markten</div>
-                <div id="osiris-panel"><span style="color:var(--text-dim); font-size:0.62rem;">Osiris verzamelt data van de sub-breinen...</span></div>
-                <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; padding-top:10px; border-top:1px solid rgba(0,217,255,0.15);">
-                    <button onclick="osirisFullBackup()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; padding:5px 10px; background:rgba(0,217,255,0.1); color:var(--teal,#00d9ff); border:1px solid rgba(0,217,255,0.35); border-radius:5px; cursor:pointer;">&#8681; Backup alle 4 breinen</button>
-                    <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; padding:5px 10px; background:rgba(20,241,149,0.08); color:#14f195; border:1px solid rgba(20,241,149,0.3); border-radius:5px; cursor:pointer;">&#8679; Herstel backup
-                        <input type="file" accept="application/json,.json" style="display:none;" onchange="if(this.files[0])osirisFullRestore(this.files[0]); this.value='';">
-                    </label>
-                    <button onclick="downloadAllMarketData()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; padding:5px 10px; background:rgba(199,146,234,0.1); color:#c792ea; border:1px solid rgba(199,146,234,0.35); border-radius:5px; cursor:pointer;">&#8681; Multi-markt data + candles</button>
-                    <button onclick="downloadAdaptationLog()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; padding:5px 10px; background:rgba(255,182,39,0.1); color:#ffb627; border:1px solid rgba(255,182,39,0.35); border-radius:5px; cursor:pointer;">&#8681; Autonome aanpassingen</button>
-                </div>
-                <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(0,217,255,0.15);">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                        <span style="font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:#c792ea;">MULTI-MARKT TRADING (ETH/SOL op testnet, gedeelde wallet)</span>
-                        <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; cursor:pointer; display:flex; align-items:center; gap:5px;">
-                            <input type="checkbox" id="osiris-shadow-toggle" onchange="toggleOsirisShadow(this.checked)"> aan
-                        </label>
-                    </div>
-                    <div style="font-size:0.54rem; color:var(--text-dimmer); margin-bottom:6px;">Staat dit aan, dan opent Osiris echte testnet-orders voor ETH/SOL met dezelfde nepgeld-wallet als BTC, volgens zijn equity-verdeling. BTC blijft altijd via de hoofd-engine handelen.</div>
-                    <div id="osiris-shadow-panel"><span style="color:var(--text-dim); font-size:0.6rem;">multi-markt trading staat uit - alleen BTC handelt</span></div>
-                </div>
-            </div>
 
             <div class="subhead" style="margin-top:0;">VFM &middot; ER &middot; DB &middot; Chaos Index</div>
             <div class="data-grid">
@@ -920,7 +901,7 @@ section { position:relative; z-index:2; }
         <div class="subhead">Open Posities</div>
         <div class="table-wrap" style="overflow-x:auto;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size (BTC)</th><th>Size</th><th>Alloc %</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
+            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th>Markt</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
             <tbody id="open-positions-body">
               <tr><td colspan="10" style="text-align:center; color:var(--dim); padding:8px;">Geen open posities</td></tr>
             </tbody>
@@ -975,6 +956,11 @@ section { position:relative; z-index:2; }
                     </div>
                 </div>
         <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer; margin-top:32px;" onclick="toggleCalibPanel()"><span><span id="calib-chevron">&#9662;</span> Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
+        <div id="calib-brain-tabs" style="display:flex; gap:6px; margin-top:8px;">
+            <button class="calib-tab active" data-brain="BTC" onclick="switchCalibBrain('BTC')">Neo BTC</button>
+            <button class="calib-tab" data-brain="ETH" onclick="switchCalibBrain('ETH')">Neo ETH</button>
+            <button class="calib-tab" data-brain="SOL" onclick="switchCalibBrain('SOL')">Neo SOL</button>
+        </div>
         <div id="calib-body" style="display:grid; grid-template-columns:1.1fr 1fr; gap:20px; align-items:center; margin-top:8px;">
           <svg id="calib-svg" viewBox="0 0 100 62" preserveAspectRatio="xMinYMid meet" style="width:100%; height:300px; overflow:visible;">
             <line x1="8" y1="50" x2="94" y2="4" stroke="#3a5064" stroke-width="0.4" stroke-dasharray="1.2 1.2"/>
@@ -994,7 +980,7 @@ section { position:relative; z-index:2; }
         </div>
 
         <div class="subhead">Engine Config &middot; presets &middot; toggles</div>
-            <div id="bot-control-hub" class="hud amber">
+            <div id="bot-control-hub" class="hud amber" style="max-height:640px; overflow-y:auto; overflow-x:hidden;">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
             <div class="eyebrow engine-title">OSIRIS ENGINE V4 NEO<span class="fill"></span></div>
             <div class="engine-scanline"></div>
@@ -1015,17 +1001,47 @@ section { position:relative; z-index:2; }
             </div>
             <div id="config-body" class="open">
                 <div class="config-inner">
+        <div class="subhead" style="margin-top:32px;">&#9673; Osiris Mainbrain &middot; multi-markt regie</div>
+            <div style="background:rgba(0,217,255,0.04); border:1px solid rgba(0,217,255,0.25); border-radius:6px; padding:10px 12px; margin-bottom:12px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.1em; color:var(--teal,#00d9ff); margin-bottom:8px;">&#9673; OSIRIS &middot; MAINBRAIN &mdash; equity-verdeling over de markten</div>
+                <div id="osiris-panel"><span style="color:var(--text-dim); font-size:0.62rem;">Osiris verzamelt data van de sub-breinen...</span></div>
+                <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; padding-top:10px; border-top:1px solid rgba(0,217,255,0.15);">
+                    <button onclick="osirisFullBackup()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; padding:5px 10px; background:rgba(0,217,255,0.1); color:var(--teal,#00d9ff); border:1px solid rgba(0,217,255,0.35); border-radius:5px; cursor:pointer;">&#8681; Backup alle 4 breinen</button>
+                    <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; padding:5px 10px; background:rgba(20,241,149,0.08); color:#14f195; border:1px solid rgba(20,241,149,0.3); border-radius:5px; cursor:pointer;">&#8679; Herstel backup
+                        <input type="file" accept="application/json,.json" style="display:none;" onchange="if(this.files[0])osirisFullRestore(this.files[0]); this.value='';">
+                    </label>
+                    <button onclick="downloadAllMarketData()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; padding:5px 10px; background:rgba(199,146,234,0.1); color:#c792ea; border:1px solid rgba(199,146,234,0.35); border-radius:5px; cursor:pointer;">&#8681; Multi-markt data + candles</button>
+                    <button onclick="downloadAdaptationLog()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; padding:5px 10px; background:rgba(255,182,39,0.1); color:#ffb627; border:1px solid rgba(255,182,39,0.35); border-radius:5px; cursor:pointer;">&#8681; Autonome aanpassingen</button>
+                </div>
+                <div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(0,217,255,0.15);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:#c792ea;">MULTI-MARKT TRADING (ETH/SOL op testnet, gedeelde wallet)</span>
+                        <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; cursor:pointer; display:flex; align-items:center; gap:5px;">
+                            <input type="checkbox" id="osiris-shadow-toggle" onchange="toggleOsirisShadow(this.checked)"> aan
+                        </label>
+                    </div>
+                    <div style="font-size:0.54rem; color:var(--text-dimmer); margin-bottom:6px;">Staat dit aan, dan opent Osiris echte testnet-orders voor ETH/SOL met dezelfde nepgeld-wallet als BTC, volgens zijn equity-verdeling. BTC blijft altijd via de hoofd-engine handelen.</div>
+                    <div id="osiris-shadow-panel"><span style="color:var(--text-dim); font-size:0.6rem;">multi-markt trading staat uit - alleen BTC handelt</span></div>
+                </div>
+            </div>
+
                     <!-- PRESET -->
-                    <div style="margin-bottom: 14px; padding: 12px 15px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.1);">
-                        <label style="font-size: 0.7rem; font-family:'JetBrains Mono',monospace; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-dim);">Preset</label><br>
-                        <select id="preset-select" onchange="applyPreset(this.value)" style="margin-top:6px; color:var(--teal); border-color:var(--teal);">
+                    <div style="margin-bottom: 14px; padding: 12px 15px; background: rgba(255,255,255,0.02); border: 1px solid rgba(247,147,26,0.25);">
+                        <label style="font-size: 0.7rem; font-family:'JetBrains Mono',monospace; letter-spacing:0.08em; text-transform:uppercase; color:#f7931a;">&#9679; Neo BTC &mdash; Hoofdengine preset</label><br>
+                        <small style="display:block; color:var(--text-dimmer); margin:4px 0 6px; font-family:'JetBrains Mono',monospace; font-size:0.6rem;">Deze presets gelden voor de BTC-hoofdengine (de bewezen bot). ETH/SOL hebben hun eigen sub-brein-presets, zie het overzicht hieronder.</small>
+                        <select id="preset-select" onchange="applyPreset(this.value)" style="margin-top:2px; color:var(--teal); border-color:var(--teal);">
                             <option value="MANUAL" selected>Handmatig</option>
                             <option value="KPX_MODE_1">KPX Mode 1</option>
                             <option value="CONSERVATIVE">Conservatief</option>
                             <option value="BALANCED">Balanced</option>
                             <option value="AGGRESSIVE">Agressief</option>
                         </select>
-                        <small style="display:block; color:var(--text-dimmer); margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.64rem; line-height:1.5;">Vult alle velden hieronder in één keer in. Je kunt daarna nog los tweaken - dat verandert dit dropdown terug naar "Handmatig" niet automatisch, het is puur een startpunt.</small>
+                        <small style="display:block; color:var(--text-dimmer); margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.64rem; line-height:1.5;">Vult alle velden hieronder in één keer in. Je kunt daarna nog los tweaken.</small>
+                    </div>
+                    <!-- SUB-BREIN PRESETS OVERZICHT (Neo BTC/ETH/SOL) -->
+                    <div id="subbrain-presets" style="margin-bottom:14px; padding:12px 15px; background:rgba(199,146,234,0.04); border:1px solid rgba(199,146,234,0.2);">
+                        <label style="font-size:0.7rem; font-family:'JetBrains Mono',monospace; letter-spacing:0.08em; text-transform:uppercase; color:#c792ea;">&#9679; Sub-brein presets &mdash; per markt (autonoom bijgesteld)</label>
+                        <div id="subbrain-presets-body" style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--text-dim);">laadt bij botstart...</div>
                     </div>
 
                     <div class="grid-row" style="margin-bottom: 14px;">
