@@ -1937,11 +1937,24 @@ function renderLearningPanel() {
     });
     html += `</div>`;
 
-    // KALIBRATIETABEL: alleen voor het gekozen brein (trades van die markt)
-    const withProb = brainTrades.filter(l => !l.manual && (l.entryProbabilityPct != null || (l.factors && l.factors.probabilityPct != null)));
+    // KALIBRATIETABEL: alleen voor het gekozen brein (trades van die markt).
+    // VERSIE-FILTER: standaard alleen de huidige config-versie, consistent met de curve,
+    // zodat oude gebroken-versie-trades het beeld niet vertekenen (jouw n=373 was de
+    // volledige historie over alle versies).
+    const _curVer = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : null;
+    const _verOk = l => (typeof _calibCurrentVersionOnly === 'undefined' || !_calibCurrentVersionOnly) || l.configVersion == null || l.configVersion === _curVer;
+    const withProb = brainTrades.filter(l => !l.manual && (l.entryProbabilityPct != null || (l.factors && l.factors.probabilityPct != null)) && _verOk(l));
+    const _allVerCount = brainTrades.filter(l => !l.manual && (l.entryProbabilityPct != null || (l.factors && l.factors.probabilityPct != null))).length;
     if (withProb.length >= 10) {
         const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
-        html += `<div style="font-size:0.7em; color:var(--text-dim); margin:14px 0 6px;">Kalibratie: voorspelde winkans vs. werkelijkheid (n=${withProb.length})</div>`;
+        // "last updated" tijdstempel + versie-info
+        const upd = (typeof _lastCalibUpdateMs !== 'undefined' && _lastCalibUpdateMs) ? new Date(_lastCalibUpdateMs) : null;
+        const updTxt = upd ? `${String(upd.getDate()).padStart(2,'0')}-${String(upd.getMonth()+1).padStart(2,'0')} ${String(upd.getHours()).padStart(2,'0')}:${String(upd.getMinutes()).padStart(2,'0')}:${String(upd.getSeconds()).padStart(2,'0')}` : 'nog geen update deze sessie';
+        const verNote = (typeof _calibCurrentVersionOnly !== 'undefined' && _calibCurrentVersionOnly && _allVerCount > withProb.length) ? ` &middot; huidige versie (${withProb.length} van ${_allVerCount} totaal)` : '';
+        html += `<div style="display:flex; justify-content:space-between; align-items:baseline; margin:14px 0 6px; flex-wrap:wrap; gap:4px;">
+            <span style="font-size:0.7em; color:var(--text-dim);">Kalibratie: voorspelde winkans vs. werkelijkheid (n=${withProb.length}${verNote})</span>
+            <span style="font-size:0.6em; color:var(--text-dimmer);">last updated ${updTxt}</span>
+        </div>`;
         html += `<table style="width:100%; font-family:'JetBrains Mono',monospace; font-size:0.62em; border-collapse:collapse;">`;
         html += `<tr style="color:var(--text-dimmer); text-align:left;"><th style="padding:2px 6px;">voorspeld</th><th style="padding:2px 6px;">trades</th><th style="padding:2px 6px;">werkelijke winrate</th><th style="padding:2px 6px;">afwijking</th></tr>`;
         buckets.forEach(([lo, hi]) => {
@@ -1958,7 +1971,7 @@ function renderLearningPanel() {
         });
         html += `</table>`;
     } else {
-        html += `<div style="font-size:0.66em; color:var(--text-dimmer); margin:14px 0 6px;">Kalibratietabel verschijnt vanaf ~10 trades voor dit brein (nu ${withProb.length}).</div>`;
+        html += `<div style="font-size:0.66em; color:var(--text-dimmer); margin:14px 0 6px;">Kalibratietabel verschijnt vanaf ~10 trades voor dit brein (nu ${withProb.length}${_allVerCount > withProb.length ? `, ${_allVerCount} over alle versies` : ''}).</div>`;
     }
 
     // Het counterfactuele handmatige-trades blok en de export-knoppen tonen we alleen
@@ -2275,6 +2288,40 @@ function generateLiveNarration() {
 
     const confDirs = getDirectionalConfidences();
     lines.push(`EINDSCORE \u00b7 LONG ${formatProbWithCalibration(confDirs.bullish)} vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bullish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'}) \u00b7 SHORT ${formatProbWithCalibration(confDirs.bearish)} vs. drempel ${botSettings.minProbabilityPct}% (${confDirs.bearish >= botSettings.minProbabilityPct ? 'gehaald' : 'niet gehaald'})`);
+
+    // FUNDAMENTALS + CROSS-MARKET (van de actieve munt): funding, long/short, open interest, BTC-correlatie
+    try {
+        const sym = (typeof neoMultiState !== 'undefined' && neoMultiState) ? neoMultiState.active : 'BTC';
+        const m = neoMultiState.markets[sym];
+        const f = m && m.fund;
+        if (f && (f.fundingRate != null || f.longShortRatio != null)) {
+            const parts = [];
+            if (f.fundingRate != null) parts.push(`funding ${(f.fundingRate*100).toFixed(4)}% (${f.fundingRate > 0.0003 ? 'longs betalen \u2192 contrair bearish' : f.fundingRate < -0.0003 ? 'shorts betalen \u2192 contrair bullish' : 'neutraal'})`);
+            if (f.longShortRatio != null) parts.push(`L/S ${f.longShortRatio.toFixed(2)}`);
+            if (f.openInterest != null && f.oiPrev != null) { const chg = (f.openInterest - f.oiPrev) / f.oiPrev * 100; parts.push(`OI ${chg >= 0 ? '+' : ''}${chg.toFixed(1)}%`); }
+            if (sym !== 'BTC' && f.btcCorr != null) parts.push(`BTC-corr ${(f.btcCorr*100).toFixed(0)}%`);
+            const fb = (typeof fundamentalsBias === 'function') ? fundamentalsBias(sym) : null;
+            const biasTxt = fb ? ` \u2192 bias ${fb.bias >= 0 ? '+' : ''}${fb.bias.toFixed(2)}` : '';
+            lines.push(`FUNDAMENTALS · ${parts.join(' \u00b7 ')}${biasTxt}`);
+        }
+    } catch (e) {}
+
+    // LEVEL 3 (getraind net): alleen als het actief meebeslist
+    try {
+        if (_l3 && _l3.trained && _l3.valAcc != null && _l3.valAcc > 0.52) {
+            const p3 = l3Predict(rawData, rawData.length - 1);
+            if (p3 != null) lines.push(`NEURAAL NET (L3) · voorspelt LONG-kans ${(p3*100).toFixed(0)}% \u00b7 validatie ${(_l3.valAcc*100).toFixed(0)}% \u00b7 weegt 15% mee`);
+        }
+    } catch (e) {}
+
+    // MULTI-MARKT (Osiris regie): welke munt heeft de beste kans nu
+    try {
+        if (typeof osirisState !== 'undefined' && osirisState.picks && osirisState.picks.length) {
+            const best = osirisState.picks[0];
+            const rank = osirisState.picks.map(p => `${p.sym} ${(p.prob*100|0)}%`).join(' > ');
+            lines.push(`OSIRIS MULTI-MARKT · ${rank} \u00b7 ${osirisState.note || ''}`);
+        }
+    } catch (e) {}
 
     lines.push(`STATUS · ${lastOsirisDecision.decision}`);
 
@@ -2778,6 +2825,18 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
         const pl = l2Predict(rawData, rawData.length - 1);
         if (pl != null && isFinite(pl)) {
             const l2Pct = (side === 'SHORT' ? (1 - pl) : pl) * 100;
+            // NIVEAU 3 (getraind net): weegt ADVISEREND mee met een klein gewicht, en
+            // alleen als het op de validatie beter was dan gokken (valAcc > 0.52). Zo
+            // krijgt het net pas invloed als het bewezen iets leert - een overfitting-rem.
+            let l3Pct = null;
+            if (_l3 && _l3.trained && _l3.valAcc != null && _l3.valAcc > 0.52) {
+                const p3 = l3Predict(rawData, rawData.length - 1);
+                if (p3 != null && isFinite(p3)) l3Pct = (side === 'SHORT' ? (1 - p3) : p3) * 100;
+            }
+            if (l3Pct != null) {
+                // blend: 55% basis, 30% L2, 15% L3 (net krijgt bewust het kleinste gewicht)
+                return Math.round(blended * 0.55 + l2Pct * 0.30 + l3Pct * 0.15);
+            }
             return Math.round(blended * 0.6 + l2Pct * 0.4);
         }
     }
@@ -4206,6 +4265,7 @@ function finalizeClosePosition(pos, pnlPct, reason) {
             regime: pos.regimeAtEntry || _lastActiveRegime || 'RANGE'
         });
         if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
+        _lastCalibUpdateMs = Date.now();   // stempel voor "last updated" in de kalibratietabel
         recalibrateAdaptiveWeights();
         // FIX (29-07): de kalibratie-kaart werd wel bij het laden berekend, maar
         // NIET opnieuw wanneer er tijdens het draaien een trade sloot - de chart
@@ -4251,6 +4311,8 @@ function finalizeClosePosition(pos, pnlPct, reason) {
 // poorten op de gekalibreerde schaal te zetten mét opnieuw gekozen drempels.
 // ============================================================
 // _calibMap is bovenin gedeclareerd (bij de persistente state) - zie de FIX daar.
+let _calibCurrentVersionOnly = true;   // standaard: toon alleen de huidige config-versie
+let _lastCalibUpdateMs = 0;            // "last updated" stempel voor de kalibratietabel
 function computeCalibrationMap() {
     const pts = [];
     const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
@@ -4260,7 +4322,13 @@ function computeCalibrationMap() {
     // Osiris ETH/SOL-trades hebben market !== 'BTC' en worden hier uitgesloten, zodat
     // het BTC-brein niet vervuild raakt met de uitkomsten van andere munten. Oudere
     // entries zonder market-veld gelden als BTC (die dateren van vóór multi-crypto).
-    const withProb = learningLog.filter(l => l.entryProbabilityPct != null && !l.manual && (l.market == null || l.market === 'BTC'));
+    // VERSIE-ZUIVERHEID (01-08): de bot heeft sinds dag 1 vele versies gekend. Trades
+    // van oude, gebroken versies vertekenen de kalibratie (bv. de -60pt overmoedigheid
+    // die deels historische ballast is). Met _calibCurrentVersionOnly aan tellen alleen
+    // trades van de HUIDIGE config-versie mee, zodat je een eerlijk beeld van NU krijgt.
+    const curVer = currentConfigVersion();
+    const versionOk = l => !_calibCurrentVersionOnly || l.configVersion == null || l.configVersion === curVer;
+    const withProb = learningLog.filter(l => l.entryProbabilityPct != null && !l.manual && (l.market == null || l.market === 'BTC') && versionOk(l));
     // 29-07: drempels verlaagd zodat de curve eerder (en bij elke trade) meebeweegt.
     // Onder de 50 schone trades markeren we hem als VOORLOPIG (kleine steekproef) i.p.v.
     // niets te tonen - zodat je 'm ziet leven, met de kanttekening dat het nog ruw is.
@@ -5422,6 +5490,9 @@ async function l2BuildAndTrain() {
         for (let d = 0; d < 8; d++) samples.push({ x, y });   // echte trades tellen 8x
     });
     const ok = l2Train(samples);
+    // Level 3 (getraind net) traint op dezelfde samples, maar heeft meer data nodig.
+    // Draait adviserend; faalt stil als er te weinig trades zijn.
+    try { l3Train(samples); } catch (e) { console.warn('L3-training overgeslagen:', e.message); }
     if (typeof updateL2UI === 'function') updateL2UI();
     return ok ? { ok: true, samples: samples.length, trades: schoon.length } : { ok: false, samples: samples.length };
 }
@@ -5444,6 +5515,130 @@ try {
     const saved = localStorage.getItem('osirisL2');
     if (saved) { const o = JSON.parse(saved); _l2 = { ..._l2, ...o, trained: true }; }
 } catch (e) {}
+
+// ============================================================
+// LEVEL 3 — ECHT GETRAIND NEURAAL NETWERK (01-08)
+// ============================================================
+// Een tweelaags feedforward-net (input -> verborgen laag (tanh) -> sigmoid output) dat
+// via BACKPROPAGATION traint op dezelfde features als L2. Anders dan de logistische
+// regressie (L2, lineair) kan dit NIET-LINEAIRE combinaties leren - bv. "hoge VFM ALLEEN
+// als de chaos laag is". Het draait ADVISEREND naast L2, niet als vervanging.
+//
+// RISICO (belangrijk): met een verborgen laag en beperkte trades kan dit OVERFITTEN -
+// het leert de ruis van je historie i.p.v. echte patronen. Daarom: (1) kleine verborgen
+// laag (6 neuronen), (2) L2-regularisatie (weight decay) tegen te grote gewichten,
+// (3) een aparte validatie-split die de training stopt als het net begint te overfitten
+// (early stopping), (4) het blend-gewicht in de eindkans is bewust klein gehouden.
+let _l3 = { W1: null, b1: null, W2: null, b2: null, mean: null, std: null, trained: false, trainedOn: 0, valAcc: null, lastTrainMs: 0, H: 6 };
+
+function _l3Forward(xn, net) {
+    // verborgen laag: h = tanh(W1 . x + b1)
+    const H = net.b1.length, nIn = xn.length;
+    const h = new Array(H);
+    for (let j = 0; j < H; j++) {
+        let z = net.b1[j];
+        for (let k = 0; k < nIn; k++) z += net.W1[j][k] * xn[k];
+        h[j] = Math.tanh(z);
+    }
+    // output: p = sigmoid(W2 . h + b2)
+    let zo = net.b2;
+    for (let j = 0; j < H; j++) zo += net.W2[j] * h[j];
+    const p = sigmoid(zo);
+    return { h, p };
+}
+
+function l3Train(samples, opts) {
+    opts = opts || {};
+    const H = opts.H || 6, epochs = opts.epochs || 2000, lr = opts.lr || 0.15, l2reg = opts.l2reg || 0.001;
+    if (!samples || samples.length < 60) return false;   // meer data nodig dan L2 (complexer model)
+    const nIn = samples[0].x.length;
+    // normalisatie
+    const mean = Array(nIn).fill(0), std = Array(nIn).fill(0);
+    samples.forEach(s => s.x.forEach((v, k) => mean[k] += v));
+    mean.forEach((_, k) => mean[k] /= samples.length);
+    samples.forEach(s => s.x.forEach((v, k) => std[k] += (v - mean[k]) ** 2));
+    std.forEach((_, k) => std[k] = Math.sqrt(std[k] / samples.length) || 1);
+    const norm = x => x.map((v, k) => (v - mean[k]) / std[k]);
+    const data = samples.map(s => ({ x: norm(s.x), y: s.y }));
+    // shuffle + 80/20 train/validatie-split voor early stopping
+    for (let i = data.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [data[i], data[j]] = [data[j], data[i]]; }
+    const split = Math.floor(data.length * 0.8);
+    const train = data.slice(0, split), val = data.slice(split);
+
+    // Xavier-achtige init
+    const rnd = () => (Math.random() * 2 - 1);
+    let W1 = Array.from({ length: H }, () => Array.from({ length: nIn }, () => rnd() * Math.sqrt(1 / nIn)));
+    let b1 = Array(H).fill(0);
+    let W2 = Array.from({ length: H }, () => rnd() * Math.sqrt(1 / H));
+    let b2 = 0;
+    const net = () => ({ W1, b1, W2, b2 });
+
+    const valLoss = () => {
+        if (!val.length) return 0;
+        let L = 0;
+        for (const s of val) { const { p } = _l3Forward(s.x, net()); const q = Math.max(1e-6, Math.min(1 - 1e-6, p)); L += -(s.y * Math.log(q) + (1 - s.y) * Math.log(1 - q)); }
+        return L / val.length;
+    };
+    let bestVal = Infinity, bestSnap = null, patience = 0;
+
+    for (let ep = 0; ep < epochs; ep++) {
+        // gradiënten
+        const gW1 = Array.from({ length: H }, () => Array(nIn).fill(0));
+        const gb1 = Array(H).fill(0);
+        const gW2 = Array(H).fill(0); let gb2 = 0;
+        for (const s of train) {
+            const { h, p } = _l3Forward(s.x, net());
+            const dOut = p - s.y;                        // dL/dz_out
+            for (let j = 0; j < H; j++) {
+                gW2[j] += dOut * h[j];
+                const dH = dOut * W2[j] * (1 - h[j] * h[j]);  // door tanh'
+                for (let k = 0; k < nIn; k++) gW1[j][k] += dH * s.x[k];
+                gb1[j] += dH;
+            }
+            gb2 += dOut;
+        }
+        const m = train.length;
+        // update met weight decay (L2-regularisatie)
+        for (let j = 0; j < H; j++) {
+            for (let k = 0; k < nIn; k++) W1[j][k] -= lr * (gW1[j][k] / m + l2reg * W1[j][k]);
+            b1[j] -= lr * gb1[j] / m;
+            W2[j] -= lr * (gW2[j] / m + l2reg * W2[j]);
+        }
+        b2 -= lr * gb2 / m;
+        // early stopping op validatie-verlies
+        if (ep % 20 === 0) {
+            const vl = valLoss();
+            if (vl < bestVal - 1e-4) { bestVal = vl; bestSnap = JSON.parse(JSON.stringify({ W1, b1, W2, b2 })); patience = 0; }
+            else if (++patience >= 12) break;   // 240 epochs geen verbetering -> stop (overfitting-rem)
+        }
+    }
+    if (bestSnap) { W1 = bestSnap.W1; b1 = bestSnap.b1; W2 = bestSnap.W2; b2 = bestSnap.b2; }
+    // validatie-accuraatheid rapporteren (eerlijke maat, niet op trainingsdata)
+    let correct = 0;
+    for (const s of val) { const { p } = _l3Forward(s.x, net()); if ((p >= 0.5 ? 1 : 0) === s.y) correct++; }
+    const valAcc = val.length ? correct / val.length : null;
+    _l3 = { W1, b1, W2, b2, mean, std, trained: true, trainedOn: samples.length, valAcc, lastTrainMs: Date.now(), H };
+    try { localStorage.setItem('osirisL3', JSON.stringify({ W1, b1, W2, b2, mean, std, trainedOn: samples.length, valAcc, H })); } catch (e) {}
+    return true;
+}
+
+function l3Predict(kl, i) {
+    if (!_l3.trained || !_l3.W1) return null;
+    const x = (Array.isArray(kl) && typeof i === 'number') ? l2ExtractFeatures(kl, i) : kl;
+    if (!x) return null;
+    const xn = x.map((v, k) => (v - _l3.mean[k]) / _l3.std[k]);
+    const { p } = _l3Forward(xn, _l3);
+    _l3.lastActivation = { prob: p };
+    return p;
+}
+window.l3Predict = l3Predict;
+
+// herstel een eerder getraind L3-net
+try {
+    const saved3 = localStorage.getItem('osirisL3');
+    if (saved3) { const o = JSON.parse(saved3); _l3 = { ..._l3, ...o, trained: true }; }
+} catch (e) {}
+
 
 
 // ============================================================
@@ -5950,7 +6145,25 @@ function renderSystemDataTab(sym) {
             <div><span style="color:var(--text-dim);">EMA</span><br><b>${m.ema != null ? '$' + m.ema.toFixed(0) : '-'}</b></div>
             <div><span style="color:var(--text-dim);">NN</span><br><b style="color:#c792ea;">${nnTxt}</b></div>
         </div>
-        <div style="margin-top:8px; font-size:0.56rem; color:var(--text-dimmer);">${b ? b.preset.note + ' · ' : ''}bijgewerkt: ${upd}${m.error ? ' · fout: ' + m.error : ''}</div>`;
+        <div style="margin-top:8px; font-size:0.56rem; color:var(--text-dimmer);">${b ? b.preset.note + ' · ' : ''}bijgewerkt: ${upd}${m.error ? ' · fout: ' + m.error : ''}</div>
+        ${(() => {
+            const f = m.fund;
+            if (!f || (f.fundingRate == null && f.openInterest == null)) return '<div style="margin-top:6px; font-size:0.56rem; color:var(--text-dimmer);">fundamentals laden (futures-API, elke 60s)...</div>';
+            const fr = f.fundingRate != null ? (f.fundingRate * 100).toFixed(4) + '%' : '-';
+            const frColor = f.fundingRate > 0 ? '#ff8fa3' : (f.fundingRate < 0 ? '#8fffb0' : 'var(--text-dim)');
+            const ls = f.longShortRatio != null ? f.longShortRatio.toFixed(2) : '-';
+            const corr = f.btcCorr != null ? (f.btcCorr * 100).toFixed(0) + '%' : '-';
+            const oi = f.openInterest != null ? (f.openInterest >= 1e6 ? (f.openInterest/1e6).toFixed(1)+'M' : (f.openInterest/1e3).toFixed(0)+'K') : '-';
+            return `<div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.06);">
+                <div style="font-size:0.56rem; color:#00d9ff; letter-spacing:1px; margin-bottom:5px;">FUNDAMENTALS &middot; CROSS-MARKT</div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(90px,1fr)); gap:6px; font-family:'JetBrains Mono',monospace; font-size:0.6rem;">
+                    <div><span style="color:var(--text-dim);">Funding</span><br><b style="color:${frColor};" title="mean-reverting: hoog+ = te bullish gepositioneerd">${fr}</b></div>
+                    <div><span style="color:var(--text-dim);">L/S ratio</span><br><b>${ls}</b></div>
+                    <div><span style="color:var(--text-dim);">Open Int.</span><br><b>${oi}</b></div>
+                    ${sym !== 'BTC' ? `<div><span style="color:var(--text-dim);">BTC-corr</span><br><b style="color:#f7931a;">${corr}</b></div>` : ''}
+                </div>
+            </div>`;
+        })()}`;
 
     // De VFM/ER/DB/Chaos meter-cards munt-bewust maken: voor ETH/SOL vullen we ze uit de
     // multi-asset motor; voor BTC laat de live-loop ze met de volledige berekening staan.
@@ -6626,7 +6839,7 @@ function _emptySubBrain(sym) {
         label: preset.label,
         preset: Object.assign({}, preset),
         // eigen adaptieve gewichten (start als kopie van de globale defaults)
-        weights: { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 2.0, nodeconf: 2.0 },
+        weights: { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 2.0, nodeconf: 2.0, fundamentals: 1.0 },
         learningLog: [],           // eigen trade-historie voor kalibratie
         lastProb: 0.5, lastSide: null,
         wins: 0, losses: 0, calibratedAt: 0
@@ -6686,6 +6899,17 @@ function subBrainEvaluate(sym) {
         }
         // NN-nabijheid (eigen munt)
         try { const p = nnProximity(sym); if (p && p.prox > 0.15) score += p.prox * (p.strength||0.5) * 6 * (w.nn || 2); } catch (e) {}
+        // FUNDAMENTALS + CROSS-MARKET (01-08): funding rate, open interest, long/short
+        // ratio en BTC-correlatie. Bescheiden gewicht (max ~10 punten) - een duwtje,
+        // geen dominante factor, want deze signalen kunnen lang extreem blijven of
+        // ontkoppelen. De bias is richting-bewust: positief = bullish.
+        try {
+            const fb = fundamentalsBias(sym);
+            if (fb && fb.bias) {
+                score += (side === 'LONG' ? 1 : -1) * fb.bias * 10 * (w.fundamentals || 1);
+                b.lastFundBias = fb;
+            }
+        } catch (e) {}
         // chaos-rem: te veel chaos -> lagere zekerheid
         score -= Math.min(15, m.chaos * 2);
         const prob = Math.max(0, Math.min(100, score)) / 100;
@@ -7228,9 +7452,130 @@ function startMultiAssetEngine() {
     MULTI_SYMBOLS.forEach((s, i) => setTimeout(() => multiRefreshSymbol(s), i * 400));
     if (_multiInterval) clearInterval(_multiInterval);
     _multiInterval = setInterval(multiRoundRobinTick, 10 * 1000);
+    // FUNDAMENTALS + CROSS-MARKET (01-08): aparte, trage lus (elke 60s). Deze data komt
+    // van de FUTURES API (fapi.binance.com) - een APARTE rate-limit-pool (2400/min), dus
+    // los van de spot-calls. Funding verandert maar elke 8u en open interest langzaam,
+    // dus 60s is ruim voldoende. Verbruik: 3 munten x 3 calls = ~9 gewicht/min (~0.4%).
+    if (window._fundInterval) clearInterval(window._fundInterval);
+    setTimeout(() => { try { refreshFundamentalsAll(); } catch (e) {} }, 2500);
+    window._fundInterval = setInterval(() => { try { refreshFundamentalsAll(); } catch (e) {} }, 60 * 1000);
 }
 window.startMultiAssetEngine = startMultiAssetEngine;
 window.neoMultiState = neoMultiState;
+
+// ============================================================
+// FUNDAMENTALS & CROSS-MARKET MOTOR (01-08)
+// ============================================================
+// Crypto heeft geen winst/omzet zoals aandelen, maar wél datasignalen die op korte
+// termijn voorspellend zijn: funding rate (of longs/shorts de markt domineren - sterk
+// mean-reverting), open interest (hoeveel hefboom er in zit), en de long/short account
+// ratio. Plus cross-market: BTC leidt de markt, dus BTC-momentum voorspelt deels ETH/SOL.
+// Elk signaal krijgt bewust een BESCHEIDEN gewicht - ze zijn nuttig maar niet heilig
+// (funding kan lang extreem blijven, order book is manipuleerbaar, correlatie ontkoppelt).
+const FUND_BINANCE = { BTC: 'BTCUSDT', ETH: 'ETHUSDT', SOL: 'SOLUSDT' };
+function _emptyFund() {
+    return { fundingRate: null, openInterest: null, oiPrev: null, longShortRatio: null, btcCorr: null, lastUpdate: 0, error: null };
+}
+
+async function refreshFundamentals(sym) {
+    const m = neoMultiState.markets[sym];
+    if (!m) return;
+    if (!m.fund) m.fund = _emptyFund();
+    const pair = FUND_BINANCE[sym];
+    try {
+        // 1) funding rate (premiumIndex) - gewicht 1
+        const fr = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${pair}`).then(r => r.ok ? r.json() : null);
+        if (fr && fr.lastFundingRate != null) m.fund.fundingRate = parseFloat(fr.lastFundingRate);
+        // 2) open interest - gewicht 1
+        const oi = await fetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${pair}`).then(r => r.ok ? r.json() : null);
+        if (oi && oi.openInterest != null) {
+            const val = parseFloat(oi.openInterest);
+            m.fund.oiPrev = m.fund.openInterest;
+            m.fund.openInterest = val;
+        }
+        // 3) long/short account ratio (laatste 5m-punt) - gewicht 1
+        const ls = await fetch(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${pair}&period=5m&limit=1`).then(r => r.ok ? r.json() : null);
+        if (Array.isArray(ls) && ls.length && ls[0].longShortRatio != null) m.fund.longShortRatio = parseFloat(ls[0].longShortRatio);
+        m.fund.error = null; m.fund.lastUpdate = Date.now();
+    } catch (e) {
+        m.fund.error = e.message || 'futures-fetch-fout';
+    }
+}
+
+// BTC-correlatie: hoe sterk volgt deze munt de recente BTC-beweging? Simpele maat via
+// de richting-overeenkomst van de laatste candle-returns. +1 = beweegt met BTC mee.
+function computeBtcCorrelation(sym) {
+    try {
+        if (sym === 'BTC') return 1;
+        const btc = neoMultiState.markets.BTC, m = neoMultiState.markets[sym];
+        if (!btc || !m || !btc.klines || !m.klines || btc.klines.length < 30 || m.klines.length < 30) return null;
+        const rets = (kl) => { const c = kl.slice(-30).map(d => parseFloat(d[4])); return c.slice(1).map((x, i) => (x - c[i]) / c[i]); };
+        const rb = rets(btc.klines), rm = rets(m.klines);
+        const n = Math.min(rb.length, rm.length);
+        if (n < 10) return null;
+        // Pearson-correlatie van de returns
+        let mb = 0, mm = 0; for (let i = 0; i < n; i++) { mb += rb[i]; mm += rm[i]; }
+        mb /= n; mm /= n;
+        let cov = 0, vb = 0, vm = 0;
+        for (let i = 0; i < n; i++) { const a = rb[i] - mb, b = rm[i] - mm; cov += a * b; vb += a * a; vm += b * b; }
+        const denom = Math.sqrt(vb * vm);
+        return denom > 0 ? cov / denom : null;
+    } catch (e) { return null; }
+}
+
+async function refreshFundamentalsAll() {
+    for (const sym of MULTI_SYMBOLS) {
+        await refreshFundamentals(sym);
+        const m = neoMultiState.markets[sym];
+        if (m && m.fund) m.fund.btcCorr = computeBtcCorrelation(sym);
+    }
+    try { if (typeof renderSystemDataTab === 'function' && neoMultiState.active) renderSystemDataTab(neoMultiState.active); } catch (e) {}
+}
+window.refreshFundamentalsAll = refreshFundamentalsAll;
+
+// Vertaal de fundamentals naar een richting-bias (-1..+1) voor een munt. Positief =
+// bullish. Elk deel-signaal is klein en genormaliseerd; samen vormen ze een bescheiden
+// duwtje bovenop de technische score, geen dominante factor.
+function fundamentalsBias(sym) {
+    const m = neoMultiState.markets[sym];
+    if (!m || !m.fund) return { bias: 0, parts: {} };
+    const f = m.fund;
+    const parts = {};
+    let bias = 0;
+    // Funding rate: MEAN-REVERTING. Hoge positieve funding = longs betalen veel = markt
+    // te bullish gepositioneerd = contrair bearish signaal (en omgekeerd).
+    if (f.fundingRate != null) {
+        const fr = Math.max(-0.0015, Math.min(0.0015, f.fundingRate));  // clamp extremen
+        parts.funding = -Math.tanh(fr * 2000) * 0.4;   // tegengesteld, bescheiden
+        bias += parts.funding;
+    }
+    // Long/short ratio: ook contrair. Veel meer longs dan shorts = overvol aan één kant.
+    if (f.longShortRatio != null) {
+        const dev = f.longShortRatio - 1;   // >1 = meer longs
+        parts.longShort = -Math.tanh(dev * 1.5) * 0.3;
+        bias += parts.longShort;
+    }
+    // Open interest verandering: stijgende OI + stijgende prijs = sterke trend (bevestigend).
+    if (f.openInterest != null && f.oiPrev != null && f.oiPrev > 0) {
+        const oiChg = (f.openInterest - f.oiPrev) / f.oiPrev;
+        const priceUp = (m.ema != null && m.emaSlow != null) ? (m.ema > m.emaSlow) : true;
+        parts.oi = Math.tanh(oiChg * 20) * (priceUp ? 0.2 : -0.2);
+        bias += parts.oi;
+    }
+    // BTC-correlatie x BTC-momentum: als deze munt sterk met BTC correleert en BTC stijgt,
+    // dan is dat een cross-market rugwind (en omgekeerd). Alleen voor ETH/SOL.
+    if (sym !== 'BTC' && f.btcCorr != null) {
+        const btc = neoMultiState.markets.BTC;
+        if (btc && btc.ema != null && btc.emaSlow != null && btc.emaSlow > 0) {
+            const btcMom = Math.tanh((btc.ema - btc.emaSlow) / btc.emaSlow * 200);
+            parts.crossBtc = f.btcCorr * btcMom * 0.35;
+            bias += parts.crossBtc;
+        }
+    }
+    return { bias: Math.max(-1, Math.min(1, bias)), parts };
+}
+window.fundamentalsBias = fundamentalsBias;
+
 
 
 // Detecteer capitulaties in een kline-serie: candles met een extreme |VFM| die tevens
@@ -9523,7 +9868,10 @@ const NEONET_INPUTS = [
     { key: 'cnn',      label: 'CNN',      c: '#ff4fd8' },
     { key: 'fib',      label: 'FIB',      c: '#ffd54a' },
     { key: 'nn',       label: 'NN',       c: '#c792ea' },
-    { key: 'nodeconf', label: 'CONF',     c: '#ffb627' }
+    { key: 'nodeconf', label: 'CONF',     c: '#ffb627' },
+    { key: 'funding',  label: 'FUND',     c: '#ff8fa3' },
+    { key: 'longshort',label: 'L/S',      c: '#8fb8ff' },
+    { key: 'btccorr',  label: 'BTC-COR',  c: '#f7931a' }
 ];
 
 function buildNeoNet() {
@@ -9575,10 +9923,21 @@ function neoNetInputs() {
         fib: norm(snap.fibConfluence != null ? snap.fibConfluence : 0, 5),
         // Neo's Node nabijheid (0..1, hoofdnode telt zwaarder) + node-confluentie score
         nn: (() => { try { const p = nnProximity('BTC'); return p ? p.prox * (p.main ? 1 : 0.6) : 0; } catch (e) { return 0; } })(),
-        nodeconf: (() => { try { const c = computeNodeConfluence(); return c ? (c.score || 0) : 0; } catch (e) { return 0; } })()
+        nodeconf: (() => { try { const c = computeNodeConfluence(); return c ? (c.score || 0) : 0; } catch (e) { return 0; } })(),
+        // FUNDAMENTALS (van de actieve munt in de multi-state): funding, long/short, BTC-corr
+        funding: (() => { try { const f = neoMultiState.markets[neoMultiState.active].fund; return f && f.fundingRate != null ? Math.max(-1, Math.min(1, -Math.tanh(f.fundingRate * 2000))) : 0; } catch (e) { return 0; } })(),
+        longshort: (() => { try { const f = neoMultiState.markets[neoMultiState.active].fund; return f && f.longShortRatio != null ? Math.max(-1, Math.min(1, -Math.tanh((f.longShortRatio - 1) * 1.5))) : 0; } catch (e) { return 0; } })(),
+        btccorr: (() => { try { const f = neoMultiState.markets[neoMultiState.active].fund; return f && f.btcCorr != null ? f.btcCorr : 0; } catch (e) { return 0; } })()
     };
 }
 
+function _hexToRgba(hex, a) {
+    try {
+        const h = hex.replace('#', '');
+        const r = parseInt(h.substring(0, 2), 16), g = parseInt(h.substring(2, 4), 16), b = parseInt(h.substring(4, 6), 16);
+        return `rgba(${r},${g},${b},${a})`;
+    } catch (e) { return `rgba(130,200,255,${a})`; }
+}
 function _neoNetFrame(now) {
     _neonet.raf = requestAnimationFrame(_neoNetFrame);
     if (now - _neonet.last < 33) return;
@@ -9705,22 +10064,33 @@ function _neoNetDraw(now, canvasId, outId) {
 
     // ---- neuronen ----
     const outLabels = ['LONG', 'NEUT', 'SHORT'], outCols = ['#00ff9f', '#5c7488', '#ff4f6d'];
+    const isBig = (canvasId === 'neo-net-canvas-big');   // meer detail op het grote canvas
     for (let li = 0; li < layers.length; li++) {
         for (let i = 0; i < layers[li].length; i++) {
             const p = pos[li][i], nd = layers[li][i];
             const near = Math.exp(-Math.pow((wavePos - li) / 0.6, 2));
             const glow = nd.act * (0.5 + 0.5 * near);
             const r = 5 + nd.act * 4 + near * 2;
+            // input-knopen krijgen hun eigen signaalkleur (rijker beeld)
+            let baseCol = 'rgba(130,200,255,GLOW)';
+            if (li === 0) { const c = NEONET_INPUTS[i].c; baseCol = _hexToRgba(c, '__A__'); }
             // ring
             ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283);
-            ctx.fillStyle = li === 0 ? `rgba(0,217,255,${0.15 + 0.6 * glow})`
-                         : li === layers.length - 1 ? outCols[i]
-                         : `rgba(130,200,255,${0.12 + 0.6 * glow})`;
+            if (li === 0) ctx.fillStyle = baseCol.replace('__A__', (0.15 + 0.6 * glow).toFixed(3));
+            else if (li === layers.length - 1) ctx.fillStyle = outCols[i];
+            else ctx.fillStyle = `rgba(130,200,255,${0.12 + 0.6 * glow})`;
             if (li === layers.length - 1) ctx.globalAlpha = 0.3 + 0.7 * nd.act;
             ctx.fill(); ctx.globalAlpha = 1;
             ctx.lineWidth = 1; ctx.strokeStyle = `rgba(200,235,255,${0.2 + 0.6 * glow})`; ctx.stroke();
             // kern-flits op de golf
             if (near > 0.3) { ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.4, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${near * glow})`; ctx.fill(); }
+            // ACTIVATIE-WAARDE als percentage (alleen groot canvas, waar ruimte is)
+            if (isBig && nd.act > 0.08) {
+                ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = 'center';
+                ctx.fillStyle = `rgba(220,240,255,${(0.4 + 0.5 * nd.act).toFixed(2)})`;
+                const valTxt = li === 0 ? `${(nd.sign < 0 ? '-' : '')}${Math.round(nd.act * 100)}` : `${Math.round(nd.act * 100)}`;
+                ctx.fillText(valTxt, p.x, p.y + r + 7);
+            }
         }
     }
 
@@ -9949,8 +10319,18 @@ function updateL2UI() {
     const leg = document.getElementById('cortex-legend');
     const tr = document.getElementById('cortex-trades');
     const pr = document.getElementById('cortex-progress');
+    // Level 3 paneel ook bijwerken
+    try { renderL3Panel(); } catch (e) {}
     if (!_l2) return;
-    if (st) st.textContent = _l2.trained ? `getraind · ${_l2.trainedOn} samples` : 'nog niet getraind';
+    if (st) {
+        let base = _l2.trained ? `getraind · ${_l2.trainedOn} samples` : 'nog niet getraind';
+        if (_l3 && _l3.trained) {
+            const acc = _l3.valAcc != null ? (_l3.valAcc * 100).toFixed(0) + '%' : '—';
+            const actief = (_l3.valAcc != null && _l3.valAcc > 0.52);
+            base += ` · L3-net ${acc}${actief ? ' (actief)' : ' (inactief, <52%)'}`;
+        }
+        st.textContent = base;
+    }
     if (tr) tr.textContent = _l2.trainedOn || 0;
     if (pr) {
         // voortgang: schone trades richting een stabiel model (ruwweg 300)
@@ -9958,13 +10338,74 @@ function updateL2UI() {
         const schoon = (typeof learningLog !== 'undefined') ? learningLog.filter(l => !l.manual && l.configVersion === cfg && l.outcome).length : 0;
         pr.style.width = Math.min(100, (schoon / 300) * 100).toFixed(0) + '%';
     }
-    if (leg && _l2.trained && _l2.weights) {
+    // Alleen de BTC-legend bijwerken als de BTC-tab actief is; anders zou de live-loop
+    // de ETH/SOL-tekst overschrijven (tekst-overlap bij het switchen van tab).
+    const _l2BtcActive = (typeof _activeL2Brain === 'undefined') || _activeL2Brain === 'BTC';
+    if (leg && _l2BtcActive && _l2.trained && _l2.weights) {
         const labs = ['vfm', 'mom', 'er', 'fib', 'patroon', 'svp'];
         const top = _l2.weights.map((w, i) => ({ l: labs[i], w })).sort((a, b) => Math.abs(b.w) - Math.abs(a.w)).slice(0, 3);
         leg.innerHTML = 'sterkste signalen: ' + top.map(t => `<span style="color:${t.w > 0 ? 'var(--teal)' : 'var(--red)'};">${t.l} ${t.w > 0 ? '+' : ''}${t.w.toFixed(2)}</span>`).join(' · ');
     }
     updateCortexActivation();
 }
+
+// ---- Level 2 & Level 3 per-brein weergave ----
+let _activeL2Brain = 'BTC', _activeL3Brain = 'BTC';
+function switchL2Brain(sym) {
+    _activeL2Brain = sym;
+    document.querySelectorAll('#l2-brain-tabs .learning-tab').forEach(b => b.classList.toggle('active', b.dataset.brain === sym));
+    const leg = document.getElementById('cortex-legend');
+    if (!leg) return;
+    if (sym === 'BTC') { updateL2UI(); return; }
+    // ETH/SOL: Level 2 is (nog) een BTC-model; toon de status van het sub-brein
+    const m = neoMultiState.markets[sym];
+    const b = m && m.brain;
+    const trades = (typeof botTradeLog !== 'undefined' ? botTradeLog : []).filter(t => t.action === 'EXIT' && t.market === sym).length;
+    leg.innerHTML = `<span style="color:${sym==='ETH'?'#627eea':'#14f195'}; font-weight:700;">${b ? b.label : 'Neo '+sym}</span> — Level 2 logistisch model traint apart zodra er genoeg ${sym}-trades zijn (nu ${trades}, doel ~40). Tot dan gebruikt ${sym} zijn sub-brein-score.`;
+}
+window.switchL2Brain = switchL2Brain;
+
+function switchL3Brain(sym) {
+    _activeL3Brain = sym;
+    document.querySelectorAll('#l3-brain-tabs .learning-tab').forEach(b => b.classList.toggle('active', b.dataset.brain === sym));
+    renderL3Panel();
+}
+window.switchL3Brain = switchL3Brain;
+
+function renderL3Panel() {
+    const body = document.getElementById('l3-body');
+    const stEl = document.getElementById('l3-status');
+    if (!body) return;
+    const sym = _activeL3Brain || 'BTC';
+    const brainCol = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' }[sym] || '#00d9ff';
+    const brainName = sym === 'BTC' ? 'Neo BTC' : (neoMultiState.markets[sym] && neoMultiState.markets[sym].brain ? neoMultiState.markets[sym].brain.label : 'Neo ' + sym);
+    // Level 3 is momenteel één getraind net op de BTC-hoofddata. Voor ETH/SOL tonen we
+    // de status; hun eigen net traint zodra er genoeg munt-trades zijn.
+    if (sym === 'BTC') {
+        if (_l3 && _l3.trained) {
+            const acc = _l3.valAcc != null ? (_l3.valAcc * 100).toFixed(0) + '%' : '—';
+            const actief = (_l3.valAcc != null && _l3.valAcc > 0.52);
+            const accColor = _l3.valAcc == null ? 'var(--text-dim)' : (_l3.valAcc > 0.58 ? 'var(--teal)' : (_l3.valAcc > 0.52 ? '#ffb627' : '#ff4f6d'));
+            if (stEl) stEl.textContent = actief ? 'actief' : 'inactief';
+            body.innerHTML = `<div style="color:${brainCol}; font-weight:700; margin-bottom:6px;">&#9673; ${brainName} — getraind net (2 lagen, ${_l3.H} verborgen neuronen)</div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px;">
+                    <div><span style="color:var(--text-dim);">Validatie-accuraatheid</span><br><b style="color:${accColor}; font-size:1.1em;">${acc}</b></div>
+                    <div><span style="color:var(--text-dim);">Getraind op</span><br><b>${_l3.trainedOn} samples</b></div>
+                    <div><span style="color:var(--text-dim);">Status</span><br><b style="color:${actief?'var(--teal)':'#ff4f6d'};">${actief ? 'meebeslissend (15%)' : 'inactief (<52%)'}</b></div>
+                </div>
+                <div style="margin-top:8px; color:var(--text-dimmer); font-size:0.92em; line-height:1.5;">Dit net leert NIET-LINEAIRE combinaties van de signalen (bv. "hoge VFM alleen bij lage chaos"). Het weegt pas mee als de validatie-accuraatheid boven 52% ligt — een overfitting-rem. De accuraatheid is gemeten op data die het net tijdens de training NIET zag.</div>`;
+        } else {
+            if (stEl) stEl.textContent = 'niet getraind';
+            body.innerHTML = `<div style="color:${brainCol}; font-weight:700; margin-bottom:6px;">&#9673; ${brainName}</div><span style="color:var(--text-dim);">Het getrainde net heeft minstens ~60 schone trades nodig. Traint automatisch mee met Level 2 zodra er genoeg data is.</span>`;
+        }
+    } else {
+        const trades = (typeof botTradeLog !== 'undefined' ? botTradeLog : []).filter(t => t.action === 'EXIT' && t.market === sym).length;
+        if (stEl) stEl.textContent = 'wacht op data';
+        body.innerHTML = `<div style="color:${brainCol}; font-weight:700; margin-bottom:6px;">&#9673; ${brainName} — getraind net</div>
+            <span style="color:var(--text-dim);">Het eigen net van ${brainName} traint zodra er genoeg ${sym}-trades zijn (nu ${trades}, doel ~60). Tot dan gebruikt ${sym} zijn sub-brein-score plus de gedeelde fundamentals.</span>`;
+    }
+}
+window.renderL3Panel = renderL3Panel;
 
 function toggleCortexPanel() {
     const body = document.getElementById('cortex-body');
