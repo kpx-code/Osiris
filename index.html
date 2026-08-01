@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OSIRIS INTEL — V7.1</title>
+<title>OSIRIS INTEL — V8 Deepnet</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -883,12 +883,6 @@ section { position:relative; z-index:2; }
           <div style="position:absolute; top:10px; right:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out-big" style="font-size:0.85rem;">&mdash;</span></div>
         </div>
 
-        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleCortexPanel()"><span><span id="cortex-chevron">&#9662;</span> <span style="color:#f7931a;">Neo BTC</span> &middot; NEO Mark 1 &middot; Level 2 (lerend)</span><span id="cortex-status" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">initialiseert&hellip;</span></div>
-        <div id="cortex-body" style="border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin-bottom:8px;">
-          <div id="cortex-legend" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim); line-height:1.6;">Wacht op eerste training&hellip;</div>
-          <div style="font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--dimmer); margin-top:4px;">Leerfase &middot; <span id="cortex-trades">0</span> samples <span style="float:right;">doel: 90% winrate + positieve P/L</span></div>
-          <div style="height:6px; background:#0a1a24; border-radius:3px; margin-top:4px; overflow:hidden;"><div id="cortex-progress" style="height:100%; width:0%; background:var(--teal); border-radius:3px; transition:width 0.6s;"></div></div>
-        </div>
         <div class="subhead" style="display:flex; justify-content:space-between; align-items:center; gap:8px;"><span>Wallet status</span><span style="display:flex; gap:8px;"><button type="button" onclick="stopAutonomousBot()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);">&#9632; Stop bot</button><button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button></span></div>
         <div class="kpi-strip" style="border:1px solid var(--line);">
           <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
@@ -972,6 +966,25 @@ section { position:relative; z-index:2; }
                         <span style="font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--text-dimmer);">exporteer regelmatig &mdash; dit is je back-up als de browser-cache gewist wordt</span>
                     </div>
                 </div>
+        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="toggleCortexPanel()"><span><span id="cortex-chevron">&#9662;</span> Adaptive Learning &middot; Level 2 &middot; logistisch model &middot; per brein</span><span id="cortex-status" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">initialiseert&hellip;</span></div>
+        <div id="l2-brain-tabs" style="display:flex; gap:6px; margin-bottom:8px;">
+            <button class="learning-tab active" data-brain="BTC" onclick="switchL2Brain('BTC')">Neo BTC</button>
+            <button class="learning-tab" data-brain="ETH" onclick="switchL2Brain('ETH')">Neo ETH</button>
+            <button class="learning-tab" data-brain="SOL" onclick="switchL2Brain('SOL')">Neo SOL</button>
+        </div>
+        <div id="cortex-body" style="border:1px solid var(--line); border-radius:6px; padding:8px 10px; margin-bottom:8px;">
+          <div id="cortex-legend" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim); line-height:1.6;">Wacht op eerste training&hellip;</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--dimmer); margin-top:4px;">Leerfase &middot; <span id="cortex-trades">0</span> samples <span style="float:right;">doel: 90% winrate + positieve P/L</span></div>
+          <div style="height:6px; background:#0a1a24; border-radius:3px; margin-top:4px; overflow:hidden;"><div id="cortex-progress" style="height:100%; width:0%; background:var(--teal); border-radius:3px; transition:width 0.6s;"></div></div>
+        </div>
+        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center;"><span>&#9673; Adaptive Learning &middot; Level 3 &middot; neuraal net (backprop) &middot; per brein</span><span id="l3-status" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
+        <div id="l3-brain-tabs" style="display:flex; gap:6px; margin-bottom:8px;">
+            <button class="learning-tab active" data-brain="BTC" onclick="switchL3Brain('BTC')">Neo BTC</button>
+            <button class="learning-tab" data-brain="ETH" onclick="switchL3Brain('ETH')">Neo ETH</button>
+            <button class="learning-tab" data-brain="SOL" onclick="switchL3Brain('SOL')">Neo SOL</button>
+        </div>
+        <div id="l3-body" style="border:1px solid rgba(0,217,255,0.2); border-radius:6px; padding:8px 10px; margin-bottom:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim);">Wacht op training&hellip;</div>
+
         <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer; margin-top:32px;" onclick="toggleCalibPanel()"><span><span id="calib-chevron">&#9662;</span> Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
         <div id="calib-brain-tabs" style="display:flex; gap:6px; margin-top:8px;">
             <button class="calib-tab active" data-brain="BTC" onclick="switchCalibBrain('BTC')">Neo BTC</button>
