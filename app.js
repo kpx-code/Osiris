@@ -1857,9 +1857,18 @@ function startAutonomousBot(isAutoRestart = false) {
 // (zodra er genoeg is) de laatst gemeten win rate per groep. Volledig
 // transparant: dit IS letterlijk wat het systeem "geleerd" heeft, in platte
 // tekst, geen black box.
+let _activeLearningBrain = 'OSIRIS';
+function switchLearningBrain(sym) {
+    _activeLearningBrain = sym;
+    document.querySelectorAll('.learning-tab').forEach(b => b.classList.toggle('active', b.dataset.brain === sym));
+    renderLearningPanel();
+}
+window.switchLearningBrain = switchLearningBrain;
+
 function renderLearningPanel() {
     const el = document.getElementById('learning-panel');
     if (!el) return;
+    const brain = _activeLearningBrain || 'BTC';
 
     const labels = {
         confluence: 'Confluence', nodeInfluence: 'Node-invloed',
@@ -1870,24 +1879,46 @@ function renderLearningPanel() {
     };
     const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn', nnInfluence: 'nn', nodeconfInfluence: 'nodeconf' };
 
-    const totalTrades = learningLog.length;
-    // PERCENTAGE-WEERGAVE (01-08): toon per factor zijn AANDEEL in de opbouw van de
-    // trade-score i.p.v. een abstract "1.5x". Som van alle gewichten = 100%; het
-    // aandeel maakt in één oogopslag duidelijk hoe zwaar Neo elke factor laat meewegen.
-    const sumW = Object.keys(labels).reduce((a, fk) => a + ((adaptiveWeights[weightKeys[fk]] != null) ? adaptiveWeights[weightKeys[fk]] : 1.0), 0);
-    let html = `<div style="font-size:0.72em; color:var(--text-dim); margin-bottom:10px;">Gebaseerd op ${totalTrades} trade(s). Elk percentage = het aandeel van die factor in de opbouw van Neo's beslissing (contrafeitelijk geleerd: ook factoren die de trade niet dreven tellen mee). Minimaal ${MIN_SAMPLE_SIZE} trades nodig voor bijstelling.</div>`;
+    // Kies de juiste databron per brein:
+    // - BTC: de bewezen hoofd-engine (adaptiveWeights + volledige learningLog).
+    // - ETH/SOL: het sub-brein (eigen weights + eigen trades uit botTradeLog).
+    // - OSIRIS: de mainbrain - toont het gemiddelde/overzicht van de drie sub-breinen.
+    let weightsSrc = adaptiveWeights;
+    let brainTrades = learningLog.filter(l => l.market == null || l.market === 'BTC');
+    let brainColor = '#f7931a', brainName = 'Neo BTC';
+    if (brain === 'ETH' || brain === 'SOL') {
+        const m = neoMultiState.markets[brain];
+        const b = m && m.brain;
+        weightsSrc = (b && b.weights) ? b.weights : {};
+        brainTrades = learningLog.filter(l => l.market === brain);
+        brainColor = brain === 'ETH' ? '#627eea' : '#14f195';
+        brainName = b ? b.label : 'Neo ' + brain;
+    } else if (brain === 'OSIRIS') {
+        // Osiris toont het gemiddelde gewicht over de drie sub-breinen (mainbrain-overzicht)
+        brainColor = '#00d9ff'; brainName = 'Osiris Mainbrain';
+        const brains = ['BTC', 'ETH', 'SOL'].map(s => s === 'BTC' ? adaptiveWeights : (neoMultiState.markets[s] && neoMultiState.markets[s].brain && neoMultiState.markets[s].brain.weights) || {});
+        weightsSrc = {};
+        for (const wk of Object.values(weightKeys)) {
+            const vals = brains.map(w => w[wk] != null ? w[wk] : 1.0);
+            weightsSrc[wk] = vals.reduce((a, v) => a + v, 0) / vals.length;
+        }
+        brainTrades = learningLog;   // alle markten samen
+    }
+
+    const totalTrades = brainTrades.length;
+    const sumW = Object.keys(labels).reduce((a, fk) => a + ((weightsSrc[weightKeys[fk]] != null) ? weightsSrc[weightKeys[fk]] : 1.0), 0);
+    const osirisNote = brain === 'OSIRIS' ? ' Osiris toont het gemiddelde over de drie sub-breinen.' : '';
+    let html = `<div style="font-size:0.72em; color:var(--text-dim); margin-bottom:10px;"><span style="color:${brainColor}; font-weight:700;">${brainName}</span> &middot; gebaseerd op ${totalTrades} trade(s). Elk percentage = het aandeel van die factor in de opbouw van de beslissing (contrafeitelijk geleerd).${osirisNote} Minimaal ${MIN_SAMPLE_SIZE} trades nodig voor bijstelling.</div>`;
     html += `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;">`;
 
     Object.keys(labels).forEach(fk => {
         const wKey = weightKeys[fk];
-        const weight = (adaptiveWeights[wKey] != null) ? adaptiveWeights[wKey] : 1.0;
+        const weight = (weightsSrc[wKey] != null) ? weightsSrc[wKey] : 1.0;
         const pct = sumW > 0 ? (weight / sumW * 100) : 0;
-        const s = lastCalibrationSummary ? lastCalibrationSummary.summary[fk] : null;
+        const s = (brain === 'BTC' && lastCalibrationSummary) ? lastCalibrationSummary.summary[fk] : null;
         const n = s ? (s.n != null ? s.n : ((s.nPresent||0)+(s.nAbsent||0))) : 0;
-        // kleur: boven-gemiddeld aandeel = teal, onder = gedempt
         const avgPct = 100 / Object.keys(labels).length;
         const weightColor = pct > avgPct * 1.15 ? 'var(--teal)' : (pct < avgPct * 0.85 ? '#8899aa' : 'var(--text-primary)');
-        // balk-breedte voor visuele vergelijking
         const barW = Math.min(100, pct / (avgPct * 2) * 100);
 
         html += `<div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); padding:10px 12px;">
@@ -1897,18 +1928,17 @@ function renderLearningPanel() {
             <div style="font-size:0.6em; color:var(--text-dimmer);">gewicht ${weight.toFixed(2)}x`;
         if (s && s.adjusted) {
             html += ` &middot; winst hoog/laag: ${(s.winRatePresent * 100).toFixed(0)}%/${(s.winRateAbsent * 100).toFixed(0)}% (n=${n})`;
-        } else {
+        } else if (brain === 'BTC') {
             html += ` &middot; n=${n} (nog geen bijstelling)`;
+        } else {
+            html += ` &middot; sub-brein preset`;
         }
         html += `</div></div>`;
     });
     html += `</div>`;
 
-    // KALIBRATIETABEL (13-07): voorspelde winkans-buckets vs. gerealiseerde
-    // winrate. Dit is de directe toets of de kansscore eerlijk is: in een
-    // perfect gekalibreerd systeem wint de 70-80%-bucket ~75% van de tijd.
-    // Wint hij 40%, dan is de score overmoedig en weet je precies hoeveel.
-    const withProb = learningLog.filter(l => !l.manual && (l.entryProbabilityPct != null || (l.factors && l.factors.probabilityPct != null)));
+    // KALIBRATIETABEL: alleen voor het gekozen brein (trades van die markt)
+    const withProb = brainTrades.filter(l => !l.manual && (l.entryProbabilityPct != null || (l.factors && l.factors.probabilityPct != null)));
     if (withProb.length >= 10) {
         const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
         html += `<div style="font-size:0.7em; color:var(--text-dim); margin:14px 0 6px;">Kalibratie: voorspelde winkans vs. werkelijkheid (n=${withProb.length})</div>`;
@@ -1927,11 +1957,13 @@ function renderLearningPanel() {
             html += `<tr><td style="padding:2px 6px;">${lo}-${Math.min(hi, 100)}%</td><td style="padding:2px 6px;">${inB.length}</td><td style="padding:2px 6px;">${wr.toFixed(0)}%</td><td style="padding:2px 6px; color:${devColor};">${dev >= 0 ? '+' : ''}${dev.toFixed(0)}pt</td></tr>`;
         });
         html += `</table>`;
+    } else {
+        html += `<div style="font-size:0.66em; color:var(--text-dimmer); margin:14px 0 6px;">Kalibratietabel verschijnt vanaf ~10 trades voor dit brein (nu ${withProb.length}).</div>`;
     }
 
-    // Counterfactueel blok: wat leverden de handmatige trades op, gesplitst naar
-    // "bot zou hier ook instappen" vs. "bot zou NIET instappen". Dat tweede vak
-    // is de blinde vlek van het systeem - daar zit de leerwaarde.
+    // Het counterfactuele handmatige-trades blok en de export-knoppen tonen we alleen
+    // voor BTC (de hoofd-engine); voor de sub-breinen is dat niet van toepassing.
+    if (brain !== 'BTC') { el.innerHTML = html; return; }
     const man = learningLog.filter(l => l.manual);
     if (man.length > 0) {
         const groep = (arr) => arr.length ? `${arr.length}x, winrate ${(arr.filter(l => l.outcome === 'win').length / arr.length * 100).toFixed(0)}%, gem ${(arr.reduce((a, l) => a + l.pnlPct, 0) / arr.length * 100).toFixed(2)}%` : '-';
@@ -2065,6 +2097,19 @@ function priceForPosition(p) {
     return livePrice;
 }
 window.priceForPosition = priceForPosition;
+
+// Robuuste alloc-% berekening: gebruik de opgeslagen waarde als die er is, anders
+// leid het af uit de notional t.o.v. de huidige equity. Zo toont een positie nooit
+// 0% terwijl er wel een omvang is (ook voor oudere posities zonder opgeslagen alloc).
+function positionAllocPct(p) {
+    if (p.osirisAllocPct != null && p.osirisAllocPct > 0) return p.osirisAllocPct * 100;
+    if (p.sizePct != null && p.sizePct > 0) return p.sizePct * 100;
+    const eq = (typeof getEquity === 'function') ? getEquity() : (walletState.balance || 1000);
+    if (eq > 0 && p.notional) return Math.min(100, p.notional / eq * 100);
+    return 0;
+}
+window.positionAllocPct = positionAllocPct;
+
 
 function getUnrealizedPnL() {
     const costFrac = roundTripCostPct() / 100;
@@ -2321,8 +2366,8 @@ function updateWalletUI() {
                 const mktColor = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' }[mkt] || '#8b95a5';
                 const typeLabel = p.isManual ? 'MANUAL' : (p.isOsiris ? 'OSIRIS' : (p.isScalp ? 'SCALP' : 'TREND'));
                 const typeColor = p.isManual ? '#ffb627' : (p.isOsiris ? '#00d9ff' : (p.isScalp ? '#c678dd' : '#4287f5'));
-                // alloc %: Osiris-posities tonen hun equity-aandeel, BTC-posities hun sizePct
-                const allocPct = p.osirisAllocPct != null ? (p.osirisAllocPct * 100) : ((p.sizePct || 0) * 100);
+                // alloc %: robuust berekend (opgeslagen waarde of afgeleid uit notional/equity)
+                const allocPct = positionAllocPct(p);
                 return `<tr>
                     <td style="padding:4px; color:${typeColor}; font-weight:bold; font-size:0.8em;">${typeLabel}</td>
                     <td style="color:${mktColor}; font-weight:bold; font-size:0.8em;">${mkt}</td>
@@ -4123,9 +4168,17 @@ function finalizeClosePosition(pos, pnlPct, reason) {
     // doen mee (range-scalps gebruiken een ander, regel-gebaseerd systeem
     // zonder confluence-score, dus die vallen hier terecht buiten).
     if (pos.factorsAtEntry && pos.factorsAtEntry.confluence !== null) {
+        // Welke markt was dit? Osiris ETH/SOL-trades mogen NIET meetellen voor Neo BTC's
+        // Level 1 kalibratie - die moet zuiver op BTC blijven. We leggen de markt vast
+        // zodat recalibrateAdaptiveWeights alleen BTC-trades gebruikt.
+        let posMarket = 'BTC';
+        if (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') {
+            posMarket = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || 'BTC';
+        }
         learningLog.push({
             timestampMs: Date.now(),
             side: pos.side,
+            market: posMarket,
             factors: pos.factorsAtEntry,
             outcome: pnlPct > 0 ? 'win' : 'loss',
             pnlPct,
@@ -4203,7 +4256,11 @@ function computeCalibrationMap() {
     const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
     // Handmatige trades tellen NIET mee: die meten niet of de bot zijn eigen
     // score eerlijk inschat (ander beslisproces, andere momentkeuze).
-    const withProb = learningLog.filter(l => l.entryProbabilityPct != null && !l.manual);
+    // BTC-ZUIVERHEID (01-08): alleen BTC-trades tellen mee voor Neo BTC's kalibratie.
+    // Osiris ETH/SOL-trades hebben market !== 'BTC' en worden hier uitgesloten, zodat
+    // het BTC-brein niet vervuild raakt met de uitkomsten van andere munten. Oudere
+    // entries zonder market-veld gelden als BTC (die dateren van vóór multi-crypto).
+    const withProb = learningLog.filter(l => l.entryProbabilityPct != null && !l.manual && (l.market == null || l.market === 'BTC'));
     // 29-07: drempels verlaagd zodat de curve eerder (en bij elke trade) meebeweegt.
     // Onder de 50 schone trades markeren we hem als VOORLOPIG (kleine steekproef) i.p.v.
     // niets te tonen - zodat je 'm ziet leven, met de kanttekening dat het nog ruw is.
@@ -4388,7 +4445,11 @@ function recalibrateAdaptiveWeights() {
     const factorKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluenceInfluence', 'patternInfluence', 'rsiInfluence', 'emaInfluence', 'cnnInfluence', 'nnInfluence', 'nodeconfInfluence'];
     const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn', nnInfluence: 'nn', nodeconfInfluence: 'nodeconf' };
     const summary = {};
-    const botLog = learningLog.filter(l => !l.manual && l.factors && l.outcome);
+    // BTC-ZUIVERHEID (01-08): Neo BTC's adaptieve gewichten leren UITSLUITEND van
+    // BTC-trades. Osiris ETH/SOL-trades (market !== 'BTC') worden uitgesloten zodat
+    // het BTC-brein niet meebeweegt met de uitkomsten van andere munten. Entries zonder
+    // market-veld zijn van vóór multi-crypto en gelden dus als BTC.
+    const botLog = learningLog.filter(l => !l.manual && l.factors && l.outcome && (l.market == null || l.market === 'BTC'));
 
     factorKeys.forEach(fk => {
         const wKey = weightKeys[fk];
@@ -6957,7 +7018,7 @@ function autonomousPresetAdapt(sym) {
         const preset = b.preset;
         // gebruik de gesloten Osiris-trades van deze munt als bewijs
         const closed = openPositions.filter(() => false); // (echte gesloten trades komen via de tradelog)
-        const symTrades = (typeof botTradeLog !== 'undefined' ? botTradeLog : []).filter(t => t.action === 'EXIT' && t.symbol === MULTI_BINANCE[sym]);
+        const symTrades = (typeof botTradeLog !== 'undefined' ? botTradeLog : []).filter(t => t.action === 'EXIT' && t.market === sym);
         if (symTrades.length < 8) return;   // te weinig data voor een veilige aanpassing
         const wins = symTrades.filter(t => (t.pnlPct || 0) > 0);
         const winRate = wins.length / symTrades.length;
@@ -8465,6 +8526,9 @@ function updateKpiStrip() {
 // exit-mechanisme (bijdrage), en wat staat er nu open.
 // ============================================================
 function renderCalibrationCurve() {
+    // Alleen tekenen als de BTC-kalibratietab actief is. Anders zou de live-loop de
+    // ETH/SOL-tekst telkens overschrijven met de BTC-curve (tekst-overlap bij switchen).
+    if (typeof _activeCalibBrain !== 'undefined' && _activeCalibBrain !== 'BTC') return;
     const plot = document.getElementById('calib-plot');
     const note = document.getElementById('calib-note');
     if (!plot) return;
@@ -8533,7 +8597,7 @@ function renderHubPositions() {
         const mktColor = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' }[mkt] || '#8b95a5';
         const type = p.isManual ? 'MANUAL' : (p.isOsiris ? 'OSIRIS' : (p.isScalp ? 'SCALP' : 'TREND'));
         const typeKleur = p.isManual ? '#ffb627' : (p.isOsiris ? '#00d9ff' : (p.isScalp ? '#c678dd' : '#4287f5'));
-        const allocPct = p.osirisAllocPct != null ? (p.osirisAllocPct * 100) : ((p.sizePct || 0) * 100);
+        const allocPct = positionAllocPct(p);
         return `<div class="pos-row">
             <span style="color:${typeKleur}; width:48px; flex:none;">${type}</span>
             <span style="color:${mktColor}; width:30px; flex:none; font-weight:700;">${mkt}</span>
