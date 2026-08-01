@@ -473,7 +473,7 @@ let lastOsirisDecision = null;
 // bewust traag en behoudend, om niet te "leren" van ruis bij te weinig data
 // (zie de node-correlatie-les eerder: te weinig samples geeft schijnpatronen).
 // ============================================================
-let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 0.5, nodeconf: 0.5 };
+let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 2.0, nodeconf: 2.0 };
 let learningLog = []; // { timestampMs, side, factors: {confluence, nodeInfluence, momentumInfluence, fibConfluenceInfluence, probabilityPct}, outcome: 'win'|'loss', pnlPct }
 let lastReallocationAt = 0; // timestamp (ms) van de laatste reallocatie - voor de cooldown-poort in tryReallocateForBetterOpportunity
 // FIX (crash 12-07): sessionLog stond gedeclareerd op ~regel 1200, terwijl
@@ -1410,8 +1410,8 @@ function loadPersistentState() {
         // migratie: oude opgeslagen gewichten misten rsi/ema/cnn - vul ze aan op 1.0
         for (const k of ['confluence','nodeInfluence','momentumInfluence','fibConfluence','pattern','rsi','ema','cnn'])
             if (adaptiveWeights[k] == null) adaptiveWeights[k] = 1.0;
-        if (adaptiveWeights.nn == null) adaptiveWeights.nn = 0.5;
-        if (adaptiveWeights.nodeconf == null) adaptiveWeights.nodeconf = 0.5;
+        if (adaptiveWeights.nn == null) adaptiveWeights.nn = 2.0;
+        if (adaptiveWeights.nodeconf == null) adaptiveWeights.nodeconf = 2.0;
         // 31-07: regime-specifieke gewichten herstellen
         try { const rw = localStorage.getItem('osirisRegimeWeights'); if (rw) regimeWeights = JSON.parse(rw); } catch (e) {}
         computeCalibrationMap(); // pas NA het herstellen van alle state - zodat een
@@ -1811,6 +1811,12 @@ function startAutonomousBot(isAutoRestart = false) {
     }
     // Start je interval hier
     botInterval = setInterval(botHeartbeat, 1000); 
+    // AUTONOME ENGINE-AANPASSING (01-08): Neo herziet bij de start zijn eigen
+    // engine-instellingen tegen de data en past ze waar nodig autonoom aan voor
+    // betere winstkansen. Ook periodiek (elke 30 min) zodat hij mee-evolueert.
+    setTimeout(() => { try { autonomousEngineAdapt('start'); } catch (e) {} }, 3000);
+    if (window._engineAdapt) clearInterval(window._engineAdapt);
+    window._engineAdapt = setInterval(() => { try { autonomousEngineAdapt('periodiek'); } catch (e) {} }, 30 * 60 * 1000);
     // Level 2: train het model bij de start (en elke 30 min opnieuw) op historische
     // candles + schone trades, zodat de gekalibreerde kans meegroeit met de data.
     l2BuildAndTrain().then(r => { if (r && r.ok) console.log(`Level 2 getraind op ${r.samples} samples (${r.trades} echte trades).`); });
@@ -1846,31 +1852,40 @@ function renderLearningPanel() {
         confluence: 'Confluence', nodeInfluence: 'Node-invloed',
         momentumInfluence: 'Momentum-invloed', fibConfluenceInfluence: 'Fib-confluentie',
         patternInfluence: 'Patroon/structuur',
-        rsiInfluence: 'RSI-invloed', emaInfluence: 'EMA-invloed', cnnInfluence: 'CNN multi-candle', nnInfluence: "Neo's Node (NN)"
+        rsiInfluence: 'RSI-invloed', emaInfluence: 'EMA-invloed', cnnInfluence: 'CNN multi-candle',
+        nnInfluence: "Neo's Node (NN)", nodeconfInfluence: 'Node-confluentie'
     };
-    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn', nnInfluence: 'nn' };
+    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn', nnInfluence: 'nn', nodeconfInfluence: 'nodeconf' };
 
     const totalTrades = learningLog.length;
-    let html = `<div style="font-size:0.72em; color:var(--text-dim); margin-bottom:10px;">Gebaseerd op ${totalTrades} afgesloten trend-trade(s) sinds deze instellingen zijn gaan loggen (minimaal ${MIN_SAMPLE_SIZE} per groep nodig voordat een gewicht verandert).</div>`;
+    // PERCENTAGE-WEERGAVE (01-08): toon per factor zijn AANDEEL in de opbouw van de
+    // trade-score i.p.v. een abstract "1.5x". Som van alle gewichten = 100%; het
+    // aandeel maakt in één oogopslag duidelijk hoe zwaar Neo elke factor laat meewegen.
+    const sumW = Object.keys(labels).reduce((a, fk) => a + ((adaptiveWeights[weightKeys[fk]] != null) ? adaptiveWeights[weightKeys[fk]] : 1.0), 0);
+    let html = `<div style="font-size:0.72em; color:var(--text-dim); margin-bottom:10px;">Gebaseerd op ${totalTrades} trade(s). Elk percentage = het aandeel van die factor in de opbouw van Neo's beslissing (contrafeitelijk geleerd: ook factoren die de trade niet dreven tellen mee). Minimaal ${MIN_SAMPLE_SIZE} trades nodig voor bijstelling.</div>`;
     html += `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;">`;
 
     Object.keys(labels).forEach(fk => {
         const wKey = weightKeys[fk];
-        const weight = (adaptiveWeights[wKey] != null) ? adaptiveWeights[wKey] : 1.0;   // oude data mist rsi/ema/cnn
+        const weight = (adaptiveWeights[wKey] != null) ? adaptiveWeights[wKey] : 1.0;
+        const pct = sumW > 0 ? (weight / sumW * 100) : 0;
         const s = lastCalibrationSummary ? lastCalibrationSummary.summary[fk] : null;
-        const botOnly = learningLog.filter(l => !l.manual);
-        const nPresent = s ? s.nPresent : botOnly.filter(l => l.factors && l.factors[fk] > 1).length;
-        const nAbsent = s ? s.nAbsent : botOnly.filter(l => l.factors && l.factors[fk] !== null && l.factors[fk] != null && l.factors[fk] <= 1).length;
-        const weightColor = weight > 1.02 ? 'var(--teal)' : (weight < 0.98 ? 'var(--red)' : 'var(--text-primary)');
+        const n = s ? (s.n != null ? s.n : ((s.nPresent||0)+(s.nAbsent||0))) : 0;
+        // kleur: boven-gemiddeld aandeel = teal, onder = gedempt
+        const avgPct = 100 / Object.keys(labels).length;
+        const weightColor = pct > avgPct * 1.15 ? 'var(--teal)' : (pct < avgPct * 0.85 ? '#8899aa' : 'var(--text-primary)');
+        // balk-breedte voor visuele vergelijking
+        const barW = Math.min(100, pct / (avgPct * 2) * 100);
 
         html += `<div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); padding:10px 12px;">
             <div style="font-size:0.7em; color:var(--text-dim); margin-bottom:4px;">${labels[fk]}</div>
-            <div style="font-family:'JetBrains Mono',monospace; font-weight:700; color:${weightColor};">${weight.toFixed(2)}x</div>
-            <div style="font-size:0.62em; color:var(--text-dimmer); margin-top:4px;">n=${nPresent} aanwezig / ${nAbsent} zwak`;
+            <div style="font-family:'JetBrains Mono',monospace; font-weight:700; color:${weightColor}; font-size:1.05em;">${pct.toFixed(1)}%</div>
+            <div style="height:4px; background:rgba(255,255,255,0.06); border-radius:2px; margin:5px 0 4px; overflow:hidden;"><div style="height:100%; width:${barW}%; background:${weightColor}; border-radius:2px;"></div></div>
+            <div style="font-size:0.6em; color:var(--text-dimmer);">gewicht ${weight.toFixed(2)}x`;
         if (s && s.adjusted) {
-            html += `<br>win rate: ${(s.winRatePresent * 100).toFixed(0)}% vs ${(s.winRateAbsent * 100).toFixed(0)}%`;
+            html += ` &middot; winst hoog/laag: ${(s.winRatePresent * 100).toFixed(0)}%/${(s.winRateAbsent * 100).toFixed(0)}% (n=${n})`;
         } else {
-            html += ` (nog &lt; ${MIN_SAMPLE_SIZE} - geen aanpassing)`;
+            html += ` &middot; n=${n} (nog geen bijstelling)`;
         }
         html += `</div></div>`;
     });
@@ -2615,18 +2630,19 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
         // NN (Neo's Node) als eigen factor met eigen adaptief gewicht. Standaardgewicht
         // start bewust LAAG (0.5) omdat NN nog experimenteel is - Neo bouwt het op of af
         // op basis van of NN-nabijheid in de praktijk met winst correleert.
-        try { nnInfluence = calculateNNInfluence(side) * (_w.nn ?? 0.5); } catch (e) { nnInfluence = 0; }
+        try { nnInfluence = calculateNNInfluence(side) * (_w.nn ?? 2.0); } catch (e) { nnInfluence = 0; }
         // NODE-CONFLUENTIE: extra bijdrage wanneer standaard-node en NN samenvallen.
         // Eigen gewicht (nodeconf), start laag - de "samenval = sterkste signaal"-these
         // is nog onbewezen, dus Neo bouwt dit gewicht zelf op of af.
         let confNodeInfl = 0;
-        try { confNodeInfl = calculateConfluenceNodeInfluence(side) * (_w.nodeconf ?? 0.5); } catch (e) { confNodeInfl = 0; }
+        try { confNodeInfl = calculateConfluenceNodeInfluence(side) * (_w.nodeconf ?? 2.0); } catch (e) { confNodeInfl = 0; }
         nnInfluence += confNodeInfl;
+        _lastNodeconfContrib = confNodeInfl;
         score += rsiInfluence + emaInfluence + cnnInfluence + nnInfluence;
     }
     // onthoud de losse bijdragen zodat de entry ze kan vastleggen + de neural net ze toont
     _lastFactorContrib = { confluence: confluenceContribution, node: nodeInfluence, momentum: momentumInfluence,
-        fib: fibConfluenceInfluence, pattern: patternInfluence, rsi: rsiInfluence, ema: emaInfluence, cnn: cnnInfluence, nn: nnInfluence };
+        fib: fibConfluenceInfluence, pattern: patternInfluence, rsi: rsiInfluence, ema: emaInfluence, cnn: cnnInfluence, nn: nnInfluence, nodeconf: (typeof _lastNodeconfContrib!=='undefined'?_lastNodeconfContrib:0) };
     // NIEUW: volume-profile-bias. Prijs onder de value area (VAL) = koopzone
     // (ondersteunt LONG); boven de value area (VAH) = verkoopzone (ondersteunt
     // SHORT). Conservatief gewogen (max ~4 punten) zodat het de bestaande signalen
@@ -2687,6 +2703,7 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     return Math.round(blended);
 }
 let _lastFactorContrib = null;
+let _lastNodeconfContrib = 0;
 
 
 
@@ -3221,7 +3238,7 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     const snap = (typeof lastOsirisMetrics !== 'undefined' && lastOsirisMetrics) ? lastOsirisMetrics : {};
     const lv = (typeof lastVolumeMetrics !== 'undefined' && lastVolumeMetrics) ? lastVolumeMetrics : {};
     return { eligible, triggerPrice, targetPrice, projectedProfitPct, probabilityPct, nodeContext, nodeInfluence, momentumContext, momentumInfluence, fibConfluenceInfluence, confluence: decision.confluence, patternInfluence,
-        rsiInfluence: fc.rsi ?? 0, emaInfluence: fc.ema ?? 0, cnnInfluence: fc.cnn ?? 0, nnInfluence: fc.nn ?? 0,
+        rsiInfluence: fc.rsi ?? 0, emaInfluence: fc.ema ?? 0, cnnInfluence: fc.cnn ?? 0, nnInfluence: fc.nn ?? 0, nodeconfInfluence: fc.nodeconf ?? 0,
         snapVfm: snap.vfm ?? null, snapEr: snap.er ?? null, snapDb: snap.db ?? null, snapChaos: snap.chaos ?? null,
         snapVolZ: (lv.zScore != null ? parseFloat(lv.zScore) : null) };
 }
@@ -3619,7 +3636,7 @@ function scanForOpportunities(decision, metrics) {
             rsiInfluence: evalResult.rsiInfluence ?? 0,
             emaInfluence: evalResult.emaInfluence ?? 0,
             cnnInfluence: evalResult.cnnInfluence ?? 0,
-            nnInfluence: evalResult.nnInfluence ?? 0,
+            nnInfluence: evalResult.nnInfluence ?? 0, nodeconfInfluence: evalResult.nodeconfInfluence ?? 0,
             snapVfm: evalResult.snapVfm ?? null,
             snapEr: evalResult.snapEr ?? null,
             snapDb: evalResult.snapDb ?? null,
@@ -3842,7 +3859,7 @@ function openPositionFromOrder(order, entryTag = '') {
             rsiInfluence: order.rsiInfluence ?? 0,
             emaInfluence: order.emaInfluence ?? 0,
             cnnInfluence: order.cnnInfluence ?? 0,
-            nnInfluence: order.nnInfluence ?? 0,
+            nnInfluence: order.nnInfluence ?? 0, nodeconfInfluence: order.nodeconfInfluence ?? 0,
             snapVfm: order.snapVfm ?? null,
             snapEr: order.snapEr ?? null,
             snapDb: order.snapDb ?? null,
@@ -4222,8 +4239,8 @@ function ensureRegimeWeights() {
         // vul ontbrekende sleutels aan (migratie)
         for (const k of ['confluence','nodeInfluence','momentumInfluence','fibConfluence','pattern','rsi','ema','cnn'])
             if (regimeWeights[r][k] == null) regimeWeights[r][k] = 1.0;
-        if (regimeWeights[r].nn == null) regimeWeights[r].nn = 0.5;
-        if (regimeWeights[r].nodeconf == null) regimeWeights[r].nodeconf = 0.5;
+        if (regimeWeights[r].nn == null) regimeWeights[r].nn = 2.0;
+        if (regimeWeights[r].nodeconf == null) regimeWeights[r].nodeconf = 2.0;
     }
 }
 // geef de actieve gewichten-set terug (regime-specifiek als beschikbaar, anders globaal)
@@ -4235,35 +4252,143 @@ function activeWeights() {
 }
 let _lastActiveRegime = 'RANGE';
 
+// ============================================================
+// GEWICHT-KALIBRATIE — contrafeitelijk per-trade leren (01-08)
+// ============================================================
+// HERBOUWD op basis van de credit-assignment discussie. In plaats van "won de trade
+// waar factor X aanwezig was", meten we of de WAARDE van factor X op het instapmoment
+// CORRELEERT met de uitkomst - over ALLE trades, ongeacht of X de trade dreef. Zo
+// leert bijv. de NN-pulse zijn waarde ook uit trades die hij niet triggerde (het gat
+// dat de gebruiker terecht aanwees).
+//
+// DRIE OVERFITTING-REMMEN:
+//  1. Leersnelheid: elk gewicht schuift per herijking maar een klein stukje.
+//  2. Krimp naar neutraal: zonder blijvend bewijs zakt een gewicht terug naar 1.0.
+//  3. Vertrouwen schaalt met samples: met weinig data blijft het gewicht dicht bij
+//     neutraal; pas met veel trades mag het ver uitwijken (Bayesiaans shrinkage).
+const NEUTRAL_W = 1.0;
+// ============================================================
+// AUTONOME ENGINE-AANPASSING (01-08) — Osiris/Neo herziet zelf de instellingen
+// ============================================================
+// Bij start (en periodiek) evalueert Neo de engine-instellingen tegen alle
+// beschikbare data en past ze autonoom aan voor betere winstkansen. Elke aanpassing
+// + de redenering wordt gelogd naar het "Autonomous Adaptation"-paneel. Volledig
+// dynamisch, maar binnen veilige grenzen zodat het nooit onverantwoord wordt.
+let _adaptationLog = [];
+function logAdaptation(what, why) {
+    const t = new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    _adaptationLog.unshift({ t, what, why });
+    if (_adaptationLog.length > 40) _adaptationLog.pop();
+    const el = document.getElementById('bot-adaptation');
+    if (el) {
+        el.innerHTML = _adaptationLog.map(a =>
+            `<div style="margin-bottom:7px;"><span style="color:#ffb627;">[${a.t}]</span> <span style="color:#ffe9b8;">${a.what}</span><br><span style="color:#9a8a66; font-size:0.92em;">&rarr; ${a.why}</span></div>`
+        ).join('');
+    }
+}
+
+function autonomousEngineAdapt(reason = 'start') {
+    try {
+        const bot = learningLog.filter(l => !l.manual && l.outcome);
+        if (bot.length < 20) {
+            logAdaptation('Nog te weinig data om de engine te herzien', `wacht op meer trades (nu ${bot.length}, drempel 20) voordat autonome aanpassing veilig is`);
+            return;
+        }
+        const wins = bot.filter(l => l.outcome === 'win');
+        const winRate = wins.length / bot.length;
+        const avgWin = wins.length ? wins.reduce((a, l) => a + (l.pnlPct || 0), 0) / wins.length : 0;
+        const losses = bot.filter(l => l.outcome !== 'win');
+        const avgLoss = losses.length ? losses.reduce((a, l) => a + (l.pnlPct || 0), 0) / losses.length : 0;
+
+        // 1) MIN-PROBABILITY: als de kalibratie laat zien dat Neo overmoedig is
+        //    (hoge scores maar lagere echte winrate), verhoog de instap-drempel.
+        if (_calibMap && _calibMap.length >= 2) {
+            const overconf = _calibMap.every(([raw, act]) => act < raw - 10);
+            if (overconf && botSettings.minProbabilityPct < 80) {
+                const old = botSettings.minProbabilityPct;
+                botSettings.minProbabilityPct = Math.min(80, old + 2);
+                logAdaptation(`Instap-drempel ${old}% &rarr; ${botSettings.minProbabilityPct}%`, `kalibratie toont overmoedige scores (werkelijke winrate ligt structureel onder de voorspelde) - strengere drempel filtert zwakke trades`);
+            }
+        }
+
+        // 2) SCALP-ECONOMIE: als het scalp-winstdoel na kosten te krap is, verhoog het.
+        const roundtrip = 2 * ((botSettings.feePct || 0.1) + (botSettings.slippagePct || 0.02));
+        if (botSettings.minProjectedProfitPct < roundtrip * 1.3) {
+            const old = botSettings.minProjectedProfitPct;
+            botSettings.minProjectedProfitPct = +(roundtrip * 1.4).toFixed(2);
+            logAdaptation(`Min. winstdoel ${old}% &rarr; ${botSettings.minProjectedProfitPct}%`, `winstdoel lag onder de round-trip kosten (${roundtrip.toFixed(2)}%) - trades met te weinig marge na kosten worden nu vermeden`);
+        }
+
+        // 3) RISICO: als de gemiddelde verliezer veel groter is dan de winnaar,
+        //    trek de stop-loss iets strakker aan (asymmetrie herstellen).
+        if (avgLoss < 0 && avgWin > 0 && Math.abs(avgLoss) > avgWin * 1.8 && botSettings.stopLossPct > 0.8) {
+            const old = botSettings.stopLossPct;
+            botSettings.stopLossPct = Math.max(0.8, +(old * 0.9).toFixed(2));
+            logAdaptation(`Stop-loss ${old}% &rarr; ${botSettings.stopLossPct}%`, `gemiddeld verlies (${(avgLoss*100).toFixed(2)}%) was veel groter dan gemiddelde winst (${(avgWin*100).toFixed(2)}%) - strakkere stop herstelt de risk/reward`);
+        }
+
+        // 4) samenvatting als er niets aangepast hoefde te worden
+        if (_adaptationLog.length === 0 || reason === 'start') {
+            logAdaptation(`Engine herzien (winrate ${(winRate*100).toFixed(0)}%, ${bot.length} trades)`, `Neo heeft de instellingen tegen de data getoetst${_adaptationLog.length <= 1 ? ' - geen wijziging nodig, de huidige instellingen passen bij de data' : ''}`);
+        }
+        try { savePersistentState(); } catch (e) {}
+    } catch (e) { /* stil */ }
+}
+window.autonomousEngineAdapt = autonomousEngineAdapt;
+
 function recalibrateAdaptiveWeights() {
     computeCalibrationMap();
-    // defensief: oude opgeslagen weights misten rsi/ema/cnn - vul ze aan
     for (const k of ['rsi', 'ema', 'cnn']) if (adaptiveWeights[k] == null) adaptiveWeights[k] = 1.0;
-    const factorKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluenceInfluence', 'patternInfluence', 'rsiInfluence', 'emaInfluence', 'cnnInfluence'];
-    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn', nnInfluence: 'nn' };
+    if (adaptiveWeights.nn == null) adaptiveWeights.nn = 2.0;
+    if (adaptiveWeights.nodeconf == null) adaptiveWeights.nodeconf = 2.0;
+    const factorKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluenceInfluence', 'patternInfluence', 'rsiInfluence', 'emaInfluence', 'cnnInfluence', 'nnInfluence', 'nodeconfInfluence'];
+    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn', nnInfluence: 'nn', nodeconfInfluence: 'nodeconf' };
     const summary = {};
+    const botLog = learningLog.filter(l => !l.manual && l.factors && l.outcome);
 
     factorKeys.forEach(fk => {
-        // Alleen eigen bot-trades: handmatige entries zijn counterfactuele data
-        // en mogen de gewichten niet sturen.
-        const botLog = learningLog.filter(l => !l.manual);
-        const present = botLog.filter(l => l.factors[fk] !== null && l.factors[fk] > 1);
-        const absent = botLog.filter(l => l.factors[fk] !== null && l.factors[fk] <= 1);
-
-        summary[fk] = { nPresent: present.length, nAbsent: absent.length, adjusted: false };
-
-        if (present.length < MIN_SAMPLE_SIZE || absent.length < MIN_SAMPLE_SIZE) return; // te weinig data - niets aanpassen
-
-        const winRatePresent = present.filter(l => l.outcome === 'win').length / present.length;
-        const winRateAbsent = absent.filter(l => l.outcome === 'win').length / absent.length;
-        summary[fk].winRatePresent = winRatePresent;
-        summary[fk].winRateAbsent = winRateAbsent;
-
         const wKey = weightKeys[fk];
-        const diff = winRatePresent - winRateAbsent; // positief = factor werkt zoals bedoeld
-        const step = Math.max(-0.05, Math.min(0.05, diff * 0.3)); // kleine, voorzichtige stap
-        adaptiveWeights[wKey] = Math.max(0.5, Math.min(1.5, adaptiveWeights[wKey] + step));
+        const isNode = (wKey === 'nn' || wKey === 'nodeconf');
+        const home = isNode ? 2.0 : NEUTRAL_W;                  // "thuis"-waarde (neutraal, of 2x voor nodes)
+        // CONTRAFEITELIJK: neem elke trade met een geldige factor-waarde. Splits op
+        // MEDIAAN van de waarde (hoog vs. laag) i.p.v. een vaste >1-drempel. Zo meet
+        // je of hogere waarden van deze factor met winst samengingen - ook als de
+        // factor de trade niet dreef.
+        const vals = botLog.map(l => ({ v: Math.abs(l.factors[fk] ?? 0), win: l.outcome === 'win' }))
+                           .filter(x => isFinite(x.v));
+        summary[fk] = { n: vals.length, adjusted: false };
+        if (vals.length < MIN_SAMPLE_SIZE) { summary[fk].newWeight = adaptiveWeights[wKey]; return; }
+
+        const sorted = vals.map(x => x.v).sort((a, b) => a - b);
+        const med = sorted[Math.floor(sorted.length / 2)];
+        // split op de mediaan; als de mediaan samenvalt met veel gelijke waarden
+        // (bimodaal, bv. factor is 0 of sterk), splits dan op het gemiddelde als terugval
+        let high = vals.filter(x => x.v > med), low = vals.filter(x => x.v <= med);
+        if (high.length < 5 || low.length < 5) {
+            const mean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+            high = vals.filter(x => x.v > mean); low = vals.filter(x => x.v <= mean);
+        }
+        if (high.length < 5 || low.length < 5) { summary[fk].newWeight = adaptiveWeights[wKey]; return; }
+
+        const wHigh = high.filter(x => x.win).length / high.length;
+        const wLow = low.filter(x => x.win).length / low.length;
+        const edge = wHigh - wLow;                             // >0: hoge waarde van factor = meer winst
+        summary[fk].winRatePresent = wHigh; summary[fk].winRateAbsent = wLow; summary[fk].nPresent = high.length; summary[fk].nAbsent = low.length;
+
+        // REM 3 - vertrouwen schaalt met samples (shrink het signaal bij weinig data)
+        const confidence = Math.min(1, vals.length / 60);
+        // REM 1 - leersnelheid: kleine doelverschuiving op basis van de edge
+        const target = home + edge * 2.0 * confidence;         // edge van +0.1 => +0.2 richting
+        // REM 2 - krimp naar thuis: beweeg maar een deel richting het doel, met een
+        // lichte terugtrekkracht naar 'home' zodat ruis vanzelf uitdempt.
+        const lr = 0.15;                                       // leersnelheid per herijking
+        const shrink = 0.03;                                   // krimp naar thuis
+        let cur = adaptiveWeights[wKey];
+        cur = cur + (target - cur) * lr + (home - cur) * shrink;
+        const loW = isNode ? 0.5 : 0.5, hiW = isNode ? 3.0 : 1.6;
+        adaptiveWeights[wKey] = Math.max(loW, Math.min(hiW, cur));
         summary[fk].adjusted = true;
+        summary[fk].edge = edge;
         summary[fk].newWeight = adaptiveWeights[wKey];
     });
 
@@ -4296,8 +4421,10 @@ function recalibrateRegimeWeights() {
             const wAbsent = absent.filter(l => l.outcome === 'win').length / absent.length;
             const edge = wPresent - wAbsent;             // positief = factor helpt in dit regime
             const cur = regimeWeights[regime][wk] ?? 1.0;
-            // langzame bijstelling, begrensd 0.3..2.0 (zoals de globale)
-            const next = Math.max(0.3, Math.min(2.0, cur + edge * 0.5));
+            // langzame bijstelling; node-factoren (nn/nodeconf) mogen tot 3.0 (starten op 2x),
+            // de overige factoren blijven 0.3..2.0.
+            const hiW = (wk === 'nn' || wk === 'nodeconf') ? 3.0 : 2.0;
+            const next = Math.max(0.3, Math.min(hiW, cur + edge * 0.5));
             regimeWeights[regime][wk] = cur + (next - cur) * 0.3;   // demping
         }
     }
@@ -7907,157 +8034,117 @@ function _neoSurface(y, phi) {
 }
 
 // ============================================================
-// QUANTUM STARMAP (31-07) — Neo als centrale kern + munt-sub-orbs
+// QUANTUM CORE — 3-BODY PROBLEM (01-08)
 // ============================================================
-// Eén grote centrale orb (Neo, "the mother/father of all") met daaromheen drie
-// kleinere orbs die de munt-sub-breinen voorstellen (BTC/ETH/SOL). Energie-strengen
-// verbinden de kern met elke sub-orb en pulseren als data-overdracht (sub-breinen
-// geven data door aan Neo, Neo stuurt terug). Celgeboorte/starmap-beeldtaal. De
-// sub-orbs lichten op naar rato van hun kans; de sterkste "wint" en gloeit feller.
-let _orb = { raf: null, last: 0, rot: 0, formStart: null, orbs: null, strands: null };
-
-function _buildShell(cx, cy, cz, R, counts) {
-    const pts = [];
-    for (let si = 0; si < counts.length; si++) {
-        const { r, n } = counts[si];
-        for (let i = 0; i < n; i++) {
-            const t = i / n, inc = Math.acos(1 - 2 * t), az = Math.PI * (1 + Math.sqrt(5)) * i;
-            pts.push({ ox: Math.sin(inc)*Math.cos(az)*r*R, oy: Math.sin(inc)*Math.sin(az)*r*R, oz: Math.cos(inc)*r*R,
-                shell: si, tw: Math.random()*6.28, sp: 0.5+Math.random()*1.5 });
-        }
-    }
-    return pts;
-}
+// Drie entiteiten (Neo + de twee sterkste munt-sub-breinen als begeleiders) bewegen
+// als een echt 3-body-probleem in 3D: ze trekken elkaar aan via zwaartekracht en
+// volgen chaotische, nooit-herhalende banen. Elk lichaam laat een LIGHT-TRAIL na die
+// de pathways tekent - de baan zelf wordt zichtbaar als een lichtspoor. Ver genoeg uit
+// elkaar zodat de drie banen los leesbaar zijn. Kleur volgt de bias/activiteit.
+let _orb = { raf: null, last: 0, bodies: null, formStart: null, rot: 0 };
 
 function buildQuantumOrb() {
-    // centrale kern (Neo) + 3 sub-orbs in een driehoek eromheen
-    const orbs = [];
-    orbs.push({ role: 'neo', label: 'NEO', cx: 0, cy: 0.05, cz: 0, R: 0.62,
-        pts: _buildShell(0,0,0,0.62,[{r:1.0,n:200},{r:0.78,n:110},{r:0.55,n:60},{r:0.32,n:28}]),
-        rings: [0,0.7,1.4].map((tl,i)=>({tilt:tl,n:70,sp:0.35+i*0.12})), spin: Math.random()*6.28 });
-    // sub-orbs: driehoek onder de kern
-    const subDefs = [ {label:'BTC', ang:-2.4}, {label:'ETH', ang:-0.75}, {label:'SOL', ang:0.9} ];
-    for (const s of subDefs) {
-        const dist = 1.15, cx = Math.cos(s.ang)*dist, cy = Math.sin(s.ang)*dist*0.7 - 0.15;
-        orbs.push({ role: 'sub', label: s.label, cx, cy, cz: (Math.random()-0.5)*0.3, R: 0.28,
-            pts: _buildShell(0,0,0,0.28,[{r:1.0,n:70},{r:0.7,n:34},{r:0.4,n:14}]),
-            rings: [0,0.8].map((tl,i)=>({tilt:tl,n:48,sp:0.5+i*0.2})), spin: Math.random()*6.28,
-            prob: 0.5, active: false });
-    }
-    // energie-strengen kern<->sub (data-overdracht)
-    const strands = [];
-    for (let i = 1; i < orbs.length; i++) {
-        const deeltjes = [];
-        for (let k = 0; k < 6; k++) deeltjes.push({ t: Math.random(), sp: 0.3+Math.random()*0.4, dir: Math.random()<0.5?1:-1 });
-        strands.push({ from: 0, to: i, deeltjes });
-    }
-    _orb.orbs = orbs; _orb.strands = strands; _orb.formStart = null;
-}
-
-function _projPt(px, py, pz, cx, cy, cz, cosr, sinr, cosb, sinb) {
-    let x = (px+cx), y = (py+cy), z = (pz+cz);
-    let rx = x*cosr + z*sinr, rz = -x*sinr + z*cosr, ry = y;
-    const ry2 = ry*cosb - rz*sinb, rz2 = ry*sinb + rz*cosb;
-    return { x: rx, y: ry2, z: rz2 };
+    // drie lichamen met startposities + snelheden die een mooie, niet-triviale dans geven
+    const bodies = [
+        { name: 'NEO', m: 2.6, x: 0.0,  y: 0.15, z: 0.0,  vx: 0.0,  vy: 0.0,  vz: 0.30, trail: [], R: 15 },
+        { name: 'A',   m: 1.0, x: 1.25, y: -0.1, z: 0.0,  vx: 0.0,  vy: 0.42, vz: -0.12, trail: [], R: 8 },
+        { name: 'B',   m: 1.0, x: -1.25,y: -0.05,z: 0.15, vx: 0.0,  vy: -0.42,vz: -0.12, trail: [], R: 8 }
+    ];
+    _orb.bodies = bodies; _orb.formStart = null; _orb.rot = 0;
 }
 
 function _orbFrame(now) {
     _orb.raf = requestAnimationFrame(_orbFrame);
     if (now - _orb.last < 33) return;
-    const dt = Math.min(0.06,(now-_orb.last)/1000)||0.033; _orb.last = now;
-    const cv = document.getElementById('neo-canvas'); if (!cv || !_orb.orbs) return;
+    const dtReal = Math.min(0.05, (now - _orb.last) / 1000) || 0.033; _orb.last = now;
+    const cv = document.getElementById('neo-canvas'); if (!cv || !_orb.bodies) return;
     const r = cv.getBoundingClientRect(); if (r.width < 10) return;
-    const dpr = Math.min(2, devicePixelRatio||1);
-    if (Math.abs(cv.width - r.width*dpr) > 2) { cv.width = Math.max(2,r.width*dpr); cv.height = Math.max(2,r.height*dpr); }
-    const ctx = cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
-    const w = r.width, h = r.height; ctx.clearRect(0,0,w,h);
-    if (_orb.formStart==null) _orb.formStart = now;
-    const tSec = Math.max(0,(now-_orb.formStart-150)/1000), F = Math.min(1, tSec/2.8);
-    const act = ((_l2 && _l2.trained)?1:0.6) * (_neo && _neo.actMul || 0.6);
-    _orb.rot += dt * (0.12 + act*0.14);
-    let bias = 0; try { const inp = neoNetInputs(); bias = inp.cnn*0.6 + inp.momentum*0.4; } catch(e){}
-    const core = bias>0.12 ? [20,255,159] : bias<-0.12 ? [255,46,99] : [120,210,255];
-    // sub-orb kansen ophalen uit de multi-crypto laag (indien aanwezig), anders demo
-    try {
-        if (typeof neoMultiState !== 'undefined' && neoMultiState && neoMultiState.markets) {
-            const order = ['BTC','ETH','SOL'];
-            let best = -1, bestP = -1;
-            for (const o of _orb.orbs) { if (o.role!=='sub') continue;
-                const m = neoMultiState.markets[o.label]; o.prob = m ? (m.bestProb||0.5) : 0.5;
-                if (o.prob > bestP) { bestP = o.prob; best = o.label; } }
-            for (const o of _orb.orbs) if (o.role==='sub') o.active = (o.label === best);
-        } else {
-            for (const o of _orb.orbs) if (o.role==='sub') { o.prob = 0.5 + 0.35*Math.sin(now/2000 + o.cx*3); }
-            let best=null,bp=-1; for (const o of _orb.orbs) if(o.role==='sub'&&o.prob>bp){bp=o.prob;best=o.label;}
-            for (const o of _orb.orbs) if(o.role==='sub') o.active=(o.label===best);
-        }
-    } catch(e){}
-    const cx0 = w/2, cy0 = h*0.48, scale = Math.min(w,h)*0.30;
-    const cosr = Math.cos(_orb.rot), sinr = Math.sin(_orb.rot), cosb = Math.cos(_orb.rot*0.35), sinb = Math.sin(_orb.rot*0.35);
-    const scanY = ((now/2600)%1.3)*2 - 1.15;
-    const S2 = (P) => { const persp = 1/(2.8 - P.z*0.5); return { sx: cx0 + P.x*scale*persp, sy: cy0 - P.y*scale*persp, persp, z: P.z }; };
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    if (Math.abs(cv.width - r.width * dpr) > 2) { cv.width = Math.max(2, r.width * dpr); cv.height = Math.max(2, r.height * dpr); }
+    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = r.width, h = r.height; ctx.clearRect(0, 0, w, h);
+    if (_orb.formStart == null) _orb.formStart = now;
+    const F = Math.min(1, Math.max(0, (now - _orb.formStart - 150) / 1500));
 
-    // ENERGIE-STRENGEN (kern <-> sub) met stromende deeltjes = data-overdracht
-    for (const st of _orb.strands) {
-        const A = _orb.orbs[st.from], B = _orb.orbs[st.to];
-        const pa = S2(_projPt(0,0,0, A.cx,A.cy,A.cz, cosr,sinr,cosb,sinb));
-        const pb = S2(_projPt(0,0,0, B.cx,B.cy,B.cz, cosr,sinr,cosb,sinb));
-        const activeGlow = B.active ? 1 : 0.3;
-        ctx.strokeStyle = `rgba(${core[0]},${core[1]},${core[2]},${(0.10*activeGlow*F).toFixed(3)})`;
-        ctx.lineWidth = B.active ? 1.2 : 0.6;
-        ctx.beginPath(); ctx.moveTo(pa.sx,pa.sy); ctx.lineTo(pb.sx,pb.sy); ctx.stroke();
-        // stromende data-deeltjes langs de streng
-        for (const d of st.deeltjes) {
-            d.t += d.sp*dt*d.dir; if (d.t>1) d.t-=1; if (d.t<0) d.t+=1;
-            const x = pa.sx+(pb.sx-pa.sx)*d.t, y = pa.sy+(pb.sy-pa.sy)*d.t;
-            ctx.globalAlpha = activeGlow*F; ctx.fillStyle = B.active ? '#ffffff' : `rgb(${core[0]},${core[1]},${core[2]})`;
-            const sz = B.active ? 2.2 : 1.4; ctx.fillRect(x-sz/2,y-sz/2,sz,sz);
+    const act = ((typeof _l2 !== 'undefined' && _l2 && _l2.trained) ? 1 : 0.6) * ((typeof _neo !== 'undefined' && _neo && _neo.actMul) || 0.6);
+    let bias = 0; try { const inp = neoNetInputs(); bias = inp.cnn * 0.6 + inp.momentum * 0.4; } catch (e) {}
+    const core = bias > 0.12 ? [20, 255, 159] : bias < -0.12 ? [255, 46, 99] : [120, 210, 255];
+    const compA = [130, 200, 255], compB = [199, 146, 234];   // begeleiders
+
+    // ---- fysica: 3-body zwaartekracht (meerdere substappen voor stabiliteit) ----
+    const G = 0.6, soft = 0.25, steps = 3, dt = (dtReal * (0.5 + act * 0.7)) / steps;
+    const B = _orb.bodies;
+    for (let s = 0; s < steps; s++) {
+        const ax = [0, 0, 0], ay = [0, 0, 0], az = [0, 0, 0];
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+            if (i === j) continue;
+            const dx = B[j].x - B[i].x, dy = B[j].y - B[i].y, dz = B[j].z - B[i].z;
+            const d2 = dx * dx + dy * dy + dz * dz + soft * soft, inv = 1 / Math.sqrt(d2);
+            const f = G * B[j].m * inv * inv * inv;
+            ax[i] += f * dx; ay[i] += f * dy; az[i] += f * dz;
         }
-        ctx.globalAlpha = 1;
+        for (let i = 0; i < 3; i++) {
+            B[i].vx += ax[i] * dt; B[i].vy += ay[i] * dt; B[i].vz += az[i] * dt;
+            // zachte terugtrek naar het centrum zodat het systeem niet wegdrijft/instort
+            const rr = Math.hypot(B[i].x, B[i].y, B[i].z) || 1;
+            const pull = 0.02 * rr;
+            B[i].vx -= (B[i].x / rr) * pull * dt; B[i].vy -= (B[i].y / rr) * pull * dt; B[i].vz -= (B[i].z / rr) * pull * dt;
+            B[i].x += B[i].vx * dt; B[i].y += B[i].vy * dt; B[i].z += B[i].vz * dt;
+        }
+    }
+    // reset als een lichaam te ver wegvliegt (chaos-uitbraak) -> nieuwe dans
+    for (const b of B) if (Math.hypot(b.x, b.y, b.z) > 3.2) { buildQuantumOrb(); return; }
+
+    // langzame globale rotatie voor 3D-gevoel
+    _orb.rot += dtReal * 0.15;
+    const cosr = Math.cos(_orb.rot), sinr = Math.sin(_orb.rot), tilt = 0.42, ct = Math.cos(tilt), st2 = Math.sin(tilt);
+    const cx = w / 2, cy = h * 0.5, scale = Math.min(w, h) * 0.26;
+    const project = (x, y, z) => {
+        let rx = x * cosr + z * sinr, rz = -x * sinr + z * cosr, ry = y;
+        const ry2 = ry * ct - rz * st2, rz2 = ry * st2 + rz * ct;
+        const persp = 1 / (2.6 - rz2 * 0.5);
+        return { sx: cx + rx * scale * persp, sy: cy - ry2 * scale * persp, z: rz2, persp };
+    };
+
+    // trails bijwerken
+    for (const b of B) {
+        const p = project(b.x, b.y, b.z);
+        b.trail.push({ sx: p.sx, sy: p.sy, z: p.z }); if (b.trail.length > 90) b.trail.shift();
+        b._p = p;
     }
 
-    // teken elke orb (sub eerst, kern als laatste bovenop)
-    const drawList = [..._orb.orbs].sort((a,b)=> (a.role==='neo'?1:0)-(b.role==='neo'?1:0));
-    for (const o of drawList) {
-        o.spin += dt * (o.role==='neo' ? (0.3+act*0.3) : 0.5);
-        const cs = Math.cos(o.spin), sn = Math.sin(o.spin);
-        const glow = o.role==='neo' ? 1 : (0.4 + 0.6*(o.prob||0.5)) * (o.active?1.3:0.8);
-        const oc = o.role==='neo' ? core : (o.active ? [255,255,255] : core);
-        const proj = o.pts.map(p => {
-            // lokale spin om eigen as
-            let lx = p.ox*cs + p.oz*sn, lz = -p.ox*sn + p.oz*cs, ly = p.oy;
-            const P = _projPt(lx,ly,lz, o.cx,o.cy,o.cz, cosr,sinr,cosb,sinb);
-            return { ...S2(P), yt: P.y+o.cy, p };
-        });
-        proj.sort((a,b)=>a.z-b.z);
-        for (const q of proj) {
-            const p = q.p;
-            const tw = 0.4 + 0.6*(0.5+0.5*Math.sin(now/600*p.sp + p.tw));
-            const scanGlow = Math.exp(-Math.pow((q.yt - scanY)/0.10, 2));
-            const depth = 0.5+0.5*q.z;
-            const s = ((o.role==='neo'?0.8:0.6) + 1.2*q.persp)*(0.5+0.5*tw)*(0.55+0.45*depth)*glow + scanGlow*1.2;
-            ctx.globalAlpha = Math.min(1, F*(0.3 + tw*0.6*depth + scanGlow*0.5)*glow);
-            ctx.fillStyle = scanGlow>0.55 ? '#ffffff' : (p.shell>=2 ? '#eaffff' : `rgb(${oc[0]},${oc[1]},${oc[2]})`);
-            ctx.fillRect(q.sx-s/2, q.sy-s/2, s, s);
+    // ---- light-trails (de pathways) ----
+    for (let bi = 0; bi < 3; bi++) {
+        const b = B[bi], col = bi === 0 ? core : bi === 1 ? compA : compB;
+        for (let k = 1; k < b.trail.length; k++) {
+            const a = (k / b.trail.length) * 0.55 * F;
+            const seg = b.trail[k], prev = b.trail[k - 1];
+            ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${a.toFixed(3)})`;
+            ctx.lineWidth = (bi === 0 ? 1.8 : 1.1) * (k / b.trail.length);
+            ctx.beginPath(); ctx.moveTo(prev.sx, prev.sy); ctx.lineTo(seg.sx, seg.sy); ctx.stroke();
         }
-        ctx.globalAlpha = 1;
-        // kern-glow per orb
-        const cen = S2(_projPt(0,0,0,o.cx,o.cy,o.cz,cosr,sinr,cosb,sinb));
-        const gr = ctx.createRadialGradient(cen.sx,cen.sy,0,cen.sx,cen.sy,scale*o.R*1.1);
-        gr.addColorStop(0, `rgba(${oc[0]},${oc[1]},${oc[2]},${((o.role==='neo'?0.20:0.14)*F*glow).toFixed(3)})`);
-        gr.addColorStop(1,'rgba(0,0,0,0)');
-        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(cen.sx,cen.sy,scale*o.R*1.1,0,6.28); ctx.fill();
-        // sub-orb muntlabel
-        if (o.role==='sub') {
-            ctx.globalAlpha = F*(o.active?1:0.6); ctx.fillStyle = o.active ? '#ffffff' : '#7fb8d8';
-            ctx.font = "7px 'JetBrains Mono', monospace"; ctx.textAlign='center';
-            ctx.fillText(o.label, cen.sx, cen.sy + scale*o.R + 9);
-            if (o.active) ctx.fillText((o.prob*100|0)+'%', cen.sx, cen.sy + scale*o.R + 17);
-            ctx.globalAlpha = 1;
-        }
+    }
+    // verbindingslijnen tussen de drie (het "probleem"-driehoekje, subtiel)
+    ctx.strokeStyle = `rgba(${core[0]},${core[1]},${core[2]},${(0.06 * F).toFixed(3)})`; ctx.lineWidth = 0.5;
+    for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) {
+        ctx.beginPath(); ctx.moveTo(B[i]._p.sx, B[i]._p.sy); ctx.lineTo(B[j]._p.sx, B[j]._p.sy); ctx.stroke();
+    }
+
+    // ---- de drie lichamen (gloeiende bollen) ----
+    const order = [0, 1, 2].sort((a, b) => B[a]._p.z - B[b]._p.z);
+    for (const bi of order) {
+        const b = B[bi], p = b._p, col = bi === 0 ? core : bi === 1 ? compA : compB;
+        const rad = b.R * p.persp * (0.85 + 0.15 * Math.sin(now / 400 + bi));
+        const g = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, rad * 2.4);
+        g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${(0.9 * F).toFixed(3)})`);
+        g.addColorStop(0.4, `rgba(${col[0]},${col[1]},${col[2]},${(0.35 * F).toFixed(3)})`);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.sx, p.sy, rad * 2.4, 0, 6.28); ctx.fill();
+        ctx.fillStyle = `rgba(255,255,255,${(0.9 * F).toFixed(3)})`; ctx.beginPath(); ctx.arc(p.sx, p.sy, rad * 0.5, 0, 6.28); ctx.fill();
+        if (bi === 0) { ctx.fillStyle = `rgba(${core[0]},${core[1]},${core[2]},${F})`; ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = 'center'; ctx.fillText('NEO', p.sx, p.sy - rad * 2.4 - 4); }
     }
 }
-function startQuantumOrb() { if (!_orb.orbs) buildQuantumOrb(); if (!_orb.raf) _orb.raf = requestAnimationFrame(_orbFrame); }
+function startQuantumOrb() { if (!_orb.bodies) buildQuantumOrb(); if (!_orb.raf) _orb.raf = requestAnimationFrame(_orbFrame); }
 window.startQuantumOrb = startQuantumOrb;
 
 function buildCortex() {
