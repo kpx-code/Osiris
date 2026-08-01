@@ -2321,6 +2321,8 @@ function updateWalletUI() {
                 const mktColor = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' }[mkt] || '#8b95a5';
                 const typeLabel = p.isManual ? 'MANUAL' : (p.isOsiris ? 'OSIRIS' : (p.isScalp ? 'SCALP' : 'TREND'));
                 const typeColor = p.isManual ? '#ffb627' : (p.isOsiris ? '#00d9ff' : (p.isScalp ? '#c678dd' : '#4287f5'));
+                // alloc %: Osiris-posities tonen hun equity-aandeel, BTC-posities hun sizePct
+                const allocPct = p.osirisAllocPct != null ? (p.osirisAllocPct * 100) : ((p.sizePct || 0) * 100);
                 return `<tr>
                     <td style="padding:4px; color:${typeColor}; font-weight:bold; font-size:0.8em;">${typeLabel}</td>
                     <td style="color:${mktColor}; font-weight:bold; font-size:0.8em;">${mkt}</td>
@@ -2328,6 +2330,7 @@ function updateWalletUI() {
                     <td>${formatChartPrice(p.entryPrice)}</td>
                     <td style="font-size:0.9em; color:#aaa;">${entryTijd}</td>
                     <td>${formatMoney(p.notional)}</td>
+                    <td>${allocPct.toFixed(1)}%</td>
                     <td style="color:${color};" title="netto na ${roundTripCostPct().toFixed(2)}% round-trip kosten (bruto ${(grossPct * 100).toFixed(2)}%)">${(pnlPct * 100).toFixed(2)}%</td>
                     <td style="color:${color};">${formatMoney(p.notional * pnlPct)}</td>
                     <td style="padding:2px 4px;"><button type="button" class="btn btn-ghost btn-mini" style="color:#ff5f7e; border-color:rgba(255,95,126,0.5); padding:2px 7px; font-size:0.7em;" onclick="closePositionManually('${p.id}')" title="Sluit deze positie nu">Sluit</button></td>
@@ -2423,14 +2426,16 @@ function updateHistoryUI(entry) {
     const pnlColor = entry.pnl >= 0 ? '#00ffcc' : '#ef5350';
     const typeLabel = entry.isScalp ? 'SCALP' : 'TREND';
     const typeColor = entry.isScalp ? '#c678dd' : '#4287f5';
+    const mkt = entry.market || 'BTC';
+    const mktColor = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' }[mkt] || '#8b95a5';
     const row = document.createElement('tr');
     row.style.borderBottom = '1px solid #222';
     row.innerHTML = `
         <td style="padding:5px; color:#888;">${entry.timestamp}</td>
         <td style="color:${typeColor}; font-weight:bold; font-size:0.85em;">${typeLabel}</td>
+        <td style="color:${mktColor}; font-weight:bold; font-size:0.85em;">${mkt}</td>
         <td style="color:${entry.side === 'LONG' ? '#26a69a' : '#ef5350'};">${entry.side || '-'}</td>
         <td>${typeof entry.price === 'number' ? formatChartPrice(entry.price) : entry.price}</td>
-        <td>${entry.amount}</td>
         <td>${formatMoney(entry.notionalEUR || 0)}</td>
         <td style="color:${pnlColor}; font-weight:bold;">${(entry.pnl * 100).toFixed(2)}% (${formatMoney(entry.pnlAmount || 0)})</td>
     `;
@@ -2452,7 +2457,7 @@ function formatFullDateTime(ts = Date.now()) {
     return `${date} ${time}`;
 }
 
-function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0, notionalEUR = 0, isScalp = false) {
+function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0, notionalEUR = 0, isScalp = false, market = 'BTC') {
     const timestamp = formatFullDateTime();
     const priceNum = typeof price === 'number' ? price : parseFloat(price);
     // Fallback voor het (zeldzame) geval dat notional niet is meegegeven:
@@ -2476,7 +2481,8 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
         notionalEUR: notional,
         reason,
         equity: getEquity(),
-        isScalp
+        isScalp,
+        market: market || 'BTC'
     };
     botTradeLog.push(entry);
 
@@ -4161,7 +4167,13 @@ function finalizeClosePosition(pos, pnlPct, reason) {
         console.warn(`Level 1: trend-positie ${pos.id} gesloten ZONDER factorsAtEntry - deze trade telt niet mee voor adaptief leren.`);
     }
 
-    logBotAction("EXIT", livePrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional, pos.isScalp || false);
+    // munt-bewuste prijs + markt in de log (BTC via livePrice, ETH/SOL via multi-state)
+    const exitPrice = priceForPosition(pos);
+    let posMarket = 'BTC';
+    if (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') {
+        posMarket = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || 'BTC';
+    }
+    logBotAction("EXIT", exitPrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional, pos.isScalp || false, posMarket);
     savePersistentState();
     updateWalletUI();
     updatePositionLines();
@@ -4836,18 +4848,26 @@ function exportBotTradeLog() {
 // Losse download van alleen de prijs/volume-historie (CSV), zonder de rest
 // van de Download All Data-bundel.
 function downloadPriceVolumeHistory() {
-    if (!rawData || rawData.length === 0) {
-        alert("Geen prijs/volume-data beschikbaar om te exporteren.");
+    // munt-bewust: exporteer de historie van de actieve tab-munt (BTC = rawData,
+    // ETH/SOL = de klines uit de multi-asset motor).
+    const sym = (typeof neoMultiState !== 'undefined' && neoMultiState) ? neoMultiState.active : 'BTC';
+    let src = rawData;
+    if (sym !== 'BTC') {
+        const m = neoMultiState.markets[sym];
+        src = (m && m.klines && m.klines.length) ? m.klines : null;
+    }
+    if (!src || src.length === 0) {
+        alert(`Geen prijs/volume-data beschikbaar voor ${sym}.`);
         return;
     }
     const headers = ["Datum/Tijd (UTC)", "Open", "High", "Low", "Close", "Volume"];
-    const rows = rawData.map(d => [
+    const rows = src.map(d => [
         new Date(d[0]).toISOString(), d[1], d[2], d[3], d[4], d[5]
     ].join(","));
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows].join("\n");
     const link = document.createElement("a");
     link.setAttribute("href", encodeURI(csvContent));
-    link.setAttribute("download", "osiris_price_volume_history.csv");
+    link.setAttribute("download", `osiris_price_volume_history_${sym}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -5870,6 +5890,22 @@ function renderSystemDataTab(sym) {
             <div><span style="color:var(--text-dim);">NN</span><br><b style="color:#c792ea;">${nnTxt}</b></div>
         </div>
         <div style="margin-top:8px; font-size:0.56rem; color:var(--text-dimmer);">${b ? b.preset.note + ' · ' : ''}bijgewerkt: ${upd}${m.error ? ' · fout: ' + m.error : ''}</div>`;
+
+    // De VFM/ER/DB/Chaos meter-cards munt-bewust maken: voor ETH/SOL vullen we ze uit de
+    // multi-asset motor; voor BTC laat de live-loop ze met de volledige berekening staan.
+    if (sym !== 'BTC') {
+        const setCard = (id, val, statusEl, statusTxt, color) => {
+            const p = document.getElementById(id + '-display'); const s = document.getElementById(id + '-status');
+            if (p) { p.innerText = val; p.style.color = color; }
+            if (s) { s.innerText = statusTxt; s.style.color = color; }
+        };
+        const vfmColor = Math.abs(m.vfm) < 0.1 ? '#808080' : (m.vfm > 0 ? '#00ffcc' : '#ef5350');
+        setCard('vfm', m.vfm.toFixed(3), true, `${sym} · ${Math.abs(m.vfm) < 0.1 ? 'NEUTRAAL' : (Math.abs(m.vfm) > 1.5 ? 'EXTREME' : 'SIGNIFICANT')}`, vfmColor);
+        // ER/DB worden voor sub-breinen niet los berekend; toon ze als afgeleid/neutraal met munt-tag
+        setCard('er', '—', true, `${sym} · niet los berekend`, '#5c7488');
+        setCard('db', '—', true, `${sym} · niet los berekend`, '#5c7488');
+        setCard('chaos', m.chaos.toFixed(2) + '%', true, `${sym} · ${m.chaos < 8 ? 'STABIEL' : 'HOOG'}`, m.chaos < 8 ? '#00ffcc' : '#ffb627');
+    }
 }
 window.renderSystemDataTab = renderSystemDataTab;
 
@@ -6886,6 +6922,8 @@ function osirisShadowTick() {
                 entryPrice: m.lastPrice,
                 amount,
                 notional: notionalUSD,
+                sizePct: freeEquity > 0 ? notionalUSD / freeEquity : 0,
+                osirisAllocPct: a,
                 openTime: now,
                 isScalp: false,
                 isOsiris: true,
@@ -6998,25 +7036,28 @@ function switchCalibBrain(sym) {
     document.querySelectorAll('.calib-tab').forEach(b => b.classList.toggle('active', b.dataset.brain === sym));
     const note = document.getElementById('calib-note');
     const plot = document.getElementById('calib-plot');
+    const svg = document.getElementById('calib-svg');
+    // altijd eerst beide panelen leegmaken zodat teksten/curves niet overlappen
+    if (plot) plot.innerHTML = '';
+    if (note) note.innerHTML = '';
     if (sym === 'BTC') {
-        // toon de bestaande BTC-kalibratiecurve
+        if (svg) svg.style.display = '';
         renderCalibrationCurve();
         return;
     }
-    // ETH/SOL: toon de sub-brein kalibratie-status (bouwt op naarmate het sub-brein handelt)
+    // ETH/SOL: verberg de BTC-curve-SVG en toon alleen de sub-brein-status-tekst
     const m = neoMultiState.markets[sym];
     const b = m && m.brain;
-    if (plot) plot.innerHTML = '';
     if (note) {
         if (!b) { note.textContent = `${sym} sub-brein nog niet geïnitialiseerd.`; return; }
-        const trades = (typeof botTradeLog !== 'undefined' ? botTradeLog : []).filter(t => t.action === 'EXIT' && t.symbol === MULTI_BINANCE[sym]);
-        const wins = trades.filter(t => (t.pnlPct || 0) > 0).length;
+        const trades = (typeof botTradeLog !== 'undefined' ? botTradeLog : []).filter(t => t.action === 'EXIT' && t.market === sym);
+        const wins = trades.filter(t => (t.pnl || 0) > 0).length;
         const wr = trades.length ? (wins / trades.length * 100).toFixed(0) : '-';
         note.innerHTML = `<div style="color:#c792ea; margin-bottom:8px; font-weight:600; font-size:0.78rem;">${b.label} kalibratie</div>
             Trades: <b>${trades.length}</b> &middot; winrate: <b>${wr}%</b><br>
             Laatste kans-oordeel: <b>${m && m.bestProb != null ? (m.bestProb*100).toFixed(0)+'% '+(m.bestSide||'') : '-'}</b><br>
-            NN-ritme: <b>${_nnState[sym] && _nnState[sym].period ? Math.round(_nnState[sym].period/60000)+'min' : '-'}</b><br>
-            <span style="color:var(--text-dimmer); font-size:0.62rem;">De kalibratiecurve bouwt op naarmate ${b.label} meer trades sluit.</span>`;
+            NN-ritme: <b>${_nnState[sym] && _nnState[sym].period ? Math.round(_nnState[sym].period/60000)+'min' : '-'}</b> &middot; caps: <b>${_nnState[sym] && _nnState[sym].caps ? _nnState[sym].caps.length : 0}</b><br>
+            <span style="color:var(--text-dimmer); font-size:0.62rem;">De predicted-vs-measured curve bouwt op naarmate ${b.label} meer trades sluit (nu ${trades.length}).</span>`;
     }
 }
 window.switchCalibBrain = switchCalibBrain;
@@ -7639,14 +7680,18 @@ function startLiveUpdates() {
                 const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
                 chaos = Math.sqrt(rets.reduce((a, r) => a + (r - mean) ** 2, 0) / rets.length);
             
-                // UI Updates voor de meters
+                // UI Updates voor de meters (alleen als de BTC-tab actief is; anders
+                // toont renderSystemDataTab de waarden van de gekozen munt en zou de
+                // live BTC-loop die telkens overschrijven).
+                const _btcTabActive = (typeof neoMultiState === 'undefined') || !neoMultiState || neoMultiState.active === 'BTC';
                 const absVfm = Math.abs(vfm);
                 const vfmEl = document.getElementById('vfm-display');
                 const vfmStatusEl = document.getElementById('vfm-status');
-                if (vfmEl) { vfmEl.innerText = vfm.toFixed(3); vfmEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
-                if (vfmStatusEl) { vfmStatusEl.innerText = (absVfm < 0.1) ? "NEUTRAAL" : (absVfm > 1.5 ? "EXTREME" : "SIGNIFICANT"); vfmStatusEl.style.color = vfmEl.style.color; }
+                if (_btcTabActive && vfmEl) { vfmEl.innerText = vfm.toFixed(3); vfmEl.style.color = (absVfm < 0.1) ? "#808080" : ((vfm > 0) ? "#00ffcc" : "#ef5350"); }
+                if (_btcTabActive && vfmStatusEl) { vfmStatusEl.innerText = (absVfm < 0.1) ? "NEUTRAAL" : (absVfm > 1.5 ? "EXTREME" : "SIGNIFICANT"); vfmStatusEl.style.color = vfmEl.style.color; }
             
                 const updateMetric = (id, val, status) => {
+                    if (!_btcTabActive) return;
                     const pEl = document.getElementById(`${id}-display`);
                     const sEl = document.getElementById(`${id}-status`);
                     if (pEl) pEl.innerText = val.toFixed(2);
@@ -8480,16 +8525,22 @@ function renderHubPositions() {
     if (openPositions.length === 0) { el.textContent = 'Geen open posities.'; return; }
     const kosten = roundTripCostPct() / 100;
     el.innerHTML = openPositions.map(p => {
-        const bruto = livePrice ? (p.side === 'LONG' ? (livePrice - p.entryPrice) / p.entryPrice : (p.entryPrice - livePrice) / p.entryPrice) : 0;
+        const px = priceForPosition(p);   // munt-bewuste prijs
+        const bruto = px ? (p.side === 'LONG' ? (px - p.entryPrice) / p.entryPrice : (p.entryPrice - px) / p.entryPrice) : 0;
         const netto = (bruto - kosten) * 100;
-        const type = p.isManual ? 'MANUAL' : (p.isScalp ? 'SCALP' : 'TREND');
-        const typeKleur = p.isManual ? '#ffb627' : (p.isScalp ? '#c678dd' : '#4287f5');
+        let mkt = 'BTC';
+        if (p.isOsiris && p.symbol && typeof MULTI_BINANCE !== 'undefined') mkt = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === p.symbol) || 'BTC';
+        const mktColor = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' }[mkt] || '#8b95a5';
+        const type = p.isManual ? 'MANUAL' : (p.isOsiris ? 'OSIRIS' : (p.isScalp ? 'SCALP' : 'TREND'));
+        const typeKleur = p.isManual ? '#ffb627' : (p.isOsiris ? '#00d9ff' : (p.isScalp ? '#c678dd' : '#4287f5'));
+        const allocPct = p.osirisAllocPct != null ? (p.osirisAllocPct * 100) : ((p.sizePct || 0) * 100);
         return `<div class="pos-row">
-            <span style="color:${typeKleur}; width:42px; flex:none;">${type}</span>
-            <span style="color:${p.side === 'LONG' ? '#00d9ff' : '#ff5f7e'}; width:34px; flex:none;">${p.side}</span>
-            <span style="color:#7d99ac; flex:1; min-width:0;">${formatChartPrice(p.entryPrice)}</span>
-            <span style="color:${netto >= 0 ? '#00d9ff' : '#ff5f7e'}; flex:none;">${netto >= 0 ? '+' : ''}${netto.toFixed(2)}%</span>
-            <button class="sluit" onclick="closePositionManually('${p.id}')" title="Sluit nu tegen de live prijs">sluit</button>
+            <span style="color:${typeKleur}; width:48px; flex:none;">${type}</span>
+            <span style="color:${mktColor}; width:30px; flex:none; font-weight:700;">${mkt}</span>
+            <span style="color:${p.side === 'LONG' ? '#00d9ff' : '#ff5f7e'}; width:30px; flex:none;">${p.side}</span>
+            <span style="color:#7d99ac; width:34px; flex:none;">${allocPct.toFixed(0)}%</span>
+            <span style="color:${netto >= 0 ? '#00d9ff' : '#ff5f7e'}; flex:1; text-align:right;">${netto >= 0 ? '+' : ''}${netto.toFixed(2)}%</span>
+            <button class="sluit" onclick="closePositionManually('${p.id}')" title="Sluit nu">sluit</button>
         </div>`;
     }).join('');
 }
@@ -9468,7 +9519,12 @@ function _neoNetFrame(now) {
     _neonet.raf = requestAnimationFrame(_neoNetFrame);
     if (now - _neonet.last < 33) return;
     _neonet.last = now;
-    const cv = document.getElementById('neo-net-canvas');
+    // render zowel het kleine kwadrant-canvas als het grote multi-brein-canvas
+    _neoNetDraw(now, 'neo-net-canvas', 'neo-net-out');
+    _neoNetDraw(now, 'neo-net-canvas-big', 'neo-net-out-big');
+}
+function _neoNetDraw(now, canvasId, outId) {
+    const cv = document.getElementById(canvasId);
     if (!cv) return;
     const rect = cv.getBoundingClientRect();
     if (rect.width < 10) return;
@@ -9478,6 +9534,7 @@ function _neoNetFrame(now) {
     const w = rect.width, h = rect.height;
     ctx.clearRect(0, 0, w, h);
     if (!_neonet.built) buildNeoNet();
+    _neonet._outId = outId;
 
     const layers = _neonet.layers, conns = _neonet.conns;
     const padX = w * 0.13, padTop = h * 0.20, padBot = h * 0.12, padY = padTop;
@@ -9627,8 +9684,8 @@ function _neoNetFrame(now) {
     ctx.textAlign = 'left'; ctx.font = "7px 'JetBrains Mono', monospace";
     layers[4].forEach((nd, i) => { ctx.fillStyle = outCols[i]; ctx.fillText(outLabels[i], pos[4][i].x + 9, pos[4][i].y + 2.5); });
 
-    // beslissing-tekst onderin het paneel bijwerken
-    const outEl = document.getElementById('neo-net-out');
+    // beslissing-tekst onderin het paneel bijwerken (id hangt af van welk canvas rendert)
+    const outEl = document.getElementById(_neonet._outId || 'neo-net-out');
     if (outEl) {
         const dz = decisionBias;
         outEl.textContent = dz > 0.15 ? `LONG (${Math.round(Math.abs(dz) * 100)}%)` : dz < -0.15 ? `SHORT (${Math.round(Math.abs(dz) * 100)}%)` : 'NEUTRAAL';
