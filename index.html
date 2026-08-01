@@ -899,12 +899,24 @@ section { position:relative; z-index:2; }
         </div>
         <div class="subhead">Live reasoning feed</div>
             <div id="bot-reasoning-wrap">
-                <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
-                    <span>&#9679; Beredenering (live) — continue unpacking van elke berekeningsstap</span>
-                    <span id="reasoning-chevron" class="open">&#9662;</span>
-                </div>
-                <div id="reasoning-body" class="open">
-                    <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start;">
+                  <div>
+                    <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
+                        <span>&#9679; Beredenering (live) — elke berekeningsstap</span>
+                        <span id="reasoning-chevron" class="open">&#9662;</span>
+                    </div>
+                    <div id="reasoning-body" class="open">
+                        <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="rlabel" style="display:flex; justify-content:space-between; align-items:center; color:#ffb627;">
+                        <span>&#9679; Autonomous Adaptation — wat Neo zelf aanpast</span>
+                    </div>
+                    <div id="adaptation-body" class="open" style="max-height:320px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.6); border:1px solid rgba(255,182,39,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:#ffd98a; line-height:1.9;">
+                        <div id="bot-adaptation"><span style="color:var(--text-dim); font-size:0.85em;">Neo evalueert de engine-instellingen bij start en past ze autonoom aan voor betere winstkansen...</span></div>
+                    </div>
+                  </div>
                 </div>
             </div>
         <div class="subhead">Adaptive learning &middot; Level 1</div>
