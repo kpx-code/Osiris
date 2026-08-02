@@ -7246,6 +7246,7 @@ function osirisShadowTick() {
         const alloc = osirisState.allocations || {};
         const picks = osirisState.picks || [];
         const now = Date.now();
+        let allocSoFar = getAllocatedPct();   // lopende allocatie: voorkomt >100% binnen 1 tick
         for (const p of picks) {
             const sym = p.sym;
             if (sym === 'BTC') continue;                    // BTC loopt via de hoofd-engine
@@ -7262,7 +7263,14 @@ function osirisShadowTick() {
             // op de globale als het preset die niet definieert).
             const freeEquity = (walletState.balance != null ? walletState.balance : walletState.realizedPnL + 1000);
             const maxAlloc = preset.maxAllocationPct != null ? preset.maxAllocationPct : (botSettings.maxAllocationPct || 0.7);
-            const notionalUSD = freeEquity * a * maxAlloc;
+            // FIX over-allocatie (140%-bug): begrens op de VRIJE equity - wat al in open
+            // posities zit plus de hedge-reserve. Twee winner-take-all entries kunnen zo
+            // nooit samen meer dan de wallet claimen.
+            const reservePct = botSettings.minHedgeReservePct || 0;
+            const availablePct = Math.max(0, 1 - allocSoFar - reservePct);
+            const sizePct = Math.min(a * maxAlloc, availablePct);
+            if (sizePct <= 0) continue;                         // wallet al vol -> overslaan
+            const notionalUSD = freeEquity * sizePct;
             if (notionalUSD < 5) continue;
             const amount = notionalUSD / m.lastPrice;
             const position = {
@@ -7272,7 +7280,7 @@ function osirisShadowTick() {
                 entryPrice: m.lastPrice,
                 amount,
                 notional: notionalUSD,
-                sizePct: freeEquity > 0 ? notionalUSD / freeEquity : 0,
+                sizePct: sizePct,
                 osirisAllocPct: a,
                 openTime: now,
                 isScalp: false,
@@ -7283,6 +7291,7 @@ function osirisShadowTick() {
                 customStopLossPct: preset.stopLossPct != null ? preset.stopLossPct / 100 : null
             };
             _osirisLastEntry[sym] = now;
+            allocSoFar += sizePct;   // lokaal reserveren, ongeacht async-timing van de commit
             try { logAdaptation(`Osiris opent ${sym} ${p.side}`, `kans ${(p.prob*100|0)}%, allocatie ${(a*100|0)}% van de gedeelde wallet ($${notionalUSD.toFixed(0)})`); } catch (e) {}
             commitPositionEntry(position, `OSIRIS ${sym} ${p.side} (kans ${(p.prob*100|0)}%)`);
         }
