@@ -10087,6 +10087,9 @@ function _neoNetFrame(now) {
     // render zowel het kleine kwadrant-canvas als het grote multi-brein-canvas
     _neoNetDraw(now, 'neo-net-canvas', 'neo-net-out');
     _neoNetDraw(now, 'neo-net-canvas-big', 'neo-net-out-big');
+    // DEEPNET-integratie: leg de gekalibreerde per-markt-kansen + mainbrain-keuze
+    // als band onderop het grote multi-brein-canvas (breidt de bestaande visual uit).
+    try { _deepnetOverlayBig(); } catch (e) {}
 }
 function _neoNetDraw(now, canvasId, outId) {
     const cv = document.getElementById(canvasId);
@@ -10535,7 +10538,7 @@ function renderL3Panel() {
                     <div><span style="color:var(--text-dim);">Validatie-accuraatheid</span><br><b style="color:${accColor}; font-size:1.1em;">${acc}</b></div>
                     <div><span style="color:var(--text-dim);">Getraind op</span><br><b>${_l3.trainedOn} samples</b></div>
                     <div><span style="color:var(--text-dim);">Laatst getraind</span><br><b>${_l3.lastTrainMs ? formatFullDateTime(_l3.lastTrainMs) : '—'}</b></div>
-                    <div><span style="color:var(--text-dim);">Status</span><br><b style="color:${actief?'var(--teal)':'#ff4f6d'};">${actief ? 'meebeslissend (${(Math.max(0,Math.min(1,(_l3.valAcc-0.52)/0.13))*l3WeightCap().cap*100).toFixed(0)}%)' : 'inactief (<52%)'}</b></div>
+                    <div><span style="color:var(--text-dim);">Status</span><br><b style="color:${actief?'var(--teal)':'#ff4f6d'};">${actief ? `meebeslissend (${(Math.max(0,Math.min(1,(_l3.valAcc-0.52)/0.13))*l3WeightCap().cap*100).toFixed(0)}%)` : 'inactief (<52%)'}</b></div>
                 </div>
                 <div style="margin-top:8px; color:var(--text-dimmer); font-size:0.92em; line-height:1.5;">Dit net leert NIET-LINEAIRE combinaties van de signalen (bv. "hoge VFM alleen bij lage chaos"). Het weegt pas mee als de validatie-accuraatheid boven 52% ligt — een overfitting-rem. De accuraatheid is gemeten op data die het net tijdens de training NIET zag.</div>`;
         } else {
@@ -11099,7 +11102,6 @@ const OsirisDeepNet = {
     }
 };
 OsirisDeepNet._restore();
-try { OsirisDeepNet.startService(); } catch (e) {}
 window.OsirisDeepNet = OsirisDeepNet;
 window.deepNetToggle = (on) => OsirisDeepNet.setLive(on);
 window.deepNetRetrain = () => OsirisDeepNet.trainAll();
@@ -11266,3 +11268,54 @@ function deepNetLearningHtml() {
 }
 window.deepNetLearningHtml = deepNetLearningHtml;
 window.updateDeepNetPanel = updateDeepNetPanel;
+
+// DEEPNET-band bovenop het bestaande grote MULTI-BREIN-canvas: toont per markt de
+// gekalibreerde kans + meta-poort en zet de mainbrain-keuze in 'neo-net-out-big'.
+// Tekent NIET het hele canvas leeg (overlay), zodat het bestaande net eronder blijft.
+function _deepnetOverlayBig() {
+    if (typeof OsirisDeepNet === 'undefined') return;
+    const cv = document.getElementById('neo-net-canvas-big');
+    if (!cv) return;
+    const rect = cv.getBoundingClientRect();
+    if (rect.width < 10) return;
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(2, 0, 0, 2, 0, 0);
+    const w = rect.width, h = rect.height;
+    const bandY = h * 0.80;
+    ctx.fillStyle = 'rgba(0,10,18,0.60)';
+    ctx.fillRect(0, bandY, w, h - bandY);
+    ctx.strokeStyle = 'rgba(0,217,255,0.25)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, bandY); ctx.lineTo(w, bandY); ctx.stroke();
+    ctx.textAlign = 'left'; ctx.font = '8px JetBrains Mono'; ctx.fillStyle = '#7fd8ff';
+    ctx.fillText('DEEPNET \u00b7 gekalibreerde kans per markt', 12, bandY + 13);
+
+    const keys = ['BTC', 'ETH', 'SOL'];
+    const cy = bandY + (h - bandY) * 0.62;
+    let x0 = 12, choice = null, best = -1;
+    for (const key of keys) {
+        const p = OsirisDeepNet.last[key], col = _DN_COL[key];
+        const cal = p ? p.calProb : null;
+        const label = `${key} ${cal != null ? (cal * 100).toFixed(0) + '%' : '--'} ${p ? (p.meta ? p.side + '\u2713' : (p.trade ? p.side : 'abst')) : ''}`;
+        ctx.font = 'bold 9px JetBrains Mono';
+        const tw = ctx.measureText(label).width + 14;
+        ctx.fillStyle = (p && p.meta) ? _hexToRgba(col, 0.22) : 'rgba(255,255,255,0.04)';
+        ctx.fillRect(x0, cy - 9, tw, 18);
+        ctx.strokeStyle = (p && p.meta) ? col : 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = (p && p.meta) ? 1.4 : 0.7;
+        ctx.strokeRect(x0, cy - 9, tw, 18);
+        ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.fillText(label, x0 + 7, cy + 3);
+        x0 += tw + 8;
+        if (p && p.meta && p.conf > best) { best = p.conf; choice = p; }
+    }
+    ctx.textAlign = 'right'; ctx.font = 'bold 10px JetBrains Mono';
+    if (choice) { ctx.fillStyle = _DN_COL[choice.key]; ctx.fillText(`OSIRIS \u2192 ${choice.key} ${choice.side} ${(choice.calProb * 100).toFixed(0)}%`, w - 12, cy + 3); }
+    else { ctx.fillStyle = '#7d99ac'; ctx.fillText('OSIRIS \u2192 abstineert', w - 12, cy + 3); }
+    ctx.textAlign = 'left';
+    const outEl = document.getElementById('neo-net-out-big');
+    if (outEl) outEl.textContent = choice ? `${choice.key} ${choice.side} ${(choice.calProb * 100).toFixed(0)}%` : 'abstineert';
+}
+window._deepnetOverlayBig = _deepnetOverlayBig;
+
+// Start de achtergrond-service NU pas - na de const _dnviz/_DN_COL en de viz-functies,
+// zodat startDeepNetViz() niet in hun temporal-dead-zone valt (dat brak de canvas-render).
+try { OsirisDeepNet.startService(); } catch (e) {}
