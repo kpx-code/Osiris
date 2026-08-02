@@ -2066,6 +2066,8 @@ function stopAutonomousBot() {
         clearInterval(botInterval);
         botInterval = null;
     }
+    // stop ook de multi-markt engine (en de watchdog laat hem uit zolang de bot uit staat)
+    try { stopMultiAssetEngine(); } catch (e) {}
 
     // 3. Wis het geheugen zodat de bot niet auto-start na refresh
     localStorage.setItem('botIsRunning', 'false');
@@ -7447,9 +7449,10 @@ function multiRoundRobinTick() {
 
 // Start de achtergrond-scan van alle markten (elke 10s één munt via round-robin).
 let _multiInterval = null;
+let _multiEngineRunning = false;
 function startMultiAssetEngine() {
     // meteen alle drie één keer laden zodat de tabs direct data hebben
-    MULTI_SYMBOLS.forEach((s, i) => setTimeout(() => multiRefreshSymbol(s), i * 400));
+    MULTI_SYMBOLS.forEach((s, i) => setTimeout(() => { try { multiRefreshSymbol(s); } catch (e) {} }, i * 400));
     if (_multiInterval) clearInterval(_multiInterval);
     _multiInterval = setInterval(multiRoundRobinTick, 10 * 1000);
     // FUNDAMENTALS + CROSS-MARKET (01-08): aparte, trage lus (elke 60s). Deze data komt
@@ -7459,9 +7462,49 @@ function startMultiAssetEngine() {
     if (window._fundInterval) clearInterval(window._fundInterval);
     setTimeout(() => { try { refreshFundamentalsAll(); } catch (e) {} }, 2500);
     window._fundInterval = setInterval(() => { try { refreshFundamentalsAll(); } catch (e) {} }, 60 * 1000);
+    _multiEngineRunning = true;
+    try { localStorage.setItem('multiEngineRunning', 'true'); } catch (e) {}
+    try { updateMultiEngineStatus(); } catch (e) {}
 }
-window.startMultiAssetEngine = startMultiAssetEngine;
-window.neoMultiState = neoMultiState;
+function stopMultiAssetEngine() {
+    if (_multiInterval) { clearInterval(_multiInterval); _multiInterval = null; }
+    if (window._fundInterval) { clearInterval(window._fundInterval); window._fundInterval = null; }
+    _multiEngineRunning = false;
+    try { localStorage.setItem('multiEngineRunning', 'false'); } catch (e) {}
+    try { updateMultiEngineStatus(); } catch (e) {}
+}
+window.stopMultiAssetEngine = stopMultiAssetEngine;
+
+// Toon de status van de multi-markt engine (klein indicatortje bij de coin-tabs).
+function updateMultiEngineStatus() {
+    const el = document.getElementById('multi-engine-status');
+    if (!el) return;
+    if (_multiEngineRunning) {
+        const upd = neoMultiState.markets.BTC && neoMultiState.markets.BTC.lastUpdate ? Math.round((Date.now() - neoMultiState.markets.BTC.lastUpdate) / 1000) : null;
+        el.innerHTML = `<span style="color:#14f195;">&#9679;</span> multi-markt engine actief${upd != null ? ` &middot; ${upd}s geleden ververst` : ''}`;
+        el.style.color = 'var(--text-dim)';
+    } else {
+        el.innerHTML = `<span style="color:#ff4f6d;">&#9679;</span> multi-markt engine uit`;
+        el.style.color = 'var(--text-dim)';
+    }
+}
+window.updateMultiEngineStatus = updateMultiEngineStatus;
+
+// WATCHDOG: als de bot draait maar de multi-engine (na een refresh/crash) niet, herstart
+// hem automatisch. Draait elke 15s en is idempotent - lost de "engine lijkt uit na
+// refresh"-situatie op zonder dat je hem handmatig moet aanzetten.
+function _multiEngineWatchdog() {
+    try {
+        const botOn = (typeof isBotRunning !== 'undefined' && isBotRunning) || (botSettings && botSettings.isRunning);
+        if (botOn && !_multiEngineRunning) {
+            console.log('Watchdog: multi-markt engine herstart (bot draait, engine lag stil).');
+            startMultiAssetEngine();
+        }
+        updateMultiEngineStatus();
+    } catch (e) {}
+}
+if (window._multiWatchdog) clearInterval(window._multiWatchdog);
+window._multiWatchdog = setInterval(_multiEngineWatchdog, 15 * 1000);
 
 // ============================================================
 // FUNDAMENTALS & CROSS-MARKET MOTOR (01-08)
@@ -9300,30 +9343,31 @@ function _neoSurface(y, phi) {
 }
 
 // ============================================================
-// QUANTUM CORE — 3-BODY PROBLEM (01-08)
+// OSIRIS CORE — LEARNING ASCENSION (01-08)
 // ============================================================
-// Drie entiteiten (Neo + de twee sterkste munt-sub-breinen als begeleiders) bewegen
-// als een echt 3-body-probleem in 3D: ze trekken elkaar aan via zwaartekracht en
-// volgen chaotische, nooit-herhalende banen. Elk lichaam laat een LIGHT-TRAIL na die
-// de pathways tekent - de baan zelf wordt zichtbaar als een lichtspoor. Ver genoeg uit
-// elkaar zodat de drie banen los leesbaar zijn. Kleur volgt de bias/activiteit.
-let _orb = { raf: null, last: 0, bodies: null, formStart: null, rot: 0 };
+// Vervangt de 3-body orb door iets dat past bij het thema: de leerhierarchie en de
+// autonome mainbrain. Drie concentrische ringen = de drie Adaptive-Learning-niveaus
+// (L1 factor-weging, L2 logistisch model, L3 getraind net). Nodes cirkelen op elke
+// ring; energie-pulsen stromen van buiten naar binnen richting de heldere OSIRIS-kern,
+// die pulseert met de bot-activiteit. Kleur volgt de live bias (groen=bull, rood=bear).
+let _orb = { raf: null, last: 0, rings: null, formStart: null, rot: 0, pulses: [] };
 
 function buildQuantumOrb() {
-    // drie lichamen met startposities + snelheden die een mooie, niet-triviale dans geven
-    const bodies = [
-        { name: 'NEO', m: 2.6, x: 0.0,  y: 0.15, z: 0.0,  vx: 0.0,  vy: 0.0,  vz: 0.30, trail: [], R: 15 },
-        { name: 'A',   m: 1.0, x: 1.25, y: -0.1, z: 0.0,  vx: 0.0,  vy: 0.42, vz: -0.12, trail: [], R: 8 },
-        { name: 'B',   m: 1.0, x: -1.25,y: -0.05,z: 0.15, vx: 0.0,  vy: -0.42,vz: -0.12, trail: [], R: 8 }
+    // drie ringen (van binnen naar buiten): L3 (dichtst bij de kern), L2, L1
+    _orb.rings = [
+        { level: 3, radius: 0.34, nodes: 3, speed: 0.55, phase: Math.random() * 6.28, label: 'L3' },
+        { level: 2, radius: 0.58, nodes: 5, speed: -0.34, phase: Math.random() * 6.28, label: 'L2' },
+        { level: 1, radius: 0.84, nodes: 8, speed: 0.20, phase: Math.random() * 6.28, label: 'L1' }
     ];
-    _orb.bodies = bodies; _orb.formStart = null; _orb.rot = 0;
+    _orb.pulses = [];
+    _orb.formStart = null; _orb.rot = 0;
 }
 
 function _orbFrame(now) {
     _orb.raf = requestAnimationFrame(_orbFrame);
     if (now - _orb.last < 33) return;
     const dtReal = Math.min(0.05, (now - _orb.last) / 1000) || 0.033; _orb.last = now;
-    const cv = document.getElementById('neo-canvas'); if (!cv || !_orb.bodies) return;
+    const cv = document.getElementById('neo-canvas'); if (!cv || !_orb.rings) return;
     const r = cv.getBoundingClientRect(); if (r.width < 10) return;
     const dpr = Math.min(2, devicePixelRatio || 1);
     if (Math.abs(cv.width - r.width * dpr) > 2) { cv.width = Math.max(2, r.width * dpr); cv.height = Math.max(2, r.height * dpr); }
@@ -9331,86 +9375,105 @@ function _orbFrame(now) {
     const w = r.width, h = r.height; ctx.clearRect(0, 0, w, h);
     if (_orb.formStart == null) _orb.formStart = now;
     const F = Math.min(1, Math.max(0, (now - _orb.formStart - 150) / 1500));
+    const cx = w / 2, cy = h * 0.5, base = Math.min(w, h) * 0.5;
 
-    const act = ((typeof _l2 !== 'undefined' && _l2 && _l2.trained) ? 1 : 0.6) * ((typeof _neo !== 'undefined' && _neo && _neo.actMul) || 0.6);
-    let bias = 0; try { const inp = neoNetInputs(); bias = inp.cnn * 0.6 + inp.momentum * 0.4; } catch (e) {}
-    const core = bias > 0.12 ? [20, 255, 159] : bias < -0.12 ? [255, 46, 99] : [120, 210, 255];
-    const compA = [130, 200, 255], compB = [199, 146, 234];   // begeleiders
+    // activiteit: hoger als L2/L3 getraind zijn en de bot draait
+    const l2on = (typeof _l2 !== 'undefined' && _l2 && _l2.trained) ? 1 : 0.5;
+    const l3on = (typeof _l3 !== 'undefined' && _l3 && _l3.trained && _l3.valAcc > 0.52) ? 1 : 0;
+    const act = l2on * ((typeof _neo !== 'undefined' && _neo && _neo.actMul) || 0.7);
+    // live bias voor de kleur
+    let bias = 0; try { const inp = neoNetInputs(); bias = inp.cnn * 0.5 + inp.momentum * 0.3 + (inp.funding || 0) * 0.2; } catch (e) {}
+    const core = bias > 0.12 ? [20, 255, 159] : bias < -0.12 ? [255, 60, 100] : [120, 210, 255];
+    const ringCols = { 1: [130, 200, 255], 2: [199, 146, 234], 3: [0, 217, 255] };
 
-    // ---- fysica: 3-body zwaartekracht (meerdere substappen voor stabiliteit) ----
-    const G = 0.6, soft = 0.25, steps = 3, dt = (dtReal * (0.5 + act * 0.7)) / steps;
-    const B = _orb.bodies;
-    for (let s = 0; s < steps; s++) {
-        const ax = [0, 0, 0], ay = [0, 0, 0], az = [0, 0, 0];
-        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
-            if (i === j) continue;
-            const dx = B[j].x - B[i].x, dy = B[j].y - B[i].y, dz = B[j].z - B[i].z;
-            const d2 = dx * dx + dy * dy + dz * dz + soft * soft, inv = 1 / Math.sqrt(d2);
-            const f = G * B[j].m * inv * inv * inv;
-            ax[i] += f * dx; ay[i] += f * dy; az[i] += f * dz;
-        }
-        for (let i = 0; i < 3; i++) {
-            B[i].vx += ax[i] * dt; B[i].vy += ay[i] * dt; B[i].vz += az[i] * dt;
-            // zachte terugtrek naar het centrum zodat het systeem niet wegdrijft/instort
-            const rr = Math.hypot(B[i].x, B[i].y, B[i].z) || 1;
-            const pull = 0.02 * rr;
-            B[i].vx -= (B[i].x / rr) * pull * dt; B[i].vy -= (B[i].y / rr) * pull * dt; B[i].vz -= (B[i].z / rr) * pull * dt;
-            B[i].x += B[i].vx * dt; B[i].y += B[i].vy * dt; B[i].z += B[i].vz * dt;
-        }
-    }
-    // reset als een lichaam te ver wegvliegt (chaos-uitbraak) -> nieuwe dans
-    for (const b of B) if (Math.hypot(b.x, b.y, b.z) > 3.2) { buildQuantumOrb(); return; }
-
-    // langzame globale rotatie voor 3D-gevoel
-    _orb.rot += dtReal * 0.15;
-    const cosr = Math.cos(_orb.rot), sinr = Math.sin(_orb.rot), tilt = 0.42, ct = Math.cos(tilt), st2 = Math.sin(tilt);
-    const cx = w / 2, cy = h * 0.5, scale = Math.min(w, h) * 0.26;
-    const project = (x, y, z) => {
-        let rx = x * cosr + z * sinr, rz = -x * sinr + z * cosr, ry = y;
-        const ry2 = ry * ct - rz * st2, rz2 = ry * st2 + rz * ct;
-        const persp = 1 / (2.6 - rz2 * 0.5);
-        return { sx: cx + rx * scale * persp, sy: cy - ry2 * scale * persp, z: rz2, persp };
+    _orb.rot += dtReal * 0.12;
+    const tilt = 0.5, ct = Math.cos(tilt), st = Math.sin(tilt);
+    // projecteer een punt op een gekantelde ring (3D-gevoel)
+    const projRing = (radius, ang) => {
+        const x = Math.cos(ang) * radius, z = Math.sin(ang) * radius;
+        const sx = cx + x * base;
+        const sy = cy + z * base * st;          // z-as afgeplat door tilt
+        const depth = (Math.sin(ang) + 1) / 2;  // 0=achter, 1=voor
+        return { sx, sy, depth };
     };
 
-    // trails bijwerken
-    for (const b of B) {
-        const p = project(b.x, b.y, b.z);
-        b.trail.push({ sx: p.sx, sy: p.sy, z: p.z }); if (b.trail.length > 90) b.trail.shift();
-        b._p = p;
+    // ---- ringen tekenen (elliptische banen) ----
+    for (const ring of _orb.rings) {
+        const col = ringCols[ring.level];
+        ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${(0.12 * F).toFixed(3)})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let a = 0; a <= 6.29; a += 0.12) {
+            const p = projRing(ring.radius, a);
+            if (a === 0) ctx.moveTo(p.sx, p.sy); else ctx.lineTo(p.sx, p.sy);
+        }
+        ctx.stroke();
     }
 
-    // ---- light-trails (de pathways) ----
-    for (let bi = 0; bi < 3; bi++) {
-        const b = B[bi], col = bi === 0 ? core : bi === 1 ? compA : compB;
-        for (let k = 1; k < b.trail.length; k++) {
-            const a = (k / b.trail.length) * 0.55 * F;
-            const seg = b.trail[k], prev = b.trail[k - 1];
-            ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${a.toFixed(3)})`;
-            ctx.lineWidth = (bi === 0 ? 1.8 : 1.1) * (k / b.trail.length);
-            ctx.beginPath(); ctx.moveTo(prev.sx, prev.sy); ctx.lineTo(seg.sx, seg.sy); ctx.stroke();
+    // ---- energie-pulsen: spawnen op de buitenste ring, stromen naar de kern ----
+    if (Math.random() < 0.04 + 0.10 * act) {
+        _orb.pulses.push({ t: 0, ang: Math.random() * 6.28, speed: 0.6 + Math.random() * 0.5 });
+    }
+    for (let i = _orb.pulses.length - 1; i >= 0; i--) {
+        const pl = _orb.pulses[i];
+        pl.t += dtReal * pl.speed;
+        if (pl.t >= 1) { _orb.pulses.splice(i, 1); continue; }
+        const radius = 0.84 * (1 - pl.t);   // van buitenring naar kern
+        const p = projRing(radius, pl.ang + _orb.rot);
+        const a = Math.sin(pl.t * Math.PI) * 0.8 * F;
+        ctx.fillStyle = `rgba(${core[0]},${core[1]},${core[2]},${a.toFixed(3)})`;
+        ctx.beginPath(); ctx.arc(p.sx, p.sy, 1.6 + 1.5 * (1 - pl.t), 0, 6.28); ctx.fill();
+        // spoortje
+        ctx.strokeStyle = `rgba(${core[0]},${core[1]},${core[2]},${(a * 0.4).toFixed(3)})`;
+        ctx.lineWidth = 0.8;
+        const p2 = projRing(radius + 0.05, pl.ang + _orb.rot);
+        ctx.beginPath(); ctx.moveTo(p2.sx, p2.sy); ctx.lineTo(p.sx, p.sy); ctx.stroke();
+    }
+
+    // ---- nodes op de ringen (met diepte-sortering) ----
+    const allNodes = [];
+    for (const ring of _orb.rings) {
+        ring.phase += dtReal * ring.speed * (0.6 + 0.6 * act);
+        for (let n = 0; n < ring.nodes; n++) {
+            const ang = ring.phase + (n / ring.nodes) * 6.28 + _orb.rot;
+            const p = projRing(ring.radius, ang);
+            allNodes.push({ p, ring, ang });
         }
     }
-    // verbindingslijnen tussen de drie (het "probleem"-driehoekje, subtiel)
-    ctx.strokeStyle = `rgba(${core[0]},${core[1]},${core[2]},${(0.06 * F).toFixed(3)})`; ctx.lineWidth = 0.5;
-    for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) {
-        ctx.beginPath(); ctx.moveTo(B[i]._p.sx, B[i]._p.sy); ctx.lineTo(B[j]._p.sx, B[j]._p.sy); ctx.stroke();
+    allNodes.sort((a, b) => a.p.depth - b.p.depth);   // achter eerst
+    for (const nd of allNodes) {
+        const col = ringCols[nd.ring.level];
+        const sz = (1.6 + nd.p.depth * 2.2) * (nd.ring.level === 3 ? 1.3 : 1);
+        const alpha = (0.3 + 0.6 * nd.p.depth) * F;
+        // gloed
+        const g = ctx.createRadialGradient(nd.p.sx, nd.p.sy, 0, nd.p.sx, nd.p.sy, sz * 3);
+        g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${alpha.toFixed(3)})`);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(nd.p.sx, nd.p.sy, sz * 3, 0, 6.28); ctx.fill();
+        ctx.fillStyle = `rgba(255,255,255,${(alpha * 0.9).toFixed(3)})`;
+        ctx.beginPath(); ctx.arc(nd.p.sx, nd.p.sy, sz * 0.6, 0, 6.28); ctx.fill();
     }
 
-    // ---- de drie lichamen (gloeiende bollen) ----
-    const order = [0, 1, 2].sort((a, b) => B[a]._p.z - B[b]._p.z);
-    for (const bi of order) {
-        const b = B[bi], p = b._p, col = bi === 0 ? core : bi === 1 ? compA : compB;
-        const rad = b.R * p.persp * (0.85 + 0.15 * Math.sin(now / 400 + bi));
-        const g = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, rad * 2.4);
-        g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${(0.9 * F).toFixed(3)})`);
-        g.addColorStop(0.4, `rgba(${col[0]},${col[1]},${col[2]},${(0.35 * F).toFixed(3)})`);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.sx, p.sy, rad * 2.4, 0, 6.28); ctx.fill();
-        ctx.fillStyle = `rgba(255,255,255,${(0.9 * F).toFixed(3)})`; ctx.beginPath(); ctx.arc(p.sx, p.sy, rad * 0.5, 0, 6.28); ctx.fill();
-        if (bi === 0) { ctx.fillStyle = `rgba(${core[0]},${core[1]},${core[2]},${F})`; ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = 'center'; ctx.fillText('NEO', p.sx, p.sy - rad * 2.4 - 4); }
+    // ---- OSIRIS-kern in het midden: pulseert met de activiteit ----
+    const pulse = 0.85 + 0.15 * Math.sin(now / 380);
+    const coreR = base * 0.13 * pulse * (0.7 + 0.3 * act);
+    const cg = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 3);
+    cg.addColorStop(0, `rgba(255,255,255,${(0.95 * F).toFixed(3)})`);
+    cg.addColorStop(0.3, `rgba(${core[0]},${core[1]},${core[2]},${(0.7 * F).toFixed(3)})`);
+    cg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(cx, cy, coreR * 3, 0, 6.28); ctx.fill();
+    ctx.fillStyle = `rgba(255,255,255,${F})`; ctx.beginPath(); ctx.arc(cx, cy, coreR * 0.55, 0, 6.28); ctx.fill();
+    // L3-actief: extra buitenrand-halo om de kern
+    if (l3on) {
+        ctx.strokeStyle = `rgba(${core[0]},${core[1]},${core[2]},${(0.4 * F * pulse).toFixed(3)})`;
+        ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, cy, coreR * 1.8, 0, 6.28); ctx.stroke();
     }
+    // label
+    ctx.fillStyle = `rgba(${core[0]},${core[1]},${core[2]},${(0.9 * F).toFixed(3)})`;
+    ctx.font = "bold 7px 'JetBrains Mono', monospace"; ctx.textAlign = 'center';
+    ctx.fillText('OSIRIS', cx, cy + coreR * 3 + 8);
 }
-function startQuantumOrb() { if (!_orb.bodies) buildQuantumOrb(); if (!_orb.raf) _orb.raf = requestAnimationFrame(_orbFrame); }
+function startQuantumOrb() { if (!_orb.rings) buildQuantumOrb(); if (!_orb.raf) _orb.raf = requestAnimationFrame(_orbFrame); }
 window.startQuantumOrb = startQuantumOrb;
 
 function buildCortex() {
