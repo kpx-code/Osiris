@@ -1534,6 +1534,7 @@ function initializeOnReady() {
     rebuildHistoryUIFromLog();
     renderActiveSettingsPanel();
     renderLearningPanel();
+    try { OsirisDeepNet.startService(); updateDeepNetPanel(); } catch (e) {}
     if (isBotRunning) {
         startAutonomousBot(true); // true = herstart
     }
@@ -1845,6 +1846,8 @@ function startAutonomousBot(isAutoRestart = false) {
     l2BuildAndTrain().then(r => { if (r && r.ok) console.log(`Level 2 getraind op ${r.samples} samples (${r.trades} echte trades).`); });
     if (window._l2Retrain) clearInterval(window._l2Retrain);
     window._l2Retrain = setInterval(() => { l2BuildAndTrain(); }, 30 * 60 * 1000);
+    // OSIRIS DEEPNET draait als achtergrond-service (idempotent; niets aanzetten nodig)
+    try { OsirisDeepNet.startService(); } catch (e) {}
     document.getElementById('bot-status').innerText = "ACTIEF";
 
     const startBtn = document.getElementById('btn-start-bot');
@@ -1919,6 +1922,7 @@ function renderLearningPanel() {
     const sumW = Object.keys(labels).reduce((a, fk) => a + ((weightsSrc[weightKeys[fk]] != null) ? weightsSrc[weightKeys[fk]] : 1.0), 0);
     const osirisNote = brain === 'OSIRIS' ? ' Osiris toont het gemiddelde over de drie sub-breinen.' : '';
     let html = `<div style="font-size:0.72em; color:var(--text-dim); margin-bottom:10px;"><span style="color:${brainColor}; font-weight:700;">${brainName}</span> &middot; gebaseerd op ${totalTrades} trade(s). Elk percentage = het aandeel van die factor in de opbouw van de beslissing (contrafeitelijk geleerd).${osirisNote} Minimaal ${MIN_SAMPLE_SIZE} trades nodig voor bijstelling.</div>`;
+    try { html += deepNetLearningHtml(); } catch (e) {}
     html += `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;">`;
 
     Object.keys(labels).forEach(fk => {
@@ -2340,7 +2344,7 @@ function generateLiveNarration() {
     try {
         if (_l3 && _l3.trained && _l3.valAcc != null && _l3.valAcc > 0.52) {
             const p3 = l3Predict(rawData, rawData.length - 1);
-            if (p3 != null) lines.push(`NEURAAL NET (L3) · voorspelt LONG-kans ${(p3*100).toFixed(0)}% \u00b7 validatie ${(_l3.valAcc*100).toFixed(0)}% \u00b7 weegt 15% mee`);
+            if (p3 != null) lines.push(`NEURAAL NET (L3) · voorspelt LONG-kans ${(p3*100).toFixed(0)}% \u00b7 validatie ${(_l3.valAcc*100).toFixed(0)}% \u00b7 weegt ${(Math.max(0,Math.min(1,(_l3.valAcc-0.52)/0.13))*l3WeightCap().cap*100).toFixed(0)}% mee (cap ${(l3WeightCap().cap*100)|0}% bij ${l3WeightCap().n} schone trades)`);
         }
     } catch (e) {}
 
@@ -2353,6 +2357,7 @@ function generateLiveNarration() {
         }
     } catch (e) {}
 
+    try { if (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.reasoningLine) lines.push(OsirisDeepNet.reasoningLine); } catch (e) {}
     lines.push(`STATUS · ${lastOsirisDecision.decision}`);
 
     return lines;
@@ -2859,14 +2864,24 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
             // NIVEAU 3 (getraind net): weegt ADVISEREND mee met een klein gewicht, en
             // alleen als het op de validatie beter was dan gokken (valAcc > 0.52). Zo
             // krijgt het net pas invloed als het bewezen iets leert - een overfitting-rem.
-            let l3Pct = null;
+            let l3Pct = null, l3w = 0;
             if (_l3 && _l3.trained && _l3.valAcc != null && _l3.valAcc > 0.52) {
                 const p3 = l3Predict(rawData, rawData.length - 1);
-                if (p3 != null && isFinite(p3)) l3Pct = (side === 'SHORT' ? (1 - p3) : p3) * 100;
+                if (p3 != null && isFinite(p3)) {
+                    l3Pct = (side === 'SHORT' ? (1 - p3) : p3) * 100;
+                    // AUTONOME L3-WEGING: gewicht = kwaliteit x bewijs.
+                    //  - kwaliteit: ramp met de validatie-accuraatheid (0 bij 52%, 1 bij >=65%)
+                    //  - bewijs: een DYNAMISCHE cap die met het aantal schone trades meegroeit
+                    //    (per ~20 trades +5%, tot 55%) en autonoom daalt als dat aantal daalt.
+                    // Zo krijgt het net meer stem naarmate er echt bewijs is, en minder als dat
+                    // bewijs wegvalt - de overfitting-rem beweegt nu mee met de data.
+                    l3w = Math.max(0, Math.min(1, (_l3.valAcc - 0.52) / (0.65 - 0.52))) * l3WeightCap().cap;
+                }
             }
-            if (l3Pct != null) {
-                // blend: 55% basis, 30% L2, 15% L3 (net krijgt bewust het kleinste gewicht)
-                return Math.round(blended * 0.55 + l2Pct * 0.30 + l3Pct * 0.15);
+            if (l3Pct != null && l3w > 0) {
+                // rest verdeeld over basis en L2 in de oorspronkelijke 55:30-verhouding
+                const rest = 1 - l3w;
+                return Math.round(blended * rest * (0.55 / 0.85) + l2Pct * rest * (0.30 / 0.85) + l3Pct * l3w);
             }
             return Math.round(blended * 0.6 + l2Pct * 0.4);
         }
@@ -4938,8 +4953,22 @@ function checkOpenPositionsExits() {
         if (!pos.isScalp && cfg.maxPositionAgeMinutes > 0) {
             const ageMin = (Date.now() - (pos.openTime || 0)) / 60000;
             const costBand = roundTripCostPct() / 100;
-            if (ageMin >= cfg.maxPositionAgeMinutes && Math.abs(pnlPct) < costBand) {
-                closePosition(pos, pnlPct, `TIME_STOP (${ageMin.toFixed(0)} min rond break-even - these niet uitgekomen)`);
+            // DYNAMISCHE TIJD-STOP met A/B: elke positie krijgt eenmalig een modus
+            // (DYN vs FIXED). Osiris meet welke betere break-even-exits geeft en zet de
+            // dynamische stop autonoom terug als hij slechter blijkt (zie evaluateTimeStopAB).
+            let deadline = cfg.maxPositionAgeMinutes, dyn = false;
+            try {
+                if (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.LIVE) {
+                    if (!pos._tsMode) pos._tsMode = OsirisDeepNet.assignTsMode();
+                    if (pos._tsMode === 'DYN') {
+                        deadline = OsirisDeepNet.dynamicTimeStopMinutes(pos, cfg.maxPositionAgeMinutes);
+                        dyn = true;
+                    }
+                }
+            } catch (e) {}
+            if (ageMin >= deadline && Math.abs(pnlPct) < costBand) {
+                try { if (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.LIVE) OsirisDeepNet.recordTimeStop(pos._tsMode || 'FIXED', pnlPct); } catch (e) {}
+                closePosition(pos, pnlPct, `TIME_STOP (${ageMin.toFixed(0)}/${deadline.toFixed(0)} min${dyn ? ' dyn-EV' : ' vast'} - these niet uitgekomen)`);
                 return;
             }
         }
@@ -5234,6 +5263,8 @@ function botHeartbeat() {
         renderPrediction();
         renderPatternMarkers();
         updatePatternStructureCard();
+        // OSIRIS DEEPNET (shadow): voorspel per markt, log en visualiseer - raakt niks live
+        try { OsirisDeepNet.tick(); } catch (e) {}
     }
 }
 
@@ -8504,6 +8535,22 @@ function classifyMarketStatus(confluence, isBullish, momentumContext) {
     };
 }
 
+// DYNAMISCHE L3-CAP: het maximale gewicht dat het getrainde net (L3) in de
+// beslissing mag krijgen, gekoppeld aan het aantal SCHONE trades van de huidige
+// config. Meer bewijs -> hoger plafond (per ~20 trades +5%, tot 55%); daalt het
+// aantal (bv. na een config-wijziging die de schone-telling reset), dan zakt de cap
+// autonoom mee. Het uiteindelijke L3-gewicht = deze cap x de accuraatheids-ramp.
+function l3WeightCap() {
+    let n = 0;
+    try {
+        const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : null;
+        n = learningLog.filter(l => !l.manual && l.outcome && (cfg == null || l.configVersion === cfg)).length;
+    } catch (e) {}
+    const cap = Math.min(0.55, 0.10 + Math.floor(n / 20) * 0.05);
+    return { cap, n };
+}
+window.l3WeightCap = l3WeightCap;
+
 function getOrisisDecisionData(metrics, currentPrice, vfm, er, db, chaos, isBullish) {
     
     // 1. Bereken de energetische factor met logaritmische demping
@@ -10488,7 +10535,7 @@ function renderL3Panel() {
                     <div><span style="color:var(--text-dim);">Validatie-accuraatheid</span><br><b style="color:${accColor}; font-size:1.1em;">${acc}</b></div>
                     <div><span style="color:var(--text-dim);">Getraind op</span><br><b>${_l3.trainedOn} samples</b></div>
                     <div><span style="color:var(--text-dim);">Laatst getraind</span><br><b>${_l3.lastTrainMs ? formatFullDateTime(_l3.lastTrainMs) : '—'}</b></div>
-                    <div><span style="color:var(--text-dim);">Status</span><br><b style="color:${actief?'var(--teal)':'#ff4f6d'};">${actief ? 'meebeslissend (15%)' : 'inactief (<52%)'}</b></div>
+                    <div><span style="color:var(--text-dim);">Status</span><br><b style="color:${actief?'var(--teal)':'#ff4f6d'};">${actief ? 'meebeslissend (${(Math.max(0,Math.min(1,(_l3.valAcc-0.52)/0.13))*l3WeightCap().cap*100).toFixed(0)}%)' : 'inactief (<52%)'}</b></div>
                 </div>
                 <div style="margin-top:8px; color:var(--text-dimmer); font-size:0.92em; line-height:1.5;">Dit net leert NIET-LINEAIRE combinaties van de signalen (bv. "hoge VFM alleen bij lage chaos"). Het weegt pas mee als de validatie-accuraatheid boven 52% ligt — een overfitting-rem. De accuraatheid is gemeten op data die het net tijdens de training NIET zag.</div>`;
         } else {
@@ -10700,3 +10747,522 @@ document.getElementById('manual-short-btn')?.addEventListener('click', () => ope
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
+
+// ============================================================
+// OSIRIS DEEPNET (02-08) — voorspellende laag voor ALLE 3 de markten
+// ============================================================
+// Doel: echte predictieve kracht + precisie, per markt (BTC/ETH/SOL).
+//
+// KERN-IDEE (t.o.v. de bestaande L2/L3, die op ~50 trade-uitkomsten leren):
+// dit traint op BAR-LEVEL forward-returns. Elke candle krijgt een label
+// (steeg de prijs de volgende HORIZON candles boven de drempel?), dus dúizenden
+// samples per markt i.p.v. tientallen trades. Hergebruikt l2ExtractFeatures /
+// l2Label / sigmoid zodat het consistent is met de rest van de engine.
+//
+// PRECISIE: elke voorspelling wordt (1) Platt-gekalibreerd, (2) door een
+// abstentie-band gefilterd (alleen traden bij genoeg gekalibreerde edge),
+// (3) getoetst op ensemble-overeenstemming met het sub-brein, en (4) door een
+// meta-gate (walk-forward-precisie moet op orde zijn). Cross-markt: BTC-return
+// per bar (op openTime uitgelijnd) is een 7e feature voor ETH/SOL (BTC leidt).
+//
+// VEILIGHEID: dit draait SHADOW. OsirisDeepNet.LIVE = false betekent dat het
+// alleen voorspelt, logt en visualiseert — het raakt geen enkele live entry of
+// exit. Zet LIVE pas op true nadat je de walk-forward-cijfers (per markt) hebt
+// gezien en vertrouwt. De dynamische time-stop zit óók achter deze vlag.
+// LET OP: nog niet runtime-gevalideerd. De walk-forward is nu PURGED (embargo van de
+// horizon rond elke split), dus de precisie is eerlijk gemeten - maar klein in aantal
+// tot er genoeg samples zijn; behandel de eerste uren als opwarmen.
+const OsirisDeepNet = {
+    LIVE: true,                  // draait live (executionMode is TESTNET); zet uit voor puur advies
+    HORIZON: 5,                  // forward-return over 5 candles (15m -> ~75 min)
+    THR: 0.001,                  // labeldrempel (+0.1%)
+    ABSTAIN_MARGIN: 0.60,        // gekalibreerde kans moet >= 0.60 (long) of <= 0.40 (short)
+    META_MIN_PRECISION: 0.55,    // walk-forward-precisie ondergrens voor de meta-gate
+    RETRAIN_MS: 30 * 60 * 1000,  // hertrain-cadans
+    REFRESH_MS: 60 * 1000,       // hoe vaak de laatste candles verversen voor live-predict
+    SYMBOLS: { BTC: 'BTCUSDT', ETH: 'ETHUSDT', SOL: 'SOLUSDT' },
+    markets: { BTC: {}, ETH: {}, SOL: {} },   // per markt: model, platt, wf, kl, btcRet, trainedMs
+    last: { BTC: null, ETH: null, SOL: null }, // laatste voorspelling per markt (voor viz + EV)
+    log: [],                     // log van voorspellingen
+    reasoningLine: '',           // samenvatting voor de live reasoning-feed
+    tsAB: { DYN: [], FIXED: [] },// A/B-metingen: dynamische vs vaste time-stop
+    dynTimeStopDisabled: false,  // Osiris zet dit autonoom aan als dyn slechter blijkt
+    _lastTick: 0, _lastTrainKick: 0, _serviceStarted: false,
+    _trainingBusy: false,
+    _lastRefresh: 0,
+
+    // ---------- helpers ----------
+    async _fetchKl(sym, interval, limit) {
+        const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`);
+        if (!r.ok) throw new Error(`klines ${sym} ${r.status}`);
+        return await r.json();
+    },
+    _btcRetMap(btcKl) {
+        const m = new Map();
+        for (const k of btcKl) { const o = +k[1], c = +k[4]; m.set(k[0], o ? (c - o) / o : 0); }
+        return m;
+    },
+    _featAt(kl, i, btcRet) {
+        const base = (typeof l2ExtractFeatures === 'function') ? l2ExtractFeatures(kl, i) : null;
+        if (!base) return null;
+        const br = btcRet ? (btcRet.get(kl[i][0]) || 0) : 0;
+        return base.concat([Math.tanh(br * 40)]);   // 7e feature = cross-markt BTC-return
+    },
+
+    // ---------- kleine logistische trainer (los van _l2, muteert niks globaals) ----------
+    _fit(samples, epochs = 240, lr = 0.12) {
+        if (!samples || samples.length < 60) return null;
+        const n = samples[0].x.length;
+        const mean = new Array(n).fill(0), std = new Array(n).fill(0);
+        for (const s of samples) for (let k = 0; k < n; k++) mean[k] += s.x[k];
+        for (let k = 0; k < n; k++) mean[k] /= samples.length;
+        for (const s of samples) for (let k = 0; k < n; k++) std[k] += (s.x[k] - mean[k]) ** 2;
+        for (let k = 0; k < n; k++) std[k] = Math.sqrt(std[k] / samples.length) || 1;
+        const norm = x => x.map((v, k) => (v - mean[k]) / std[k]);
+        let w = new Array(n).fill(0), b = 0;
+        for (let e = 0; e < epochs; e++) {
+            const gw = new Array(n).fill(0); let gb = 0;
+            for (const s of samples) {
+                const xn = norm(s.x);
+                const z = xn.reduce((a, v, k) => a + v * w[k], b);
+                const p = sigmoid(z), err = p - s.y;
+                for (let k = 0; k < n; k++) gw[k] += err * xn[k];
+                gb += err;
+            }
+            for (let k = 0; k < n; k++) w[k] -= lr * gw[k] / samples.length;
+            b -= lr * gb / samples.length;
+        }
+        return { w, b, mean, std };
+    },
+    _fwd(model, x) {
+        const xn = x.map((v, k) => (v - model.mean[k]) / model.std[k]);
+        const z = xn.reduce((a, v, k) => a + v * model.w[k], model.b);
+        return sigmoid(z);
+    },
+    // Platt-kalibratie: fit sigmoid(a*logit(p_raw)+b) op een aparte validatieset
+    _fitPlatt(model, cal, epochs = 300, lr = 0.15) {
+        if (!cal || cal.length < 30) return { a: 1, b: 0 };
+        const logit = p => Math.log(Math.max(1e-6, Math.min(1 - 1e-6, p)) / (1 - Math.max(1e-6, Math.min(1 - 1e-6, p))));
+        const pts = cal.map(s => ({ l: logit(this._fwd(model, s.x)), y: s.y }));
+        let a = 1, b = 0;
+        for (let e = 0; e < epochs; e++) {
+            let ga = 0, gb = 0;
+            for (const p of pts) { const q = sigmoid(a * p.l + b), err = q - p.y; ga += err * p.l; gb += err; }
+            a -= lr * ga / pts.length; b -= lr * gb / pts.length;
+        }
+        return { a, b };
+    },
+    _applyPlatt(platt, raw) {
+        if (!platt) return raw;
+        const l = Math.log(Math.max(1e-6, Math.min(1 - 1e-6, raw)) / (1 - Math.max(1e-6, Math.min(1 - 1e-6, raw))));
+        return sigmoid(platt.a * l + platt.b);
+    },
+    // walk-forward-evaluatie op de test-tail (ongezien tijdens train + kalibratie)
+    _eval(model, platt, test) {
+        if (!test || !test.length) return null;
+        let correct = 0, traded = 0, tradedCorrect = 0;
+        for (const s of test) {
+            const cal = this._applyPlatt(platt, this._fwd(model, s.x));
+            const predUp = cal >= 0.5;
+            if (predUp === (s.y === 1)) correct++;
+            if (cal >= this.ABSTAIN_MARGIN || cal <= 1 - this.ABSTAIN_MARGIN) {
+                traded++;
+                const tp = cal >= 0.5 ? 1 : 0;
+                if (tp === s.y) tradedCorrect++;
+            }
+        }
+        return {
+            n: test.length,
+            acc: correct / test.length,
+            precision: traded > 0 ? tradedCorrect / traded : 0,
+            coverage: traded / test.length
+        };
+    },
+
+    // ---------- training ----------
+    async trainMarket(key) {
+        const sym = this.SYMBOLS[key];
+        const kl = await this._fetchKl(sym, '15m', 1000);
+        const btcKl = (key === 'BTC') ? kl : await this._fetchKl('BTCUSDT', '15m', 1000);
+        const btcRet = this._btcRetMap(btcKl);
+        const samples = [];
+        for (let i = 21; i < kl.length - 1 - this.HORIZON; i++) {
+            const x = this._featAt(kl, i, btcRet);
+            const y = (typeof l2Label === 'function') ? l2Label(kl, i, this.HORIZON, this.THR) : null;
+            if (x && y !== null) samples.push({ x, y, t: kl[i][0] });
+        }
+        if (samples.length < 120) return { key, ok: false, reason: 'te weinig data' };
+        samples.sort((a, b) => a.t - b.t);
+        const nTr = Math.floor(samples.length * 0.70), nCa = Math.floor(samples.length * 0.15);
+        // PURGED walk-forward: de labels kijken HORIZON candles vooruit, dus samples vlak
+        // voor een split lekken toekomst in het volgende blok. We schrappen daarom HORIZON
+        // samples voor elke grens (purge) plus een kleine embargo erna, zodat de gemeten
+        // precisie eerlijk is (het model zag de testdata ook niet indirect).
+        const H = this.HORIZON, EMB = Math.ceil(this.HORIZON / 2);
+        const train = samples.slice(0, Math.max(1, nTr - H));
+        const cal = samples.slice(nTr + EMB, Math.max(nTr + EMB, nTr + nCa - H));
+        const test = samples.slice(nTr + nCa + EMB);
+        const model = this._fit(train);
+        if (!model) return { key, ok: false, reason: 'fit faalde' };
+        const platt = this._fitPlatt(model, cal);
+        const wf = this._eval(model, platt, test);
+        const m = this.markets[key];
+        m.model = model; m.platt = platt; m.wf = wf; m.trainedMs = Date.now();
+        m.kl = kl.slice(-120); m.btcRet = btcRet;   // vers genoeg voor live-predict tot de volgende refresh
+        this._persist(key);
+        return { key, ok: true, samples: samples.length, wf };
+    },
+    async trainAll() {
+        if (this._trainingBusy) return;
+        this._trainingBusy = true;
+        const out = {};
+        for (const key of ['BTC', 'ETH', 'SOL']) {
+            try { out[key] = await this.trainMarket(key); }
+            catch (e) { out[key] = { key, ok: false, reason: e.message }; }
+        }
+        this._trainingBusy = false;
+        try { console.log('[DeepNet] getraind:', out); } catch (e) {}
+        try { if (typeof updateDeepNetPanel === 'function') updateDeepNetPanel(); } catch (e) {}
+        return out;
+    },
+    async _refreshLatest() {
+        const now = Date.now();
+        if (now - this._lastRefresh < this.REFRESH_MS) return;
+        this._lastRefresh = now;
+        try {
+            const btcKl = await this._fetchKl('BTCUSDT', '15m', 80);
+            const btcRet = this._btcRetMap(btcKl);
+            for (const key of ['BTC', 'ETH', 'SOL']) {
+                const m = this.markets[key]; if (!m.model) continue;
+                const kl = (key === 'BTC') ? btcKl : await this._fetchKl(this.SYMBOLS[key], '15m', 80);
+                m.kl = kl; m.btcRet = btcRet;
+            }
+        } catch (e) { /* netwerk-hik, niet kritiek */ }
+    },
+
+    // ---------- voorspelling + gates ----------
+    predict(key) {
+        const m = this.markets[key];
+        if (!m || !m.model || !m.kl || m.kl.length < 25) return null;
+        const i = m.kl.length - 1;   // laatste (net gesloten) candle
+        const x = this._featAt(m.kl, i, m.btcRet);
+        if (!x) return null;
+        const raw = this._fwd(m.model, x);
+        const cal = this._applyPlatt(m.platt, raw);
+        const side = cal >= 0.5 ? 'LONG' : 'SHORT';
+        const conf = Math.abs(cal - 0.5) * 2;
+        const trade = cal >= this.ABSTAIN_MARGIN || cal <= 1 - this.ABSTAIN_MARGIN;
+        // ensemble-overeenstemming met het sub-brein van deze markt
+        let agree = null;
+        try {
+            const mm = neoMultiState.markets[key];
+            if (mm && mm.bestSide) agree = (mm.bestSide === side);
+        } catch (e) {}
+        // meta-gate: alleen "echt" traden als abstentie-poort open is, het sub-brein
+        // niet tegenspreekt, en de walk-forward-precisie op orde is
+        const wfOk = m.wf ? (m.wf.precision >= this.META_MIN_PRECISION) : false;
+        const meta = trade && (agree !== false) && wfOk;
+        const out = { key, raw, calProb: cal, side, conf, trade, agree, meta, features: x, ts: Date.now() };
+        this.last[key] = out;
+        return out;
+    },
+
+    // ---------- EV-gestuurde dynamische time-stop ----------
+    keyOf(pos) {
+        if (!pos) return null;
+        if (pos.market && this.markets[pos.market]) return pos.market;
+        try {
+            const k = Object.keys(this.SYMBOLS).find(k => this.SYMBOLS[k] === pos.symbol);
+            if (k) return k;
+        } catch (e) {}
+        return 'BTC';
+    },
+    _magnitudes(key) {
+        // gemiddelde win/verlies-grootte uit recente EXITs van deze markt
+        try {
+            const ex = (typeof botTradeLog !== 'undefined' ? botTradeLog : [])
+                .filter(t => t.action === 'EXIT' && (t.market || 'BTC') === key).slice(-40);
+            const w = ex.filter(t => t.pnl > 0).map(t => t.pnl);
+            const l = ex.filter(t => t.pnl <= 0).map(t => Math.abs(t.pnl));
+            const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+            return { tgt: avg(w) || 0.003, stp: avg(l) || 0.004 };
+        } catch (e) { return { tgt: 0.003, stp: 0.004 }; }
+    },
+    evHold(pos) {
+        const key = this.keyOf(pos); if (!key) return null;
+        const pr = this.last[key] ? this.last[key].calProb : null;
+        if (pr == null) return null;
+        const pWin = pos.side === 'LONG' ? pr : (1 - pr);
+        const { tgt, stp } = this._magnitudes(key);
+        return pWin * tgt - (1 - pWin) * stp;   // verwachte waarde van vasthouden (fractie)
+    },
+    dynamicTimeStopMinutes(pos, base) {
+        const b = base || 90;
+        const ev = this.evHold(pos);
+        if (ev == null) return b;
+        // ev +0.2% -> +50% tijd; negatieve ev -> krimpt richting 0.4x
+        const scale = Math.max(0.4, Math.min(2.0, 1 + (ev / 0.002) * 0.5));
+        return b * scale;
+    },
+
+    // ---------- shadow-tick (draait mee in de heartbeat, raakt niks live) ----------
+    tick() {
+        const now = Date.now();
+        if (now - (this._lastTick || 0) < 8000) return;   // dedup, ongeacht wie aanroept
+        this._lastTick = now;
+        // ZELF-HERSTEL: mist een markt een model (bv. internet viel weg bij het opstarten),
+        // probeer stil opnieuw te trainen zodra we weer online zijn (max 1x per 2 min).
+        if (!this._trainingBusy && ['BTC', 'ETH', 'SOL'].some(k => !this.markets[k].model) && now - (this._lastTrainKick || 0) > 120000) {
+            this._lastTrainKick = now;
+            this.trainAll();
+        }
+        this._refreshLatest();
+        const parts = [];
+        for (const key of ['BTC', 'ETH', 'SOL']) {
+            const p = this.predict(key);
+            if (p) {
+                this.log.push({ key, calProb: +p.calProb.toFixed(3), side: p.side, trade: p.trade, meta: p.meta, agree: p.agree, ts: p.ts });
+                parts.push(`${key} ${(p.calProb * 100).toFixed(0)}% ${p.meta ? p.side + '\u2713' : (p.trade ? p.side : 'abst')}`);
+            }
+        }
+        if (this.log.length > 3000) this.log = this.log.slice(-3000);
+        // samenvatting voor de live reasoning-feed (mainbrain-keuze)
+        let choice = null, best = -1;
+        for (const key of ['BTC', 'ETH', 'SOL']) { const p = this.last[key]; if (p && p.meta && p.conf > best) { best = p.conf; choice = p; } }
+        this.reasoningLine = `DEEPNET \u00b7 ${parts.join(' \u00b7 ')}${choice ? ` \u2192 kiest ${choice.key} ${choice.side} (${(choice.calProb * 100).toFixed(0)}%)` : ' \u2192 geen setup boven de drempel'}${this.LIVE ? '' : ' [advies]'}${this.dynTimeStopDisabled ? ' \u00b7 dyn-stop autonoom uit (A/B)' : ''}`;
+        try { if (typeof updateDeepNetPanel === 'function') updateDeepNetPanel(); } catch (e) {}
+    },
+
+    // ---------- persistentie (alleen het model, niet de candles) ----------
+    _persist(key) {
+        try {
+            const m = this.markets[key];
+            localStorage.setItem('osirisDeepNet_' + key, JSON.stringify({ model: m.model, platt: m.platt, wf: m.wf, trainedMs: m.trainedMs }));
+        } catch (e) {}
+    },
+    _restore() {
+        for (const key of ['BTC', 'ETH', 'SOL']) {
+            try {
+                const s = localStorage.getItem('osirisDeepNet_' + key);
+                if (s) { const o = JSON.parse(s); Object.assign(this.markets[key], o); }
+            } catch (e) {}
+        }
+        try { const lv = localStorage.getItem('osirisDeepNetLive'); if (lv != null) this.LIVE = (lv === 'true'); } catch (e) {}
+        try { const ab = localStorage.getItem('osirisDeepNetTsAB'); if (ab) this.tsAB = JSON.parse(ab); } catch (e) {}
+        try { this.dynTimeStopDisabled = localStorage.getItem('osirisDeepNetDynOff') === 'true'; } catch (e) {}
+    },
+    // ---------- A/B: dynamische vs vaste time-stop (Osiris leert wat beter werkt) ----------
+    assignTsMode() {
+        // verken-tempo: normaal 50/50; staat dyn autonoom uit, dan nog 15% dyn zodat
+        // Osiris blijft meten en zo nodig kan herstellen (explore/exploit).
+        const dynRate = this.dynTimeStopDisabled ? 0.15 : 0.5;
+        return Math.random() < dynRate ? 'DYN' : 'FIXED';
+    },
+    recordTimeStop(mode, pnlPct) {
+        const m = (mode === 'DYN') ? 'DYN' : 'FIXED';
+        this.tsAB[m].push(pnlPct);
+        if (this.tsAB[m].length > 200) this.tsAB[m] = this.tsAB[m].slice(-200);
+        try { localStorage.setItem('osirisDeepNetTsAB', JSON.stringify(this.tsAB)); } catch (e) {}
+        this.evaluateTimeStopAB();
+    },
+    evaluateTimeStopAB() {
+        const A = this.tsAB.DYN, B = this.tsAB.FIXED, MIN = 12;
+        if (A.length < MIN || B.length < MIN) return;
+        const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+        const dynM = mean(A.slice(-40)), fixM = mean(B.slice(-40));
+        const worse = dynM < fixM - 0.0003;   // 0.03% marge
+        if (worse && !this.dynTimeStopDisabled) {
+            this.dynTimeStopDisabled = true;
+            try { localStorage.setItem('osirisDeepNetDynOff', 'true'); } catch (e) {}
+            try { logAdaptation('Dynamische time-stop UITgezet', `A/B toont dyn (${(dynM * 100).toFixed(2)}%) onder vast (${(fixM * 100).toFixed(2)}%) over ${A.length}/${B.length} exits - Osiris valt autonoom terug op de vaste time-stop en blijft 15% verkennen`); } catch (e) {}
+        } else if (!worse && this.dynTimeStopDisabled) {
+            this.dynTimeStopDisabled = false;
+            try { localStorage.setItem('osirisDeepNetDynOff', 'false'); } catch (e) {}
+            try { logAdaptation('Dynamische time-stop weer AAN', `A/B toont dyn (${(dynM * 100).toFixed(2)}%) nu gelijk/beter dan vast (${(fixM * 100).toFixed(2)}%) - Osiris hervat de dynamische stop`); } catch (e) {}
+        }
+    },
+    // ---------- achtergrond-service (draait altijd; niks aanzetten nodig) ----------
+    startService() {
+        if (this._serviceStarted) return;
+        this._serviceStarted = true;
+        try { this.trainAll(); } catch (e) {}
+        try { startDeepNetViz(); } catch (e) {}
+        if (this._svcTick) clearInterval(this._svcTick);
+        this._svcTick = setInterval(() => { try { this.tick(); } catch (e) {} }, 10000);
+        if (this._svcTrain) clearInterval(this._svcTrain);
+        this._svcTrain = setInterval(() => { try { this.trainAll(); } catch (e) {} }, this.RETRAIN_MS);
+    },
+    setLive(on) {
+        this.LIVE = !!on;
+        try { localStorage.setItem('osirisDeepNetLive', on ? 'true' : 'false'); } catch (e) {}
+        try { updateDeepNetPanel(); } catch (e) {}
+    }
+};
+OsirisDeepNet._restore();
+try { OsirisDeepNet.startService(); } catch (e) {}
+window.OsirisDeepNet = OsirisDeepNet;
+window.deepNetToggle = (on) => OsirisDeepNet.setLive(on);
+window.deepNetRetrain = () => OsirisDeepNet.trainAll();
+
+// ============================================================
+// DEEPNET-VISUAL — echte weergave van hoe Osiris' deepnet beslist
+// ============================================================
+// Tekent: input-features -> 3 sub-breinen (BTC/ETH/SOL, elk met gekalibreerde
+// kans) -> Osiris mainbrain (kiest de sterkste meta-goedgekeurde markt) -> output.
+// Leest live uit OsirisDeepNet.last, dus dit IS wat het net op dit moment doet.
+const _dnviz = { raf: null, pulse: 0, last: 0 };
+const _DN_COL = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
+
+function _deepnetDraw(now) {
+    _dnviz.raf = requestAnimationFrame(_deepnetDraw);
+    if (now - _dnviz.last < 40) return;
+    _dnviz.last = now;
+    const cv = document.getElementById('deepnet-canvas');
+    if (!cv) return;
+    const rect = cv.getBoundingClientRect();
+    if (rect.width < 20) return;
+    if (cv.width !== Math.round(rect.width * 2)) { cv.width = rect.width * 2; cv.height = rect.height * 2; }
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(2, 0, 0, 2, 0, 0);
+    const w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+    _dnviz.pulse = (_dnviz.pulse + 0.012) % 1;
+
+    const keys = ['BTC', 'ETH', 'SOL'];
+    const inX = w * 0.10, subX = w * 0.42, mainX = w * 0.72, outX = w * 0.92;
+    const rowY = k => h * 0.24 + h * 0.26 * k;
+
+    // mainbrain-keuze: sterkste markt met open meta-poort (anders: abstineren)
+    let choice = null, best = -1;
+    for (const key of keys) {
+        const p = OsirisDeepNet.last[key];
+        if (p && p.meta && p.conf > best) { best = p.conf; choice = p; }
+    }
+
+    // input-hint (features van de gekozen/eerste markt)
+    const anyP = choice || OsirisDeepNet.last.BTC || OsirisDeepNet.last.ETH || OsirisDeepNet.last.SOL;
+    const feats = anyP ? anyP.features : new Array(7).fill(0);
+    const fLabels = ['vfm', 'mom', 'er', 'fib', 'pat', 'svp', 'btc→'];
+    for (let i = 0; i < 7; i++) {
+        const y = h * 0.12 + (h * 0.76) * (i / 6);
+        const a = Math.min(1, Math.abs(feats[i] || 0));
+        ctx.beginPath(); ctx.arc(inX, y, 3, 0, 6.28);
+        ctx.fillStyle = `rgba(127,216,255,${0.25 + 0.6 * a})`; ctx.fill();
+        ctx.fillStyle = 'rgba(127,216,255,0.5)'; ctx.font = '7px JetBrains Mono';
+        ctx.textAlign = 'right'; ctx.fillText(fLabels[i], inX - 6, y + 2.5);
+    }
+
+    // sub-breinen
+    keys.forEach((key, k) => {
+        const p = OsirisDeepNet.last[key];
+        const y = rowY(k);
+        const cal = p ? p.calProb : 0.5;
+        const col = _DN_COL[key];
+        // input -> sub verbindingen (pulserend)
+        for (let i = 0; i < 7; i++) {
+            const iy = h * 0.12 + (h * 0.76) * (i / 6);
+            const ph = (_dnviz.pulse + i * 0.05) % 1;
+            ctx.beginPath(); ctx.moveTo(inX, iy); ctx.lineTo(subX, y);
+            ctx.strokeStyle = `rgba(120,160,190,${0.04 + 0.05 * (p ? p.conf : 0)})`; ctx.lineWidth = 0.6; ctx.stroke();
+            if (p) {
+                const px = inX + (subX - inX) * ph, py = iy + (y - iy) * ph;
+                ctx.beginPath(); ctx.arc(px, py, 1.1, 0, 6.28); ctx.fillStyle = `${col}55`; ctx.fill();
+            }
+        }
+        // sub-node
+        const r = 10 + 10 * (p ? p.conf : 0);
+        ctx.beginPath(); ctx.arc(subX, y, r, 0, 6.28);
+        ctx.fillStyle = _hexToRgba ? _hexToRgba(col, p && p.trade ? 0.9 : 0.4) : col;
+        ctx.fill();
+        ctx.strokeStyle = p && p.meta ? '#eaffff' : 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = p && p.meta ? 1.6 : 0.8; ctx.stroke();
+        ctx.fillStyle = '#04121c'; ctx.font = 'bold 8px JetBrains Mono'; ctx.textAlign = 'center';
+        ctx.fillText(key, subX, y - 1);
+        ctx.fillStyle = col; ctx.font = '7.5px JetBrains Mono';
+        ctx.fillText(`${(cal * 100).toFixed(0)}% ${p ? p.side : ''}`, subX, y + r + 9);
+        if (p && p.agree === false) { ctx.fillStyle = '#ff6b6b'; ctx.fillText('≠sub', subX + r + 12, y + 2); }
+        // sub -> mainbrain
+        const my = h * 0.5;
+        ctx.beginPath(); ctx.moveTo(subX + r, y); ctx.lineTo(mainX, my);
+        ctx.strokeStyle = (choice && choice.key === key) ? `${col}cc` : `${col}22`;
+        ctx.lineWidth = (choice && choice.key === key) ? 2.2 : 0.7; ctx.stroke();
+    });
+
+    // Osiris mainbrain
+    const my = h * 0.5;
+    ctx.beginPath(); ctx.arc(mainX, my, 16, 0, 6.28);
+    ctx.fillStyle = choice ? _hexToRgba(_DN_COL[choice.key], 0.85) : 'rgba(0,217,255,0.35)';
+    ctx.fill(); ctx.strokeStyle = '#00d9ff'; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.fillStyle = '#02131c'; ctx.font = 'bold 8px JetBrains Mono'; ctx.textAlign = 'center';
+    ctx.fillText('OSIRIS', mainX, my + 2.5);
+
+    // output
+    ctx.beginPath(); ctx.moveTo(mainX + 16, my); ctx.lineTo(outX, my); ctx.strokeStyle = 'rgba(234,255,255,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#eaffff'; ctx.font = 'bold 9px JetBrains Mono'; ctx.textAlign = 'center';
+    if (choice) ctx.fillText(`${choice.key} ${choice.side}`, outX, my - 6);
+    else { ctx.fillStyle = '#7d99ac'; ctx.fillText('abstineert', outX, my - 6); }
+    ctx.fillStyle = choice ? _DN_COL[choice.key] : '#7d99ac'; ctx.font = '8px JetBrains Mono';
+    if (choice) ctx.fillText(`${(choice.calProb * 100).toFixed(0)}%`, outX, my + 8);
+}
+
+function startDeepNetViz() {
+    if (!_dnviz.raf) _dnviz.raf = requestAnimationFrame(_deepnetDraw);
+}
+window.startDeepNetViz = startDeepNetViz;
+
+// tekstueel statuspaneel (per-markt walk-forward + live-status)
+function updateDeepNetPanel() {
+    const el = document.getElementById('deepnet-status');
+    if (!el) return;
+    const dn = OsirisDeepNet, live = dn.LIVE;
+    const badge = `<span style="display:inline-block; padding:2px 8px; border-radius:4px; font-weight:700; font-size:0.92em; background:${live ? 'rgba(20,241,149,0.15)' : 'rgba(255,182,39,0.15)'}; color:${live ? '#14f195' : '#ffb627'}; border:1px solid ${live ? 'rgba(20,241,149,0.4)' : 'rgba(255,182,39,0.4)'};">${live ? 'LIVE' : 'ADVIES'}</span>`;
+    let cards = '';
+    for (const key of ['BTC', 'ETH', 'SOL']) {
+        const m = dn.markets[key], p = dn.last[key], col = _DN_COL[key];
+        const wf = m && m.wf, prec = wf ? wf.precision : 0;
+        const precCol = prec >= 0.58 ? '#14f195' : (prec >= 0.52 ? '#ffb627' : '#ff6b6b');
+        const cal = p ? p.calProb : null;
+        cards += `<div style="flex:1; min-width:118px; background:rgba(255,255,255,0.02); border:1px solid ${col}44; border-radius:6px; padding:7px 9px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;"><span style="color:${col}; font-weight:700; font-size:0.9em;">${key}</span>${p ? `<span style="color:${p.meta ? '#eaffff' : '#7d99ac'}; font-size:0.85em;">${(cal * 100).toFixed(0)}% ${p.meta ? p.side + '\u2713' : (p.trade ? p.side : '\u2014')}</span>` : '<span style="color:#5c7488;">\u2014</span>'}</div>
+            <div style="margin-top:5px; font-size:0.8em; color:#7d99ac;">walk-forward precisie</div>
+            <div style="height:5px; background:rgba(255,255,255,0.07); border-radius:3px; margin-top:2px; overflow:hidden;"><div style="height:100%; width:${(prec * 100).toFixed(0)}%; background:${precCol};"></div></div>
+            <div style="font-size:0.75em; color:${precCol}; margin-top:2px;">${wf ? `${(prec * 100).toFixed(0)}% \u00b7 acc ${(wf.acc * 100).toFixed(0)}% \u00b7 n=${wf.n}` : 'nog niet getraind'}</div>
+        </div>`;
+    }
+    const ab = dn.tsAB || { DYN: [], FIXED: [] };
+    const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+    const dynM = mean(ab.DYN), fixM = mean(ab.FIXED);
+    let abTxt;
+    if (dynM != null && fixM != null) {
+        const better = dynM >= fixM;
+        abTxt = `<div style="margin-top:7px; font-size:0.8em; color:#9fb3c8;">Time-stop A/B: <span style="color:${better ? '#14f195' : '#ff6b6b'};">dyn ${(dynM * 100).toFixed(2)}%</span> vs vast ${(fixM * 100).toFixed(2)}% (n=${ab.DYN.length}/${ab.FIXED.length}) \u2014 ${dn.dynTimeStopDisabled ? '<span style="color:#ffb627;">dyn autonoom uit, 15% verkenning</span>' : '<span style="color:#14f195;">dyn actief</span>'}</div>`;
+    } else {
+        abTxt = `<div style="margin-top:7px; font-size:0.78em; color:#5c7488;">Time-stop A/B verzamelt data (${ab.DYN.length}/${ab.FIXED.length} exits)\u2026</div>`;
+    }
+    const cb = document.getElementById('deepnet-live-toggle');
+    if (cb) cb.checked = live;
+    el.innerHTML = `<div style="margin-bottom:6px;">${badge} <span style="color:#7d99ac; font-size:0.85em;">${live ? 'stuurt de dynamische time-stop' : 'alleen advies, raakt geen trades'}</span></div><div style="display:flex; gap:6px; flex-wrap:wrap;">${cards}</div>${abTxt}`;
+}
+function deepNetLearningHtml() {
+    const dn = OsirisDeepNet;
+    let inner = '';
+    for (const key of ['BTC', 'ETH', 'SOL']) {
+        const m = dn.markets[key], p = dn.last[key], wf = m && m.wf, col = _DN_COL[key];
+        const prec = wf ? (wf.precision * 100).toFixed(0) + '%' : '\u2014';
+        inner += `<span style="color:${col}; font-weight:700;">${key}</span> wf-prec ${prec}${p ? ` \u00b7 nu ${(p.calProb * 100).toFixed(0)}% ${p.meta ? p.side : '(abst)'}` : ''}&nbsp;&nbsp;`;
+    }
+    const ab = dn.tsAB || { DYN: [], FIXED: [] };
+    const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+    const dynM = mean(ab.DYN), fixM = mean(ab.FIXED);
+    const abLine = (dynM != null && fixM != null)
+        ? `Time-stop A/B: dyn ${(dynM * 100).toFixed(2)}% vs vast ${(fixM * 100).toFixed(2)}% \u2192 ${dn.dynTimeStopDisabled ? 'dyn autonoom uitgezet' : 'dyn actief'}`
+        : `Time-stop A/B verzamelt data (${ab.DYN.length}/${ab.FIXED.length})`;
+    return `<div style="margin:2px 0 14px; padding:10px 12px; background:rgba(0,217,255,0.04); border:1px solid rgba(0,217,255,0.25); border-radius:6px;">
+        <div style="font-size:0.72em; color:#00d9ff; font-weight:700; margin-bottom:5px;">\u25c9 OSIRIS DEEPNET \u2014 voorspellend leren (${dn.LIVE ? 'live' : 'advies'})</div>
+        <div style="font-size:0.74em; color:#9fb3c8; line-height:1.7;">${inner}</div>
+        <div style="font-size:0.7em; color:#7d99ac; margin-top:5px;">${abLine}</div>
+        <div style="font-size:0.62em; color:#5c7488; margin-top:4px;">Bar-level forward-return per markt \u00b7 Platt-gekalibreerd \u00b7 abstentie \u2265${(dn.ABSTAIN_MARGIN * 100) | 0}% \u00b7 meta-gate wf-prec \u2265${(dn.META_MIN_PRECISION * 100) | 0}%. Osiris meet autonoom of de dynamische time-stop beter is dan de oude vaste, en zet 'm anders zelf terug.</div>
+    </div>`;
+}
+window.deepNetLearningHtml = deepNetLearningHtml;
+window.updateDeepNetPanel = updateDeepNetPanel;
