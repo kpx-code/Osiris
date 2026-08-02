@@ -866,6 +866,17 @@ section { position:relative; z-index:2; }
                 </div>
               </div>
             </div>
+            <div class="neo-quad" style="height:auto; min-height:150px; margin-top:10px; padding:10px 12px; display:block;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
+                <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">OSIRIS &middot; DEEPNET &mdash; per-markt voorspelling</span>
+                <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#eaffff; cursor:pointer; display:flex; gap:5px; align-items:center;">
+                  <input type="checkbox" id="deepnet-live-toggle" onchange="deepNetToggle(this.checked)"> live (stuurt exits)
+                </label>
+              </div>
+              <canvas id="deepnet-canvas" style="width:100%; height:130px; display:block;"></canvas>
+              <div id="deepnet-status" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7d99ac; margin-top:6px;">DeepNet initialiseert...</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#5c7488; margin-top:4px;">Shadow: voorspelt en visualiseert, raakt geen live trades tot 'live' aan staat. Zet pas live na het bekijken van de walk-forward-precisie (wf-prec) per markt.</div>
+            </div>
             <div class="hub-statusbar" style="margin-top:10px;">
               <div class="eye-foot">
                 <span class="live-dot" style="flex:none;"></span>
