@@ -10023,7 +10023,8 @@ function buildNeoNet() {
     // laag 2 = de DRIE sub-breinen (Neo BTC / ETH / SOL) - elk een knoop die zijn munt weegt
     // laag 3 = Osiris mainbrain-integratie (vergelijkt de sub-breinen)
     // laag 4 = output: LONG / NEUTRAAL / SHORT + equity-keuze
-    const layerSizes = [NEONET_INPUTS.length, 9, 3, 4, 3];
+    // laag 5 = HET ENE EINDPUNT (alle 3 outputs convergeren tot 1 beslissing)
+    const layerSizes = [NEONET_INPUTS.length, 14, 3, 4, 3, 1];
     const layers = layerSizes.map((n, li) => {
         const nodes = [];
         for (let i = 0; i < n; i++) nodes.push({ li, i, act: 0, tw: Math.random() * 6.28 });
@@ -10039,7 +10040,7 @@ function buildNeoNet() {
     }
     _neonet.layers = layers; _neonet.conns = conns; _neonet.built = true;
     // labels voor de betekenisvolle lagen
-    _neonet.layerLabels = ['INPUTS', 'INTEGRATIE', 'SUB-BREINEN', 'OSIRIS', 'BESLISSING'];
+    _neonet.layerLabels = ['INPUTS', 'INTEGRATIE', 'SUB-BREINEN', 'OSIRIS', 'BESLISSING', 'UITKOMST'];
     _neonet.subBrainLabels = ['BTC', 'ETH', 'SOL'];
     _neonet.outputLabels = ['LONG', 'NEUTRAAL', 'SHORT'];
 }
@@ -10105,7 +10106,8 @@ function _neoNetDraw(now, canvasId, outId) {
     _neonet._outId = outId;
 
     const layers = _neonet.layers, conns = _neonet.conns;
-    const padX = w * 0.13, padTop = h * 0.20, padBot = h * 0.12, padY = padTop;
+    const _isBigNet = (canvasId === 'neo-net-canvas-big');
+    const padX = w * 0.13, padTop = h * 0.20, padBot = _isBigNet ? h * 0.24 : h * 0.12, padY = padTop;
     const colW = (w - padX * 2) / (layers.length - 1);
     // posities per node
     const pos = layers.map((nodes, li) => nodes.map((nd, i) => {
@@ -10163,6 +10165,7 @@ function _neoNetDraw(now, canvasId, outId) {
     layers[4][0].act = Math.max(0, decisionBias);       // LONG
     layers[4][1].act = 1 - Math.abs(decisionBias);      // NEUTRAAL
     layers[4][2].act = Math.max(0, -decisionBias);      // SHORT
+    if (layers[5] && layers[5][0]) layers[5][0].act = Math.max(Math.abs(decisionBias), 0.2); // het ene eindpunt
 
     // ---- verbindingen: swingen + oplichten waar de compute-golf is ----
     // Elke verbinding krijgt een duidelijke grondlaag (altijd zichtbaar, zodat de hele
@@ -10215,17 +10218,20 @@ function _neoNetDraw(now, canvasId, outId) {
             const p = pos[li][i], nd = layers[li][i];
             const near = Math.exp(-Math.pow((wavePos - li) / 0.6, 2));
             const glow = nd.act * (0.5 + 0.5 * near);
-            const r = 5 + nd.act * 4 + near * 2;
+            const r = (li === layers.length - 1 ? 12 : 5) + nd.act * 4 + near * 2;
             // input-knopen krijgen hun eigen signaalkleur (rijker beeld)
             let baseCol = 'rgba(130,200,255,GLOW)';
             if (li === 0) { const c = NEONET_INPUTS[i].c; baseCol = _hexToRgba(c, '__A__'); }
             // ring
             ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283);
+            const _endLi = layers.length - 1, _outLi = layers.length - 2;
             if (li === 0) ctx.fillStyle = baseCol.replace('__A__', (0.15 + 0.6 * glow).toFixed(3));
-            else if (li === layers.length - 1) ctx.fillStyle = outCols[i];
+            else if (li === _endLi) ctx.fillStyle = `rgba(0,217,255,${(0.45 + 0.55 * nd.act).toFixed(3)})`;  // het ene eindpunt
+            else if (li === _outLi && layers[li].length === 3) ctx.fillStyle = outCols[i];
             else ctx.fillStyle = `rgba(130,200,255,${0.12 + 0.6 * glow})`;
-            if (li === layers.length - 1) ctx.globalAlpha = 0.3 + 0.7 * nd.act;
+            if (li === _outLi && layers[li].length === 3) ctx.globalAlpha = 0.3 + 0.7 * nd.act;
             ctx.fill(); ctx.globalAlpha = 1;
+            if (li === _endLi) { ctx.save(); ctx.shadowColor = 'rgba(0,217,255,0.9)'; ctx.shadowBlur = 12 + 14 * nd.act; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.strokeStyle = 'rgba(0,217,255,0.8)'; ctx.lineWidth = 1.6; ctx.stroke(); ctx.restore(); }
             ctx.lineWidth = 1; ctx.strokeStyle = `rgba(200,235,255,${0.2 + 0.6 * glow})`; ctx.stroke();
             // kern-flits op de golf
             if (near > 0.3) { ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.4, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${near * glow})`; ctx.fill(); }
@@ -10244,7 +10250,7 @@ function _neoNetDraw(now, canvasId, outId) {
     const lnames = (_neonet.layerLabels) || ['INPUTS', 'INTEGRATIE', 'SUB-BREINEN', 'OSIRIS', 'BESLISSING'];
     for (let li = 0; li < layers.length; li++) {
         ctx.fillStyle = 'rgba(92,116,136,0.85)';
-        ctx.fillText(lnames[li], pos[li][0].x, h - padBot * 0.45);
+        ctx.fillText(lnames[li], pos[li][0].x, _isBigNet ? h * 0.775 : (h - padBot * 0.45));
     }
     // input-labels links van de eerste kolom
     ctx.textAlign = 'right'; ctx.font = "7px 'JetBrains Mono', monospace";
@@ -11282,7 +11288,7 @@ function _deepnetOverlayBig() {
     ctx.setTransform(2, 0, 0, 2, 0, 0);
     const w = rect.width, h = rect.height;
     const bandY = h * 0.80;
-    ctx.fillStyle = 'rgba(0,10,18,0.60)';
+    ctx.fillStyle = 'rgba(4,8,14,0.96)';
     ctx.fillRect(0, bandY, w, h - bandY);
     ctx.strokeStyle = 'rgba(0,217,255,0.25)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, bandY); ctx.lineTo(w, bandY); ctx.stroke();
@@ -11298,21 +11304,30 @@ function _deepnetOverlayBig() {
         const label = `${key} ${cal != null ? (cal * 100).toFixed(0) + '%' : '--'} ${p ? (p.meta ? p.side + '\u2713' : (p.trade ? p.side : 'abst')) : ''}`;
         ctx.font = 'bold 9px JetBrains Mono';
         const tw = ctx.measureText(label).width + 14;
-        ctx.fillStyle = (p && p.meta) ? _hexToRgba(col, 0.22) : 'rgba(255,255,255,0.04)';
+        ctx.fillStyle = (p && p.meta) ? _hexToRgba(col, 0.22) : _hexToRgba(col, 0.08);
         ctx.fillRect(x0, cy - 9, tw, 18);
-        ctx.strokeStyle = (p && p.meta) ? col : 'rgba(255,255,255,0.15)';
-        ctx.lineWidth = (p && p.meta) ? 1.4 : 0.7;
+        ctx.strokeStyle = (p && p.meta) ? col : _hexToRgba(col, 0.55);
+        ctx.lineWidth = (p && p.meta) ? 1.5 : 1.0;
         ctx.strokeRect(x0, cy - 9, tw, 18);
         ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.fillText(label, x0 + 7, cy + 3);
         x0 += tw + 8;
         if (p && p.meta && p.conf > best) { best = p.conf; choice = p; }
     }
+    // sterkste neiging bepalen (voor de wacht-stand als de meta-poort nog dicht is)
+    let lean = null, lb = -1;
+    for (const key of keys) { const p = OsirisDeepNet.last[key]; if (p && p.conf > lb) { lb = p.conf; lean = p; } }
     ctx.textAlign = 'right'; ctx.font = 'bold 10px JetBrains Mono';
-    if (choice) { ctx.fillStyle = _DN_COL[choice.key]; ctx.fillText(`OSIRIS \u2192 ${choice.key} ${choice.side} ${(choice.calProb * 100).toFixed(0)}%`, w - 12, cy + 3); }
-    else { ctx.fillStyle = '#7d99ac'; ctx.fillText('OSIRIS \u2192 abstineert', w - 12, cy + 3); }
+    if (choice) {
+        ctx.fillStyle = _DN_COL[choice.key];
+        ctx.fillText(`OSIRIS \u2192 ${choice.key} ${choice.side} ${(choice.calProb * 100).toFixed(0)}%`, w - 12, cy + 3);
+    } else if (lean) {
+        ctx.fillStyle = _hexToRgba(_DN_COL[lean.key], 0.9);
+        ctx.fillText(`OSIRIS \u2192 wacht \u00b7 ${lean.key} ${lean.side} ${(lean.calProb * 100).toFixed(0)}%`, w - 12, cy + 3);
+    } else { ctx.fillStyle = '#7d99ac'; ctx.fillText('OSIRIS \u2192 wacht', w - 12, cy + 3); }
     ctx.textAlign = 'left';
     const outEl = document.getElementById('neo-net-out-big');
-    if (outEl) outEl.textContent = choice ? `${choice.key} ${choice.side} ${(choice.calProb * 100).toFixed(0)}%` : 'abstineert';
+    if (outEl) outEl.textContent = choice ? `${choice.key} ${choice.side} ${(choice.calProb * 100).toFixed(0)}%`
+        : (lean ? `wacht \u00b7 ${lean.key} ${lean.side} ${(lean.calProb * 100).toFixed(0)}%` : 'wacht');
 }
 window._deepnetOverlayBig = _deepnetOverlayBig;
 
