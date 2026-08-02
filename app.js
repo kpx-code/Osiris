@@ -1537,6 +1537,16 @@ function initializeOnReady() {
     if (isBotRunning) {
         startAutonomousBot(true); // true = herstart
     }
+    // Multi-markt trading-schakelaar herstellen (was vluchtig en resette bij elke
+    // reload/afsluiten). osirisShadowTick heeft de draaiende multi-engine nodig,
+    // die start hierboven mee met de bot-herstart.
+    try {
+        if (localStorage.getItem('osirisLiveEnabled') === 'true') {
+            const cb = document.getElementById('osiris-shadow-toggle');
+            if (cb) cb.checked = true;
+            toggleOsirisShadow(true);
+        }
+    } catch (e) {}
 }
 
 if (document.readyState === 'loading') {
@@ -2117,13 +2127,31 @@ window.priceForPosition = priceForPosition;
 // leid het af uit de notional t.o.v. de huidige equity. Zo toont een positie nooit
 // 0% terwijl er wel een omvang is (ook voor oudere posities zonder opgeslagen alloc).
 function positionAllocPct(p) {
-    if (p.osirisAllocPct != null && p.osirisAllocPct > 0) return p.osirisAllocPct * 100;
+    // ECHTE fractie van de gedeelde wallet - consistent met getAllocatedPct().
+    // osirisAllocPct (Osiris' conviction) is een ANDER concept en wordt apart getoond.
     if (p.sizePct != null && p.sizePct > 0) return p.sizePct * 100;
     const eq = (typeof getEquity === 'function') ? getEquity() : (walletState.balance || 1000);
     if (eq > 0 && p.notional) return Math.min(100, p.notional / eq * 100);
+    if (p.osirisAllocPct != null && p.osirisAllocPct > 0) return p.osirisAllocPct * 100; // laatste fallback
     return 0;
 }
 window.positionAllocPct = positionAllocPct;
+
+// TYPE-LABELS: elke positie/trade heeft twee facetten die de breinen kunnen
+// gebruiken om per herkomst en per strategie te leren:
+//   herkomst  = BOT (hoofd-engine) / OSIRIS (multi-markt ETH/SOL) / MANUAL
+//   strategie = TREND / SCALP / ICT
+// Werkt zowel op een open-positie-object als op een gesloten-trade-entry (zelfde flags).
+function typeFacetsFromFlags(f) {
+    const origin = f.isManual ? { l: 'MANUAL', c: '#ffb627' }
+                 : f.isOsiris ? { l: 'OSIRIS', c: '#00d9ff' }
+                 : { l: 'BOT', c: '#4287f5' };
+    const strat  = f.isIct   ? { l: 'ICT',   c: '#ff8fab' }
+                 : f.isScalp ? { l: 'SCALP', c: '#c678dd' }
+                 : { l: 'TREND', c: '#4287f5' };
+    return { origin, strat };
+}
+window.typeFacetsFromFlags = typeFacetsFromFlags;
 
 
 function getUnrealizedPnL() {
@@ -2413,18 +2441,19 @@ function updateWalletUI() {
                     mkt = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === p.symbol) || p.symbol.replace('USDT','');
                 }
                 const mktColor = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' }[mkt] || '#8b95a5';
-                const typeLabel = p.isManual ? 'MANUAL' : (p.isOsiris ? 'OSIRIS' : (p.isScalp ? 'SCALP' : 'TREND'));
-                const typeColor = p.isManual ? '#ffb627' : (p.isOsiris ? '#00d9ff' : (p.isScalp ? '#c678dd' : '#4287f5'));
-                // alloc %: robuust berekend (opgeslagen waarde of afgeleid uit notional/equity)
+                const ft = typeFacetsFromFlags(p);
+                // alloc %: ECHTE wallet-fractie; voor Osiris tonen we de conviction erbij
                 const allocPct = positionAllocPct(p);
+                const convTxt = (p.isOsiris && p.osirisAllocPct != null)
+                    ? ` <span style="color:var(--text-dimmer);">(conv ${(p.osirisAllocPct * 100).toFixed(0)}%)</span>` : '';
                 return `<tr>
-                    <td style="padding:4px; color:${typeColor}; font-weight:bold; font-size:0.8em;">${typeLabel}</td>
+                    <td style="padding:4px; font-size:0.72em; font-weight:bold; white-space:nowrap;"><span style="color:${ft.origin.c};">${ft.origin.l}</span> <span style="color:var(--text-dimmer);">&middot;</span> <span style="color:${ft.strat.c};">${ft.strat.l}</span></td>
                     <td style="color:${mktColor}; font-weight:bold; font-size:0.8em;">${mkt}</td>
                     <td style="color:${p.side === 'LONG' ? '#26a69a' : '#ef5350'}; font-weight:bold;">${p.side}</td>
                     <td>${formatChartPrice(p.entryPrice)}</td>
                     <td style="font-size:0.9em; color:#aaa;">${entryTijd}</td>
                     <td>${formatMoney(p.notional)}</td>
-                    <td>${allocPct.toFixed(1)}%</td>
+                    <td style="white-space:nowrap;">${allocPct.toFixed(1)}%${convTxt}</td>
                     <td style="color:${color};" title="netto na ${roundTripCostPct().toFixed(2)}% round-trip kosten (bruto ${(grossPct * 100).toFixed(2)}%)">${(pnlPct * 100).toFixed(2)}%</td>
                     <td style="color:${color};">${formatMoney(p.notional * pnlPct)}</td>
                     <td style="padding:2px 4px;"><button type="button" class="btn btn-ghost btn-mini" style="color:#ff5f7e; border-color:rgba(255,95,126,0.5); padding:2px 7px; font-size:0.7em;" onclick="closePositionManually('${p.id}')" title="Sluit deze positie nu">Sluit</button></td>
@@ -2518,15 +2547,14 @@ function updateHistoryUI(entry) {
     const body = document.getElementById('history-body');
     if (!body) return;
     const pnlColor = entry.pnl >= 0 ? '#00ffcc' : '#ef5350';
-    const typeLabel = entry.isScalp ? 'SCALP' : 'TREND';
-    const typeColor = entry.isScalp ? '#c678dd' : '#4287f5';
+    const ft = typeFacetsFromFlags(entry);
     const mkt = entry.market || 'BTC';
     const mktColor = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' }[mkt] || '#8b95a5';
     const row = document.createElement('tr');
     row.style.borderBottom = '1px solid #222';
     row.innerHTML = `
         <td style="padding:5px; color:#888;">${entry.timestamp}</td>
-        <td style="color:${typeColor}; font-weight:bold; font-size:0.85em;">${typeLabel}</td>
+        <td style="font-weight:bold; font-size:0.85em; white-space:nowrap;"><span style="color:${ft.origin.c};">${ft.origin.l}</span> <span style="color:#666;">&middot;</span> <span style="color:${ft.strat.c};">${ft.strat.l}</span></td>
         <td style="color:${mktColor}; font-weight:bold; font-size:0.85em;">${mkt}</td>
         <td style="color:${entry.side === 'LONG' ? '#26a69a' : '#ef5350'};">${entry.side || '-'}</td>
         <td>${typeof entry.price === 'number' ? formatChartPrice(entry.price) : entry.price}</td>
@@ -2551,7 +2579,7 @@ function formatFullDateTime(ts = Date.now()) {
     return `${date} ${time}`;
 }
 
-function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0, notionalEUR = 0, isScalp = false, market = 'BTC') {
+function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnlAmount = 0, notionalEUR = 0, isScalp = false, market = 'BTC', isOsiris = false, isManual = false, isIct = false) {
     const timestamp = formatFullDateTime();
     const priceNum = typeof price === 'number' ? price : parseFloat(price);
     // Fallback voor het (zeldzame) geval dat notional niet is meegegeven:
@@ -2576,6 +2604,7 @@ function logBotAction(action, price, side, pnl = 0, amount = 0, reason = '', pnl
         reason,
         equity: getEquity(),
         isScalp,
+        isOsiris, isManual, isIct,
         market: market || 'BTC'
     };
     botTradeLog.push(entry);
@@ -4262,6 +4291,8 @@ function finalizeClosePosition(pos, pnlPct, reason) {
             configVersion: currentConfigVersion(),
             entryHourUTC: pos.openTime ? new Date(pos.openTime).getUTCHours() : new Date().getUTCHours(),
             isIct: pos.isIct === true,
+            isOsiris: pos.isOsiris === true,   // herkomst-label voor per-brein/per-type leren
+            isScalp: pos.isScalp === true,
             // 31-07: regime waarin deze trade werd geopend, zodat de regime-bewuste
             // laag per regime apart kan leren welke factoren daar werken.
             regime: pos.regimeAtEntry || _lastActiveRegime || 'RANGE'
@@ -4288,7 +4319,7 @@ function finalizeClosePosition(pos, pnlPct, reason) {
     if (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') {
         posMarket = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || 'BTC';
     }
-    logBotAction("EXIT", exitPrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional, pos.isScalp || false, posMarket);
+    logBotAction("EXIT", exitPrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional, pos.isScalp || false, posMarket, pos.isOsiris === true, pos.isManual === true, pos.isIct === true);
     savePersistentState();
     updateWalletUI();
     updatePositionLines();
@@ -5459,7 +5490,7 @@ function l2Train(samples, epochs = 220, lr = 0.12) {
         b -= lr * gb / samples.length;
     }
     _l2 = { weights: w, bias: b, mean, std, trained: true, trainedOn: samples.length, lastTrainMs: Date.now(), lastActivation: null };
-    try { localStorage.setItem('osirisL2', JSON.stringify({ weights: w, bias: b, mean, std, trainedOn: samples.length })); } catch (e) {}
+    try { localStorage.setItem('osirisL2', JSON.stringify({ weights: w, bias: b, mean, std, trainedOn: samples.length, lastTrainMs: _l2.lastTrainMs })); } catch (e) {}
     return true;
 }
 
@@ -5620,7 +5651,7 @@ function l3Train(samples, opts) {
     for (const s of val) { const { p } = _l3Forward(s.x, net()); if ((p >= 0.5 ? 1 : 0) === s.y) correct++; }
     const valAcc = val.length ? correct / val.length : null;
     _l3 = { W1, b1, W2, b2, mean, std, trained: true, trainedOn: samples.length, valAcc, lastTrainMs: Date.now(), H };
-    try { localStorage.setItem('osirisL3', JSON.stringify({ W1, b1, W2, b2, mean, std, trainedOn: samples.length, valAcc, H })); } catch (e) {}
+    try { localStorage.setItem('osirisL3', JSON.stringify({ W1, b1, W2, b2, mean, std, trainedOn: samples.length, valAcc, lastTrainMs: _l3.lastTrainMs, H })); } catch (e) {}
     return true;
 }
 
@@ -7171,6 +7202,7 @@ let _osirisLastEntry = {};         // cooldown per munt (voorkomt over-trading)
 function toggleOsirisShadow(on) {
     // (schakelaar bestuurt nu de LIVE multi-markt trading; naam behouden voor de UI-binding)
     osirisLiveEnabled = !!on;
+    try { localStorage.setItem('osirisLiveEnabled', on ? 'true' : 'false'); } catch (e) {}
     try { logAdaptation(`Osiris multi-markt trading ${on ? 'AAN' : 'UIT'}`, on ? 'Osiris handelt nu ETH/SOL op de testnet met de gedeelde wallet volgens zijn equity-verdeling' : 'multi-markt trading gepauzeerd - alleen BTC handelt'); } catch (e) {}
     renderOsirisShadowPanel();
 }
@@ -10387,6 +10419,7 @@ function updateL2UI() {
     if (!_l2) return;
     if (st) {
         let base = _l2.trained ? `getraind · ${_l2.trainedOn} samples` : 'nog niet getraind';
+        if (_l2.trained && _l2.lastTrainMs) base += ` · bijgewerkt ${formatFullDateTime(_l2.lastTrainMs)}`;
         if (_l3 && _l3.trained) {
             const acc = _l3.valAcc != null ? (_l3.valAcc * 100).toFixed(0) + '%' : '—';
             const actief = (_l3.valAcc != null && _l3.valAcc > 0.52);
@@ -10454,6 +10487,7 @@ function renderL3Panel() {
                 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px;">
                     <div><span style="color:var(--text-dim);">Validatie-accuraatheid</span><br><b style="color:${accColor}; font-size:1.1em;">${acc}</b></div>
                     <div><span style="color:var(--text-dim);">Getraind op</span><br><b>${_l3.trainedOn} samples</b></div>
+                    <div><span style="color:var(--text-dim);">Laatst getraind</span><br><b>${_l3.lastTrainMs ? formatFullDateTime(_l3.lastTrainMs) : '—'}</b></div>
                     <div><span style="color:var(--text-dim);">Status</span><br><b style="color:${actief?'var(--teal)':'#ff4f6d'};">${actief ? 'meebeslissend (15%)' : 'inactief (<52%)'}</b></div>
                 </div>
                 <div style="margin-top:8px; color:var(--text-dimmer); font-size:0.92em; line-height:1.5;">Dit net leert NIET-LINEAIRE combinaties van de signalen (bv. "hoge VFM alleen bij lage chaos"). Het weegt pas mee als de validatie-accuraatheid boven 52% ligt — een overfitting-rem. De accuraatheid is gemeten op data die het net tijdens de training NIET zag.</div>`;
