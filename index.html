@@ -642,6 +642,7 @@ section { position:relative; z-index:2; }
                 <button class="coin-tab" data-coin="SOL" onclick="switchCoin('SOL')">SOL</button>
                 <span id="coin-tab-status" style="margin-left:auto; align-self:center; font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--text-dim);"></span>
             </div>
+            <div id="multi-engine-status" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--text-dim); margin-bottom:8px;"><span style="color:#ff4f6d;">&#9679;</span> multi-markt engine uit</div>
 
             <div style="display:flex; gap:12px; align-items:stretch;">
               <div id="chart-container" style="flex:1;"></div>
@@ -852,8 +853,8 @@ section { position:relative; z-index:2; }
               <div style="display:flex; flex-direction:column; gap:10px;">
                 <div id="neo-panel" class="neo-quad">
                   <canvas id="neo-canvas"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">NEO &middot; QUANTUM CORE</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">energie-kern &middot; live activiteit</div>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">OSIRIS &middot; CORE</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">leerhi&euml;rarchie L1&middot;L2&middot;L3 &rarr; mainbrain</div>
                   <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8; z-index:2;"><span id="neo-samples">0</span> samples</div>
                   <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff; z-index:2;">kans <span id="neo-prob">&mdash;</span></div>
                 </div>
@@ -945,7 +946,7 @@ section { position:relative; z-index:2; }
                   </div>
                 </div>
             </div>
-        <div class="subhead">Adaptive Learning &middot; Levels &middot; Data</div>
+        <div class="subhead">Adaptive Learning Levels &middot; data</div>
                 <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
                     <span>&#9679; Adaptive Learning · Level 1</span>
                     <span id="learning-chevron">&#9662;</span>
