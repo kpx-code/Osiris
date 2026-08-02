@@ -900,8 +900,8 @@ section { position:relative; z-index:2; }
             <div class="mono" id="exit-dist" style="font-size:0.62rem; color:#7d99ac;">Nog geen gesloten trades.</div>
           </div>
           <div>
-            <div class="mock-title" style="margin-bottom:8px;">Posities &middot; samenvatting</div>
-            <div class="mono" id="hub-positions" style="font-size:0.62rem; color:#7d99ac;">Geen open posities.</div>
+            <div class="mock-title" style="margin-bottom:8px;">&#9673; Osiris &middot; equity-verdeling</div>
+            <div id="osiris-panel"><span style="color:var(--text-dim); font-size:0.62rem;">Osiris verzamelt data van de sub-breinen...</span></div>
           </div>
         </div>
         <div class="subhead">Open Posities</div>
@@ -1034,8 +1034,7 @@ section { position:relative; z-index:2; }
                 <div class="config-inner">
         <div class="subhead" style="margin-top:32px;">&#9673; Osiris Mainbrain &middot; multi-markt regie</div>
             <div style="background:rgba(0,217,255,0.04); border:1px solid rgba(0,217,255,0.25); border-radius:6px; padding:10px 12px; margin-bottom:12px;">
-                <div style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.1em; color:var(--teal,#00d9ff); margin-bottom:8px;">&#9673; OSIRIS &middot; MAINBRAIN &mdash; equity-verdeling over de markten</div>
-                <div id="osiris-panel"><span style="color:var(--text-dim); font-size:0.62rem;">Osiris verzamelt data van de sub-breinen...</span></div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.1em; color:var(--teal,#00d9ff); margin-bottom:8px;">&#9673; OSIRIS &middot; MAINBRAIN &mdash; backup &amp; multi-markt regie</div>
                 <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; padding-top:10px; border-top:1px solid rgba(0,217,255,0.15);">
                     <button onclick="osirisFullBackup()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; padding:5px 10px; background:rgba(0,217,255,0.1); color:var(--teal,#00d9ff); border:1px solid rgba(0,217,255,0.35); border-radius:5px; cursor:pointer;">&#8681; Backup alle 4 breinen</button>
                     <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; padding:5px 10px; background:rgba(20,241,149,0.08); color:#14f195; border:1px solid rgba(20,241,149,0.3); border-radius:5px; cursor:pointer;">&#8679; Herstel backup
