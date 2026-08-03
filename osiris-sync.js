@@ -54,19 +54,21 @@ window.osirisSyncInit = osirisSyncInit;
 
 async function osirisSignIn(email, pw) {
     if (!_sb) return;
+    if (!email || !pw) { _osirisSyncMsg('Vul e-mail en wachtwoord in.'); return; }
+    _osirisSyncMsg('inloggen\u2026', true); _osirisSyncDot('busy');
     const { error } = await _sb.auth.signInWithPassword({ email, password: pw });
     if (error) {
-        // bestaat nog niet? probeer registreren (solo-project: mail-bevestiging kun je in Supabase uitzetten)
         const s = await _sb.auth.signUp({ email, password: pw });
-        if (s.error) alert('Login/registratie mislukt: ' + error.message);
-        else alert('Account aangemaakt. Als e-mailbevestiging aan staat: check je inbox en log daarna in.');
-    }
+        if (s.error) { _osirisSyncMsg('Mislukt: ' + error.message); _osirisSyncDot('err'); }
+        else _osirisSyncMsg('Account aangemaakt. Staat e-mailbevestiging aan? Check je inbox en log daarna in.', true);
+    } else { _osirisSyncMsg(''); }
 }
 async function osirisSignOut() { if (_sb) await _sb.auth.signOut(); }
 
 /* ---- PUSH: spiegel de staat + nieuwe trades naar de cloud, lees de afstandsbediening ---- */
 async function osirisSyncPush() {
     if (!_sb || !_sbUser) return;
+    _osirisSyncDot('busy');
     try {
         // 1) staat-sleutels upserten (mirror)
         const rows = [];
@@ -102,8 +104,8 @@ async function osirisSyncPush() {
         const { data: ctrl } = await _sb.from('osiris_control').select('desired_running').eq('user_id', _sbUser.id).maybeSingle();
         if (ctrl) _osirisApplyDesiredRunning(ctrl.desired_running);
 
-        _osirisSyncStamp('gesynct ' + new Date().toLocaleTimeString('nl-NL'));
-    } catch (e) { console.warn('[osiris-sync] push-fout', e); _osirisSyncStamp('sync-fout (zie console)'); }
+        _osirisSyncStamp('gesynct ' + new Date().toLocaleTimeString('nl-NL'), 'ok');
+    } catch (e) { console.warn('[osiris-sync] push-fout', e); _osirisSyncStamp('sync-fout (zie console)', 'err'); }
 }
 window.osirisSyncPush = osirisSyncPush;
 
@@ -143,32 +145,93 @@ async function osirisSetDesiredRunning(want) {
 }
 window.osirisSetDesiredRunning = osirisSetDesiredRunning;
 
-/* ---- minimale UI (klein zwevend paneel rechtsonder) ---- */
+/* ---- UI: net cloud-sync paneel (inklapbaar, statusdot, inline meldingen) ---- */
 function _osirisSyncBuildUI() {
     if (document.getElementById('osiris-sync-box')) return;
+    const style = document.createElement('style');
+    style.textContent = `
+      #osiris-sync-box{position:fixed;right:14px;bottom:14px;z-index:99999;width:238px;
+        background:linear-gradient(180deg,#071722,#040b12);border:1px solid rgba(0,217,255,0.35);
+        border-radius:11px;box-shadow:0 8px 28px rgba(0,0,0,0.55),inset 0 0 0 1px rgba(0,217,255,0.05);
+        font:11px/1.45 'JetBrains Mono',ui-monospace,monospace;color:#cfe3f0;overflow:hidden;transition:width .15s ease;}
+      #osiris-sync-box.min{width:158px;}
+      #osiris-sync-box .osb-hd{display:flex;align-items:center;gap:8px;padding:9px 11px;
+        background:rgba(0,217,255,0.06);border-bottom:1px solid rgba(0,217,255,0.15);cursor:pointer;user-select:none;}
+      #osiris-sync-box .osb-dot{width:8px;height:8px;border-radius:50%;background:#5c7488;color:#5c7488;flex:none;box-shadow:0 0 7px currentColor;transition:all .2s;}
+      #osiris-sync-box .osb-ttl{color:#7fd8ff;letter-spacing:1.6px;font-size:9.5px;flex:1;font-weight:700;}
+      #osiris-sync-box .osb-min{color:#5c7488;font-size:14px;line-height:1;padding:0 2px;}
+      #osiris-sync-box .osb-body{padding:10px 11px;}
+      #osiris-sync-box.min .osb-body{display:none;}
+      #osiris-sync-box input{width:100%;box-sizing:border-box;margin-bottom:7px;padding:7px 9px;
+        background:#020a11;border:1px solid rgba(120,160,190,0.3);border-radius:6px;color:#eaffff;font:inherit;outline:none;transition:border-color .12s;}
+      #osiris-sync-box input:focus{border-color:rgba(0,217,255,0.7);box-shadow:0 0 0 2px rgba(0,217,255,0.12);}
+      #osiris-sync-box button{cursor:pointer;padding:6px 9px;border-radius:6px;border:1px solid rgba(0,217,255,0.4);
+        background:rgba(0,217,255,0.08);color:#eaffff;font:inherit;transition:background .1s;}
+      #osiris-sync-box button:hover{background:rgba(0,217,255,0.18);}
+      #osiris-sync-box .osb-primary{width:100%;background:rgba(20,241,149,0.14);border-color:rgba(20,241,149,0.5);color:#b6ffe0;font-weight:700;letter-spacing:.5px;}
+      #osiris-sync-box .osb-primary:hover{background:rgba(20,241,149,0.24);}
+      #osiris-sync-box .osb-row{display:flex;gap:5px;margin-top:8px;}
+      #osiris-sync-box .osb-row button{flex:1;font-size:10px;}
+      #osiris-sync-box .osb-user{color:#14f195;font-size:11px;word-break:break-all;}
+      #osiris-sync-box .osb-stamp{color:#5c7488;font-size:9.5px;margin-top:8px;display:flex;align-items:center;gap:5px;}
+      #osiris-sync-box .osb-msg{font-size:9.5px;margin-top:6px;min-height:12px;color:#ff8a94;}
+    `;
+    document.head.appendChild(style);
     const box = document.createElement('div');
     box.id = 'osiris-sync-box';
-    box.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:9999;background:#071018;border:1px solid rgba(0,217,255,0.3);border-radius:8px;padding:9px 11px;font:11px/1.4 "JetBrains Mono",monospace;color:#cfe3f0;max-width:250px;';
-    box.innerHTML = `
-      <div style="color:#7fd8ff;letter-spacing:1px;margin-bottom:6px;">OSIRIS · CLOUD-SYNC</div>
-      <div id="osiris-sync-auth"></div>
-      <div id="osiris-sync-stamp" style="color:#5c7488;margin-top:6px;">niet ingelogd</div>`;
+    box.innerHTML =
+      '<div class="osb-hd" onclick="_osirisSyncToggleMin()">' +
+        '<span class="osb-dot" id="osiris-sync-dot"></span>' +
+        '<span class="osb-ttl">OSIRIS \u00b7 CLOUD-SYNC</span>' +
+        '<span class="osb-min" id="osiris-sync-min">\u2013</span>' +
+      '</div>' +
+      '<div class="osb-body">' +
+        '<div id="osiris-sync-auth"></div>' +
+        '<div class="osb-msg" id="osiris-sync-msg"></div>' +
+        '<div class="osb-stamp" id="osiris-sync-stamp">niet ingelogd</div>' +
+      '</div>';
     document.body.appendChild(box);
     _osirisSyncRenderAuth();
 }
+function _osirisSyncToggleMin() {
+    const b = document.getElementById('osiris-sync-box'); if (!b) return;
+    b.classList.toggle('min');
+    const m = document.getElementById('osiris-sync-min'); if (m) m.textContent = b.classList.contains('min') ? '+' : '\u2013';
+}
+window._osirisSyncToggleMin = _osirisSyncToggleMin;
+
 function _osirisSyncRenderAuth() {
     const el = document.getElementById('osiris-sync-auth'); if (!el) return;
     if (_sbUser) {
-        el.innerHTML = `<div style="color:#14f195;">✓ ${(_sbUser.email || 'ingelogd')}</div>
-          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;">
-            <button onclick="osirisSyncPush()" style="cursor:pointer;">sync nu</button>
-            <button onclick="osirisRestoreFromCloud()" style="cursor:pointer;">herstel</button>
-            <button onclick="osirisSignOut()" style="cursor:pointer;">uit</button>
-          </div>`;
+        el.innerHTML =
+          '<div class="osb-user">\u2713 ' + (_sbUser.email || 'ingelogd') + '</div>' +
+          '<div class="osb-row">' +
+            '<button onclick="osirisSyncPush()">sync nu</button>' +
+            '<button onclick="osirisRestoreFromCloud()">herstel</button>' +
+            '<button onclick="osirisSignOut()">uit</button>' +
+          '</div>';
+        _osirisSyncDot('ok');
     } else {
-        el.innerHTML = `<input id="osiris-sync-email" placeholder="e-mail" style="width:100%;margin-bottom:4px;">
-          <input id="osiris-sync-pw" type="password" placeholder="wachtwoord" style="width:100%;margin-bottom:4px;">
-          <button onclick="osirisSignIn(document.getElementById('osiris-sync-email').value,document.getElementById('osiris-sync-pw').value)" style="cursor:pointer;width:100%;">inloggen / registreren</button>`;
+        // in een <form> voor toegankelijkheid (fixt de "password field not in a form"-warning)
+        el.innerHTML =
+          '<form onsubmit="osirisSignIn(this.email.value, this.pw.value); return false;">' +
+            '<input name="email" type="email" placeholder="e-mail" autocomplete="username">' +
+            '<input name="pw" type="password" placeholder="wachtwoord" autocomplete="current-password">' +
+            '<button type="submit" class="osb-primary">inloggen / registreren</button>' +
+          '</form>';
+        _osirisSyncDot('idle');
     }
 }
-function _osirisSyncStamp(txt) { const el = document.getElementById('osiris-sync-stamp'); if (el) el.textContent = txt; }
+function _osirisSyncDot(state) {
+    const d = document.getElementById('osiris-sync-dot'); if (!d) return;
+    const c = state === 'ok' ? '#14f195' : state === 'busy' ? '#ffb627' : state === 'err' ? '#ff5c6a' : '#5c7488';
+    d.style.color = c; d.style.background = c;
+}
+function _osirisSyncStamp(txt, state) {
+    const el = document.getElementById('osiris-sync-stamp'); if (el) el.textContent = txt;
+    if (state) _osirisSyncDot(state);
+}
+function _osirisSyncMsg(txt, ok) {
+    const el = document.getElementById('osiris-sync-msg'); if (!el) return;
+    el.textContent = txt || ''; el.style.color = ok ? '#14f195' : '#ff8a94';
+}
