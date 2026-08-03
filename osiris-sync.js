@@ -17,14 +17,24 @@
 const OSIRIS_SUPABASE_URL = 'https://brhvybtokdjlmbxmxaiy.supabase.co';   // <-- INVULLEN
 const OSIRIS_SUPABASE_KEY = 'sb_publishable_bTchUvswyWHLAHkumkbN8w_HEAVP0R9';       // <-- INVULLEN (publiek, veilig)
 
-// localStorage-sleutels die we naar de cloud spiegelen. Vul aan met wat jouw app gebruikt.
+// localStorage-sleutels die we naar de cloud spiegelen (de EXACTE keys die je app schrijft).
 const OSIRIS_STATE_KEYS = [
-    'botTradeLog', 'botIsRunning', 'osirisLearningLog',
+    'osirisWalletState', 'osirisOpenPositions', 'osirisPendingOrders',
+    'osirisTradeLog', 'osirisLearningLog', 'osirisSessionLog',
+    'osirisBotSettings', 'osirisIndicatorSettings',
+    'osirisAdaptiveWeights', 'osirisRegimeWeights',
     'osirisL2', 'osirisL3',
     'osirisDeepNet_BTC', 'osirisDeepNet_ETH', 'osirisDeepNet_SOL',
     'osirisDeepNetTsAB', 'osirisDeepNetDynOff', 'osirisDeepNetLive',
-    'osirisLiveEnabled', 'multiEngineRunning'
+    'osirisLiveEnabled', 'multiEngineRunning',
+    'botIsRunning', 'botStartTime'
+    // BEWUST NIET gesynct: 'osirisTestnetKeys' - API-keys horen niet in de cloud-DB.
 ];
+
+// Deze run-vlaggen worden wel gespiegeld (voor backup/Fase 2) maar NIET teruggezet bij
+// 'herstel', zodat een tweede apparaat niet per ongeluk een tweede engine start en zo
+// dubbel op dezelfde testnet-wallet gaat traden. In Fase 1 draait de engine op 1 plek.
+const OSIRIS_NO_RESTORE = ['botIsRunning', 'multiEngineRunning', 'botStartTime'];
 
 let _sb = null, _sbUser = null, _syncTimer = null;
 
@@ -70,15 +80,19 @@ async function osirisSyncPush() {
 
         // 2) nieuwe gesloten trades append (ontdubbeld op trade_id)
         const log = (typeof botTradeLog !== 'undefined' && Array.isArray(botTradeLog)) ? botTradeLog : [];
-        const exits = log.filter(t => t.action === 'EXIT').map(t => ({
-            user_id: _sbUser.id,
-            trade_id: String(t.id || ((t.timestampMs || 0) + '-' + (t.market || 'BTC') + '-' + (t.side || ''))),
-            market: t.market || 'BTC', side: t.side || null,
-            is_osiris: t.isOsiris === true, is_scalp: t.isScalp === true, is_ict: t.isIct === true, is_manual: t.isManual === true,
-            exit_price: t.price ?? null, pnl: (t.pnlAmount ?? null), pnl_pct: (t.pnl ?? null), reason: t.reason || null,
-            closed_at: t.timestampMs ? new Date(t.timestampMs).toISOString() : null,
-            raw: t
-        }));
+        const _byId = new Map();   // ontdubbel binnen de batch (2x dezelfde trade_id -> 409)
+        log.filter(t => t.action === 'EXIT').forEach((t, idx) => {
+            const tid = String(t.id || ((t.timestampMs || 0) + '-' + (t.market || 'BTC') + '-' + (t.side || '') + '-' + idx));
+            _byId.set(tid, {
+                user_id: _sbUser.id, trade_id: tid,
+                market: t.market || 'BTC', side: t.side || null,
+                is_osiris: t.isOsiris === true, is_scalp: t.isScalp === true, is_ict: t.isIct === true, is_manual: t.isManual === true,
+                exit_price: t.price ?? null, pnl: (t.pnlAmount ?? null), pnl_pct: (t.pnl ?? null), reason: t.reason || null,
+                closed_at: t.timestampMs ? new Date(t.timestampMs).toISOString() : null,
+                raw: t
+            });
+        });
+        const exits = [..._byId.values()];
         // in blokken van 500 om payloadlimieten te respecteren
         for (let i = 0; i < exits.length; i += 500) {
             await _sb.from('osiris_trades').upsert(exits.slice(i, i + 500), { onConflict: 'user_id,trade_id' });
@@ -99,7 +113,10 @@ async function osirisRestoreFromCloud() {
     if (!confirm('Cloud-staat over je lokale staat heen zetten en de pagina herladen?')) return;
     const { data, error } = await _sb.from('osiris_state').select('key,value').eq('user_id', _sbUser.id);
     if (error) { alert('Restore-fout: ' + error.message); return; }
-    (data || []).forEach(r => localStorage.setItem(r.key, typeof r.value === 'string' ? r.value : JSON.stringify(r.value)));
+    (data || []).forEach(r => {
+        if (OSIRIS_NO_RESTORE.includes(r.key)) return;   // engine niet auto-starten op dit apparaat
+        localStorage.setItem(r.key, typeof r.value === 'string' ? r.value : JSON.stringify(r.value));
+    });
     location.reload();
 }
 window.osirisRestoreFromCloud = osirisRestoreFromCloud;
