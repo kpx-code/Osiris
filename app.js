@@ -1435,6 +1435,9 @@ function loadPersistentState() {
     } catch (e) { console.warn("Kon wallet/positie-status niet laden:", e); }
 }
 
+// TDZ-FIX: loadPersistentState() -> computeCalibrationMap() gebruikt deze vlag al bij
+// het opstarten, dus hij moet VOOR de aanroep gedeclareerd staan (stond op ~4362).
+let _calibCurrentVersionOnly = true;   // standaard: toon alleen de huidige config-versie
 loadPersistentState();
 
 // FIX: na het herladen moeten de invoervelden zelf ook de herstelde waarden
@@ -4359,7 +4362,7 @@ function finalizeClosePosition(pos, pnlPct, reason) {
 // poorten op de gekalibreerde schaal te zetten mét opnieuw gekozen drempels.
 // ============================================================
 // _calibMap is bovenin gedeclareerd (bij de persistente state) - zie de FIX daar.
-let _calibCurrentVersionOnly = true;   // standaard: toon alleen de huidige config-versie
+// _calibCurrentVersionOnly is nu bovenin gedeclareerd (vóór loadPersistentState) - TDZ-fix
 let _lastCalibUpdateMs = 0;            // "last updated" stempel voor de kalibratietabel
 function computeCalibrationMap() {
     const pts = [];
