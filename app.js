@@ -7460,7 +7460,11 @@ function switchCalibBrain(sym) {
     _activeCalibBrain = sym;
     document.querySelectorAll('.calib-tab').forEach(b => b.classList.toggle('active', b.dataset.brain === sym));
     const svg = document.getElementById('calib-svg');
+    const plot = document.getElementById('calib-plot');
+    const note = document.getElementById('calib-note');
     if (svg) svg.style.display = '';   // curve-assen altijd tonen, ook voor ETH/SOL/OSIRIS
+    if (plot) plot.innerHTML = '';     // eerst leeg zodat er niets van het vorige brein blijft staan
+    if (note) note.textContent = '';
     renderCalibrationCurve();          // tekent nu voor elk brein een echte curve
 }
 window.switchCalibBrain = switchCalibBrain;
@@ -9051,10 +9055,19 @@ function _drawCalibCurve(map, n, provisional, col, label) {
     const plot = document.getElementById('calib-plot');
     const note = document.getElementById('calib-note');
     if (!plot) return;
+    const head = document.getElementById('calib-headline');
     if (!map || map.length < 2) {
         plot.innerHTML = '';
+        if (head) { head.textContent = `${label} \u2014 nog geen curve`; head.style.color = '#5c7488'; }
         if (note) note.textContent = `${label}: wacht op meer trades met entry-kans (nu ${n}) \u2014 curve verschijnt vanaf ~10.`;
         return;
+    }
+    // kop: is dit brein over- of onderzelfverzekerd? (gemiddelde gemeten winrate vs ruwe score)
+    if (head) {
+        const gap = map.reduce((a, [r, w]) => a + (r - w), 0) / map.length;
+        if (gap > 5) { head.textContent = `${label} is overconfident.`; head.style.color = 'var(--amber)'; }
+        else if (gap < -5) { head.textContent = `${label} is voorzichtig (onderschat).`; head.style.color = 'var(--teal)'; }
+        else { head.textContent = `${label} is goed gekalibreerd.`; head.style.color = 'var(--teal)'; }
     }
     const X = r => 8 + (Math.min(100, Math.max(50, r)) - 50) / 50 * 86;
     const Y = w => 50 - Math.min(100, Math.max(0, w)) / 100 * 46;
@@ -10573,7 +10586,7 @@ function switchL2Brain(sym) {
     const m = neoMultiState.markets[sym];
     const b = m && m.brain;
     const trades = (typeof botTradeLog !== 'undefined' ? botTradeLog : []).filter(t => t.action === 'EXIT' && t.market === sym).length;
-    leg.innerHTML = `<span style="color:${sym==='ETH'?'#627eea':'#14f195'}; font-weight:700;">${b ? b.label : 'Neo '+sym}</span> — Level 2 logistisch model traint apart zodra er genoeg ${sym}-trades zijn (nu ${trades}, doel ~40). Tot dan gebruikt ${sym} zijn sub-brein-score.`;
+    leg.innerHTML = `<span style="color:${sym==='ETH'?'#627eea':'#14f195'}; font-weight:700;">${b ? b.label : 'Neo '+sym}</span> — Level 2 (logistisch) is een BTC-only model. ${sym} leert per markt via de <b>DeepNet</b>-laag (zie het OSIRIS·DEEPNET-blok bovenaan) met walk-forward-precisie, niet via dit BTC-model. Sub-brein-trades: ${trades}.`;
 }
 window.switchL2Brain = switchL2Brain;
 
