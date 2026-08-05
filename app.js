@@ -4396,7 +4396,7 @@ function _buildCalibMap(filterFn) {
         const inB = withProb.filter(l => l.entryProbabilityPct >= lo && l.entryProbabilityPct < hi);
         if (inB.length >= minPerBucket) pts.push([(lo + Math.min(hi, 100)) / 2, inB.filter(l => l.outcome === 'win').length / inB.length * 100]);
     }
-    if (pts.length < 2) return { map: null, n: withProb.length, provisional };
+    if (pts.length < 1) return { map: null, n: withProb.length, provisional };
     for (let i = 1; i < pts.length; i++) pts[i][1] = Math.max(pts[i][1], pts[i - 1][1]);
     return { map: pts, n: withProb.length, provisional };
 }
@@ -7348,6 +7348,7 @@ function osirisShadowTick() {
                 notional: notionalUSD,
                 sizePct: sizePct,
                 osirisAllocPct: a,
+                probabilityPct: (p.prob != null ? p.prob * 100 : null),   // entry-kans voor de kalibratie
                 openTime: now,
                 isScalp: false,
                 isOsiris: true,
@@ -9051,32 +9052,38 @@ function updateKpiStrip() {
 // ============================================================
 const _CALIB_COL = { BTC: '#ffb627', ETH: '#627eea', SOL: '#14f195', OSIRIS: '#00d9ff' };
 // Tekent één predicted-vs-measured curve in #calib-plot.
-function _drawCalibCurve(map, n, provisional, col, label) {
+function _drawCalibCurve(map, n, provisional, col, label, xMin) {
     const plot = document.getElementById('calib-plot');
     const note = document.getElementById('calib-note');
     if (!plot) return;
+    xMin = (xMin == null) ? 50 : xMin;
+    const xlo = document.getElementById('calib-xlab-lo'), xhi = document.getElementById('calib-xlab-hi');
+    if (xlo) xlo.textContent = xMin; if (xhi) xhi.textContent = 100;
     const head = document.getElementById('calib-headline');
-    if (!map || map.length < 2) {
+    if (!map || map.length < 1) {
         plot.innerHTML = '';
-        if (head) { head.textContent = `${label} \u2014 nog geen curve`; head.style.color = '#5c7488'; }
-        if (note) note.textContent = `${label}: wacht op meer trades met entry-kans (nu ${n}) \u2014 curve verschijnt vanaf ~10.`;
+        if (head) { head.textContent = `${label} \u2014 nog geen data`; head.style.color = '#5c7488'; }
+        if (note) note.textContent = `${label}: wacht op trades m\u00e9t entry-kans (nu ${n}).`;
         return;
     }
-    // kop: is dit brein over- of onderzelfverzekerd? (gemiddelde gemeten winrate vs ruwe score)
+    const single = map.length < 2;   // weinig spreiding -> 1 kalibratiepunt i.p.v. een curve
     if (head) {
         const gap = map.reduce((a, [r, w]) => a + (r - w), 0) / map.length;
         if (gap > 5) { head.textContent = `${label} is overconfident.`; head.style.color = 'var(--amber)'; }
-        else if (gap < -5) { head.textContent = `${label} is voorzichtig (onderschat).`; head.style.color = 'var(--teal)'; }
+        else if (gap < -5) { head.textContent = `${label} onderschat zichzelf.`; head.style.color = 'var(--teal)'; }
         else { head.textContent = `${label} is goed gekalibreerd.`; head.style.color = 'var(--teal)'; }
     }
-    const X = r => 8 + (Math.min(100, Math.max(50, r)) - 50) / 50 * 86;
+    const X = r => 8 + (Math.min(100, Math.max(xMin, r)) - xMin) / (100 - xMin) * 86;
     const Y = w => 50 - Math.min(100, Math.max(0, w)) / 100 * 46;
-    const pts = map.map(([r, w]) => `${X(r).toFixed(1)},${Y(w).toFixed(1)}`).join(' ');
-    let svg = `<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>`;
+    let svg = '';
+    if (!single) {
+        const pts = map.map(([r, w]) => `${X(r).toFixed(1)},${Y(w).toFixed(1)}`).join(' ');
+        svg += `<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }
     map.forEach(([r, w], i) => {
-        const laatste = i === map.length - 1;
-        svg += `<circle cx="${X(r).toFixed(1)}" cy="${Y(w).toFixed(1)}" r="${laatste ? 1.6 : 1.1}" fill="${col}"/>`;
-        if (laatste) svg += `<text x="${(X(r) - 3).toFixed(1)}" y="${(Y(w) - 3).toFixed(1)}" font-size="4" font-weight="bold" fill="${col}" text-anchor="middle" font-family="'JetBrains Mono',monospace">${w.toFixed(0)}%</text>`;
+        const toon = single || i === map.length - 1;
+        svg += `<circle cx="${X(r).toFixed(1)}" cy="${Y(w).toFixed(1)}" r="${toon ? 1.8 : 1.1}" fill="${col}"/>`;
+        if (toon) svg += `<text x="${(X(r) - 3).toFixed(1)}" y="${(Y(w) - 3).toFixed(1)}" font-size="4" font-weight="bold" fill="${col}" text-anchor="middle" font-family="'JetBrains Mono',monospace">${w.toFixed(0)}%</text>`;
     });
     plot.innerHTML = svg;
     const upd = document.getElementById('calib-updated');
@@ -9086,7 +9093,10 @@ function _drawCalibCurve(map, n, provisional, col, label) {
         const hh = String(nu.getHours()).padStart(2, '0'), mm = String(nu.getMinutes()).padStart(2, '0'), ss = String(nu.getSeconds()).padStart(2, '0');
         upd.textContent = `last updated ${d}-${m} ${hh}:${mm}:${ss} \u00b7 ${n} trades`;
     }
-    if (note) note.textContent = `${label} \u00b7 ${n} trades \u00b7 ${provisional ? 'VOORLOPIG (kleine steekproef) \u00b7 ' : ''}hoe verder onder de stippellijn, hoe overmoediger de score.`;
+    if (note) {
+        if (single) note.textContent = `${label} \u00b7 ${n} trades \u00b7 voorspellingen clusteren rond ${map[0][0].toFixed(0)}% \u2014 1 kalibratiepunt (te weinig spreiding voor een curve). Gemeten winrate daar: ${map[0][1].toFixed(0)}%.`;
+        else note.textContent = `${label} \u00b7 ${n} trades \u00b7 ${provisional ? 'VOORLOPIG (kleine steekproef) \u00b7 ' : ''}hoe verder onder de stippellijn, hoe overmoediger de score.`;
+    }
 }
 // Tekent de curve van het ACTIEVE brein (wordt ook door de live-loop aangeroepen).
 function renderCalibrationCurve() {
@@ -9096,11 +9106,16 @@ function renderCalibrationCurve() {
     if (sym === 'BTC') {
         computeCalibrationMap();
         const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null && (l.market == null || l.market === 'BTC')).length;
-        _drawCalibCurve(_calibMap, n, _calibProvisional, col, label);
-    } else {
-        const r = computeCalibrationMapFor(sym);
-        _drawCalibCurve(r.map, r.n, r.provisional, col, label);
+        _drawCalibCurve(_calibMap, n, _calibProvisional, col, label, 50);
+        return;
     }
+    // OPTIE A: kalibreer op de DeepNet-kans (die spreidt 0-100%) i.p.v. de Osiris-pick (~55%).
+    let dn = null;
+    try { if (typeof OsirisDeepNet !== 'undefined') dn = OsirisDeepNet.calibrationCurve(sym); } catch (e) {}
+    if (dn && dn.map) { _drawCalibCurve(dn.map, dn.n, dn.n < 60, col, label + ' (DeepNet)', 0); return; }
+    // fallback zolang de DeepNet nog niet genoeg getraind heeft
+    const r = computeCalibrationMapFor(sym);
+    _drawCalibCurve(r.map, r.n, r.provisional, col, label, 50);
 }
 
 function renderExitDistribution() {
@@ -10953,11 +10968,13 @@ const OsirisDeepNet = {
                 if (tp === s.y) tradedCorrect++;
             }
         }
+        const rel = test.map(s => ({ p: this._applyPlatt(platt, this._fwd(model, s.x)), y: s.y }));
         return {
             n: test.length,
             acc: correct / test.length,
             precision: traded > 0 ? tradedCorrect / traded : 0,
-            coverage: traded / test.length
+            coverage: traded / test.length,
+            rel
         };
     },
 
@@ -10989,7 +11006,7 @@ const OsirisDeepNet = {
         const platt = this._fitPlatt(model, cal);
         const wf = this._eval(model, platt, test);
         const m = this.markets[key];
-        m.model = model; m.platt = platt; m.wf = wf; m.trainedMs = Date.now();
+        m.model = model; m.platt = platt; m.rel = (wf && wf.rel) ? wf.rel : []; m.wf = wf ? { n: wf.n, acc: wf.acc, precision: wf.precision, coverage: wf.coverage } : null; m.trainedMs = Date.now();
         m.kl = kl.slice(-120); m.btcRet = btcRet;   // vers genoeg voor live-predict tot de volgende refresh
         this._persist(key);
         return { key, ok: true, samples: samples.length, wf };
@@ -11050,6 +11067,23 @@ const OsirisDeepNet = {
     },
 
     // ---------- EV-gestuurde dynamische time-stop ----------
+    // Betrouwbaarheidscurve (reliability diagram) uit de walk-forward-testset:
+    // voorspelde DeepNet-kans vs werkelijke uitkomst. 'OSIRIS' = alle markten samen.
+    // Levert een ECHTE curve, want de DeepNet-kans spreidt breed (i.t.t. de Osiris-pick ~55%).
+    calibrationCurve(key) {
+        let rel = [];
+        if (key === 'OSIRIS') { for (const k of ['BTC', 'ETH', 'SOL']) if (this.markets[k] && this.markets[k].rel) rel = rel.concat(this.markets[k].rel); }
+        else if (this.markets[key] && this.markets[key].rel) rel = this.markets[key].rel;
+        if (rel.length < 20) return { map: null, n: rel.length };
+        const buckets = [[0, 10], [10, 20], [20, 30], [30, 40], [40, 50], [50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
+        const pts = [];
+        for (const [lo, hi] of buckets) {
+            const inB = rel.filter(r => r.p * 100 >= lo && r.p * 100 < hi);
+            if (inB.length >= 8) pts.push([(lo + Math.min(hi, 100)) / 2, inB.filter(r => r.y === 1).length / inB.length * 100]);
+        }
+        if (pts.length < 1) return { map: null, n: rel.length };
+        return { map: pts, n: rel.length };
+    },
     keyOf(pos) {
         if (!pos) return null;
         if (pos.market && this.markets[pos.market]) return pos.market;
