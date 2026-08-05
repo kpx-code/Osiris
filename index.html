@@ -1012,8 +1012,8 @@ section { position:relative; z-index:2; }
             <line x1="8" y1="50" x2="95" y2="50" stroke="#1a2a38" stroke-width="0.4"/>
             <text x="1" y="5" font-size="3.4" fill="#5c7488" font-family="'JetBrains Mono',monospace">100</text>
             <text x="5" y="51.5" font-size="3.4" fill="#5c7488" font-family="'JetBrains Mono',monospace">0</text>
-            <text x="8" y="57" font-size="3.4" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">60</text>
-            <text x="94" y="57" font-size="3.4" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">95</text>
+            <text id="calib-xlab-lo" x="8" y="57" font-size="3.4" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">50</text>
+            <text id="calib-xlab-hi" x="94" y="57" font-size="3.4" fill="#5c7488" text-anchor="middle" font-family="'JetBrains Mono',monospace">100</text>
             <g id="calib-plot"></g>
           </svg>
           <div class="mono" style="font-size:0.68rem; color:var(--dim); line-height:1.75;">
@@ -1229,5 +1229,9 @@ section { position:relative; z-index:2; }
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 <script src="app.js?v=20260718-v4build31"></script>
+<!-- OSIRIS cloud-sync (Fase 1) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="osiris-sync.js"></script>
+<script>window.addEventListener('DOMContentLoaded', osirisSyncInit);</script>
 </body>
 </html>
