@@ -1536,6 +1536,7 @@ function initializeOnReady() {
     updatePendingOrdersUI();
     rebuildHistoryUIFromLog();
     renderActiveSettingsPanel();
+    try { backfillOsirisLearning(); } catch (e) {}
     renderLearningPanel();
     try { OsirisDeepNet.startService(); updateDeepNetPanel(); } catch (e) {}
     if (isBotRunning) {
@@ -4323,11 +4324,29 @@ function finalizeClosePosition(pos, pnlPct, reason) {
         // bleef dus staan op de waarde van de page-load. Nu herberekenen + hertekenen
         // we zodra er nieuwe learning binnenkomt, zodat de curve live meebeweegt.
         try { computeCalibrationMap(); renderCalibrationCurve(); } catch (e) { /* chart niet in beeld */ }
+    } else if (pos.isOsiris) {
+        // FIX: Osiris ETH/SOL-trades hebben geen confluence-factoren, maar we loggen ze
+        // WEL (markt + uitkomst + entry-kans) zodat de per-brein Adaptive Learning EN de
+        // kalibratie-curve voor ETH/SOL/mainbrain updaten. Ze tellen NIET mee voor Neo
+        // BTC's factor-gewichten (die filteren op market==='BTC' + aanwezige factors).
+        let osMarket = 'BTC';
+        if (pos.symbol && typeof MULTI_BINANCE !== 'undefined') osMarket = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || 'BTC';
+        learningLog.push({
+            timestampMs: Date.now(), side: pos.side, market: osMarket,
+            outcome: pnlPct > 0 ? 'win' : 'loss', pnlPct,
+            exitReason: (reason || '').split(' ')[0],
+            holdMinutes: pos.openTime ? Math.round((Date.now() - pos.openTime) / 60000) : null,
+            entryProbabilityPct: pos.probabilityPct ?? null,
+            manual: false, botWouldEnter: null,
+            configVersion: currentConfigVersion(),
+            entryHourUTC: pos.openTime ? new Date(pos.openTime).getUTCHours() : new Date().getUTCHours(),
+            isIct: false, isOsiris: true, isScalp: false,
+            regime: pos.regimeAtEntry || 'MULTI'
+        });
+        if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
+        _lastCalibUpdateMs = Date.now();
+        try { renderLearningPanel(); computeCalibrationMap(); renderCalibrationCurve(); } catch (e) {}
     } else if (!pos.isScalp) {
-        // DIAGNOSE: de sessie-export van 12-07 had 42 exits maar een LEGE
-        // learningLog - trend-posities zonder factorsAtEntry (bijv. hersteld uit
-        // localStorage van een oudere versie) vielen stilzwijgend buiten het
-        // leren. Dat mag nooit meer onzichtbaar gebeuren.
         console.warn(`Level 1: trend-positie ${pos.id} gesloten ZONDER factorsAtEntry - deze trade telt niet mee voor adaptief leren.`);
     }
 
@@ -4364,40 +4383,84 @@ function finalizeClosePosition(pos, pnlPct, reason) {
 // _calibMap is bovenin gedeclareerd (bij de persistente state) - zie de FIX daar.
 // _calibCurrentVersionOnly is nu bovenin gedeclareerd (vóór loadPersistentState) - TDZ-fix
 let _lastCalibUpdateMs = 0;            // "last updated" stempel voor de kalibratietabel
-function computeCalibrationMap() {
+// Generieke bouwer: maakt een predicted-vs-measured mapping voor de trades die door
+// filterFn komen. Teruggegeven: { map, n, provisional }.
+function _buildCalibMap(filterFn) {
     const pts = [];
     const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
-    // Handmatige trades tellen NIET mee: die meten niet of de bot zijn eigen
-    // score eerlijk inschat (ander beslisproces, andere momentkeuze).
-    // BTC-ZUIVERHEID (01-08): alleen BTC-trades tellen mee voor Neo BTC's kalibratie.
-    // Osiris ETH/SOL-trades hebben market !== 'BTC' en worden hier uitgesloten, zodat
-    // het BTC-brein niet vervuild raakt met de uitkomsten van andere munten. Oudere
-    // entries zonder market-veld gelden als BTC (die dateren van vóór multi-crypto).
-    // VERSIE-ZUIVERHEID (01-08): de bot heeft sinds dag 1 vele versies gekend. Trades
-    // van oude, gebroken versies vertekenen de kalibratie (bv. de -60pt overmoedigheid
-    // die deels historische ballast is). Met _calibCurrentVersionOnly aan tellen alleen
-    // trades van de HUIDIGE config-versie mee, zodat je een eerlijk beeld van NU krijgt.
-    const curVer = currentConfigVersion();
-    const versionOk = l => !_calibCurrentVersionOnly || l.configVersion == null || l.configVersion === curVer;
-    const withProb = learningLog.filter(l => l.entryProbabilityPct != null && !l.manual && (l.market == null || l.market === 'BTC') && versionOk(l));
-    // 29-07: drempels verlaagd zodat de curve eerder (en bij elke trade) meebeweegt.
-    // Onder de 50 schone trades markeren we hem als VOORLOPIG (kleine steekproef) i.p.v.
-    // niets te tonen - zodat je 'm ziet leven, met de kanttekening dat het nog ruw is.
-    _calibProvisional = withProb.length < 50;
-    if (withProb.length < 10) { _calibMap = null; return; }
-    const minPerBucket = withProb.length < 50 ? 4 : 15;   // soepeler bij weinig data, streng bij veel
+    const withProb = learningLog.filter(filterFn);
+    const provisional = withProb.length < 50;
+    if (withProb.length < 10) return { map: null, n: withProb.length, provisional };
+    const minPerBucket = withProb.length < 50 ? 4 : 15;
     for (const [lo, hi] of buckets) {
         const inB = withProb.filter(l => l.entryProbabilityPct >= lo && l.entryProbabilityPct < hi);
-        if (inB.length >= minPerBucket) {
-            pts.push([(lo + Math.min(hi, 100)) / 2, inB.filter(l => l.outcome === 'win').length / inB.length * 100]);
-        }
+        if (inB.length >= minPerBucket) pts.push([(lo + Math.min(hi, 100)) / 2, inB.filter(l => l.outcome === 'win').length / inB.length * 100]);
     }
-    if (pts.length < 2) { _calibMap = null; return; }
-    // Monotoon afdwingen (kalibratie mag nooit dalen bij hogere ruwe score)
+    if (pts.length < 2) return { map: null, n: withProb.length, provisional };
     for (let i = 1; i < pts.length; i++) pts[i][1] = Math.max(pts[i][1], pts[i - 1][1]);
-    _calibMap = pts;
+    return { map: pts, n: withProb.length, provisional };
+}
+// Neo BTC (global _calibMap, blijft BTC-zuiver + versie-zuiver).
+function computeCalibrationMap() {
+    const curVer = currentConfigVersion();
+    const versionOk = l => !_calibCurrentVersionOnly || l.configVersion == null || l.configVersion === curVer;
+    const res = _buildCalibMap(l => l.entryProbabilityPct != null && !l.manual && (l.market == null || l.market === 'BTC') && versionOk(l));
+    _calibMap = res.map; _calibProvisional = res.provisional;
+}
+// Per-brein: 'ETH'/'SOL' filtert op die markt, 'OSIRIS' aggregeert alle Osiris-trades
+// (ETH+SOL) = de kalibratie van de mainbrain-beslissing.
+function computeCalibrationMapFor(brain) {
+    const curVer = currentConfigVersion();
+    const versionOk = l => !_calibCurrentVersionOnly || l.configVersion == null || l.configVersion === curVer;
+    let filt;
+    if (brain === 'OSIRIS') filt = l => l.entryProbabilityPct != null && !l.manual && l.isOsiris === true && versionOk(l);
+    else filt = l => l.entryProbabilityPct != null && !l.manual && l.market === brain && versionOk(l);
+    return _buildCalibMap(filt);
 }
 
+
+// BACKFILL: zet oude Osiris ETH/SOL-trades uit de tradeLog alsnog in de learningLog,
+// zodat de per-brein Adaptive Learning-tellers/winrate ook je historie tonen. Zonder
+// entry-kans (die is nooit opgeslagen), dus deze tellen NIET mee voor de kalibratie-
+// curve - alleen voor de tellingen. Idempotent: dubbele runs voegen niets dubbel toe.
+function backfillOsirisLearning() {
+    try {
+        if (!Array.isArray(botTradeLog) || !Array.isArray(learningLog)) return;
+        const seen = new Set(learningLog.filter(l => l.isOsiris)
+            .map(l => `${l.market}|${l.side}|${Math.round((l.timestampMs || 0) / 1000)}`));
+        let added = 0;
+        for (const t of botTradeLog) {
+            if (t.action !== 'EXIT') continue;
+            const isOs = t.isOsiris === true || (t.market && t.market !== 'BTC');
+            if (!isOs) continue;
+            const market = t.market || 'BTC';
+            const key = `${market}|${t.side}|${Math.round((t.timestampMs || 0) / 1000)}`;
+            if (seen.has(key)) continue;
+            const pnlPct = (typeof t.pnl === 'number') ? t.pnl : 0;
+            learningLog.push({
+                timestampMs: t.timestampMs || Date.now(),
+                side: t.side, market,
+                outcome: pnlPct > 0 ? 'win' : 'loss', pnlPct,
+                exitReason: (t.reason || '').split(' ')[0],
+                holdMinutes: null, entryProbabilityPct: null,
+                manual: false, botWouldEnter: null,
+                configVersion: currentConfigVersion(),
+                entryHourUTC: t.timestampMs ? new Date(t.timestampMs).getUTCHours() : new Date().getUTCHours(),
+                isIct: t.isIct === true, isOsiris: true, isScalp: t.isScalp === true,
+                regime: 'MULTI', backfilled: true
+            });
+            seen.add(key); added++;
+        }
+        if (added) {
+            learningLog.sort((a, b) => (a.timestampMs || 0) - (b.timestampMs || 0));
+            if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
+            try { localStorage.setItem('osirisLearningLog', JSON.stringify(learningLog)); } catch (e) {}
+            console.log(`[backfill] ${added} Osiris-trades toegevoegd aan de learningLog.`);
+            try { renderLearningPanel(); } catch (e) {}
+        }
+    } catch (e) { console.warn('backfill-fout', e); }
+}
+window.backfillOsirisLearning = backfillOsirisLearning;
 
 function calibrateProbability(raw) {
     if (!_calibMap || raw == null || !isFinite(raw)) return null;
@@ -7396,31 +7459,9 @@ let _activeCalibBrain = 'BTC';
 function switchCalibBrain(sym) {
     _activeCalibBrain = sym;
     document.querySelectorAll('.calib-tab').forEach(b => b.classList.toggle('active', b.dataset.brain === sym));
-    const note = document.getElementById('calib-note');
-    const plot = document.getElementById('calib-plot');
     const svg = document.getElementById('calib-svg');
-    // altijd eerst beide panelen leegmaken zodat teksten/curves niet overlappen
-    if (plot) plot.innerHTML = '';
-    if (note) note.innerHTML = '';
-    if (sym === 'BTC') {
-        if (svg) svg.style.display = '';
-        renderCalibrationCurve();
-        return;
-    }
-    // ETH/SOL: verberg de BTC-curve-SVG en toon alleen de sub-brein-status-tekst
-    const m = neoMultiState.markets[sym];
-    const b = m && m.brain;
-    if (note) {
-        if (!b) { note.textContent = `${sym} sub-brein nog niet geïnitialiseerd.`; return; }
-        const trades = (typeof botTradeLog !== 'undefined' ? botTradeLog : []).filter(t => t.action === 'EXIT' && t.market === sym);
-        const wins = trades.filter(t => (t.pnl || 0) > 0).length;
-        const wr = trades.length ? (wins / trades.length * 100).toFixed(0) : '-';
-        note.innerHTML = `<div style="color:#c792ea; margin-bottom:8px; font-weight:600; font-size:0.78rem;">${b.label} kalibratie</div>
-            Trades: <b>${trades.length}</b> &middot; winrate: <b>${wr}%</b><br>
-            Laatste kans-oordeel: <b>${m && m.bestProb != null ? (m.bestProb*100).toFixed(0)+'% '+(m.bestSide||'') : '-'}</b><br>
-            NN-ritme: <b>${_nnState[sym] && _nnState[sym].period ? Math.round(_nnState[sym].period/60000)+'min' : '-'}</b> &middot; caps: <b>${_nnState[sym] && _nnState[sym].caps ? _nnState[sym].caps.length : 0}</b><br>
-            <span style="color:var(--text-dimmer); font-size:0.62rem;">De predicted-vs-measured curve bouwt op naarmate ${b.label} meer trades sluit (nu ${trades.length}).</span>`;
-    }
+    if (svg) svg.style.display = '';   // curve-assen altijd tonen, ook voor ETH/SOL/OSIRIS
+    renderCalibrationCurve();          // tekent nu voor elk brein een echte curve
 }
 window.switchCalibBrain = switchCalibBrain;
 
@@ -9004,28 +9045,25 @@ function updateKpiStrip() {
 // systeem: klopt de voorspelling (kalibratie), wat verdient/kost elk
 // exit-mechanisme (bijdrage), en wat staat er nu open.
 // ============================================================
-function renderCalibrationCurve() {
-    // Alleen tekenen als de BTC-kalibratietab actief is. Anders zou de live-loop de
-    // ETH/SOL-tekst telkens overschrijven met de BTC-curve (tekst-overlap bij switchen).
-    if (typeof _activeCalibBrain !== 'undefined' && _activeCalibBrain !== 'BTC') return;
+const _CALIB_COL = { BTC: '#ffb627', ETH: '#627eea', SOL: '#14f195', OSIRIS: '#00d9ff' };
+// Tekent één predicted-vs-measured curve in #calib-plot.
+function _drawCalibCurve(map, n, provisional, col, label) {
     const plot = document.getElementById('calib-plot');
     const note = document.getElementById('calib-note');
     if (!plot) return;
-    if (!_calibMap || _calibMap.length < 2) {
+    if (!map || map.length < 2) {
         plot.innerHTML = '';
-        const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null).length;
-        if (note) note.textContent = `Wacht op meer bot-trades met entry-kans (nu ${n}) \u2014 curve verschijnt vanaf ~10.`;
+        if (note) note.textContent = `${label}: wacht op meer trades met entry-kans (nu ${n}) \u2014 curve verschijnt vanaf ~10.`;
         return;
     }
-    // x: ruwe score 50-100 -> 8..94 | y: gemeten winrate 0-100 -> 50..4
     const X = r => 8 + (Math.min(100, Math.max(50, r)) - 50) / 50 * 86;
     const Y = w => 50 - Math.min(100, Math.max(0, w)) / 100 * 46;
-    const pts = _calibMap.map(([r, w]) => `${X(r).toFixed(1)},${Y(w).toFixed(1)}`).join(' ');
-    let svg = `<polyline points="${pts}" fill="none" stroke="#ffb627" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>`;
-    _calibMap.forEach(([r, w], i) => {
-        const laatste = i === _calibMap.length - 1;
-        svg += `<circle cx="${X(r).toFixed(1)}" cy="${Y(w).toFixed(1)}" r="${laatste ? 1.6 : 1.1}" fill="#ffb627"/>`;
-        if (laatste) svg += `<text x="${(X(r) - 3).toFixed(1)}" y="${(Y(w) - 3).toFixed(1)}" font-size="4" font-weight="bold" fill="#ffb627" text-anchor="middle" font-family="'JetBrains Mono',monospace">${w.toFixed(0)}%</text>`;
+    const pts = map.map(([r, w]) => `${X(r).toFixed(1)},${Y(w).toFixed(1)}`).join(' ');
+    let svg = `<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>`;
+    map.forEach(([r, w], i) => {
+        const laatste = i === map.length - 1;
+        svg += `<circle cx="${X(r).toFixed(1)}" cy="${Y(w).toFixed(1)}" r="${laatste ? 1.6 : 1.1}" fill="${col}"/>`;
+        if (laatste) svg += `<text x="${(X(r) - 3).toFixed(1)}" y="${(Y(w) - 3).toFixed(1)}" font-size="4" font-weight="bold" fill="${col}" text-anchor="middle" font-family="'JetBrains Mono',monospace">${w.toFixed(0)}%</text>`;
     });
     plot.innerHTML = svg;
     const upd = document.getElementById('calib-updated');
@@ -9033,12 +9071,22 @@ function renderCalibrationCurve() {
         const nu = new Date();
         const d = String(nu.getDate()).padStart(2, '0'), m = String(nu.getMonth() + 1).padStart(2, '0');
         const hh = String(nu.getHours()).padStart(2, '0'), mm = String(nu.getMinutes()).padStart(2, '0'), ss = String(nu.getSeconds()).padStart(2, '0');
-        const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null).length;
         upd.textContent = `last updated ${d}-${m} ${hh}:${mm}:${ss} \u00b7 ${n} trades`;
     }
-    if (note) {
-        const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null).length;
-        note.textContent = `${n} bot-trades \u00b7 ${_calibProvisional ? 'VOORLOPIG (kleine steekproef) \u00b7 ' : ''}hoe verder onder de stippellijn, hoe overmoediger de score.`;
+    if (note) note.textContent = `${label} \u00b7 ${n} trades \u00b7 ${provisional ? 'VOORLOPIG (kleine steekproef) \u00b7 ' : ''}hoe verder onder de stippellijn, hoe overmoediger de score.`;
+}
+// Tekent de curve van het ACTIEVE brein (wordt ook door de live-loop aangeroepen).
+function renderCalibrationCurve() {
+    const sym = (typeof _activeCalibBrain !== 'undefined') ? _activeCalibBrain : 'BTC';
+    const col = _CALIB_COL[sym] || '#ffb627';
+    const label = sym === 'OSIRIS' ? 'Osiris mainbrain' : ('Neo ' + sym);
+    if (sym === 'BTC') {
+        computeCalibrationMap();
+        const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null && (l.market == null || l.market === 'BTC')).length;
+        _drawCalibCurve(_calibMap, n, _calibProvisional, col, label);
+    } else {
+        const r = computeCalibrationMapFor(sym);
+        _drawCalibCurve(r.map, r.n, r.provisional, col, label);
     }
 }
 
