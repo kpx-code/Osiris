@@ -887,7 +887,7 @@ section { position:relative; z-index:2; }
           </div>
         </div>
 
-        <div class="subhead" style="margin-top:20px;">&#9673; Osiris Deepnet Quattro Brain Neural Net &middot; Osiris + Neo BTC/ETH/SOL &middot; DeepNet-layer visualisation</div>
+        <div class="subhead" style="margin-top:20px;">&#9673; Multi-Brein Neuraal Netwerk &middot; Osiris + Neo BTC/ETH/SOL &middot; DeepNet-laag</div>
         <div id="neonet-big-panel" style="position:relative; height:560px; background:#000004; border:1px solid rgba(0,217,255,0.2); border-radius:10px; overflow:hidden;">
           <canvas id="neo-net-canvas-big"></canvas>
           <div style="position:absolute; top:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">MULTI-BREIN NEURAAL NETWERK</div>
@@ -1002,6 +1002,7 @@ section { position:relative; z-index:2; }
             <button class="calib-tab active" data-brain="BTC" onclick="switchCalibBrain('BTC')">Neo BTC</button>
             <button class="calib-tab" data-brain="ETH" onclick="switchCalibBrain('ETH')">Neo ETH</button>
             <button class="calib-tab" data-brain="SOL" onclick="switchCalibBrain('SOL')">Neo SOL</button>
+            <button class="calib-tab" data-brain="OSIRIS" onclick="switchCalibBrain('OSIRIS')">Osiris Mainbrain</button>
         </div>
         <div id="calib-body" style="display:grid; grid-template-columns:1.1fr 1fr; gap:20px; align-items:center; margin-top:8px;">
           <svg id="calib-svg" viewBox="0 0 100 62" preserveAspectRatio="xMinYMid meet" style="width:100%; height:300px; overflow:visible;">
@@ -1228,8 +1229,5 @@ section { position:relative; z-index:2; }
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 <script src="app.js?v=20260718-v4build31"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="osiris-sync.js"></script>
-<script>window.addEventListener('DOMContentLoaded', osirisSyncInit);</script>
 </body>
 </html>
