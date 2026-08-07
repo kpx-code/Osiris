@@ -9099,6 +9099,72 @@ function _drawCalibCurve(map, n, provisional, col, label, xMin) {
     }
 }
 // Tekent de curve van het ACTIEVE brein (wordt ook door de live-loop aangeroepen).
+function _calibInsight(rel) {
+    if (!rel || !rel.map || !rel.map.length) return 'onvoldoende data';
+    const gap = rel.map.reduce((a, p) => a + (p[0] - p[1]), 0) / rel.map.length;
+    if (gap > 5) return `overconfident (+${gap.toFixed(0)}pt) - voorspelt hoger dan werkelijk`;
+    if (gap < -5) return `onderconfident (${gap.toFixed(0)}pt) - voorspelt lager dan werkelijk`;
+    return 'goed gekalibreerd';
+}
+// Downloadt de volledige Adaptive Learning-staat als leesbaar JSON-rapport.
+function downloadAdaptiveLearning() {
+    try {
+        const now = new Date();
+        const dn = (typeof OsirisDeepNet !== 'undefined') ? OsirisDeepNet : null;
+        const ll = (typeof learningLog !== 'undefined') ? learningLog : [];
+        const nms = (typeof neoMultiState !== 'undefined') ? neoMultiState : null;
+        const report = {
+            exportedAt: now.toISOString(),
+            configVersion: (typeof currentConfigVersion === 'function') ? currentConfigVersion() : null,
+            wallet: (typeof walletState !== 'undefined' && walletState) ? {
+                balance: walletState.balance,
+                equity: (typeof getEquity === 'function') ? getEquity() : null,
+                realizedPnL: walletState.realizedPnL, wins: walletState.wins, losses: walletState.losses
+            } : null,
+            brains: {}, level2: {}, level3: {}, osirisMainbrain: {}
+        };
+        for (const b of ['BTC', 'ETH', 'SOL']) {
+            const trades = ll.filter(l => b === 'BTC' ? (l.market == null || l.market === 'BTC') : l.market === b);
+            const wins = trades.filter(l => l.outcome === 'win').length;
+            const m = (dn && dn.markets[b]) ? dn.markets[b] : {};
+            const last = (dn && dn.last[b]) ? dn.last[b] : null;
+            const rel = dn ? dn.calibrationCurve(b) : null;
+            report.brains[b] = {
+                trades: trades.length, wins, losses: trades.length - wins,
+                winratePct: trades.length ? +(wins / trades.length * 100).toFixed(1) : null,
+                level1_weights: b === 'BTC'
+                    ? ((typeof adaptiveWeights !== 'undefined') ? adaptiveWeights : null)
+                    : ((nms && nms.markets && nms.markets[b] && nms.markets[b].brain) ? (nms.markets[b].brain.weights || null) : null),
+                deepNet: {
+                    walkForward: m.wf || null,
+                    trainedAt: m.trainedMs ? new Date(m.trainedMs).toISOString() : null,
+                    liveCalibratedPct: last ? +(last.calProb * 100).toFixed(1) : null,
+                    liveSide: last ? last.side : null,
+                    metaPoortOpen: last ? last.meta : null,
+                    reliabilityCurve: (rel && rel.map) ? rel.map.map(p => ({ predictedPct: +p[0].toFixed(1), measuredPct: +p[1].toFixed(1) })) : null,
+                    kalibratieOordeel: _calibInsight(rel)
+                }
+            };
+        }
+        report.level2 = (typeof _l2 !== 'undefined' && _l2 && _l2.trained)
+            ? { trained: true, trainedOn: _l2.trainedOn, lastTrainMs: _l2.lastTrainMs || null } : { trained: false, note: 'BTC-only model' };
+        report.level3 = (typeof _l3 !== 'undefined' && _l3 && _l3.trained)
+            ? { trained: true, valAcc: _l3.valAcc, trainedOn: _l3.trainedOn, weightCap: (typeof l3WeightCap === 'function' ? l3WeightCap() : null) } : { trained: false, note: 'BTC-only net' };
+        const osRel = dn ? dn.calibrationCurve('OSIRIS') : null;
+        report.osirisMainbrain = {
+            reliabilityCurve: (osRel && osRel.map) ? osRel.map.map(p => ({ predictedPct: +p[0].toFixed(1), measuredPct: +p[1].toFixed(1) })) : null,
+            kalibratieOordeel: _calibInsight(osRel)
+        };
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `osiris_adaptive_learning_${now.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+        document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) { console.warn('download-fout', e); alert('Download mislukt: ' + e.message); }
+}
+window.downloadAdaptiveLearning = downloadAdaptiveLearning;
+
 function renderCalibrationCurve() {
     const sym = (typeof _activeCalibBrain !== 'undefined') ? _activeCalibBrain : 'BTC';
     const col = _CALIB_COL[sym] || '#ffb627';
