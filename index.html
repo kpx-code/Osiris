@@ -869,9 +869,14 @@ section { position:relative; z-index:2; }
             <div class="neo-quad" style="height:auto; min-height:150px; margin-top:10px; padding:10px 12px; display:block;">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
                 <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">OSIRIS &middot; DEEPNET &mdash; per-markt voorspelling</span>
+                <div style="display:flex; gap:12px; align-items:center;">
+                <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#eaffff; cursor:pointer; display:flex; gap:5px; align-items:center;">
+                  <input type="checkbox" id="deepnet-gate-toggle" onchange="deepNetGate(this.checked)" checked> poort entries
+                </label>
                 <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#eaffff; cursor:pointer; display:flex; gap:5px; align-items:center;">
                   <input type="checkbox" id="deepnet-live-toggle" onchange="deepNetToggle(this.checked)"> live (stuurt exits)
                 </label>
+                </div>
               </div>
               <canvas id="deepnet-canvas" style="width:100%; height:130px; display:block;"></canvas>
               <div id="deepnet-status" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7d99ac; margin-top:6px;">DeepNet initialiseert...</div>
@@ -931,7 +936,7 @@ section { position:relative; z-index:2; }
         <div class="subhead">Gesloten Posities &mdash; Huidige Sessie</div>
         <div class="table-wrap scrollable" style="max-height:220px; overflow-y:auto;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>P/L</th></tr></thead>
+            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th></tr></thead>
             <tbody id="history-body"></tbody>
           </table>
         </div>
@@ -1228,7 +1233,7 @@ section { position:relative; z-index:2; }
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
 <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260718-v4build31"></script>
+<script src="app.js?v=20260808-1"></script>
 <!-- OSIRIS cloud-sync (Fase 1) -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js"></script>
