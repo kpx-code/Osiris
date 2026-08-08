@@ -4343,10 +4343,12 @@ function finalizeClosePosition(pos, pnlPct, reason) {
             configVersion: currentConfigVersion(),
             entryHourUTC: pos.openTime ? new Date(pos.openTime).getUTCHours() : new Date().getUTCHours(),
             isIct: false, isOsiris: true, isScalp: false,
+            factors: pos.factorsAtEntry || null,
             regime: pos.regimeAtEntry || 'MULTI'
         });
         if (learningLog.length > 2000) learningLog = learningLog.slice(-2000);
         _lastCalibUpdateMs = Date.now(); try { localStorage.setItem('osirisLastCalibMs', String(_lastCalibUpdateMs)); } catch (e) {}
+        try { recalibrateSubBrain(osMarket); } catch (e) {}   // per-markt zelf-kalibratie op deze trade
         try { renderLearningPanel(); computeCalibrationMap(); renderCalibrationCurve(); } catch (e) {}
     } else if (!pos.isScalp) {
         console.warn(`Level 1: trend-positie ${pos.id} gesloten ZONDER factorsAtEntry - deze trade telt niet mee voor adaptief leren.`);
@@ -6977,10 +6979,23 @@ function _emptySubBrain(sym) {
         wins: 0, losses: 0, calibratedAt: 0
     };
 }
+function _saveSubBrainWeights() {
+    try {
+        const out = {};
+        for (const s of ['ETH', 'SOL']) { const b = neoMultiState.markets[s] && neoMultiState.markets[s].brain; if (b && b.weights) out[s] = b.weights; }
+        localStorage.setItem('osirisSubBrainWeights', JSON.stringify(out));
+    } catch (e) {}
+}
 function ensureSubBrain(sym) {
     const m = neoMultiState.markets[sym];
     if (!m) return null;
-    if (!m.brain) m.brain = _emptySubBrain(sym);
+    if (!m.brain) {
+        m.brain = _emptySubBrain(sym);
+        try {   // herstel eerder geleerde factor-gewichten zodat ze een reload overleven
+            const saved = JSON.parse(localStorage.getItem('osirisSubBrainWeights') || '{}');
+            if (saved[sym] && m.brain.weights) Object.assign(m.brain.weights, saved[sym]);
+        } catch (e) {}
+    }
     return m.brain;
 }
 
@@ -7004,6 +7019,44 @@ window.effectiveConfig = effectiveConfig;
 // momentum via EMA, RSI, NN-nabijheid) gewogen met de eigen sub-brein-gewichten.
 // De zware, bewezen hoofd-engine blijft exclusief voor BTC; dit geeft ETH/SOL een
 // eigen, zelfstandig kansoordeel zonder de BTC-logica te raken.
+// PER-MARKT ZELF-KALIBRATIE: stelt de factor-gewichten van een sub-brein bij op basis
+// van gewonnen/verloren trades IN DIE MARKT. Een factor die vaker aanwezig was bij winst
+// dan bij verlies krijgt iets meer gewicht; andersom minder. Klein en begrensd (0.3-2.5),
+// gated via SUBBRAIN_LEARN. Zo corrigeert elk brein zich op zijn eigen marktgedrag.
+let SUBBRAIN_LEARN = (function(){ try { const v = localStorage.getItem('osirisSubbrainLearn'); return v == null ? true : v === 'true'; } catch (e) { return true; } })();
+function recalibrateSubBrain(sym) {
+    if (!SUBBRAIN_LEARN || sym === 'BTC') return;
+    const b = neoMultiState.markets[sym] && neoMultiState.markets[sym].brain;
+    if (!b || !b.weights) return;
+    const trades = (typeof learningLog !== 'undefined' ? learningLog : []).filter(l => l.market === sym && l.factors && l.outcome);
+    if (trades.length < 15) return;                 // pas leren met genoeg data
+    const recent = trades.slice(-40);
+    const map = { vfm: 'momentumInfluence', rsi: 'rsi', ema: 'ema', nn: 'nn', fundamentals: 'fundamentals' };
+    const changes = [];
+    for (const fk in map) {
+        const wk = map[fk];
+        const absVals = recent.map(t => Math.abs((t.factors && t.factors[fk]) || 0));
+        const thr = absVals.slice().sort((a, c) => a - c)[Math.floor(absVals.length / 2)] || 0;
+        if (thr <= 0) continue;
+        const present = recent.filter(t => Math.abs((t.factors && t.factors[fk]) || 0) > thr);
+        const absent = recent.filter(t => Math.abs((t.factors && t.factors[fk]) || 0) <= thr);
+        if (present.length < 5 || absent.length < 5) continue;
+        const wrP = present.filter(t => t.outcome === 'win').length / present.length;
+        const wrA = absent.filter(t => t.outcome === 'win').length / absent.length;
+        const edge = wrP - wrA;                     // >0 = factor helpt in deze markt
+        const cur = b.weights[wk] != null ? b.weights[wk] : 1;
+        let next = Math.max(0.3, Math.min(2.5, cur + edge * 0.15));   // kleine, begrensde stap
+        if (Math.abs(next - cur) >= 0.03) { b.weights[wk] = next; changes.push(`${wk} ${cur.toFixed(2)}\u2192${next.toFixed(2)}`); }
+    }
+    if (changes.length) {
+        _saveSubBrainWeights();   // persistent maken (overleeft reload)
+        try { logAdaptation(`Neo ${sym}: factor-gewichten bijgesteld`, `zelf-kalibratie op ${recent.length} ${sym}-trades: ${changes.join(', ')}`); } catch (e) {}
+        try { renderLearningPanel(); } catch (e) {}
+    }
+}
+window.recalibrateSubBrain = recalibrateSubBrain;
+window.subbrainLearnToggle = (on) => { SUBBRAIN_LEARN = !!on; try { localStorage.setItem('osirisSubbrainLearn', on ? 'true' : 'false'); } catch (e) {} };
+
 function subBrainEvaluate(sym) {
     const m = neoMultiState.markets[sym];
     const b = ensureSubBrain(sym);
@@ -7016,37 +7069,41 @@ function subBrainEvaluate(sym) {
         const side = emaUp ? 'LONG' : 'SHORT';
         // score-opbouw (0..100), elk signaal met eigen gewicht
         let score = 50;
+        const factors = {};   // per-factor bijdrage (voor per-markt zelf-kalibratie)
         // VFM (richting-bewust)
         const vfmDir = (side === 'LONG' ? 1 : -1) * m.vfm;
-        score += vfmDir * 8 * (w.momentumInfluence || 1);
+        factors.vfm = vfmDir * 8 * (w.momentumInfluence || 1); score += factors.vfm;
         // RSI mean-reversion aan de randen
+        factors.rsi = 0;
         if (m.rsi != null) {
-            if (side === 'LONG' && m.rsi < 40) score += (40 - m.rsi) * 0.4 * (w.rsi || 1);
-            if (side === 'SHORT' && m.rsi > 60) score += (m.rsi - 60) * 0.4 * (w.rsi || 1);
+            if (side === 'LONG' && m.rsi < 40) factors.rsi = (40 - m.rsi) * 0.4 * (w.rsi || 1);
+            if (side === 'SHORT' && m.rsi > 60) factors.rsi = (m.rsi - 60) * 0.4 * (w.rsi || 1);
         }
+        score += factors.rsi;
         // EMA-afstand (trend-sterkte)
+        factors.ema = 0;
         if (m.ema != null && m.lastPrice) {
             const emaDist = (m.lastPrice - m.ema) / m.ema * 100;
-            score += (side === 'LONG' ? emaDist : -emaDist) * 3 * (w.ema || 1);
+            factors.ema = (side === 'LONG' ? emaDist : -emaDist) * 3 * (w.ema || 1);
         }
+        score += factors.ema;
         // NN-nabijheid (eigen munt)
-        try { const p = nnProximity(sym); if (p && p.prox > 0.15) score += p.prox * (p.strength||0.5) * 6 * (w.nn || 2); } catch (e) {}
-        // FUNDAMENTALS + CROSS-MARKET (01-08): funding rate, open interest, long/short
-        // ratio en BTC-correlatie. Bescheiden gewicht (max ~10 punten) - een duwtje,
-        // geen dominante factor, want deze signalen kunnen lang extreem blijven of
-        // ontkoppelen. De bias is richting-bewust: positief = bullish.
+        factors.nn = 0;
+        try { const pr = nnProximity(sym); if (pr && pr.prox > 0.15) factors.nn = pr.prox * (pr.strength||0.5) * 6 * (w.nn || 2); } catch (e) {}
+        score += factors.nn;
+        // FUNDAMENTALS + CROSS-MARKET: funding, OI, long/short, BTC-correlatie (richting-bewust)
+        factors.fundamentals = 0;
         try {
             const fb = fundamentalsBias(sym);
-            if (fb && fb.bias) {
-                score += (side === 'LONG' ? 1 : -1) * fb.bias * 10 * (w.fundamentals || 1);
-                b.lastFundBias = fb;
-            }
+            if (fb && fb.bias) { factors.fundamentals = (side === 'LONG' ? 1 : -1) * fb.bias * 10 * (w.fundamentals || 1); b.lastFundBias = fb; }
         } catch (e) {}
+        score += factors.fundamentals;
         // chaos-rem: te veel chaos -> lagere zekerheid
-        score -= Math.min(15, m.chaos * 2);
+        factors.chaos = -Math.min(15, m.chaos * 2);
+        score += factors.chaos;
         const prob = Math.max(0, Math.min(100, score)) / 100;
-        b.lastProb = prob; b.lastSide = side;
-        m.bestProb = prob; m.bestSide = side;
+        b.lastProb = prob; b.lastSide = side; b.lastFactors = factors;
+        m.bestProb = prob; m.bestSide = side; m.bestFactors = factors;
         return { prob, side };
     } catch (e) { return { prob: 0.5, side: null }; }
 }
@@ -7338,11 +7395,15 @@ function osirisShadowTick() {
                 if (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.GATE_ENTRIES && OsirisDeepNet.markets[sym] && OsirisDeepNet.markets[sym].model) {
                     const dnp = OsirisDeepNet.last[sym] || OsirisDeepNet.predict(sym);
                     if (dnp) {
-                        if (!dnp.meta || dnp.side !== p.side) {
-                            try { logAdaptation(`Osiris slaat ${sym} ${p.side} over`, `DeepNet-poort dicht (${!dnp.meta ? 'meta niet open' : 'DeepNet zegt ' + dnp.side}) - zwakke setup vermeden`); } catch (e) {}
+                        // ZACHTE POORT: alleen blokkeren als de DeepNet MET open meta-poort
+                        // de ANDERE kant op wijst (confident tegen). Is de DeepNet onzeker
+                        // (meta dicht), dan laten we de Osiris-pick door - anders ligt bijna
+                        // alles stil zodra de DeepNet even geen sterk signaal heeft.
+                        if (dnp.meta && dnp.side !== p.side) {
+                            try { logAdaptation(`Osiris slaat ${sym} ${p.side} over`, `DeepNet wijst mét open poort de andere kant op (${dnp.side}) - tegengestelde trade vermeden`); } catch (e) {}
                             continue;
                         }
-                        dnCalProb = dnp.calProb;   // gekalibreerde kans (fractie) voor de positie
+                        if (dnp.meta && dnp.side === p.side) dnCalProb = dnp.calProb;   // gekalibreerde kans bij bevestiging
                     }
                 }
             } catch (e) {}
@@ -7371,6 +7432,7 @@ function osirisShadowTick() {
                 sizePct: sizePct,
                 osirisAllocPct: a,
                 probabilityPct: (dnCalProb != null ? dnCalProb * 100 : (p.prob != null ? p.prob * 100 : null)),   // gekalibreerde DeepNet-kans indien poort meesprak, anders de pick-kans
+                factorsAtEntry: (m.bestFactors ? Object.assign({}, m.bestFactors) : null),   // per-markt factor-uitsplitsing voor zelf-kalibratie
                 openTime: now,
                 isScalp: false,
                 isOsiris: true,
@@ -10990,7 +11052,27 @@ const OsirisDeepNet = {
     HORIZON: 5,                  // forward-return over 5 candles (15m -> ~75 min)
     THR: 0.001,                  // labeldrempel (+0.1%)
     ABSTAIN_MARGIN: 0.60,        // gekalibreerde kans moet >= 0.60 (long) of <= 0.40 (short)
-    META_MIN_PRECISION: 0.55,    // walk-forward-precisie ondergrens voor de meta-gate
+    META_MIN_PRECISION: 0.50,    // ZACHTE basis-drempel; _metaThreshold verlaagt 'm nog als de markt zich bewijst
+    _realizedWinrate: {},        // werkelijke winrate per markt (uit gesloten trades)
+    _lastWrUpdate: 0,
+    _updateRealizedWinrate() {
+        try {
+            const ex = (typeof botTradeLog !== 'undefined' ? botTradeLog : []).filter(t => t.action === 'EXIT');
+            for (const key of ['BTC', 'ETH', 'SOL']) {
+                const rows = ex.filter(t => (t.market || 'BTC') === key).slice(-40);
+                if (rows.length >= 10) this._realizedWinrate[key] = rows.filter(t => (t.pnl || 0) > 0).length / rows.length;
+            }
+        } catch (e) {}
+    },
+    _metaThreshold(key) {
+        let base = this.META_MIN_PRECISION;          // 0.50
+        const wr = this._realizedWinrate[key];
+        if (wr != null) {
+            if (wr >= 0.60) base = Math.min(base, 0.44);
+            else if (wr >= 0.55) base = Math.min(base, 0.47);
+        }
+        return base;
+    },
     RETRAIN_MS: 30 * 60 * 1000,  // hertrain-cadans
     REFRESH_MS: 60 * 1000,       // hoe vaak de laatste candles verversen voor live-predict
     SYMBOLS: { BTC: 'BTCUSDT', ETH: 'ETHUSDT', SOL: 'SOLUSDT' },
@@ -11173,9 +11255,11 @@ const OsirisDeepNet = {
             const mm = neoMultiState.markets[key];
             if (mm && mm.bestSide) agree = (mm.bestSide === side);
         } catch (e) {}
-        // meta-gate: alleen "echt" traden als abstentie-poort open is, het sub-brein
-        // niet tegenspreekt, en de walk-forward-precisie op orde is
-        const wfOk = m.wf ? (m.wf.precision >= this.META_MIN_PRECISION) : false;
+        // meta-gate: zelf-corrigerend. De drempel zakt als de markt zich in de PRAKTIJK
+        // bewijst (hoge realized winrate) ondanks een lage walk-forward - zodat de poort
+        // niet permanent dicht blijft. agree !== false blijft (geen tegenspraak sub-brein).
+        if (Date.now() - (this._lastWrUpdate || 0) > 30000) { this._updateRealizedWinrate(); this._lastWrUpdate = Date.now(); }
+        const wfOk = m.wf ? (m.wf.precision >= this._metaThreshold(key)) : false;
         const meta = trade && (agree !== false) && wfOk;
         const out = { key, raw, calProb: cal, side, conf, trade, agree, meta, features: x, ts: Date.now() };
         this.last[key] = out;
