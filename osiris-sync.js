@@ -14,8 +14,9 @@
  *   <script>window.addEventListener('DOMContentLoaded', osirisSyncInit);</script>
  * ============================================================ */
 
-const OSIRIS_SUPABASE_URL = 'https://brhvybtokdjlmbxmxaiy.supabase.co';   // <-- INVULLEN
-const OSIRIS_SUPABASE_KEY = 'sb_publishable_bTchUvswyWHLAHkumkbN8w_HEAVP0R9';       // <-- INVULLEN (publiek, veilig)
+const OSIRIS_SUPABASE_URL = 'brhvybtokdjlmbxmxaiy.supabase.co';   // <-- INVULLEN
+const OSIRIS_SUPABASE_KEY = 'sb_publishable_bTchUvswyWHLAHkumkbN8w_HEAVP0R9
+';       // <-- INVULLEN (publiek, veilig)
 
 // localStorage-sleutels die we naar de cloud spiegelen (de EXACTE keys die je app schrijft).
 const OSIRIS_STATE_KEYS = [
@@ -104,6 +105,7 @@ async function osirisSyncPush() {
         const { data: ctrl } = await _sb.from('osiris_control').select('desired_running').eq('user_id', _sbUser.id).maybeSingle();
         if (ctrl) _osirisApplyDesiredRunning(ctrl.desired_running);
 
+        try { localStorage.setItem('osirisSyncLastConnected', new Date().toISOString()); } catch (e) {}
         _osirisSyncStamp('gesynct ' + new Date().toLocaleTimeString('nl-NL'), 'ok');
     } catch (e) { console.warn('[osiris-sync] push-fout', e); _osirisSyncStamp('sync-fout (zie console)', 'err'); }
 }
@@ -192,6 +194,7 @@ function _osirisSyncBuildUI() {
       '</div>';
     document.body.appendChild(box);
     _osirisSyncRenderAuth();
+    try { const lc = localStorage.getItem('osirisSyncLastConnected'); if (lc) _osirisSyncStamp('laatst verbonden ' + new Date(lc).toLocaleString('nl-NL')); } catch (e) {}
 }
 function _osirisSyncToggleMin() {
     const b = document.getElementById('osiris-sync-box'); if (!b) return;
