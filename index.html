@@ -561,10 +561,10 @@ section { position:relative; z-index:2; }
   #flow-svg{min-height:220px;}
 }
 </style>
-<style>#jv-legacy{position:fixed!important;left:-100000px!important;top:0!important;width:1280px!important;height:1600px!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important;z-index:-1!important;}.app{position:relative;z-index:1;}#chart-container .hud,#chart-container{background:transparent!important;border:0!important;}</style>
-<style>.jv-mirror{max-height:300px;overflow:auto;font-size:0.64rem;line-height:1.55;} .jv-mirror table{width:100%;border-collapse:collapse;} .jv-mirror::-webkit-scrollbar{width:6px;}.jv-mirror::-webkit-scrollbar-thumb{background:rgba(0,217,255,0.2);border-radius:4px;}</style>
+<style>#tab-charts .hud,#tab-system .hud,#tab-net .hud,#tab-wallet .hud,#tab-feed .hud,#tab-brains .hud,#tab-engine .hud,#tab-overview .hud{background:var(--panel)!important;} .app{position:relative;z-index:1;}</style>
 </head>
 <body>
+<div id="jv-holders" style="display:none"><svg id="hero-eye"></svg><button id="bull-btn" onclick="setEyeSignalManual('bull')"></button><button id="bear-btn" onclick="setEyeSignalManual('bear')"></button><span id="nav-live-price"></span><span id="hub-engine-badge"></span><div id="sec-hub"></div></div><canvas id="site-plexus" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas><canvas id="starmap" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas>
 
 <div class="app">
   <div class="top">
@@ -593,512 +593,166 @@ section { position:relative; z-index:2; }
     <!-- OVERVIEW -->
     <section class="tab show" id="tab-overview">
       <div class="eyebrow">Systeemoverzicht</div><h1 class="h">COMMANDOKERN</h1>
-      <div class="grid mb" style="grid-template-columns:1fr 340px 1fr;align-items:stretch;">
-        <div class="panel">
-          <div class="plabel">Prestatie</div>
-          <div class="grid" style="grid-template-columns:1fr 1fr;gap:8px;">
-            <div class="gauge"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" stroke="rgba(255,255,255,0.07)" stroke-width="7" fill="none"/><circle cx="50" cy="50" r="40" stroke="var(--green)" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="63" transform="rotate(-90 50 50)"/><text class="gv" x="50" y="55" text-anchor="middle">75%</text></svg><span class="gl">Winrate 24u</span></div>
-            <div class="gauge"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" stroke="rgba(255,255,255,0.07)" stroke-width="7" fill="none"/><circle cx="50" cy="50" r="40" stroke="var(--cyan)" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="100" transform="rotate(-90 50 50)"/><text class="gv" x="50" y="55" text-anchor="middle">60%</text></svg><span class="gl">Allocatie</span></div>
+<div class="reactor"><canvas id="brain" style="width:100%;height:280px;"></canvas><div class="core-label"><div class="v">OSIRIS</div><div class="l">mainbrain · levend</div></div></div>
+<div id="bot-monitor" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px;">
+          <div class="meter"><div class="l">STATUS</div><div class="v" style="font-size:0.9rem; color:var(--teal);" id="bot-status">STANDBY</div></div>
+          <div class="meter"><div class="l">LIVE P/L</div><div class="v" style="font-size:0.9rem;" id="bot-pnl">0.00%</div></div>
+          <div class="meter"><div class="l">OPEN POSITIES</div><div class="v" style="font-size:0.9rem;" id="bot-position">Geen</div></div>
+          <div class="meter"><div class="l">LAATSTE ACTIE</div><div class="v" style="font-size:0.7rem; line-height:1.3;" id="bot-last-action">-</div></div>
+        </div>
+        <div style="text-align:center; margin:26px 0 4px;">
+          <div class="mock-title" style="display:inline-flex; gap:10px; align-items:center; justify-content:center;">
+            <span style="width:26px; height:1px; background:var(--cyan);"></span>Ocular Core &middot; the heart of the bot <span id="flow-hud-chev" style="display:none;">&#9662;</span><span style="width:26px; height:1px; background:var(--cyan);"></span>
           </div>
-          <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px;">
-            <div class="kpi"><span class="l">Equity</span><span class="v">&#8366;999.06</span></div>
-            <div class="kpi"><span class="l">Gerealiseerde P/L</span><span class="v pos">+&#8366;0.93</span><span class="s">+0.09% sessie &middot; break-even 46%</span></div>
+          <div class="livep" id="flow-price" style="font-size:0.82rem; margin-top:6px;">&mdash;</div>
+        </div>
+        <div id="flow-hud">
+          <div id="flow-hud-body">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:stretch; background:#000004; border-radius:10px; padding:6px;">
+              <!-- LINKERKOLOM: oog boven, neuraal netwerk onder -->
+              <div style="display:flex; flex-direction:column; gap:10px;">
+                <div id="eye-cell" class="neo-quad">
+                <canvas id="eye-plexus" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></canvas>
+                <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#00d9ff; letter-spacing:2px; z-index:2;">OSIRIS &middot; QUANTUM TRACKING</div>
+                <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">ocular core &middot; live feed</div>
+                <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="display:block; margin:0 auto; position:relative; z-index:1;">
+                <g id="w-eye"></g>
+                <g font-family="'JetBrains Mono',monospace" font-size="9">
+                  <text x="14" y="200" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
+                  <text x="150" y="105" fill="#5c7488">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
+                  <text x="150" y="295" fill="#5c7488">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
+                  <text x="240" y="40" fill="#5c7488">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
+                  <text x="240" y="360" fill="#5c7488">SENT <tspan fill="#c792ea" id="flow-sent">&mdash;</tspan></text>
+                  <text x="986" y="200" fill="#5c7488" text-anchor="end">KANS L/S <tspan fill="#00ff9f" id="flow-prob">&mdash;</tspan></text>
+                  <text x="850" y="105" fill="#5c7488" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
+                  <text x="850" y="295" fill="#5c7488" text-anchor="end">REGIME <tspan fill="#14f195" id="flow-regime">&mdash;</tspan></text>
+                  <text x="760" y="40" fill="#5c7488" text-anchor="end">NODE <tspan fill="#c792ea" id="flow-node">&mdash;</tspan></text>
+                  <text x="760" y="360" fill="#5c7488" text-anchor="end">MID <tspan fill="#4fc3f7" id="flow-mid">&mdash;</tspan></text>
+                </g>
+                <circle id="flow-pupil" cx="500" cy="200" r="1" fill="none" stroke="none"/>
+                </svg>
+                </div>
+                <div id="neo-net-panel" class="neo-quad">
+                  <canvas id="neo-net-canvas"></canvas>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">NEO &middot; NEURAL NET</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">actieve verwerking &middot; live</div>
+                  <div id="neo-net-decision" style="position:absolute; top:8px; right:10px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out" style="font-size:0.8rem;">&mdash;</span></div>
+                </div>
+              </div>
+              <!-- RECHTERKOLOM: hoofd boven, brein onder -->
+              <div style="display:flex; flex-direction:column; gap:10px;">
+                <div id="neo-panel" class="neo-quad">
+                  <canvas id="neo-canvas"></canvas>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">OSIRIS &middot; CORE</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">leerhi&euml;rarchie L1&middot;L2&middot;L3 &rarr; mainbrain</div>
+                  <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8; z-index:2;"><span id="neo-samples">0</span> samples</div>
+                  <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff; z-index:2;">kans <span id="neo-prob">&mdash;</span></div>
+                </div>
+                <div id="neo-brain-panel" class="neo-quad">
+                  <canvas id="neo-brain-canvas"></canvas>
+                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#c792ea; letter-spacing:2px; z-index:2;">NEO &middot; CORTEX</div>
+                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">brein-plexus &middot; lerend</div>
+                  <div id="neo-brain-bias" style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff; z-index:2;">bias <span id="neo-brain-out">&mdash;</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="neo-quad" style="height:auto; min-height:150px; margin-top:10px; padding:10px 12px; display:block;">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
+                <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">OSIRIS &middot; DEEPNET &mdash; per-markt voorspelling</span>
+                <div style="display:flex; gap:12px; align-items:center;">
+                <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#eaffff; cursor:pointer; display:flex; gap:5px; align-items:center;">
+                  <input type="checkbox" id="deepnet-gate-toggle" onchange="deepNetGate(this.checked)" checked> poort entries
+                </label>
+                <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#eaffff; cursor:pointer; display:flex; gap:5px; align-items:center;">
+                  <input type="checkbox" id="deepnet-live-toggle" onchange="deepNetToggle(this.checked)"> live (stuurt exits)
+                </label>
+                </div>
+              </div>
+              <canvas id="deepnet-canvas" style="width:100%; height:130px; display:block;"></canvas>
+              <div id="deepnet-status" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7d99ac; margin-top:6px;">DeepNet initialiseert...</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#5c7488; margin-top:4px;">Shadow: voorspelt en visualiseert, raakt geen live trades tot 'live' aan staat. Zet pas live na het bekijken van de walk-forward-precisie (wf-prec) per markt.</div>
+            </div>
+            <div class="hub-statusbar" style="margin-top:10px;">
+              <div class="eye-foot">
+                <span class="live-dot" style="flex:none;"></span>
+                <span id="flow-console">Ocular core initialiseert...</span>
+                <span class="hud-micro" style="animation:hudBlink 2s infinite;">SYS <span id="flow-sys" style="color:#00d9ff;">NOMINAAL</span></span>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="reactor"><canvas id="brain" style="width:100%;height:300px;"></canvas><div class="core-label"><div class="v">OSIRIS</div><div class="l">mainbrain &middot; levend</div></div></div>
-        <div class="panel">
-          <div class="plabel">Equity-verdeling</div>
-          <div style="display:flex;flex-direction:column;gap:10px;">
-            <div><div class="flex between"><span style="color:var(--eth);font-weight:700;font-size:0.68rem;">ETH SHORT</span><span class="muted">60% &middot; 100%</span></div><div class="bar"><i style="width:100%;background:var(--eth)"></i></div></div>
-            <div><div class="flex between"><span style="color:var(--sol);font-weight:700;font-size:0.68rem;">SOL LONG</span><span class="muted">56% &middot; 46%</span></div><div class="bar"><i style="width:46%;background:var(--sol)"></i></div></div>
-            <div><div class="flex between"><span style="color:var(--btc);font-weight:700;font-size:0.68rem;">BTC &mdash;</span><span class="muted">56% &middot; 0%</span></div><div class="bar"><i style="width:4%;background:var(--btc)"></i></div></div>
-          </div>
-          <div class="plabel" style="margin-top:16px;">Fundamentals &middot; cross-markt</div>
-          <div class="stat"><span class="muted">Funding rate</span><b>0.0056%</b></div>
-          <div class="stat"><span class="muted">Open interest</span><b>+0.0%</b></div>
-          <div class="stat"><span class="muted">Long/short ratio</span><b>1.14</b></div>
-          <div class="stat" style="border:0"><span class="muted">BTC-correlatie</span><b>0.82</b></div>
-        </div>
-      </div>
-      <div class="grid g-3">
-        <div class="panel"><div class="flex between center"><span style="color:var(--btc);font-family:Orbitron;font-weight:700">BTC</span><span class="muted">winrate 64%</span></div><div class="bar"><i style="width:64%;background:var(--btc)"></i></div><div class="flex gap wrap" style="margin-top:8px;"><span class="chip">wf 69%</span><span class="chip on">meta open</span><span class="chip">goed gekal.</span></div></div>
-        <div class="panel"><div class="flex between center"><span style="color:var(--eth);font-family:Orbitron;font-weight:700">ETH</span><span class="muted">winrate 63%</span></div><div class="bar"><i style="width:63%;background:var(--eth)"></i></div><div class="flex gap wrap" style="margin-top:8px;"><span class="chip">wf 65%</span><span class="chip on">meta open</span><span class="chip warn">overconf +10</span></div></div>
-        <div class="panel"><div class="flex between center"><span style="color:var(--sol);font-family:Orbitron;font-weight:700">SOL</span><span class="muted">winrate 60%</span></div><div class="bar"><i style="width:60%;background:var(--sol)"></i></div><div class="flex gap wrap" style="margin-top:8px;"><span class="chip">wf 48%</span><span class="chip on">meta open*</span><span class="chip">onderconf &minus;14</span></div></div>
-      </div>
-      <div class="grid g-4" style="margin-top:14px">
-        <div class="panel"><div class="kpi"><span class="l">Status</span><span class="v" style="color:var(--green);font-size:1rem">ACTIEF</span></div></div>
-        <div class="panel"><div class="kpi"><span class="l">Live P/L</span><span class="v neg" style="font-size:1rem">&minus;0.15% (&minus;&#8366;1.53)</span></div></div>
-        <div class="panel"><div class="kpi"><span class="l">Open posities</span><span class="v" style="font-size:1rem">SHORT + LONG</span></div></div>
-        <div class="panel"><div class="kpi"><span class="l">Laatste actie</span><span class="s" style="margin-top:4px;color:var(--cyan);display:block;line-height:1.5">ENTRY LONG @ $76 (3.099 BTC &asymp; &#8366;236.54) [OSIRIS SOL LONG (kans 59%) TESTNET fill] (08:33:27)</span></div></div>
-      </div>
-      <div class="panel" style="margin-top:14px"><div class="plabel">Adaptief leren &middot; samenvatting (L1 &middot; L2 &middot; L3)</div>
-        <div class="grid g-3">
-          <div><div class="muted">Level 1 &middot; factor-gewichten</div><div style="font-size:0.6rem;line-height:1.7;margin-top:3px">momentum 1.42&#9650; &middot; fib 0.60&#9660; &middot; ema 1.06&#9650;<br><span class="muted">contrafactueel geleerd</span></div></div>
-          <div><div class="muted">Level 2 &middot; logistisch</div><div style="font-size:0.6rem;line-height:1.7;margin-top:3px">val-acc 65% &middot; 1948 samples &middot; weegt 15%<br><span class="muted">per markt via DeepNet</span></div></div>
-          <div><div class="muted">Level 3 &middot; neuraal net</div><div style="font-size:0.6rem;line-height:1.7;margin-top:3px">val-acc 61% &middot; weging 29% (cap 45%)<br><span class="muted">deep feedforward</span></div></div>
-        </div>
-      </div>
-      <div class="netwrap" style="margin-top:14px">
-        <canvas id="net-ov" style="width:100%;height:360px;display:block;"></canvas>
-        <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">multi-brein neuraal netwerk &middot; onder de commandokern</div></div>
-        <div class="net-out"><div class="l">Beslissing</div><div class="v">ETH SHORT 60%</div></div>
-      </div>
+
+        
+
     </section>
 
     <!-- NEURAL NET -->
     <section class="tab" id="tab-net">
       <div class="eyebrow">Kernvisualisatie</div><h1 class="h">MULTI-BREIN NEURAAL NETWERK</h1>
-      <div class="netwrap mb">
-        <canvas id="netcv" style="width:100%;height:520px;display:block;"></canvas>
-        <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">15 inputs &rarr; integratie &rarr; cores &rarr; osiris &rarr; 1 uitkomst</div></div>
-        <div class="net-out"><div class="l">Beslissing</div><div class="v">ETH SHORT 60%</div></div>
-      </div>
-      <div class="grid g-3">
-        <div class="panel"><div class="plabel">DeepNet-band &middot; live</div><div style="font-size:0.62rem;line-height:2;"><span style="color:var(--btc)">BTC 23% SHORT</span> &middot; meta <span style="color:var(--green)">open</span><br><span style="color:var(--eth)">ETH 36% SHORT</span> &middot; meta <span style="color:var(--green)">open</span><br><span style="color:var(--sol)">SOL 30% SHORT</span> &middot; meta <span style="color:var(--green)">open*</span></div></div>
-        <div class="panel"><div class="plabel">Lagen</div><div style="font-size:0.6rem;line-height:1.9;color:var(--dim)">INPUTS <b style="color:#eafcff">15</b> &middot; INTEGRATIE <b style="color:#eafcff">14</b> &middot; CORES <b style="color:#eafcff">3</b> &middot; OSIRIS <b style="color:#eafcff">4</b> &middot; BESLISSING <b style="color:#eafcff">3</b> &middot; UITKOMST <b style="color:#eafcff">1</b></div></div>
-        <div class="panel"><div class="plabel">Signalen (inputs)</div><div style="font-size:0.5rem;color:var(--dim);line-height:1.9;">VFM &middot; ER &middot; DB &middot; CHAOS &middot; MOM &middot; VOL-Z &middot; RSI &middot; EMA &middot; CNN &middot; FIB &middot; NN &middot; CONF &middot; FUND &middot; L/S &middot; BTC-COR</div></div>
-      </div>
+<div class="subhead" style="margin-top:20px;">&#9673; Multi-Brein Neuraal Netwerk &middot; Osiris + Neo BTC/ETH/SOL &middot; DeepNet-laag</div>
+        <div id="neonet-big-panel" style="position:relative; height:560px; background:#000004; border:1px solid rgba(0,217,255,0.2); border-radius:10px; overflow:hidden;">
+          <canvas id="neo-net-canvas-big"></canvas>
+          <div style="position:absolute; top:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">MULTI-BREIN NEURAAL NETWERK</div>
+          <div style="position:absolute; top:26px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">15 inputs &rarr; integratie &rarr; sub-breinen (BTC/ETH/SOL) &rarr; Osiris mainbrain &rarr; 1 uitkomst</div>
+          <div style="position:absolute; top:10px; right:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out-big" style="font-size:0.85rem;">&mdash;</span></div>
+        </div>
+
+        
+
     </section>
 
     <!-- WALLET -->
     <section class="tab" id="tab-wallet">
       <div class="eyebrow">Kapitaal</div><h1 class="h">WALLET &amp; POSITIES</h1>
-
-      <div class="grid mb" style="grid-template-columns:1fr 1.15fr 1fr;gap:14px" data-r="wal3">
-        <div class="panel"><div class="plabel">Kern-metrics</div>
-          <div class="grid g-3" style="gap:12px">
-            <div class="kpi"><span class="l">P/L</span><span class="v pos" data-src="kpi-pnl">+&#8366;0.93</span></div>
-            <div class="kpi"><span class="l">Winrate</span><span class="v" data-src="kpi-winrate">75%</span></div>
-            <div class="kpi"><span class="l">Cal. edge</span><span class="v" style="color:var(--amber)" data-src="kpi-cal">27%</span></div>
-            <div class="kpi"><span class="l">Break-even</span><span class="v" data-src="kpi-breakeven">46%</span></div>
-            <div class="kpi"><span class="l">Alloc</span><span class="v" data-src="kpi-alloc">60%</span></div>
-            <div class="kpi"><span class="l">Equity</span><span class="v" data-src="wallet-equity">&#8366;999</span></div>
+<div class="panel" style="text-align:center;margin-bottom:14px"><div class="plabel" style="justify-content:center;color:var(--cyan)">OSIRIS · QUANTUM TRACKING</div><canvas id="eye" style="width:100%;height:220px;display:block"></canvas></div>
+<div class="subhead" style="display:flex; justify-content:space-between; align-items:center; gap:8px;"><span>Wallet status</span><span style="display:flex; gap:8px;"><button type="button" onclick="stopAutonomousBot()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);">&#9632; Stop bot</button><button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button></span></div>
+        <div class="kpi-strip" style="border:1px solid var(--line);">
+          <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
+          <div class="kpi"><small>win rate</small><b id="kpi-winrate">&mdash;</b></div>
+          <div class="kpi"><small>cal. edge</small><b id="kpi-cal" style="color:var(--amber);">&mdash;</b></div>
+          <div class="kpi" title="De winrate die je minimaal nodig hebt om quitte te spelen, berekend uit de gemiddelde winst/verlies-verhouding van gesloten trades. Zit je werkelijke winrate hierboven, dan ben je netto winstgevend."><small>break-even</small><b id="kpi-breakeven" style="color:var(--cyan);">&mdash;</b></div>
+          <div class="kpi"><small>alloc</small><b id="kpi-alloc">&mdash;</b></div>
+          <div class="kpi"><small>equity</small><b id="hub-equity">&mdash;</b><span id="hub-equity-pct" style="display:none;"></span></div>
+        </div>
+        <span id="wallet-realized-pnl" style="display:none;"></span><span id="wallet-unrealized-pnl" style="display:none;"></span>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
+          <div>
+            <div class="mock-title" style="margin-bottom:8px;">Exit &middot; bijdrage</div>
+            <div class="mono" id="exit-dist" style="font-size:0.62rem; color:#7d99ac;">Nog geen gesloten trades.</div>
+          </div>
+          <div>
+            <div class="mock-title" style="margin-bottom:8px;">&#9673; Osiris &middot; equity-verdeling</div>
+            <div id="osiris-panel"><span style="color:var(--text-dim); font-size:0.62rem;">Osiris verzamelt data van de sub-breinen...</span></div>
           </div>
         </div>
-        <div class="panel" style="text-align:center"><div class="plabel" style="justify-content:center;color:var(--cyan)">OSIRIS &middot; QUANTUM TRACKING</div>
-          <canvas id="eye" style="width:100%;height:230px;display:block"></canvas>
-          <div class="grid g-3" style="gap:6px;margin-top:10px;font-size:0.52rem">
-            <div><b style="color:var(--btc)">BTC</b><br><span class="muted">track 92%</span><br><span style="color:var(--red)">SHORT</span></div>
-            <div><b style="color:var(--eth)">ETH</b><br><span class="muted">track 88%</span><br><span style="color:var(--red)">SHORT</span></div>
-            <div><b style="color:var(--sol)">SOL</b><br><span class="muted">track 61%</span><br><span class="muted">abst</span></div>
-          </div>
-          <div class="muted" style="margin-top:8px;font-size:0.5rem">lock 3/3 &middot; drift 0.12 &middot; horizon 15m</div>
+        <div class="subhead">Open Posities</div>
+        <div class="table-wrap" style="overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
+            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th>Markt</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size</th><th>Alloc</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
+            <tbody id="open-positions-body">
+              <tr><td colspan="10" style="text-align:center; color:var(--dim); padding:8px;">Geen open posities</td></tr>
+            </tbody>
+          </table>
         </div>
-        <div class="panel"><div class="plabel">Live status</div>
-          <div class="grid g-2" style="gap:12px">
-            <div class="kpi"><span class="l">Status</span><span class="v" style="color:var(--green);font-size:1.1rem" data-src="bot-status">ACTIEF</span></div>
-            <div class="kpi"><span class="l">Live P/L</span><span class="v neg" style="font-size:1.1rem" data-src="bot-pnl">&minus;0.15% (&minus;&#8366;1.53)</span></div>
-            <div class="kpi"><span class="l">Open posities</span><span class="v" style="font-size:1.1rem" data-src="bot-position">SHORT + LONG</span></div>
-            <div class="kpi"><span class="l">Engine runtime</span><span class="v" style="font-size:1.1rem" data-src="bot-runtime">4u 46m</span></div>
-            <div class="kpi"><span class="l">Laatste actie</span><span class="s" style="margin-top:4px;color:var(--cyan);display:block;line-height:1.5">ENTRY LONG @ $76 [OSIRIS SOL LONG (kans 59%) TESTNET fill] (08:33:27)</span></div>
-          </div>
+        <div class="subhead">Pending Orders <span style="font-weight:400; color:var(--dimmer); font-size:0.85em; text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
+        <div id="pending-orders-list" style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--tx);">
+          <span style="color:var(--dim);">Geen pending orders</span>
         </div>
-      </div>
-
-      <div class="netwrap mb">
-        <canvas id="net-wal" style="width:100%;height:320px;display:block;"></canvas>
-        <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">multi-brein neuraal netwerk &middot; live</div></div>
-        <div class="net-out"><div class="l">Beslissing</div><div class="v">ETH SHORT 60%</div></div>
-      </div>
-
-      <div class="grid g-2 mb">
-        <div class="panel">
-          <div class="plabel">Exit &middot; bijdrage</div>
-          <div class="flex between center" style="margin-bottom:7px;font-size:0.58rem"><span style="width:78px;color:var(--dim)">EARLY_STOP</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:90%;background:var(--red)"></i></div><span class="neg">&minus;29.4</span></div>
-          <div class="flex between center" style="margin-bottom:7px;font-size:0.58rem"><span style="width:78px;color:var(--dim)">PROB_COLL</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:35%;background:var(--red)"></i></div><span class="neg">&minus;7.7</span></div>
-          <div class="flex between center" style="margin-bottom:7px;font-size:0.58rem"><span style="width:78px;color:var(--dim)">TIME_STOP</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:14%;background:var(--red)"></i></div><span class="neg">&minus;2.9</span></div>
-          <div class="flex between center" style="margin-bottom:7px;font-size:0.58rem"><span style="width:78px;color:var(--dim)">STOP_LOSS</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:9%;background:var(--red)"></i></div><span class="neg">&minus;1.6</span></div>
-          <div class="flex between center" style="margin-bottom:7px;font-size:0.58rem"><span style="width:78px;color:var(--dim)">REALLOCAT</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:7%;background:var(--red)"></i></div><span class="neg">&minus;1.3</span></div>
-          <div class="flex between center" style="font-size:0.58rem"><span style="width:78px;color:var(--dim)">TARGET</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:6%;background:var(--green)"></i></div><span class="pos">+0.4</span></div>
-          <div class="note">EARLY_STOP_TREND is de grootste verliesbron &mdash; nachtelijke uren (00&ndash;06 UTC) blijven zwak.</div>
+        <div class="subhead">Gesloten Posities &mdash; Huidige Sessie</div>
+        <div class="table-wrap scrollable" style="max-height:220px; overflow-y:auto;">
+          <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
+            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th></tr></thead>
+            <tbody id="history-body"></tbody>
+          </table>
         </div>
-        <div class="panel">
-          <div class="plabel">Equity-verdeling</div>
-          <div><div class="flex between"><span style="color:var(--eth);font-weight:700;font-size:0.68rem;">ETH SHORT</span><span class="muted">60% &middot; 100%</span></div><div class="bar"><i style="width:100%;background:var(--eth)"></i></div></div>
-          <div style="margin-top:8px"><div class="flex between"><span style="color:var(--sol);font-weight:700;font-size:0.68rem;">SOL LONG</span><span class="muted">56% &middot; 46%</span></div><div class="bar"><i style="width:46%;background:var(--sol)"></i></div></div>
-          <div style="margin-top:8px"><div class="flex between"><span style="color:var(--btc);font-weight:700;font-size:0.68rem;">BTC &mdash;</span><span class="muted">56% &middot; 0%</span></div><div class="bar"><i style="width:4%;background:var(--btc)"></i></div></div>
-          <div class="plabel" style="margin-top:16px">Fundamentals &middot; cross-markt</div>
-          <div class="stat"><span class="muted">Funding rate</span><b>0.0056%</b></div>
-          <div class="stat"><span class="muted">Open interest</span><b>+0.0%</b></div>
-          <div class="stat"><span class="muted">Long/short ratio</span><b>1.14</b></div>
-          <div class="stat" style="border:0"><span class="muted">BTC-correlatie</span><b>0.82</b></div>
-        </div>
-      </div>
+        
 
-      <div class="panel mb">
-        <div class="plabel">Open posities</div>
-        <table><thead><tr><th>Type</th><th>Markt</th><th>Side</th><th>Entry</th><th>Size</th><th>Alloc</th><th>P/L</th><th></th></tr></thead><tbody>
-          <tr><td><span class="tag" style="background:rgba(0,217,255,0.12);color:var(--cyan)">OSIRIS</span> <span class="tag" style="background:rgba(124,92,255,0.15);color:var(--iris)">TREND</span></td><td style="color:var(--eth)">ETH</td><td class="neg">SHORT</td><td>$1917</td><td>&#8366;368</td><td>37%</td><td class="neg">&minus;0.41%</td><td><button class="btn danger" style="padding:3px 9px;font-size:0.5rem">Sluit</button></td></tr>
-          <tr><td><span class="tag" style="background:rgba(0,217,255,0.12);color:var(--cyan)">OSIRIS</span> <span class="tag" style="background:rgba(124,92,255,0.15);color:var(--iris)">TREND</span></td><td style="color:var(--sol)">SOL</td><td class="pos">LONG</td><td>$75</td><td>&#8366;233</td><td>23%</td><td class="neg">&minus;0.11%</td><td><button class="btn danger" style="padding:3px 9px;font-size:0.5rem">Sluit</button></td></tr>
-        </tbody></table>
-        <div class="plabel" style="margin-top:16px;">Pending orders</div>
-        <div class="muted">Geen pending orders &mdash; Osiris wacht op instapprijs.</div>
-      </div>
-
-      <div class="panel mb">
-        <div class="plabel">Gesloten posities &middot; historie</div>
-        <table><thead><tr><th>Datum/tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th></tr></thead><tbody id="jv-history-body">
-          <tr><td class="muted">08-08 11:31</td><td class="muted">OSIRIS&middot;TREND</td><td style="color:var(--sol)">SOL</td><td>LONG</td><td>$75</td><td>&#8366;331</td><td>33%</td><td class="pos">+0.12% (+&#8366;0.40)</td></tr>
-          <tr><td class="muted">08-08 10:01</td><td class="muted">OSIRIS&middot;TREND</td><td style="color:var(--sol)">SOL</td><td>LONG</td><td>$75</td><td>&#8366;221</td><td>22%</td><td class="pos">+0.01% (+&#8366;0.03)</td></tr>
-          <tr><td class="muted">08-08 09:24</td><td class="muted">OSIRIS&middot;TREND</td><td style="color:var(--eth)">ETH</td><td>LONG</td><td>$1918</td><td>&#8366;350</td><td>35%</td><td class="neg">&minus;0.01% (&minus;&#8366;0.03)</td></tr>
-          <tr><td class="muted">08-08 08:51</td><td class="muted">OSIRIS&middot;TREND</td><td style="color:var(--sol)">SOL</td><td>LONG</td><td>$75</td><td>&#8366;233</td><td>23%</td><td class="pos">+0.23% (+&#8366;0.53)</td></tr>
-        </tbody></table>
-      </div>
-
-      <div class="grid g-2">
-        <div class="panel"><div class="plabel">Beredenering (live &middot; scrollbaar)</div><div class="feed" style="height:240px">
-          <div class="row"><span class="k">INDICATOREN</span> &middot; MA12 65049 / MA26 65023 &middot; RSI14 65</div>
-          <div class="row"><span class="k">EINDSCORE</span> &middot; LONG ~28% (kal. 13%) vs. drempel 80%</div>
-          <div class="row"><span class="k">FUNDAMENTALS</span> &middot; funding 0.0056% &middot; L/S 1.14 &middot; bias &minus;0.11</div>
-          <div class="row"><span class="k">DEEPNET</span> &middot; BTC 23% &middot; ETH 36% &middot; SOL 30% SHORT</div>
-          <div class="row"><span class="k">OSIRIS</span> &middot; opent SOL LONG &middot; kans 56% &middot; alloc 46%</div>
-          <div class="row"><span class="k">STATUS</span> &middot; bearish &middot; geen setup boven drempel</div>
-          <div class="row"><span class="k">NODE</span> &middot; volgende NN over 01:33:45</div>
-        </div></div>
-        <div class="panel"><div class="plabel">Autonome aanpassing &mdash; wat Neo zelf aanpast (scrollbaar)</div><div class="feed adapt" style="height:240px">
-          <div class="row"><span class="t">[11:50]</span> Neo SOL: factor-gewichten bijgesteld <span class="muted">rsi 1.00&rarr;0.92, ema 1.00&rarr;1.06</span></div>
-          <div class="row"><span class="t">[11:46]</span> Osiris opent SOL LONG <span class="muted">kans 56%, allocatie 46%</span></div>
-          <div class="row"><span class="t">[11:31]</span> Meta-poort SOL geopend <span class="muted">winrate 60% &rarr; drempel 44%</span></div>
-          <div class="row"><span class="t">[11:14]</span> Circuit breaker: expectancy hersteld <span class="muted">entries hervat</span></div>
-          <div class="row"><span class="t">[11:13]</span> Engine herzien (winrate 43%) <span class="muted">instellingen passen bij de data</span></div>
-          <div class="row"><span class="t">[10:45]</span> Time-stop A/B: dynamisch actief <span class="muted">beter dan vast</span></div>
-        </div></div>
-      </div>
     </section>
 
     <!-- CHARTS -->
     <section class="tab" id="tab-charts">
       <div class="eyebrow">Markt &middot; prijs &amp; volume &middot; view-only (bot rekent altijd op 15m)</div><h1 class="h">MARKET CHART</h1>
-      <div class="flex gap wrap mb"><span class="chip" data-act="timeframe" data-arg="1m">1m</span><span class="chip on" data-act="timeframe" data-arg="15m">15m</span><span class="chip" data-act="timeframe" data-arg="30m">30m</span><span class="chip" data-act="timeframe" data-arg="45m">45m</span><span class="chip" data-act="timeframe" data-arg="1h">1h</span><span class="chip" data-act="timeframe" data-arg="4h">4h</span></div>
-      <div class="cfg mb">
-        <div class="field"><label>Fibonacci schaal</label><div class="box">Micro</div></div>
-        <div class="field"><label>Node type</label><div class="box">Alle nodes</div></div>
-        <div class="field"><label>Posities op chart</label><div class="box">Verborgen</div></div>
-        <div class="field"><label>Patronen op chart</label><div class="box">Verborgen</div></div>
-        <div class="field"><label>Neo's Node (NN) &middot; exp.</label><div class="box">Verborgen</div></div>
-        <div class="field"><label>Valuta (chart)</label><div class="box">USD ($)</div></div>
-        <div class="field"><label>Moving average</label><div class="box">Verborgen</div></div>
-        <div class="field"><label>RSI</label><div class="box">Verborgen</div></div>
-        <div class="field"><label>Voorspelling</label><div class="box">Verborgen</div></div>
-        <div class="field"><label>Orderblocks</label><div class="box">Verborgen</div></div>
-        <div class="field"><label>SVP / value area</label><div class="box">Tonen</div></div>
-        <div class="field"><label>Cumulatief delta (COB)</label><div class="box">Verborgen</div></div>
-      </div>
-      <div class="flex gap mb"><span class="chip on" onclick="setChartMkt('BTC',this)">BTC</span><span class="chip" onclick="setChartMkt('ETH',this)">ETH</span><span class="chip" onclick="setChartMkt('SOL',this)">SOL</span><span class="muted" style="align-self:center">&middot; multi-markt engine actief &middot; 29s geleden ververst</span></div>
-      <div class="grid mb" style="grid-template-columns:1fr 210px;gap:14px">
-        <div class="panel" style="padding:10px"><div class="flex between" style="font-size:0.58rem;margin-bottom:6px"><b id="chart-sym" style="color:var(--cyan)">BTC/USDT</b><span class="muted">O 64815 &middot; H 64821 &middot; L 64815 &middot; C 64821</span></div><div id="chart-container" style="width:100%;height:340px;"></div></div>
-        <div class="panel" style="padding:10px"><div class="flex gap mb"><span class="chip on">SVP</span><span class="chip">COB</span></div><canvas id="svp" style="width:100%;height:320px;display:block;"></canvas><div class="muted" style="margin-top:6px;font-size:0.48rem">POC 65805 &middot; VA 63717&ndash;65856</div></div>
-      </div>
-      <div class="panel mb">
-        <div class="plabel"><span>Prijs &amp; volume historie &middot; 15M (scrollbaar)</span><span class="flex gap"><span class="chip on" onclick="setHistMkt('BTC',this)">BTC</span><span class="chip" onclick="setHistMkt('ETH',this)">ETH</span><span class="chip" onclick="setHistMkt('SOL',this)">SOL</span><button class="btn">&#8595; download</button></span></div>
-        <div style="max-height:220px;overflow:auto"><table><thead><tr><th>Datum/tijd</th><th>O</th><th>H</th><th>L</th><th>C</th><th>Vol</th></tr></thead><tbody id="hist-body"></tbody></table></div>
-      </div>
-      <div class="grid g-3">
-        <div class="panel"><div class="flex between center"><span style="color:var(--btc);font-family:Orbitron;font-weight:700">BTC</span><span style="font-family:Orbitron">$64,158</span></div><canvas class="spark" data-c="#f7931a" style="width:100%;height:52px;margin-top:8px"></canvas><div class="muted" style="margin-top:6px">MA12 65049 &middot; RSI 65 &middot; bullish</div></div>
-        <div class="panel"><div class="flex between center"><span style="color:var(--eth);font-family:Orbitron;font-weight:700">ETH</span><span style="font-family:Orbitron">$1,877</span></div><canvas class="spark" data-c="#627eea" style="width:100%;height:52px;margin-top:8px"></canvas><div class="muted" style="margin-top:6px">MA12 1875 &middot; RSI 58 &middot; neutraal</div></div>
-        <div class="panel"><div class="flex between center"><span style="color:var(--sol);font-family:Orbitron;font-weight:700">SOL</span><span style="font-family:Orbitron">$74.20</span></div><canvas class="spark" data-c="#14f195" style="width:100%;height:52px;margin-top:8px"></canvas><div class="muted" style="margin-top:6px">MA12 74.0 &middot; RSI 61 &middot; bullish</div></div>
-      </div>
-    </section>
 
-    <!-- BRAINS -->
-    <section class="tab" id="tab-brains">
-      <div class="eyebrow">Adaptief leren &middot; per markt</div><h1 class="h">DE CORTEX &amp; HET LEREN</h1>
-      <div class="flex gap mb wrap center"><span class="chip on">Neo BTC</span><span class="chip">Neo ETH</span><span class="chip">Neo SOL</span><span class="chip">Osiris Mainbrain</span><span style="flex:1"></span><button class="btn" data-act="fn" data-arg="downloadAdaptiveLearning">&#8681; download leerdata</button></div>
-      <div class="panel mb" style="border-color:rgba(0,217,255,0.4)">
-        <div class="plabel" style="color:var(--cyan)">&#9673; OSIRIS DEEPNET &mdash; voorspellend leren (live)</div>
-        <div style="font-size:0.64rem;line-height:2"><span style="color:var(--btc);font-weight:700">BTC</span> wf-prec <b>88%</b> &middot; nu 23% SHORT &nbsp;&nbsp; <span style="color:var(--eth);font-weight:700">ETH</span> wf-prec <b>82%</b> &middot; nu 34% SHORT &nbsp;&nbsp; <span style="color:var(--sol);font-weight:700">SOL</span> wf-prec <b>61%</b> &middot; nu 32% [abst]<br>Time-stop A/B: dyn &minus;0.07% vs vast &minus;0.08% &rarr; <span style="color:var(--green)">dyn actief</span></div>
-        <div class="note">Bar-level forward-return per markt &middot; Platt-gekalibreerd &middot; abstentie &ge;60% &middot; meta-gate wf-prec &ge;50%. Osiris meet autonoom of de dynamische time-stop beter is dan de oude vaste, en zet 'm anders zelf terug.</div>
-      </div>
-      <div class="panel mb">
-        <div class="plabel">Per-core detail</div>
-        <div style="font-size:0.62rem;line-height:1.8"><b style="color:var(--eth)">&#9673; Neo ETH &mdash; getraind net</b><br>Het eigen net van Neo ETH traint zodra er genoeg ETH-trades zijn (nu 8, doel ~60). Tot dan gebruikt ETH zijn core-score plus de gedeelde fundamentals.</div>
-      </div>
-      <div class="grid g-3 mb">
-        <div class="panel"><div class="plabel"><span>Level 1 &middot; factor-gewichten</span><span class="muted">contrafactueel</span></div>
-          <div class="stat"><span class="muted">confluence</span><b>1.00</b></div>
-          <div class="stat"><span class="muted">node-influence</span><b>0.55 &#9660;</b></div>
-          <div class="stat"><span class="muted">momentum</span><b>1.42 &#9650;</b></div>
-          <div class="stat"><span class="muted">fib-confluence</span><b>0.60 &#9660;</b></div>
-          <div class="stat"><span class="muted">pattern</span><b>0.68 &#9660;</b></div>
-          <div class="stat"><span class="muted">rsi</span><b>0.92 &#9660;</b></div>
-          <div class="stat"><span class="muted">ema</span><b>1.06 &#9650;</b></div>
-          <div class="stat"><span class="muted">cnn</span><b>1.00</b></div>
-          <div class="stat"><span class="muted">nn</span><b>0.50 &#9660;</b></div>
-          <div class="stat" style="border:0"><span class="muted">node-conf</span><b>0.50 &#9660;</b></div>
-          <div class="note">Elk gewicht leert uit de winrate m&eacute;t vs. z&oacute;nder die factor. Laatst bijgewerkt 11:50 &middot; 379 BTC-trades.</div>
-        </div>
-        <div class="panel"><div class="plabel"><span>Level 2 &middot; logistisch model</span><span class="muted">per core</span></div>
-          <div class="stat"><span class="muted">Getraind op</span><b>1948 samples</b></div>
-          <div class="stat"><span class="muted">Validatie-acc</span><b style="color:var(--green)">65%</b></div>
-          <div class="stat"><span class="muted">Features</span><b>15 inputs</b></div>
-          <div class="stat"><span class="muted">Blend-gewicht</span><b>15% (&gt;52% acc)</b></div>
-          <div class="stat"><span class="muted">Regularisatie</span><b>L2 &middot; &lambda; 0.01</b></div>
-          <div class="stat" style="border:0"><span class="muted">Per markt</span><b>via DeepNet-laag</b></div>
-          <div class="note">Logistische regressie op de gestandaardiseerde signalen; Platt-gekalibreerd zodat 60% ook echt ~60% is.</div>
-        </div>
-        <div class="panel"><div class="plabel"><span>Level 3 &middot; neuraal net</span><span class="muted">advisory</span></div>
-          <div class="stat"><span class="muted">Architectuur</span><b>15&middot;14&middot;8&middot;1</b></div>
-          <div class="stat"><span class="muted">Validatie-acc</span><b style="color:var(--green)">61%</b></div>
-          <div class="stat"><span class="muted">Autonome weging</span><b>29% (cap 45%)</b></div>
-          <div class="stat"><span class="muted">Blend-drempel</span><b>val-acc &gt;52%</b></div>
-          <div class="stat"><span class="muted">Optimizer</span><b>backprop &middot; adam</b></div>
-          <div class="stat" style="border:0"><span class="muted">Purged walk-forward</span><b>143 test</b></div>
-          <div class="note">Deep feedforward met backpropagation; weegt alleen mee als de gevalideerde accuratesse de drempel haalt.</div>
-        </div>
-      </div>
-      <div class="panel mb">
-        <div class="plabel">Kalibratie &middot; predicted vs. measured (DeepNet) &middot; per markt</div>
-        <div class="grid g-4" style="gap:10px;">
-          <div><div style="font-size:0.54rem;color:var(--btc);font-weight:700;margin-bottom:4px;">NEO BTC &middot; goed</div><svg viewBox="0 0 120 92" style="width:100%;background:rgba(0,0,0,0.18);border-radius:6px;"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><polyline points="20,72 45,56 70,40 95,22" fill="none" stroke="var(--btc)" stroke-width="1.6"/><circle cx="95" cy="22" r="2.2" fill="var(--btc)"/></svg></div>
-          <div><div style="font-size:0.54rem;color:var(--eth);font-weight:700;margin-bottom:4px;">NEO ETH &middot; overconf +10</div><svg viewBox="0 0 120 92" style="width:100%;background:rgba(0,0,0,0.18);border-radius:6px;"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><polyline points="20,74 45,66 70,58 95,52" fill="none" stroke="var(--eth)" stroke-width="1.6"/><circle cx="95" cy="52" r="2.2" fill="var(--eth)"/></svg></div>
-          <div><div style="font-size:0.54rem;color:var(--sol);font-weight:700;margin-bottom:4px;">NEO SOL &middot; onderconf &minus;14</div><svg viewBox="0 0 120 92" style="width:100%;background:rgba(0,0,0,0.18);border-radius:6px;"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><polyline points="20,60 45,44 70,30 95,16" fill="none" stroke="var(--sol)" stroke-width="1.6"/><circle cx="95" cy="16" r="2.2" fill="var(--sol)"/></svg></div>
-          <div><div style="font-size:0.54rem;color:var(--cyan);font-weight:700;margin-bottom:4px;">OSIRIS MAINBRAIN &middot; goed</div><svg viewBox="0 0 120 92" style="width:100%;background:rgba(0,0,0,0.18);border-radius:6px;"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><polyline points="20,70 45,54 70,38 95,20" fill="none" stroke="var(--cyan)" stroke-width="1.6"/><circle cx="95" cy="20" r="2.2" fill="var(--cyan)"/></svg></div>
-        </div>
-        <div class="note">Onder de stippellijn = overmoedig; erboven = te voorzichtig. Elk brein zijn eigen curve.</div>
-      </div>
-      <div class="grid g-2b">
-        <div class="panel"><div class="plabel">Core zelf-kalibratie (live)</div><div class="feed adapt" style="height:150px">
-          <div class="row"><span class="t">[11:50]</span> Neo SOL: gewichten bijgesteld <span class="muted">rsi&rarr;0.92, ema&rarr;1.06</span></div>
-          <div class="row"><span class="t">[11:32]</span> Neo ETH: gewichten bijgesteld <span class="muted">momentum&rarr;1.18</span></div>
-          <div class="row"><span class="t">[11:14]</span> Neo SOL: meta-poort geopend <span class="muted">winrate 60% &rarr; drempel 44%</span></div>
-        </div></div>
-        <div class="panel"><div class="plabel">Presets per core</div>
-          <div class="stat"><b style="color:var(--btc)">Neo BTC</b><span class="muted">instap 80% &middot; stop 2%</span></div>
-          <div class="stat"><b style="color:var(--eth)">Neo ETH</b><span class="muted">instap 69% &middot; agressief</span></div>
-          <div class="stat" style="border:0"><b style="color:var(--sol)">Neo SOL</b><span class="muted">instap 72% &middot; behoudend</span></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- FEED -->
-    <section class="tab" id="tab-feed">
-      <div class="eyebrow">Transparantie</div><h1 class="h">LIVE FEED</h1>
-      <div class="grid g-2">
-        <div class="panel"><div class="plabel">Beredenering (live)</div><div class="feed" id="jv-reasoning"">
-          <div class="row"><span class="k">FIB-CONFLUENTIE</span> &middot; +6 (2 extra schalen dichtbij)</div>
-          <div class="row"><span class="k">INDICATOREN</span> &middot; MA12 65049 / MA26 65023 &middot; RSI14 65</div>
-          <div class="row"><span class="k">EINDSCORE</span> &middot; LONG ~28% (kal. 13%) vs. drempel 80%</div>
-          <div class="row"><span class="k">FUNDAMENTALS</span> &middot; funding 0.0056% &middot; L/S 1.14 &middot; OI +0.0% &rarr; bias &minus;0.11</div>
-          <div class="row"><span class="k">NEURAAL NET (L3)</span> &middot; LONG 30% &middot; validatie 61% &middot; weegt 29% mee</div>
-          <div class="row"><span class="k">OSIRIS MULTI-MARKT</span> &middot; BTC 56% &middot; ETH 50% &middot; SOL 47%</div>
-          <div class="row"><span class="k">DEEPNET</span> &middot; BTC 23% &middot; ETH 36% &middot; SOL 30% SHORT</div>
-          <div class="row"><span class="k">STATUS</span> &middot; bearish &middot; geen setup boven drempel</div>
-        </div></div>
-        <div class="panel"><div class="plabel">Autonome aanpassing &mdash; wat Neo zelf aanpast</div><div class="feed adapt">
-          <div class="row"><span class="t">[11:50]</span> Neo SOL: factor-gewichten bijgesteld <span class="muted">rsi 1.00&rarr;0.92, ema 1.00&rarr;1.06</span></div>
-          <div class="row"><span class="t">[11:46]</span> Osiris opent SOL LONG <span class="muted">kans 56%, allocatie 46%</span></div>
-          <div class="row"><span class="t">[11:31]</span> Meta-poort SOL geopend <span class="muted">echte winrate 60% &rarr; drempel 44%</span></div>
-          <div class="row"><span class="t">[11:14]</span> Circuit breaker: expectancy hersteld <span class="muted">entries hervat</span></div>
-          <div class="row"><span class="t">[11:13]</span> Engine herzien (winrate 43%) <span class="muted">instellingen passen bij de data</span></div>
-          <div class="row"><span class="t">[10:45]</span> Time-stop A/B: dynamisch actief <span class="muted">beter dan vast over 14 samples</span></div>
-        </div></div>
-      </div>
-    </section>
-
-    <!-- ENGINE -->
-    <section class="tab" id="tab-engine">
-      <div class="eyebrow">Configuratie &middot; presets &middot; toggles</div><h1 class="h">ENGINE SETUP</h1>
-      <div class="panel mb" style="border-color:rgba(0,217,255,0.35)">
-        <div class="plabel" style="color:var(--cyan)">DeepNet-besturing</div>
-        <div class="flex gap wrap center">
-          <span class="cbx on"><i></i> poort entries</span>
-          <span class="cbx on"><i></i> live (stuurt exits)</span>
-          <span class="muted" style="margin-left:6px">De gekalibreerde DeepNet bewaakt de entries (poort) en stuurt de dynamische time-stop (live).</span>
-        </div>
-      </div>
-      <div class="panel mb">
-        <div class="plabel">Executie &amp; testnet</div>
-        <div class="cfg">
-          <div class="field"><label>Executiemodus</label><div class="box sel">Binance Spot Testnet</div></div>
-          <div class="field"><label>Testnet API key</label><div class="box">&bull;&bull;&bull;&bull; alleen testnet</div></div>
-          <div class="field"><label>Testnet API secret</label><div class="box">&bull;&bull;&bull;&bull; alleen testnet</div></div>
-          <div class="field"><label>&nbsp;</label><button class="btn go">Sync wallet &larr; testnet</button></div>
-        </div>
-        <div class="plabel" style="margin-top:14px">Handmatige trade</div>
-        <div class="flex gap wrap center"><div class="field" style="width:160px"><label>% van balance</label><div class="box">20</div></div><button class="btn go">&#9650; Manual long</button><button class="btn danger">&#9660; Manual short</button><span class="muted">tegen live prijs &middot; telt niet mee voor kalibratie</span></div>
-      </div>
-      <div class="panel mb">
-        <div class="plabel"><span>Trend engine</span><span class="cbx on"><i></i> actief</span></div>
-        <div class="cfg">
-          <div class="field"><label>Max % per trade</label><div class="box">70</div></div>
-          <div class="field"><label>Stop-loss %</label><div class="box">2</div></div>
-          <div class="field"><label>Min. kans % (entry)</label><div class="box">80</div></div>
-          <div class="field"><label>Min. kans (doorloop &gt;2%)</label><div class="box">85</div></div>
-          <div class="field"><label>Min. verwacht rendement %</label><div class="box">0.34</div></div>
-          <div class="field"><label>Pending order geldig (min)</label><div class="box">30</div></div>
-          <div class="field"><label>Min. verlies % vroege exit</label><div class="box">1</div></div>
-          <div class="field"><label>Winst-bescherming activatiepiek %</label><div class="box">0.50</div></div>
-          <div class="field"><label>Winst-bescherming % behouden</label><div class="box">80</div></div>
-          <div class="field"><label>Kans-collaps mechanisme</label><div class="box sel">Uit (aanbevolen)</div></div>
-          <div class="field"><label>Kans-demping (metingen)</label><div class="box">18</div></div>
-          <div class="field"><label>Kans-collaps drempel %</label><div class="box">30</div></div>
-          <div class="field"><label>Kans-collaps bevestiging (sec)</label><div class="box">180</div></div>
-          <div class="field"><label>Regime-poort (dode markt)</label><div class="box sel">Aan</div></div>
-          <div class="field"><label>Tijd-stop (min, 0=uit)</label><div class="box">90</div></div>
-          <div class="field"><label>Kleine-winst-oogst (min)</label><div class="box">30</div></div>
-          <div class="field"><label>Node-gewicht</label><div class="box sel">Adaptief (leersys)</div></div>
-          <div class="field"><label>Node-gewicht handmatig</label><div class="box">1</div></div>
-          <div class="field"><label>Bevestigingstijd exit (sec)</label><div class="box">20</div></div>
-          <div class="field"><label>Chase: min. kans % / na (min)</label><div class="box">90 / 10</div></div>
-        </div>
-      </div>
-      <div class="grid g-3 mb">
-        <div class="panel"><div class="plabel"><span>Range-scalp engine</span><span class="cbx on"><i></i> actief</span></div><div class="stat"><span class="muted">Target %</span><b>0.7</b></div><div class="stat"><span class="muted">Stop %</span><b>0.7</b></div><div class="stat"><span class="muted">Min. kans %</span><b>74</b></div><div class="stat" style="border:0"><span class="muted">Alloc %</span><b>10</b></div></div>
-        <div class="panel"><div class="plabel"><span>ICT engine</span><span class="cbx"><i></i> uit</span></div><div class="stat"><span class="muted">Status</span><b style="color:var(--dim)">uit</b></div><div class="stat"><span class="muted">HTF / sweep</span><b>4h / 15m</b></div><div class="stat"><span class="muted">FVG min gap %</span><b>0.03</b></div><div class="stat" style="border:0"><span class="muted">Orderblock lookback</span><b>50</b></div></div>
-        <div class="panel"><div class="plabel"><span>Micro fast-lane</span><span class="cbx on"><i></i> actief</span></div><div class="stat"><span class="muted">Target / stop %</span><b>0.25 / 0.30</b></div><div class="stat"><span class="muted">Min. kans %</span><b>72</b></div><div class="stat"><span class="muted">Alloc %</span><b>20</b></div><div class="stat" style="border:0"><span class="muted">Max gelijktijdig</span><b>2</b></div></div>
-      </div>
-      <div class="grid g-2b">
-        <div class="panel"><div class="plabel">Autonome toggles</div>
-          <div class="toggle-row"><span>DeepNet-poort op entries</span><span class="sw on"><i></i></span></div>
-          <div class="toggle-row"><span>Per-markt zelf-kalibratie</span><span class="sw on"><i></i></span></div>
-          <div class="toggle-row"><span>Circuit breaker</span><span class="sw on"><i></i></span></div>
-          <div class="toggle-row"><span>Dynamische time-stop (A/B)</span><span class="sw on"><i></i></span></div>
-          <div class="toggle-row"><span>Regime-poort</span><span class="sw on"><i></i></span></div>
-          <div class="toggle-row"><span>Kans-collaps</span><span class="sw"><i></i></span></div>
-          <div class="toggle-row"><span>Multi-engine watchdog</span><span class="sw on"><i></i></span></div>
-          <div class="toggle-row"><span>Nacht-rem (00&ndash;06 UTC)</span><span class="sw on"><i></i></span></div>
-        </div>
-        <div class="panel"><div class="plabel">Bediening</div>
-          <div class="flex gap wrap"><button class="btn danger" data-act="fn" data-arg="stopAutonomousBot">Stop bot</button><button class="btn">Instellingen live bijwerken</button><button class="btn go">Leg champion vast</button><button class="btn">Herstel champion</button><button class="btn">Download instellingen</button><button class="btn">Download all data</button></div>
-          <div class="note">Champion/challenger: leg een goede config vast; de bot valt terug als het zelf-tunen wegdrijft.</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- CLOUD -->
-    <section class="tab" id="tab-cloud">
-      <div class="eyebrow">Altijd online</div><h1 class="h">CLOUD &amp; WORKER</h1>
-      <div class="grid g-3 mb">
-        <div class="panel"><div class="plabel">Oracle worker</div><div class="kpi"><span class="l">Status</span><span class="v" style="color:var(--green);font-size:1rem">ONLINE</span></div><div class="muted" style="margin-top:8px">tick 3s geleden &middot; 15s interval<br>DeepNet shadow &middot; 24/7 &middot; pm2</div></div>
-        <div class="panel"><div class="plabel">Supabase</div><div class="kpi"><span class="l">Sync</span><span class="v" style="color:var(--cyan);font-size:1rem">ACTIEF</span></div><div class="muted" style="margin-top:8px">laatst verbonden 11:50 &middot; RLS aan<br>state &middot; trades &middot; predictions</div></div>
-        <div class="panel"><div class="plabel">Afstandsbediening</div><div class="flex between center" style="margin-top:6px"><span style="font-size:0.7rem">Bot draaien</span><span class="sw on"><i></i></span></div><div class="muted" style="margin-top:12px">osiris_control &middot; elk apparaat<br>alleen jij (RLS)</div></div>
-      </div>
-      <div class="panel">
-        <div class="plabel">Live voorspellingen (worker)</div>
-        <table><thead><tr><th>Markt</th><th>Gekalibreerd</th><th>Side</th><th>Walk-forward</th><th>Meta</th><th>Heartbeat</th></tr></thead><tbody>
-          <tr><td style="color:var(--btc)">BTC</td><td>23%</td><td class="neg">SHORT</td><td>69%</td><td><span class="chip on">open</span></td><td class="muted">3s</td></tr>
-          <tr><td style="color:var(--eth)">ETH</td><td>36%</td><td class="neg">SHORT</td><td>65%</td><td><span class="chip on">open</span></td><td class="muted">3s</td></tr>
-          <tr><td style="color:var(--sol)">SOL</td><td>30%</td><td class="neg">SHORT</td><td>48%</td><td><span class="chip on">open*</span></td><td class="muted">3s</td></tr>
-        </tbody></table>
-      </div>
-    </section>
-
-    <!-- SYSTEM -->
-    <section class="tab" id="tab-system">
-      <div class="eyebrow">Diagnose</div><h1 class="h">SYSTEEM</h1>
-      <div class="flex gap mb center"><span class="muted">Markt:</span><span class="chip on" onclick="setSys('BTC',this)">BTC</span><span class="chip" onclick="setSys('ETH',this)">ETH</span><span class="chip" onclick="setSys('SOL',this)">SOL</span><span class="muted">&middot; alle systeemdata schakelt mee</span></div>
-      <div class="grid g-4 mb">
-        <div class="panel"><div class="kpi"><span class="l">DeepNet-service</span><span class="v" style="color:var(--green);font-size:0.95rem">ACTIEF</span></div><div class="muted" style="margin-top:6px">hertraint elke 30m</div></div>
-        <div class="panel"><div class="kpi"><span class="l">Watchdog</span><span class="v" style="color:var(--green);font-size:0.95rem">LEVEND</span></div><div class="muted" style="margin-top:6px">auto-herstart 15s</div></div>
-        <div class="panel"><div class="kpi"><span class="l">Circuit breaker</span><span class="v" style="color:var(--amber);font-size:0.95rem">ACTIEF</span></div><div class="muted" style="margin-top:6px">expectancy +0.02%</div></div>
-        <div class="panel"><div class="kpi"><span class="l">Rate-limit</span><span class="v" style="color:var(--green);font-size:0.95rem">~1%</span></div><div class="muted" style="margin-top:6px">backoff paraat</div></div>
-      </div>
-      <div class="panel mb">
-        <div class="plabel">Meters &middot; VFM / ER / DB / chaos-index</div>
-        <div class="grid g-4">
-          <div><div class="muted">VFM</div><div class="kpi"><span class="v" data-src="vfm-display" data-sys="vfm" style="color:var(--green);font-size:1.1rem">0.397</span></div><div class="muted">significant</div></div>
-          <div><div class="muted">ER (energy ratio)</div><div class="kpi"><span class="v" data-src="er-display" data-sys="er" style="font-size:1.1rem">0.40</span></div><div class="muted">low energy</div></div>
-          <div><div class="muted">DB (delta balance)</div><div class="kpi"><span class="v" data-src="db-display" data-sys="db" style="font-size:1.1rem">1.00</span></div><div class="muted" style="color:var(--green)">bullish</div></div>
-          <div><div class="muted">Chaos-index</div><div class="kpi"><span class="v" data-src="chaos-display" data-sys="chaos" style="font-size:1.1rem">0.04%</span></div><div class="muted">stabiel</div></div>
-        </div>
-      </div>
-      <div class="grid g-2b mb">
-        <div class="panel" style="border-color:rgba(20,241,149,0.4)"><div class="plabel">Osiris market status</div><div style="font-size:0.85rem;color:var(--green);font-weight:700"><span data-sys="status">BULLISH BREAKOUT (aanhoudend)</span></div><div class="muted" style="margin-top:6px">Confidence: <span data-sys="conf">zeer hoog (80&ndash;95%)</span></div></div>
-        <div class="panel"><div class="plabel">Patroon &amp; structuur</div><div style="font-size:0.62rem;line-height:1.9"><span style="color:var(--green)" data-sys="pattern">&#9650;&#9650;&#9650; 3 Soldiers (bullish)</span><br><span class="muted">markt-structuur: range-bound / geen duidelijke structuur</span></div></div>
-      </div>
-      <div class="grid g-3 mb">
-        <div class="panel"><div class="plabel" style="color:var(--green)">Micro (9)</div><div class="stat"><span class="muted">Bull</span><b data-sys="micb">$64849</b></div><div class="stat" style="border:0"><span class="muted">Bear</span><b data-sys="micbr">$64774</b></div></div>
-        <div class="panel" style="border-color:rgba(255,182,39,0.4)"><div class="plabel" style="color:var(--amber)">Meso (36)</div><div class="stat"><span class="muted">Bull</span><b data-sys="mesb">$65071</b></div><div class="stat" style="border:0"><span class="muted">Bear</span><b data-sys="mesbr">$64718</b></div></div>
-        <div class="panel"><div class="plabel">Macro (144)</div><div class="stat"><span class="muted">Bull</span><b data-sys="macb">$65212</b></div><div class="stat" style="border:0"><span class="muted">Bear</span><b data-sys="macbr">$64656</b></div></div>
-      </div>
-      <div class="panel mb">
-        <div class="plabel">Node countdown</div>
-        <div class="grid g-6" style="font-size:0.54rem">
-          <div><b style="color:var(--green)">RESET (Vertex 9)</b><br><span class="muted">08:44 UTC (00:03:07)</span></div>
-          <div><b style="color:var(--eth)">VOLA (Node 1)</b><br><span class="muted">09:53 UTC (03:11:47)</span></div>
-          <div><b style="color:var(--cyan)">CORE (Vertex 3/6)</b><br><span class="muted">16:18 UTC (09:29:07)</span></div>
-          <div><b>OSC (Node 2/4/5/7)</b><br><span class="muted">13:01 UTC (06:20:27)</span></div>
-          <div><b style="color:var(--amber)">MID PULSE</b><br><span class="muted">08:18 UTC (01:37:27)</span></div>
-          <div><b>NEXT NODE</b><br><span class="muted">08:44 UTC &middot; RESET</span></div>
-        </div>
-        <div class="grid g-2" style="margin-top:12px;font-size:0.56rem">
-          <div><b style="color:var(--green)">NEO's node (NN)</b><br><span class="muted">volgende NN over <span data-sys="nn">01:33:45</span> &middot; ritme ~128min &middot; anker: top (54 caps)</span></div>
-          <div><b>Node-confluentie</b><br><span class="muted">samenval over 01:33:45 &middot; overlap sterk (97%, gap 4min)</span></div>
-        </div>
-      </div>
-      <div class="panel mb">
-        <div class="plabel">Live volume &amp; market pressure</div>
-        <div class="flex between center"><div><div class="muted">Live volume</div><div class="kpi"><span class="v" data-sys="vol" style="color:var(--amber);font-size:1.1rem">15.2670</span></div></div><div style="text-align:right"><div class="muted">Volume rate / score</div><div style="font-size:0.7rem">Rate 15.9% &middot; Score <span style="color:var(--green)">100/100</span></div></div></div>
-        <div class="bar" style="height:8px;background:linear-gradient(90deg,var(--green),var(--amber),var(--red))"><i style="width:0"></i></div>
-        <div class="flex between"><span class="muted">buyers</span><span class="muted">sellers</span></div>
-      </div>
-      <div class="grid g-2">
-        <div class="panel"><div class="plabel">Data &amp; geheugen</div><div class="stat"><span class="muted">learningLog</span><b>473 entries</b></div><div class="stat"><span class="muted">trade-historie</span><b>97 exits</b></div><div class="stat"><span class="muted">candle-buffer per markt</span><b>672</b></div><div class="stat"><span class="muted">DeepNet testset</span><b>144/markt</b></div><div class="stat" style="border:0"><span class="muted">config-versie</span><b>pc0_es10_mp80</b></div></div>
-        <div class="panel"><div class="plabel">Verbindingen</div><div class="stat"><span class="muted">Binance WebSocket</span><b style="color:var(--green)">verbonden</b></div><div class="stat"><span class="muted">Testnet order-API</span><b style="color:var(--green)">ok</b></div><div class="stat"><span class="muted">Supabase</span><b style="color:var(--green)">ok &middot; RLS</b></div><div class="stat"><span class="muted">Oracle VM</span><b style="color:var(--green)">141.148.241.199</b></div><div class="stat" style="border:0"><span class="muted">executiemodus</span><b>TESTNET</b></div></div>
-      </div>
-    </section>
-
-    <!-- DOWNLOADS -->
-    <section class="tab" id="tab-downloads">
-      <div class="eyebrow">Alles op &eacute;&eacute;n plek</div><h1 class="h">DOWNLOADS</h1>
-      <div class="grid g-3 mb">
-        <div class="panel"><div class="plabel">Leren &amp; modellen</div>
-          <div class="flex gap wrap"><button class="btn" data-act="fn" data-arg="downloadAdaptiveLearning">&#8681; Adaptive learning (JSON)</button><button class="btn">&#8681; DeepNet-modellen</button><button class="btn">&#8681; Kalibratie-log (CSV)</button></div></div>
-        <div class="panel"><div class="plabel">Trades &amp; wallet</div>
-          <div class="flex gap wrap"><button class="btn">&#8681; Trade-historie (CSV)</button><button class="btn" data-act="fn" data-arg="downloadAdaptationLog">&#8681; Autonome aanpassingen</button><button class="btn" data-act="fn" data-arg="downloadAllMarketData">&#8681; Multi-markt data</button></div></div>
-        <div class="panel"><div class="plabel">Markt &amp; config</div>
-          <div class="flex gap wrap"><button class="btn" data-act="fn" data-arg="downloadPriceVolumeHistory">&#8681; Prijs &amp; volume historie</button><button class="btn" data-act="fn" data-arg="downloadBotSettings">&#8681; Instellingen</button><button class="btn" data-act="fn" data-arg="osirisFullBackup">&#8681; Volledige backup</button></div></div>
-      </div>
-      <div class="panel">
-        <div class="plabel">Alles in &eacute;&eacute;n</div>
-        <div class="flex gap wrap center"><button class="btn go" data-act="fn" data-arg="downloadAllData">&#8681; Download ALL data</button><span class="muted">bundelt wallet, trades, learningLog, DeepNet-modellen, kalibratie, instellingen en de volledige backup in &eacute;&eacute;n export.</span></div>
-        <div class="note">Alle exports zijn lokaal &middot; bevatten nooit je testnet-keys.</div>
-      </div>
-    </section>
-
-  </div>
-</div>
-
-
-<div id="jv-legacy" aria-hidden="true">
-<canvas id="site-plexus"></canvas>
-<div id="dashboard">
-<canvas id="starmap"></canvas>
-
-<nav class="top" id="scroll-nav"><div class="wrap"><div class="row">
-  <span class="brand">OSIRIS<span>·</span>INTEL</span>
-  <a href="#intro" class="active">Intro</a>
-  <a href="#market" class="hide-m">Market</a>
-  <a href="#data" class="hide-m">Data</a>
-  <a href="#engine">Engine</a>
-  <a href="#hub">Hub</a>
-  <span class="nav-spacer"></span>
-  <span class="livep" id="nav-live-price">&mdash;</span>
-  <span id="hub-engine-badge" class="badge mono">&#9673; STANDBY</span>
-  <a href="about.html" class="badge mono" style="text-decoration:none; color:var(--dim); border-color:var(--dimmer);">About &rarr;</a>
-</div></div></nav>
-
-<section id="intro" style="padding-top:56px;">
-  <div class="wrap"><div class="hero-grid">
-    <div>
-      <div class="sec-eyebrow">Autonomous BTC/USDT intelligence</div>
-      <h1 class="hero">Osiris watches<br>the <em>market</em><br>breathe.</h1>
-      <p class="lead">A client-side trading intelligence that reads price, volume and volatility through its own indicator framework &mdash; and tests every prediction against what actually happened. No promises, only calibrated probabilities.</p>
-      <div class="hero-cta"><a href="#hub" class="btn">Enter the bot hub &rarr;</a><a href="#market" class="btn ghost">View the market</a></div>
-    </div>
-    <div>
-      <svg id="hero-eye" viewBox="0 0 460 440" style="width:100%; max-width:460px; display:block; margin:0 auto;"></svg>
-      <div class="eye-toggle">
-        <button id="bull-btn" onclick="setEyeSignalManual('bull')">&#9650; Simulate bullish</button>
-        <button id="bear-btn" onclick="setEyeSignalManual('bear')">&#9660; Simulate bearish</button>
-        <button onclick="setEyeSignalManual('neutral')">&#9702; Neutral</button>
-      </div>
-    </div>
-  </div></div>
-</section>
-
-<!-- 2. MARKET -->
-<section id="market">
   <div class="wrap">
     <div class="waypoint">Waypoint 01 &middot; Market feed</div>
     <div class="sec-eyebrow">Market Chart</div>
@@ -1258,7 +912,7 @@ section { position:relative; z-index:2; }
             <div id="multi-engine-status" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--text-dim); margin-bottom:8px;"><span style="color:#ff4f6d;">&#9679;</span> multi-markt engine uit</div>
 
             <div style="display:flex; gap:12px; align-items:stretch;">
-              <!-- chart-container verplaatst naar mockup Charts-tab -->
+              <div id="chart-container" style="flex:1;"></div>
               <div id="vp-panel" style="width:150px; flex:none; border-left:1px solid var(--line); display:flex; flex-direction:column;">
                 <div style="display:flex; gap:4px; padding:4px; font-family:'JetBrains Mono',monospace; font-size:0.56rem;">
                   <button type="button" id="vp-tab-svp" onclick="setDepthMode('svp')" class="btn btn-ghost btn-mini" style="flex:1; color:var(--teal); border-color:rgba(20,241,149,0.4);">SVP</button>
@@ -1272,310 +926,21 @@ section { position:relative; z-index:2; }
       </div>
     </div>
   </div>
-</section>
 
-<!-- 3. DATA -->
-<section id="data">
-  <div class="wrap">
-    <div class="waypoint">Waypoint 02 &middot; Signal layer</div>
-    <div class="sec-eyebrow">System Data</div>
-    <h2 class="sec">Meters, node timing, live pressure</h2>
-    <p class="body">VFM, ER, DB and the chaos index &mdash; each a validated rediscovery of a proven indicator. Plus node countdowns, live volume, volume rate and score, market sentiment, and the full price/volume history: collapsible and downloadable.</p>
-    <div class="mock">
-      <div class="mock-head"><span class="dot" style="background:var(--teal);"></span><span class="mock-title">System Data</span></div>
-      <div class="mock-body">
-            <div class="sec-eyebrow">Section 02 &middot; System Data</div>
-
-        <!-- ============ SYSTEM DATA SECTION ============ -->
-        <div class="hud violet">
-            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
-            <div class="eyebrow">SYSTEM DATA<span class="fill"></span></div>
-            <div id="system-coin-tabs" style="display:flex; gap:6px; margin:8px 0 12px;">
-                <button class="coin-tab active" data-coin="BTC" onclick="switchCoin('BTC')">BTC</button>
-                <button class="coin-tab" data-coin="ETH" onclick="switchCoin('ETH')">ETH</button>
-                <button class="coin-tab" data-coin="SOL" onclick="switchCoin('SOL')">SOL</button>
-            </div>
-            <div id="system-data-multi" style="background:rgba(199,146,234,0.05); border:1px solid rgba(199,146,234,0.2); border-radius:6px; padding:10px 12px; margin-bottom:12px;">
-                <span style="color:var(--text-dim); font-size:0.62rem;">Multi-markt data laadt bij botstart...</span>
-            </div>
-
-            <div class="subhead" style="margin-top:0;">VFM &middot; ER &middot; DB &middot; Chaos Index <span style="font-weight:400; color:var(--dimmer); font-size:0.8em; text-transform:none; letter-spacing:0;">(volgt de gekozen munt-tab)</span></div>
-            <div class="data-grid">
-                <div class="meter-card"><h3>VFM</h3><p id="vfm-display">0.00</p><small id="vfm-status">Wachten...</small></div>
-                <div class="meter-card"><h3>ER (Energy Ratio)</h3><p id="er-display">0.00</p><small id="er-status">Ref: 1.0</small></div>
-                <div class="meter-card"><h3>DB (Delta Balance)</h3><p id="db-display">0.00</p><small id="db-status">Bereik: -1 tot 1</small></div>
-                <div class="meter-card"><h3>Chaos Index</h3><p id="chaos-display">0.00%</p><small id="chaos-status">Limit: 8% / 15%</small></div>
-            </div>
-
-            <div class="subhead">Osiris Market Status <span style="font-weight:400; color:var(--dimmer); font-size:0.8em; text-transform:none; letter-spacing:0;">(Neo BTC · UOTAM-nodes)</span></div>
-            <div class="status-banner">
-                <p id="market-status-main">--</p>
-                <p id="probability-score">Confidence: --</p>
-            </div>
-            <div class="target-grid">
-                <div class="target-card" style="border-color:var(--teal);">
-                    <h4 style="color:var(--teal);">Micro (9)</h4>
-                    <small>Bull: <span id="mic-bull">--</span></small>
-                    <small>Bear: <span id="mic-bear">--</span></small>
-                </div>
-                <div class="target-card" style="border-color:var(--amber);">
-                    <h4 style="color:var(--amber);">Meso (36)</h4>
-                    <small>Bull: <span id="mes-bull">--</span></small>
-                    <small>Bear: <span id="mes-bear">--</span></small>
-                </div>
-                <div class="target-card" style="border-color:var(--violet);">
-                    <h4 style="color:var(--violet);">Macro (144)</h4>
-                    <small>Bull: <span id="mac-bull">--</span></small>
-                    <small>Bear: <span id="mac-bear">--</span></small>
-                </div>
-            </div>
-
-            <div class="subhead">Patroon &amp; Structuur</div>
-            <div class="target-grid" style="grid-template-columns: 1fr 1fr;">
-                <div class="target-card" style="border-color:rgba(20,241,149,0.3);">
-                    <h4 style="color:var(--teal);">Candlestick-patroon</h4>
-                    <div id="current-pattern" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
-                </div>
-                <div class="target-card" style="border-color:rgba(153,69,255,0.3);">
-                    <h4 style="color:var(--violet);">Markt-structuur</h4>
-                    <div id="current-structure" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
-                </div>
-            </div>
-
-            <div class="subhead">Node Countdown</div>
-            <div id="info-panel" class="node-grid">
-                <div class="node-card" style="border-color:rgba(255,255,255,0.3);"><h4 style="color:#ffffff;">RESET [Vortex 9]</h4><p id="next-reset">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(255,255,0,0.4);"><h4 style="color:#ffff00;">VOLA [Node 1]</h4><p id="next-vola">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(0,255,204,0.4);"><h4 style="color:#00ffcc;">CORE [Vortex 3/6]</h4><p id="next-core">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(136,136,136,0.4);"><h4 style="color:#888888;">OSC [Node 2/4/5/7]</h4><p id="next-osc">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(255,204,0,0.4);"><h4 style="color:#ffcc00;">MID PULSE</h4><p id="mid-pulse-display">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(20,241,149,0.4);"><h4 style="color:var(--teal);">NEXT NODE</h4><p id="next-node-display">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(199,146,234,0.5);"><h4 style="color:#c792ea;">NEO'S NODE (NN) &middot; exp.</h4><p id="nn-display" style="font-size:0.82em;">Zet NN zichtbaar op de chart om te meten...</p></div>
-                <div class="node-card" style="border-color:rgba(255,182,39,0.5);"><h4 style="color:#ffb627;">NODE-CONFLUENTIE &middot; exp.</h4><p id="nodeconf-display" style="font-size:0.82em;">standaard-node &times; NN samenval...</p></div>
-            </div>
-
-            <div class="subhead">Live Volume &amp; Market Pressure</div>
-            <div class="volrow">
-                <div class="meter-card">
-                    <h3>Live Volume (BTC)</h3>
-                    <p id="live-volume" style="color:var(--amber);">Wachten...</p>
-                </div>
-                <div class="meter-card">
-                    <h3>Volume Rate / Score</h3>
-                    <p style="font-size:0.95rem;">Rate: <span id="vol-rate">0%</span> &middot; Score: <span id="vol-score" style="color:var(--amber);">0/100</span></p>
-                </div>
-            </div>
-            <div id="sentiment-bar-container">
-                <div id="sentiment-bar-green" style="width: 50%; height: 100%; background: var(--teal); transition: width 0.3s ease;"></div>
-                <div id="sentiment-bar-red" style="width: 50%; height: 100%; background: var(--red); transition: width 0.3s ease;"></div>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-family:'JetBrains Mono',monospace; font-size: 0.62rem; margin-top: 6px; color: var(--text-dim);">
-                <span>BUYERS</span><span>SELLERS</span>
-            </div>
-        </div>
-
-        <!-- ============ PRIJS & VOLUME HISTORIE ============ -->
-        <div class="hud" style="margin-top:28px;">
+<div class="hud" style="margin-top:28px;">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
             <div class="eyebrow">PRIJS &amp; VOLUME HISTORIE — 15M<span class="fill"></span><button onclick="downloadPriceVolumeHistory()" class="btn btn-ghost btn-mini">&darr; Download Historie</button></div>
             <div id="history-list" style="max-height:300px; overflow-y:auto;"></div>
         </div>
-      </div>
-    </div>
-  </div>
-</section>
 
-<!-- 4. ENGINE -->
-<section id="engine">
-  <div class="wrap">
-    <div class="waypoint">Waypoint 03 &middot; Autonomous engine</div>
-    <div class="split">
-      <div>
-        <div class="sec-eyebrow">The autonomous engine</div>
-        <h2 class="sec">Osiris trades.<br>And learns from every trade.</h2>
-        <p class="body">A deterministic engine scanning every 10 seconds, weighing and smoothing probabilities, protecting positions with multiple exit mechanisms. Every closed trade feeds a calibration table that keeps the bot honest about its own certainty.</p>
-        <div class="cards" style="grid-template-columns:1fr 1fr; margin-top:26px;">
-          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Calibrated</h4><p>Raw score &rarr; measured win rate, continuously updated.</p></div>
-          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Protected</h4><p>Profit-lock, time-stop, harvest &mdash; no thesis left hanging.</p></div>
-          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Quantum market tracking</h4><p>UOTAM node timing + four proprietary meters, live every cycle.</p></div>
-          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Self-learning</h4><p>Level-1 adaptive weights shift with the last 20+ trades.</p></div>
-          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Cost-aware</h4><p>Fees and slippage priced into every entry and exit.</p></div>
-          <div class="card"><span class="corner tl"></span><span class="corner br"></span><h4>Regime-gated</h4><p>Pauses entries when the market goes quiet or dead.</p></div>
-        </div>
-      </div>
-      <div style="display:flex; justify-content:center;"><svg id="engine-eye" viewBox="0 0 400 380" style="width:100%; max-width:360px;"></svg></div>
-    </div>
-  </div>
-</section>
+    </section>
 
-<!-- 5. HUB -->
-<section id="sec-hub">
-  <div class="wrap">
-    <div class="waypoint">Waypoint 04 &middot; Control hub</div>
-    <div class="sec-eyebrow">Bot Control Hub</div>
-    <h2 class="sec">OSIRIS ENGINE V4 NEO</h2>
-    <div class="mock">
-      <div class="mock-body">
+    <!-- BRAINS -->
+    <section class="tab" id="tab-brains">
+      <div class="eyebrow">Adaptief leren &middot; per markt</div><h1 class="h">DE CORTEX &amp; HET LEREN</h1>
+<div class="panel" style="margin-top:16px"><div class="plabel">Kalibratie &middot; predicted vs. measured &middot; 4 breinen (live)</div><div class="grid g-4" style="gap:12px"><div><div id="calib-head-btc" style="font-size:0.56rem;color:#f7931a;font-weight:700;margin-bottom:4px">Neo BTC</div><svg viewBox="0 0 100 62" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="8" y1="50" x2="94" y2="4" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-btc"></g></svg></div><div><div id="calib-head-eth" style="font-size:0.56rem;color:#627eea;font-weight:700;margin-bottom:4px">Neo ETH</div><svg viewBox="0 0 100 62" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="8" y1="50" x2="94" y2="4" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-eth"></g></svg></div><div><div id="calib-head-sol" style="font-size:0.56rem;color:#14f195;font-weight:700;margin-bottom:4px">Neo SOL</div><svg viewBox="0 0 100 62" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="8" y1="50" x2="94" y2="4" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-sol"></g></svg></div><div><div id="calib-head-osiris" style="font-size:0.56rem;color:#00d9ff;font-weight:700;margin-bottom:4px">Osiris Mainbrain</div><svg viewBox="0 0 100 62" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="8" y1="50" x2="94" y2="4" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-osiris"></g></svg></div></div><div class="note" style="margin-top:8px;color:#4d647a;font-size:0.54rem">Onder de stippellijn = overmoedig, erboven = te voorzichtig. Elk brein z’n eigen curve, live door de engine.</div></div>
 
-        <div id="bot-monitor" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px;">
-          <div class="meter"><div class="l">STATUS</div><div class="v" style="font-size:0.9rem; color:var(--teal);" id="bot-status">STANDBY</div></div>
-          <div class="meter"><div class="l">LIVE P/L</div><div class="v" style="font-size:0.9rem;" id="bot-pnl">0.00%</div></div>
-          <div class="meter"><div class="l">OPEN POSITIES</div><div class="v" style="font-size:0.9rem;" id="bot-position">Geen</div></div>
-          <div class="meter"><div class="l">LAATSTE ACTIE</div><div class="v" style="font-size:0.7rem; line-height:1.3;" id="bot-last-action">-</div></div>
-        </div>
-        <div style="text-align:center; margin:26px 0 4px;">
-          <div class="mock-title" style="display:inline-flex; gap:10px; align-items:center; justify-content:center;">
-            <span style="width:26px; height:1px; background:var(--cyan);"></span>Ocular Core &middot; the heart of the bot <span id="flow-hud-chev" style="display:none;">&#9662;</span><span style="width:26px; height:1px; background:var(--cyan);"></span>
-          </div>
-          <div class="livep" id="flow-price" style="font-size:0.82rem; margin-top:6px;">&mdash;</div>
-        </div>
-        <div id="flow-hud">
-          <div id="flow-hud-body">
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:stretch; background:#000004; border-radius:10px; padding:6px;">
-              <!-- LINKERKOLOM: oog boven, neuraal netwerk onder -->
-              <div style="display:flex; flex-direction:column; gap:10px;">
-                <div id="eye-cell" class="neo-quad">
-                <canvas id="eye-plexus" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></canvas>
-                <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#00d9ff; letter-spacing:2px; z-index:2;">OSIRIS &middot; QUANTUM TRACKING</div>
-                <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">ocular core &middot; live feed</div>
-                <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="display:block; margin:0 auto; position:relative; z-index:1;">
-                <g id="w-eye"></g>
-                <g font-family="'JetBrains Mono',monospace" font-size="9">
-                  <text x="14" y="200" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
-                  <text x="150" y="105" fill="#5c7488">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
-                  <text x="150" y="295" fill="#5c7488">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
-                  <text x="240" y="40" fill="#5c7488">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
-                  <text x="240" y="360" fill="#5c7488">SENT <tspan fill="#c792ea" id="flow-sent">&mdash;</tspan></text>
-                  <text x="986" y="200" fill="#5c7488" text-anchor="end">KANS L/S <tspan fill="#00ff9f" id="flow-prob">&mdash;</tspan></text>
-                  <text x="850" y="105" fill="#5c7488" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
-                  <text x="850" y="295" fill="#5c7488" text-anchor="end">REGIME <tspan fill="#14f195" id="flow-regime">&mdash;</tspan></text>
-                  <text x="760" y="40" fill="#5c7488" text-anchor="end">NODE <tspan fill="#c792ea" id="flow-node">&mdash;</tspan></text>
-                  <text x="760" y="360" fill="#5c7488" text-anchor="end">MID <tspan fill="#4fc3f7" id="flow-mid">&mdash;</tspan></text>
-                </g>
-                <circle id="flow-pupil" cx="500" cy="200" r="1" fill="none" stroke="none"/>
-                </svg>
-                </div>
-                <div id="neo-net-panel" class="neo-quad">
-                  <canvas id="neo-net-canvas"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">NEO &middot; NEURAL NET</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">actieve verwerking &middot; live</div>
-                  <div id="neo-net-decision" style="position:absolute; top:8px; right:10px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out" style="font-size:0.8rem;">&mdash;</span></div>
-                </div>
-              </div>
-              <!-- RECHTERKOLOM: hoofd boven, brein onder -->
-              <div style="display:flex; flex-direction:column; gap:10px;">
-                <div id="neo-panel" class="neo-quad">
-                  <canvas id="neo-canvas"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">OSIRIS &middot; CORE</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">leerhi&euml;rarchie L1&middot;L2&middot;L3 &rarr; mainbrain</div>
-                  <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8; z-index:2;"><span id="neo-samples">0</span> samples</div>
-                  <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff; z-index:2;">kans <span id="neo-prob">&mdash;</span></div>
-                </div>
-                <div id="neo-brain-panel" class="neo-quad">
-                  <canvas id="neo-brain-canvas"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#c792ea; letter-spacing:2px; z-index:2;">NEO &middot; CORTEX</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">brein-plexus &middot; lerend</div>
-                  <div id="neo-brain-bias" style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff; z-index:2;">bias <span id="neo-brain-out">&mdash;</span></div>
-                </div>
-              </div>
-            </div>
-            <div class="neo-quad" style="height:auto; min-height:150px; margin-top:10px; padding:10px 12px; display:block;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
-                <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">OSIRIS &middot; DEEPNET &mdash; per-markt voorspelling</span>
-                <div style="display:flex; gap:12px; align-items:center;">
-                <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#eaffff; cursor:pointer; display:flex; gap:5px; align-items:center;">
-                  <input type="checkbox" id="deepnet-gate-toggle" onchange="deepNetGate(this.checked)" checked> poort entries
-                </label>
-                <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#eaffff; cursor:pointer; display:flex; gap:5px; align-items:center;">
-                  <input type="checkbox" id="deepnet-live-toggle" onchange="deepNetToggle(this.checked)"> live (stuurt exits)
-                </label>
-                </div>
-              </div>
-              <canvas id="deepnet-canvas" style="width:100%; height:130px; display:block;"></canvas>
-              <div id="deepnet-status" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7d99ac; margin-top:6px;">DeepNet initialiseert...</div>
-              <div style="font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#5c7488; margin-top:4px;">Shadow: voorspelt en visualiseert, raakt geen live trades tot 'live' aan staat. Zet pas live na het bekijken van de walk-forward-precisie (wf-prec) per markt.</div>
-            </div>
-            <div class="hub-statusbar" style="margin-top:10px;">
-              <div class="eye-foot">
-                <span class="live-dot" style="flex:none;"></span>
-                <span id="flow-console">Ocular core initialiseert...</span>
-                <span class="hud-micro" style="animation:hudBlink 2s infinite;">SYS <span id="flow-sys" style="color:#00d9ff;">NOMINAAL</span></span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="subhead" style="margin-top:20px;">&#9673; Multi-Brein Neuraal Netwerk &middot; Osiris + Neo BTC/ETH/SOL &middot; DeepNet-laag</div>
-        <div id="neonet-big-panel" style="position:relative; height:560px; background:#000004; border:1px solid rgba(0,217,255,0.2); border-radius:10px; overflow:hidden;">
-          <canvas id="neo-net-canvas-big"></canvas>
-          <div style="position:absolute; top:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">MULTI-BREIN NEURAAL NETWERK</div>
-          <div style="position:absolute; top:26px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">15 inputs &rarr; integratie &rarr; sub-breinen (BTC/ETH/SOL) &rarr; Osiris mainbrain &rarr; 1 uitkomst</div>
-          <div style="position:absolute; top:10px; right:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out-big" style="font-size:0.85rem;">&mdash;</span></div>
-        </div>
-
-        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center; gap:8px;"><span>Wallet status</span><span style="display:flex; gap:8px;"><button type="button" onclick="stopAutonomousBot()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);">&#9632; Stop bot</button><button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button></span></div>
-        <div class="kpi-strip" style="border:1px solid var(--line);">
-          <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
-          <div class="kpi"><small>win rate</small><b id="kpi-winrate">&mdash;</b></div>
-          <div class="kpi"><small>cal. edge</small><b id="kpi-cal" style="color:var(--amber);">&mdash;</b></div>
-          <div class="kpi" title="De winrate die je minimaal nodig hebt om quitte te spelen, berekend uit de gemiddelde winst/verlies-verhouding van gesloten trades. Zit je werkelijke winrate hierboven, dan ben je netto winstgevend."><small>break-even</small><b id="kpi-breakeven" style="color:var(--cyan);">&mdash;</b></div>
-          <div class="kpi"><small>alloc</small><b id="kpi-alloc">&mdash;</b></div>
-          <div class="kpi"><small>equity</small><b id="hub-equity">&mdash;</b><span id="hub-equity-pct" style="display:none;"></span></div>
-        </div>
-        <span id="wallet-realized-pnl" style="display:none;"></span><span id="wallet-unrealized-pnl" style="display:none;"></span>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
-          <div>
-            <div class="mock-title" style="margin-bottom:8px;">Exit &middot; bijdrage</div>
-            <div class="mono" id="exit-dist" style="font-size:0.62rem; color:#7d99ac;">Nog geen gesloten trades.</div>
-          </div>
-          <div>
-            <div class="mock-title" style="margin-bottom:8px;">&#9673; Osiris &middot; equity-verdeling</div>
-            <div id="osiris-panel"><span style="color:var(--text-dim); font-size:0.62rem;">Osiris verzamelt data van de sub-breinen...</span></div>
-          </div>
-        </div>
-        <div class="subhead">Open Posities</div>
-        <div class="table-wrap" style="overflow-x:auto;">
-          <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th>Markt</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size</th><th>Alloc</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
-            <tbody id="open-positions-body">
-              <tr><td colspan="10" style="text-align:center; color:var(--dim); padding:8px;">Geen open posities</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="subhead">Pending Orders <span style="font-weight:400; color:var(--dimmer); font-size:0.85em; text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
-        <div id="pending-orders-list" style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--tx);">
-          <span style="color:var(--dim);">Geen pending orders</span>
-        </div>
-        <div class="subhead">Gesloten Posities &mdash; Huidige Sessie</div>
-        <div class="table-wrap scrollable" style="max-height:220px; overflow-y:auto;">
-          <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th></tr></thead>
-            <tbody id="history-body"></tbody>
-          </table>
-        </div>
-        <div class="subhead">Live reasoning feed</div>
-            <div id="bot-reasoning-wrap">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start;">
-                  <div>
-                    <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
-                        <span>&#9679; Beredenering (live) — elke berekeningsstap</span>
-                        <span id="reasoning-chevron" class="open">&#9662;</span>
-                    </div>
-                    <div id="reasoning-body" class="open">
-                        <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
-                    </div>
-                  </div>
-                  <div>
-                    <div class="rlabel" style="display:flex; justify-content:space-between; align-items:center; color:#ffb627;">
-                        <span>&#9679; Autonomous Adaptation — wat Neo zelf aanpast</span>
-                    </div>
-                    <div id="adaptation-body" class="open" style="max-height:320px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.6); border:1px solid rgba(255,182,39,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:#ffd98a; line-height:1.9;">
-                        <div id="bot-adaptation"><span style="color:var(--text-dim); font-size:0.85em;">Neo evalueert de engine-instellingen bij start en past ze autonoom aan voor betere winstkansen...</span></div>
-                    </div>
-                  </div>
-                </div>
-            </div>
-        <div class="subhead" style="display:flex; justify-content:space-between; align-items:center;"><span>Adaptive Learning Levels &middot; data</span><button onclick="downloadAdaptiveLearning()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; letter-spacing:0.05em; padding:4px 10px; background:rgba(0,217,255,0.08); color:#7fd8ff; border:1px solid rgba(0,217,255,0.4); border-radius:5px; cursor:pointer; text-transform:none;">&#8681; download leerdata</button></div>
+<div class="subhead" style="display:flex; justify-content:space-between; align-items:center;"><span>Adaptive Learning Levels &middot; data</span><button onclick="downloadAdaptiveLearning()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; letter-spacing:0.05em; padding:4px 10px; background:rgba(0,217,255,0.08); color:#7fd8ff; border:1px solid rgba(0,217,255,0.4); border-radius:5px; cursor:pointer; text-transform:none;">&#8681; download leerdata</button></div>
                 <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
                     <span>&#9679; Adaptive Learning · Level 1</span>
                     <span id="learning-chevron">&#9662;</span>
@@ -1640,7 +1005,43 @@ section { position:relative; z-index:2; }
           </div>
         </div>
 
-        <div class="subhead">Engine Config &middot; presets &middot; toggles</div>
+        
+
+    </section>
+
+    <!-- FEED -->
+    <section class="tab" id="tab-feed">
+      <div class="eyebrow">Transparantie</div><h1 class="h">LIVE FEED</h1>
+<div class="subhead">Live reasoning feed</div>
+            <div id="bot-reasoning-wrap">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start;">
+                  <div>
+                    <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
+                        <span>&#9679; Beredenering (live) — elke berekeningsstap</span>
+                        <span id="reasoning-chevron" class="open">&#9662;</span>
+                    </div>
+                    <div id="reasoning-body" class="open">
+                        <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="rlabel" style="display:flex; justify-content:space-between; align-items:center; color:#ffb627;">
+                        <span>&#9679; Autonomous Adaptation — wat Neo zelf aanpast</span>
+                    </div>
+                    <div id="adaptation-body" class="open" style="max-height:320px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.6); border:1px solid rgba(255,182,39,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:#ffd98a; line-height:1.9;">
+                        <div id="bot-adaptation"><span style="color:var(--text-dim); font-size:0.85em;">Neo evalueert de engine-instellingen bij start en past ze autonoom aan voor betere winstkansen...</span></div>
+                    </div>
+                  </div>
+                </div>
+            </div>
+        
+
+    </section>
+
+    <!-- ENGINE -->
+    <section class="tab" id="tab-engine">
+      <div class="eyebrow">Configuratie &middot; presets &middot; toggles</div><h1 class="h">ENGINE SETUP</h1>
+<div class="subhead">Engine Config &middot; presets &middot; toggles</div>
             <div id="bot-control-hub" class="hud amber" style="max-height:640px; overflow-y:auto; overflow-x:hidden;">
             <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
             <div class="eyebrow engine-title">OSIRIS ENGINE V4 NEO<span class="fill"></span></div>
@@ -1838,20 +1239,160 @@ section { position:relative; z-index:2; }
                 <button onclick="downloadAllData()" class="btn btn-ghost btn-mini" style="color:var(--teal); border-color:rgba(20,241,149,0.4);">&darr; Download All Data</button>
             </div>
             </div>
+
+    </section>
+
+    <!-- CLOUD -->
+    <section class="tab" id="tab-cloud">
+      <div class="eyebrow">Altijd online</div><h1 class="h">CLOUD &amp; WORKER</h1>
+      <div class="grid g-3 mb">
+        <div class="panel"><div class="plabel">Oracle worker</div><div class="kpi"><span class="l">Status</span><span class="v" style="color:var(--green);font-size:1rem">ONLINE</span></div><div class="muted" style="margin-top:8px">tick 3s geleden &middot; 15s interval<br>DeepNet shadow &middot; 24/7 &middot; pm2</div></div>
+        <div class="panel"><div class="plabel">Supabase</div><div class="kpi"><span class="l">Sync</span><span class="v" style="color:var(--cyan);font-size:1rem">ACTIEF</span></div><div class="muted" style="margin-top:8px">laatst verbonden 11:50 &middot; RLS aan<br>state &middot; trades &middot; predictions</div></div>
+        <div class="panel"><div class="plabel">Afstandsbediening</div><div class="flex between center" style="margin-top:6px"><span style="font-size:0.7rem">Bot draaien</span><span class="sw on"><i></i></span></div><div class="muted" style="margin-top:12px">osiris_control &middot; elk apparaat<br>alleen jij (RLS)</div></div>
+      </div>
+      <div class="panel">
+        <div class="plabel">Live voorspellingen (worker)</div>
+        <table><thead><tr><th>Markt</th><th>Gekalibreerd</th><th>Side</th><th>Walk-forward</th><th>Meta</th><th>Heartbeat</th></tr></thead><tbody>
+          <tr><td style="color:var(--btc)">BTC</td><td>23%</td><td class="neg">SHORT</td><td>69%</td><td><span class="chip on">open</span></td><td class="muted">3s</td></tr>
+          <tr><td style="color:var(--eth)">ETH</td><td>36%</td><td class="neg">SHORT</td><td>65%</td><td><span class="chip on">open</span></td><td class="muted">3s</td></tr>
+          <tr><td style="color:var(--sol)">SOL</td><td>30%</td><td class="neg">SHORT</td><td>48%</td><td><span class="chip on">open*</span></td><td class="muted">3s</td></tr>
+        </tbody></table>
+      </div>
+    </section>
+
+    <!-- SYSTEM -->
+    <section class="tab" id="tab-system">
+      <div class="eyebrow">Diagnose</div><h1 class="h">SYSTEEM</h1>
+
+  <div class="wrap">
+    <div class="waypoint">Waypoint 02 &middot; Signal layer</div>
+    <div class="sec-eyebrow">System Data</div>
+    <h2 class="sec">Meters, node timing, live pressure</h2>
+    <p class="body">VFM, ER, DB and the chaos index &mdash; each a validated rediscovery of a proven indicator. Plus node countdowns, live volume, volume rate and score, market sentiment, and the full price/volume history: collapsible and downloadable.</p>
+    <div class="mock">
+      <div class="mock-head"><span class="dot" style="background:var(--teal);"></span><span class="mock-title">System Data</span></div>
+      <div class="mock-body">
+            <div class="sec-eyebrow">Section 02 &middot; System Data</div>
+
+        <!-- ============ SYSTEM DATA SECTION ============ -->
+        <div class="hud violet">
+            <i class="corner corner-tl"></i><i class="corner corner-tr"></i><i class="corner corner-bl"></i><i class="corner corner-br"></i>
+            <div class="eyebrow">SYSTEM DATA<span class="fill"></span></div>
+            <div id="system-coin-tabs" style="display:flex; gap:6px; margin:8px 0 12px;">
+                <button class="coin-tab active" data-coin="BTC" onclick="switchCoin('BTC')">BTC</button>
+                <button class="coin-tab" data-coin="ETH" onclick="switchCoin('ETH')">ETH</button>
+                <button class="coin-tab" data-coin="SOL" onclick="switchCoin('SOL')">SOL</button>
+            </div>
+            <div id="system-data-multi" style="background:rgba(199,146,234,0.05); border:1px solid rgba(199,146,234,0.2); border-radius:6px; padding:10px 12px; margin-bottom:12px;">
+                <span style="color:var(--text-dim); font-size:0.62rem;">Multi-markt data laadt bij botstart...</span>
+            </div>
+
+            <div class="subhead" style="margin-top:0;">VFM &middot; ER &middot; DB &middot; Chaos Index <span style="font-weight:400; color:var(--dimmer); font-size:0.8em; text-transform:none; letter-spacing:0;">(volgt de gekozen munt-tab)</span></div>
+            <div class="data-grid">
+                <div class="meter-card"><h3>VFM</h3><p id="vfm-display">0.00</p><small id="vfm-status">Wachten...</small></div>
+                <div class="meter-card"><h3>ER (Energy Ratio)</h3><p id="er-display">0.00</p><small id="er-status">Ref: 1.0</small></div>
+                <div class="meter-card"><h3>DB (Delta Balance)</h3><p id="db-display">0.00</p><small id="db-status">Bereik: -1 tot 1</small></div>
+                <div class="meter-card"><h3>Chaos Index</h3><p id="chaos-display">0.00%</p><small id="chaos-status">Limit: 8% / 15%</small></div>
+            </div>
+
+            <div class="subhead">Osiris Market Status <span style="font-weight:400; color:var(--dimmer); font-size:0.8em; text-transform:none; letter-spacing:0;">(Neo BTC · UOTAM-nodes)</span></div>
+            <div class="status-banner">
+                <p id="market-status-main">--</p>
+                <p id="probability-score">Confidence: --</p>
+            </div>
+            <div class="target-grid">
+                <div class="target-card" style="border-color:var(--teal);">
+                    <h4 style="color:var(--teal);">Micro (9)</h4>
+                    <small>Bull: <span id="mic-bull">--</span></small>
+                    <small>Bear: <span id="mic-bear">--</span></small>
+                </div>
+                <div class="target-card" style="border-color:var(--amber);">
+                    <h4 style="color:var(--amber);">Meso (36)</h4>
+                    <small>Bull: <span id="mes-bull">--</span></small>
+                    <small>Bear: <span id="mes-bear">--</span></small>
+                </div>
+                <div class="target-card" style="border-color:var(--violet);">
+                    <h4 style="color:var(--violet);">Macro (144)</h4>
+                    <small>Bull: <span id="mac-bull">--</span></small>
+                    <small>Bear: <span id="mac-bear">--</span></small>
+                </div>
+            </div>
+
+            <div class="subhead">Patroon &amp; Structuur</div>
+            <div class="target-grid" style="grid-template-columns: 1fr 1fr;">
+                <div class="target-card" style="border-color:rgba(20,241,149,0.3);">
+                    <h4 style="color:var(--teal);">Candlestick-patroon</h4>
+                    <div id="current-pattern" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
+                </div>
+                <div class="target-card" style="border-color:rgba(153,69,255,0.3);">
+                    <h4 style="color:var(--violet);">Markt-structuur</h4>
+                    <div id="current-structure" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
+                </div>
+            </div>
+
+            <div class="subhead">Node Countdown</div>
+            <div id="info-panel" class="node-grid">
+                <div class="node-card" style="border-color:rgba(255,255,255,0.3);"><h4 style="color:#ffffff;">RESET [Vortex 9]</h4><p id="next-reset">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(255,255,0,0.4);"><h4 style="color:#ffff00;">VOLA [Node 1]</h4><p id="next-vola">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(0,255,204,0.4);"><h4 style="color:#00ffcc;">CORE [Vortex 3/6]</h4><p id="next-core">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(136,136,136,0.4);"><h4 style="color:#888888;">OSC [Node 2/4/5/7]</h4><p id="next-osc">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(255,204,0,0.4);"><h4 style="color:#ffcc00;">MID PULSE</h4><p id="mid-pulse-display">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(20,241,149,0.4);"><h4 style="color:var(--teal);">NEXT NODE</h4><p id="next-node-display">Berekenen...</p></div>
+                <div class="node-card" style="border-color:rgba(199,146,234,0.5);"><h4 style="color:#c792ea;">NEO'S NODE (NN) &middot; exp.</h4><p id="nn-display" style="font-size:0.82em;">Zet NN zichtbaar op de chart om te meten...</p></div>
+                <div class="node-card" style="border-color:rgba(255,182,39,0.5);"><h4 style="color:#ffb627;">NODE-CONFLUENTIE &middot; exp.</h4><p id="nodeconf-display" style="font-size:0.82em;">standaard-node &times; NN samenval...</p></div>
+            </div>
+
+            <div class="subhead">Live Volume &amp; Market Pressure</div>
+            <div class="volrow">
+                <div class="meter-card">
+                    <h3>Live Volume (BTC)</h3>
+                    <p id="live-volume" style="color:var(--amber);">Wachten...</p>
+                </div>
+                <div class="meter-card">
+                    <h3>Volume Rate / Score</h3>
+                    <p style="font-size:0.95rem;">Rate: <span id="vol-rate">0%</span> &middot; Score: <span id="vol-score" style="color:var(--amber);">0/100</span></p>
+                </div>
+            </div>
+            <div id="sentiment-bar-container">
+                <div id="sentiment-bar-green" style="width: 50%; height: 100%; background: var(--teal); transition: width 0.3s ease;"></div>
+                <div id="sentiment-bar-red" style="width: 50%; height: 100%; background: var(--red); transition: width 0.3s ease;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-family:'JetBrains Mono',monospace; font-size: 0.62rem; margin-top: 6px; color: var(--text-dim);">
+                <span>BUYERS</span><span>SELLERS</span>
+            </div>
+        </div>
+
+        <!-- ============ PRIJS & VOLUME HISTORIE ============ -->
+        
       </div>
     </div>
   </div>
-</section>
 
-<footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
+
+    </section>
+
+    <!-- DOWNLOADS -->
+    <section class="tab" id="tab-downloads">
+      <div class="eyebrow">Alles op &eacute;&eacute;n plek</div><h1 class="h">DOWNLOADS</h1>
+      <div class="grid g-3 mb">
+        <div class="panel"><div class="plabel">Leren &amp; modellen</div>
+          <div class="flex gap wrap"><button class="btn">&#8681; Adaptive learning (JSON)</button><button class="btn">&#8681; DeepNet-modellen</button><button class="btn">&#8681; Kalibratie-log (CSV)</button></div></div>
+        <div class="panel"><div class="plabel">Trades &amp; wallet</div>
+          <div class="flex gap wrap"><button class="btn">&#8681; Trade-historie (CSV)</button><button class="btn">&#8681; Autonome aanpassingen</button><button class="btn">&#8681; Multi-markt data</button></div></div>
+        <div class="panel"><div class="plabel">Markt &amp; config</div>
+          <div class="flex gap wrap"><button class="btn">&#8681; Prijs &amp; volume historie</button><button class="btn">&#8681; Instellingen</button><button class="btn">&#8681; Volledige backup</button></div></div>
+      </div>
+      <div class="panel">
+        <div class="plabel">Alles in &eacute;&eacute;n</div>
+        <div class="flex gap wrap center"><button class="btn go">&#8681; Download ALL data</button><span class="muted">bundelt wallet, trades, learningLog, DeepNet-modellen, kalibratie, instellingen en de volledige backup in &eacute;&eacute;n export.</span></div>
+        <div class="note">Alle exports zijn lokaal &middot; bevatten nooit je testnet-keys.</div>
+      </div>
+    </section>
+
+  </div>
 </div>
 
 
-<!-- OSIRIS cloud-sync (Fase 1) -->
-
-
-
-</div>
 <script>
 function autoCanvas(id,setup){var canvas=document.getElementById(id);if(!canvas||!canvas.getContext)return;var ctx=canvas.getContext('2d'),W=0,H=0,st=null;
   function loop(now){requestAnimationFrame(loop);if(canvas.offsetParent===null)return;var w=canvas.clientWidth,h=canvas.clientHeight;if(w<2||h<2)return;
@@ -1950,11 +1491,10 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('overview');
 </script>
-<script src="app.js?v=20260809-jarvis4"></script>
+<script src="app.js?v=20260809-jarvis5"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
-<script src="osiris-ui.js?v=1"></script>
 <script>(function(){function r(){try{window.dispatchEvent(new Event("resize"));}catch(e){}}var o=window.showTab;if(typeof o==="function"){window.showTab=function(id){o(id);setTimeout(r,60);};}window.addEventListener("load",function(){setTimeout(r,250);});})();</script>
 </body>
 </html>
