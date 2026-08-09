@@ -9249,7 +9249,43 @@ function downloadAdaptiveLearning() {
 }
 window.downloadAdaptiveLearning = downloadAdaptiveLearning;
 
+function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin){
+    var plot=document.getElementById(plotId); if(!plot) return;
+    xMin=(xMin==null)?50:xMin;
+    var head=document.getElementById(headId);
+    if(!map||map.length<1){ plot.innerHTML=''; if(head){head.textContent=label+' \u2014 nog geen data'; head.style.color='#5c7488';} return; }
+    var single=map.length<2;
+    if(head){ var gap=map.reduce(function(x,p){return x+(p[0]-p[1]);},0)/map.length;
+        if(gap>5){head.textContent=label+' \u00b7 overconf +'+gap.toFixed(0); head.style.color='#ffb627';}
+        else if(gap<-5){head.textContent=label+' \u00b7 onderconf '+gap.toFixed(0); head.style.color='#14f195';}
+        else {head.textContent=label+' \u00b7 goed'; head.style.color='#14f195';} }
+    var X=function(r){return 8+(Math.min(100,Math.max(xMin,r))-xMin)/(100-xMin)*86;};
+    var Y=function(w){return 50-Math.min(100,Math.max(0,w))/100*46;};
+    var svg='';
+    if(!single){ var pts=map.map(function(p){return X(p[0]).toFixed(1)+','+Y(p[1]).toFixed(1);}).join(' ');
+        svg+='<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>'; }
+    map.forEach(function(p,i){ var toon=single||i===map.length-1;
+        svg+='<circle cx="'+X(p[0]).toFixed(1)+'" cy="'+Y(p[1]).toFixed(1)+'" r="'+(toon?2.2:1.1)+'" fill="'+col+'"/>'; });
+    plot.innerHTML=svg;
+}
+function renderAllCalibrationCurves(){
+    var C={BTC:'#f7931a',ETH:'#627eea',SOL:'#14f195',OSIRIS:'#00d9ff'};
+    var dn=null; try{ if(typeof OsirisDeepNet!=='undefined') dn=OsirisDeepNet; }catch(e){}
+    try{ computeCalibrationMap();
+        var nb=learningLog.filter(function(l){return !l.manual&&l.entryProbabilityPct!=null&&(l.market==null||l.market==='BTC');}).length;
+        _drawCalibInto('calib-plot-btc','calib-head-btc',_calibMap,nb,_calibProvisional,C.BTC,'Neo BTC',50);
+    }catch(e){}
+    ['ETH','SOL'].forEach(function(sym){ try{
+        var c=dn?dn.calibrationCurve(sym):null; var lc=sym.toLowerCase();
+        if(c&&c.map) _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,c.map,c.n,c.n<60,C[sym],'Neo '+sym,0);
+        else { var r=computeCalibrationMapFor(sym); _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,r.map,r.n,r.provisional,C[sym],'Neo '+sym,50); }
+    }catch(e){} });
+    try{ var o=dn?dn.calibrationCurve('OSIRIS'):null;
+        if(o&&o.map) _drawCalibInto('calib-plot-osiris','calib-head-osiris',o.map,o.n,o.n<60,C.OSIRIS,'Osiris Mainbrain',0);
+    }catch(e){}
+}
 function renderCalibrationCurve() {
+    try{ renderAllCalibrationCurves(); }catch(e){}
     const sym = (typeof _activeCalibBrain !== 'undefined') ? _activeCalibBrain : 'BTC';
     const col = _CALIB_COL[sym] || '#ffb627';
     const label = sym === 'OSIRIS' ? 'Osiris mainbrain' : ('Neo ' + sym);
