@@ -1,10 +1,125 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="nl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OSIRIS INTEL — Osiris Deepnet V1</title>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800;900&family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OSIRIS — interface concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#04070e;--panel:rgba(11,19,32,0.72);--line:rgba(0,217,255,0.16);
+    --cyan:#00d9ff;--iris:#7c5cff;--amber:#ffb627;--green:#14f195;--red:#ff5c6a;
+    --btc:#f7931a;--eth:#627eea;--sol:#14f195;--text:#d6e6f2;--dim:#7d99ac;--dimmer:#4d647a;}
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{background:radial-gradient(1200px 700px at 80% -10%,rgba(58,134,255,0.10),transparent 60%),radial-gradient(900px 600px at 8% 112%,rgba(124,92,255,0.09),transparent 60%),var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;overflow:hidden;}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;background-image:linear-gradient(rgba(0,217,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,217,255,0.03) 1px,transparent 1px);background-size:46px 46px;mask-image:radial-gradient(circle at 55% 40%,#000 30%,transparent 88%);}
+  .app{position:relative;z-index:1;display:grid;grid-template-columns:82px 1fr;grid-template-rows:58px 1fr;height:100vh;}
+  .top{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(7,12,22,0.92),rgba(7,12,22,0.35));}
+  .brand{font-family:'Orbitron';font-weight:900;letter-spacing:6px;font-size:1.12rem;background:linear-gradient(90deg,#eafcff,var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .brand small{font-family:'JetBrains Mono';font-weight:400;letter-spacing:2px;font-size:0.48rem;color:var(--dim);display:block;margin-top:-2px;}
+  .top .spacer{flex:1;}
+  .pill{display:flex;align-items:center;gap:7px;font-size:0.54rem;letter-spacing:1.4px;color:var(--dim);border:1px solid var(--line);border-radius:20px;padding:5px 11px;text-transform:uppercase;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px currentColor;color:var(--green);animation:pulse 2.4s infinite;}
+  .dot.amber{background:var(--amber);color:var(--amber);}.dot.cyan{background:var(--cyan);color:var(--cyan);}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .clock{font-family:'Orbitron';font-weight:600;letter-spacing:3px;color:var(--cyan);font-size:0.8rem;width:104px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;flex:none;}
+  .rail{border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:4px;overflow-y:auto;}
+  .rail::-webkit-scrollbar{width:0;}
+  .navb{width:62px;height:50px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--dim);cursor:pointer;border:1px solid transparent;transition:.18s;position:relative;}
+  .navb svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.6;}
+  .navb span{font-size:0.42rem;letter-spacing:.5px;text-transform:uppercase;text-align:center;}
+  .navb:hover{color:var(--text);background:rgba(0,217,255,0.05);}
+  .navb.active{color:var(--cyan);border-color:var(--line);background:rgba(0,217,255,0.08);}
+  .navb.active::before{content:"";position:absolute;left:-1px;top:11px;bottom:11px;width:2px;background:var(--cyan);box-shadow:0 0 10px var(--cyan);border-radius:2px;}
+  .main{overflow:auto;padding:20px 24px 44px;position:relative;}
+  .main::-webkit-scrollbar{width:8px;}.main::-webkit-scrollbar-thumb{background:rgba(0,217,255,0.2);border-radius:4px;}
+  .tab{display:none;}.tab.show{display:block;animation:fade .35s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .eyebrow{font-size:0.54rem;letter-spacing:3px;color:var(--dim);text-transform:uppercase;margin-bottom:3px;}
+  .h{font-family:'Orbitron';font-weight:700;letter-spacing:2px;font-size:1rem;color:#eafcff;margin:0 0 14px;}
+  .panel{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 16px;}
+  .panel::before,.panel::after{content:"";position:absolute;width:13px;height:13px;border:2px solid var(--cyan);opacity:.45;}
+  .panel::before{left:-1px;top:-1px;border-right:0;border-bottom:0;border-top-left-radius:14px;}
+  .panel::after{right:-1px;bottom:-1px;border-left:0;border-top:0;border-bottom-right-radius:14px;}
+  .plabel{font-size:0.54rem;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .grid{display:grid;gap:14px;}.g-2{grid-template-columns:1fr 1fr;}.g-2b{grid-template-columns:1.4fr 1fr;}
+  .g-3{grid-template-columns:repeat(3,1fr);}.g-4{grid-template-columns:repeat(4,1fr);}.g-6{grid-template-columns:repeat(6,1fr);}
+  .mb{margin-bottom:14px;}
+  .kpi .l{font-size:0.5rem;letter-spacing:2px;color:var(--dim);text-transform:uppercase;}
+  .kpi .v{font-family:'Orbitron';font-weight:700;font-size:1.35rem;display:block;margin-top:3px;}
+  .kpi .s{font-size:0.56rem;color:var(--dim);}
+  .pos{color:var(--green);}.neg{color:var(--red);}
+  table{width:100%;border-collapse:collapse;font-size:0.64rem;}
+  th{text-align:left;color:var(--dim);font-weight:500;letter-spacing:1px;text-transform:uppercase;font-size:0.5rem;padding:7px 6px;border-bottom:1px solid var(--line);}
+  td{padding:8px 6px;border-bottom:1px solid rgba(255,255,255,0.04);}
+  tr:hover td{background:rgba(0,217,255,0.03);}
+  .tag{font-size:0.46rem;letter-spacing:1px;padding:1px 5px;border-radius:4px;text-transform:uppercase;}
+  .chip{font-size:0.48rem;letter-spacing:1px;padding:2px 7px;border-radius:20px;border:1px solid var(--line);color:var(--dim);text-transform:uppercase;cursor:pointer;}
+  .chip.on{color:var(--green);border-color:rgba(20,241,149,0.4);background:rgba(20,241,149,0.08);}
+  .chip.off{color:var(--red);border-color:rgba(255,92,106,0.35);background:rgba(255,92,106,0.06);}
+  .chip.warn{color:var(--amber);border-color:rgba(255,182,39,0.4);background:rgba(255,182,39,0.07);}
+  .bar{height:5px;border-radius:3px;background:rgba(255,255,255,0.07);margin-top:8px;overflow:hidden;}
+  .bar>i{display:block;height:100%;border-radius:3px;}
+  .muted{color:var(--dim);font-size:0.58rem;}
+  .note{font-size:0.54rem;color:var(--dimmer);margin-top:12px;line-height:1.6;}
+  .flex{display:flex;}.between{justify-content:space-between;}.center{align-items:center;}.gap{gap:10px;}.wrap{flex-wrap:wrap;}
+  .btn{font-family:'Orbitron';font-weight:600;letter-spacing:1.2px;font-size:0.56rem;text-transform:uppercase;border:1px solid var(--line);border-radius:9px;padding:8px 14px;background:rgba(0,217,255,0.06);color:var(--cyan);cursor:pointer;}
+  .btn.danger{color:var(--red);border-color:rgba(255,92,106,0.35);background:rgba(255,92,106,0.06);}
+  .btn.go{color:var(--green);border-color:rgba(20,241,149,0.4);background:rgba(20,241,149,0.08);}
+  .gauge{display:flex;flex-direction:column;align-items:center;gap:5px;}
+  .gauge svg{width:96px;height:96px;}.gauge .gv{font-family:'Orbitron';font-weight:700;font-size:1rem;fill:#eafcff;}
+  .gauge .gl{font-size:0.48rem;letter-spacing:2px;color:var(--dim);text-transform:uppercase;}
+  .reactor{display:flex;align-items:center;justify-content:center;position:relative;min-height:300px;}
+  .core-label{position:absolute;bottom:12px;text-align:center;}
+  .core-label .v{font-family:'Orbitron';font-weight:900;font-size:1.3rem;color:#eafcff;}
+  .core-label .l{font-size:0.5rem;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;}
+  .netwrap{position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:radial-gradient(700px 380px at 50% 30%,rgba(0,60,90,0.28),rgba(3,7,14,0.9));}
+  .net-hud{position:absolute;top:14px;left:16px;pointer-events:none;}
+  .net-hud .t{font-family:'Orbitron';font-weight:700;letter-spacing:2px;color:#eafcff;font-size:0.82rem;}
+  .net-hud .s{font-size:0.54rem;color:var(--cyan);letter-spacing:1.5px;margin-top:2px;}
+  .net-out{position:absolute;top:14px;right:16px;text-align:right;pointer-events:none;}
+  .net-out .l{font-size:0.5rem;letter-spacing:2px;color:var(--dim);text-transform:uppercase;}
+  .net-out .v{font-family:'Orbitron';font-weight:700;font-size:1.1rem;color:var(--cyan);}
+  .cfg{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;}
+  .field{display:flex;flex-direction:column;gap:4px;}
+  .field label{font-size:0.46rem;letter-spacing:1px;color:var(--dim);text-transform:uppercase;}
+  .field .box{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:rgba(3,8,14,0.7);color:#eafcff;font-size:0.68rem;}
+  .sw{width:34px;height:18px;border-radius:20px;background:rgba(255,255,255,0.08);border:1px solid var(--line);position:relative;flex:none;cursor:pointer;}
+  .sw.on{background:rgba(20,241,149,0.2);border-color:rgba(20,241,149,0.5);}
+  .sw>i{position:absolute;top:1px;left:1px;width:14px;height:14px;border-radius:50%;background:var(--dim);transition:.2s;}
+  .sw.on>i{left:17px;background:var(--green);box-shadow:0 0 8px var(--green);}
+  .feed{font-size:0.6rem;line-height:1.85;height:320px;overflow:auto;padding-right:8px;}
+  .feed::-webkit-scrollbar{width:6px;}.feed::-webkit-scrollbar-thumb{background:rgba(0,217,255,0.18);border-radius:4px;}
+  .feed .row{border-left:2px solid var(--line);padding-left:10px;margin-bottom:8px;}
+  .feed .k{color:var(--cyan);}.feed .t{color:var(--dimmer);}
+  .adapt .row{border-left-color:rgba(20,241,149,0.4);}.adapt .t{color:var(--green);}
+  .stat{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.6rem;}
+  .stat b{color:#eafcff;font-weight:500;}
+  .toggle-row{display:flex;justify-content:space-between;align-items:center;font-size:0.62rem;padding:3px 0;}
+  @media(max-width:900px){
+    .app{grid-template-columns:58px 1fr;}
+    .main{padding:14px 12px 40px;}
+    .navb{width:52px;height:46px;}
+    .top{gap:8px;padding:0 12px;}.brand{font-size:0.9rem;letter-spacing:3px;}.pill{display:none;}.pill:first-of-type{display:flex;}
+    .grid{gap:10px;}
+    .g-2,.g-2b,.g-3,.g-4,.g-6{grid-template-columns:1fr!important;}
+    .cfg{grid-template-columns:1fr 1fr!important;}
+    div[style*="340px"],div[style*="0.95fr"],div[style*="210px"]{grid-template-columns:1fr!important;}
+    #netcv,#net-ov,#net-wal{height:320px!important;}
+    table{font-size:0.56rem;}th{font-size:0.46rem;}
+    .h{font-size:0.85rem;}
+  }
+  .cbx{display:inline-flex;align-items:center;gap:7px;font-size:0.62rem;cursor:pointer;color:var(--text);}
+  .cbx>i{width:16px;height:16px;border-radius:4px;border:1px solid var(--line);background:rgba(3,8,14,0.7);display:inline-flex;align-items:center;justify-content:center;flex:none;}
+  .cbx.on>i{background:var(--cyan);border-color:var(--cyan);}
+  .cbx.on>i::after{content:"\2713";color:#04070e;font-size:0.62rem;font-weight:700;line-height:1;}
+  .box.sel{position:relative;padding-right:20px;cursor:pointer;}
+  .box.sel::after{content:"\25be";position:absolute;right:8px;top:6px;color:var(--dim);}
+  .plabel .cbx{text-transform:none;letter-spacing:0;color:var(--green);}
+</style>
+
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 :root{
   --void:#04060b; --line:rgba(0,217,255,0.14);
@@ -424,8 +539,7 @@ section { position:relative; z-index:2; }
 .learning-tab{ font-family:'JetBrains Mono',monospace; font-size:0.6rem; letter-spacing:0.05em; font-weight:700; padding:5px 12px; background:rgba(255,255,255,0.03); color:var(--text-dim); border:1px solid var(--line); border-radius:5px; cursor:pointer; transition:all 0.15s; }
 .learning-tab:hover{ background:rgba(0,217,255,0.08); color:var(--text-primary); }
 .learning-tab.active{ background:rgba(0,217,255,0.14); color:var(--teal,#00d9ff); border-color:rgba(0,217,255,0.5); }
-</style>
-<style>
+</style><style>
 /* extra responsive (V4 NEO): alle onderdelen blijven, ze stapelen alleen op klein scherm */
 /* gelijke cellen voor de 4 kwadranten (oog / neural net / hoofd / brein) */
 .neo-quad{position:relative; height:360px; background:#000004; border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center;}
@@ -447,7 +561,505 @@ section { position:relative; z-index:2; }
   #flow-svg{min-height:220px;}
 }
 </style>
+<style>#jv-legacy{position:fixed!important;left:-100000px!important;top:0!important;width:1280px!important;height:1600px!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important;z-index:-1!important;}.app{position:relative;z-index:1;}#chart-container .hud,#chart-container{background:transparent!important;border:0!important;}</style>
+</head>
 <body>
+
+<div class="app">
+  <div class="top">
+    <div class="brand">OSIRIS<small>AUTONOMOUS MULTI-BRAIN · TESTNET</small></div>
+    <div class="spacer"></div>
+    <div class="pill"><span class="dot"></span> bot actief</div>
+    <div class="pill"><span class="dot cyan"></span> worker online</div>
+    <div class="pill"><span class="dot"></span> sync</div>
+    <div class="pill"><span class="dot amber"></span> breaker actief</div>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+  <div class="rail" id="rail">
+    <div class="navb active" data-tab="overview"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg><span>Overzicht</span></div>
+    <div class="navb" data-tab="net"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 12l3-5M7 12l3 5M14 7l4 4M14 17l4-4"/></svg><span>Neuraal net</span></div>
+    <div class="navb" data-tab="wallet"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 14h2"/></svg><span>Wallet</span></div>
+    <div class="navb" data-tab="charts"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 4-6"/></svg><span>Charts</span></div>
+    <div class="navb" data-tab="brains"><svg viewBox="0 0 24 24"><circle cx="7" cy="8" r="2.4"/><circle cx="17" cy="8" r="2.4"/><circle cx="12" cy="17" r="2.4"/><path d="M9 9l6 0M8 10l3 5M16 10l-3 5"/></svg><span>Cortex</span></div>
+    <div class="navb" data-tab="feed"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></svg><span>Live feed</span></div>
+    <div class="navb" data-tab="engine"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2"/></svg><span>Engine</span></div>
+    <div class="navb" data-tab="cloud"><svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.3A3.5 3.5 0 0 1 18 18z"/></svg><span>Cloud</span></div>
+    <div class="navb" data-tab="system"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg><span>Systeem</span></div>
+    <div class="navb" data-tab="downloads"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M5 20h14"/></svg><span>Downloads</span></div>
+  </div>
+  <div class="main" id="main">
+
+    <!-- OVERVIEW -->
+    <section class="tab show" id="tab-overview">
+      <div class="eyebrow">Systeemoverzicht</div><h1 class="h">COMMANDOKERN</h1>
+      <div class="grid mb" style="grid-template-columns:1fr 340px 1fr;align-items:stretch;">
+        <div class="panel">
+          <div class="plabel">Prestatie</div>
+          <div class="grid" style="grid-template-columns:1fr 1fr;gap:8px;">
+            <div class="gauge"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" stroke="rgba(255,255,255,0.07)" stroke-width="7" fill="none"/><circle cx="50" cy="50" r="40" stroke="var(--green)" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="63" transform="rotate(-90 50 50)"/><text class="gv" x="50" y="55" text-anchor="middle">75%</text></svg><span class="gl">Winrate 24u</span></div>
+            <div class="gauge"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" stroke="rgba(255,255,255,0.07)" stroke-width="7" fill="none"/><circle cx="50" cy="50" r="40" stroke="var(--cyan)" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="251" stroke-dashoffset="100" transform="rotate(-90 50 50)"/><text class="gv" x="50" y="55" text-anchor="middle">60%</text></svg><span class="gl">Allocatie</span></div>
+          </div>
+          <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px;">
+            <div class="kpi"><span class="l">Equity</span><span class="v">&#8366;999.06</span></div>
+            <div class="kpi"><span class="l">Gerealiseerde P/L</span><span class="v pos">+&#8366;0.93</span><span class="s">+0.09% sessie &middot; break-even 46%</span></div>
+          </div>
+        </div>
+        <div class="reactor"><canvas id="brain" style="width:100%;height:300px;"></canvas><div class="core-label"><div class="v">OSIRIS</div><div class="l">mainbrain &middot; levend</div></div></div>
+        <div class="panel">
+          <div class="plabel">Equity-verdeling</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <div><div class="flex between"><span style="color:var(--eth);font-weight:700;font-size:0.68rem;">ETH SHORT</span><span class="muted">60% &middot; 100%</span></div><div class="bar"><i style="width:100%;background:var(--eth)"></i></div></div>
+            <div><div class="flex between"><span style="color:var(--sol);font-weight:700;font-size:0.68rem;">SOL LONG</span><span class="muted">56% &middot; 46%</span></div><div class="bar"><i style="width:46%;background:var(--sol)"></i></div></div>
+            <div><div class="flex between"><span style="color:var(--btc);font-weight:700;font-size:0.68rem;">BTC &mdash;</span><span class="muted">56% &middot; 0%</span></div><div class="bar"><i style="width:4%;background:var(--btc)"></i></div></div>
+          </div>
+          <div class="plabel" style="margin-top:16px;">Fundamentals &middot; cross-markt</div>
+          <div class="stat"><span class="muted">Funding rate</span><b>0.0056%</b></div>
+          <div class="stat"><span class="muted">Open interest</span><b>+0.0%</b></div>
+          <div class="stat"><span class="muted">Long/short ratio</span><b>1.14</b></div>
+          <div class="stat" style="border:0"><span class="muted">BTC-correlatie</span><b>0.82</b></div>
+        </div>
+      </div>
+      <div class="grid g-3">
+        <div class="panel"><div class="flex between center"><span style="color:var(--btc);font-family:Orbitron;font-weight:700">BTC</span><span class="muted">winrate 64%</span></div><div class="bar"><i style="width:64%;background:var(--btc)"></i></div><div class="flex gap wrap" style="margin-top:8px;"><span class="chip">wf 69%</span><span class="chip on">meta open</span><span class="chip">goed gekal.</span></div></div>
+        <div class="panel"><div class="flex between center"><span style="color:var(--eth);font-family:Orbitron;font-weight:700">ETH</span><span class="muted">winrate 63%</span></div><div class="bar"><i style="width:63%;background:var(--eth)"></i></div><div class="flex gap wrap" style="margin-top:8px;"><span class="chip">wf 65%</span><span class="chip on">meta open</span><span class="chip warn">overconf +10</span></div></div>
+        <div class="panel"><div class="flex between center"><span style="color:var(--sol);font-family:Orbitron;font-weight:700">SOL</span><span class="muted">winrate 60%</span></div><div class="bar"><i style="width:60%;background:var(--sol)"></i></div><div class="flex gap wrap" style="margin-top:8px;"><span class="chip">wf 48%</span><span class="chip on">meta open*</span><span class="chip">onderconf &minus;14</span></div></div>
+      </div>
+      <div class="grid g-4" style="margin-top:14px">
+        <div class="panel"><div class="kpi"><span class="l">Status</span><span class="v" style="color:var(--green);font-size:1rem">ACTIEF</span></div></div>
+        <div class="panel"><div class="kpi"><span class="l">Live P/L</span><span class="v neg" style="font-size:1rem">&minus;0.15% (&minus;&#8366;1.53)</span></div></div>
+        <div class="panel"><div class="kpi"><span class="l">Open posities</span><span class="v" style="font-size:1rem">SHORT + LONG</span></div></div>
+        <div class="panel"><div class="kpi"><span class="l">Laatste actie</span><span class="s" style="margin-top:4px;color:var(--cyan);display:block;line-height:1.5">ENTRY LONG @ $76 (3.099 BTC &asymp; &#8366;236.54) [OSIRIS SOL LONG (kans 59%) TESTNET fill] (08:33:27)</span></div></div>
+      </div>
+      <div class="panel" style="margin-top:14px"><div class="plabel">Adaptief leren &middot; samenvatting (L1 &middot; L2 &middot; L3)</div>
+        <div class="grid g-3">
+          <div><div class="muted">Level 1 &middot; factor-gewichten</div><div style="font-size:0.6rem;line-height:1.7;margin-top:3px">momentum 1.42&#9650; &middot; fib 0.60&#9660; &middot; ema 1.06&#9650;<br><span class="muted">contrafactueel geleerd</span></div></div>
+          <div><div class="muted">Level 2 &middot; logistisch</div><div style="font-size:0.6rem;line-height:1.7;margin-top:3px">val-acc 65% &middot; 1948 samples &middot; weegt 15%<br><span class="muted">per markt via DeepNet</span></div></div>
+          <div><div class="muted">Level 3 &middot; neuraal net</div><div style="font-size:0.6rem;line-height:1.7;margin-top:3px">val-acc 61% &middot; weging 29% (cap 45%)<br><span class="muted">deep feedforward</span></div></div>
+        </div>
+      </div>
+      <div class="netwrap" style="margin-top:14px">
+        <canvas id="net-ov" style="width:100%;height:360px;display:block;"></canvas>
+        <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">multi-brein neuraal netwerk &middot; onder de commandokern</div></div>
+        <div class="net-out"><div class="l">Beslissing</div><div class="v">ETH SHORT 60%</div></div>
+      </div>
+    </section>
+
+    <!-- NEURAL NET -->
+    <section class="tab" id="tab-net">
+      <div class="eyebrow">Kernvisualisatie</div><h1 class="h">MULTI-BREIN NEURAAL NETWERK</h1>
+      <div class="netwrap mb">
+        <canvas id="netcv" style="width:100%;height:520px;display:block;"></canvas>
+        <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">15 inputs &rarr; integratie &rarr; cores &rarr; osiris &rarr; 1 uitkomst</div></div>
+        <div class="net-out"><div class="l">Beslissing</div><div class="v">ETH SHORT 60%</div></div>
+      </div>
+      <div class="grid g-3">
+        <div class="panel"><div class="plabel">DeepNet-band &middot; live</div><div style="font-size:0.62rem;line-height:2;"><span style="color:var(--btc)">BTC 23% SHORT</span> &middot; meta <span style="color:var(--green)">open</span><br><span style="color:var(--eth)">ETH 36% SHORT</span> &middot; meta <span style="color:var(--green)">open</span><br><span style="color:var(--sol)">SOL 30% SHORT</span> &middot; meta <span style="color:var(--green)">open*</span></div></div>
+        <div class="panel"><div class="plabel">Lagen</div><div style="font-size:0.6rem;line-height:1.9;color:var(--dim)">INPUTS <b style="color:#eafcff">15</b> &middot; INTEGRATIE <b style="color:#eafcff">14</b> &middot; CORES <b style="color:#eafcff">3</b> &middot; OSIRIS <b style="color:#eafcff">4</b> &middot; BESLISSING <b style="color:#eafcff">3</b> &middot; UITKOMST <b style="color:#eafcff">1</b></div></div>
+        <div class="panel"><div class="plabel">Signalen (inputs)</div><div style="font-size:0.5rem;color:var(--dim);line-height:1.9;">VFM &middot; ER &middot; DB &middot; CHAOS &middot; MOM &middot; VOL-Z &middot; RSI &middot; EMA &middot; CNN &middot; FIB &middot; NN &middot; CONF &middot; FUND &middot; L/S &middot; BTC-COR</div></div>
+      </div>
+    </section>
+
+    <!-- WALLET -->
+    <section class="tab" id="tab-wallet">
+      <div class="eyebrow">Kapitaal</div><h1 class="h">WALLET &amp; POSITIES</h1>
+
+      <div class="grid mb" style="grid-template-columns:1fr 1.15fr 1fr;gap:14px" data-r="wal3">
+        <div class="panel"><div class="plabel">Kern-metrics</div>
+          <div class="grid g-3" style="gap:12px">
+            <div class="kpi"><span class="l">P/L</span><span class="v pos" data-src="kpi-pnl">+&#8366;0.93</span></div>
+            <div class="kpi"><span class="l">Winrate</span><span class="v" data-src="kpi-winrate">75%</span></div>
+            <div class="kpi"><span class="l">Cal. edge</span><span class="v" style="color:var(--amber)" data-src="kpi-cal">27%</span></div>
+            <div class="kpi"><span class="l">Break-even</span><span class="v" data-src="kpi-breakeven">46%</span></div>
+            <div class="kpi"><span class="l">Alloc</span><span class="v" data-src="kpi-alloc">60%</span></div>
+            <div class="kpi"><span class="l">Equity</span><span class="v" data-src="wallet-equity">&#8366;999</span></div>
+          </div>
+        </div>
+        <div class="panel" style="text-align:center"><div class="plabel" style="justify-content:center;color:var(--cyan)">OSIRIS &middot; QUANTUM TRACKING</div>
+          <canvas id="eye" style="width:100%;height:230px;display:block"></canvas>
+          <div class="grid g-3" style="gap:6px;margin-top:10px;font-size:0.52rem">
+            <div><b style="color:var(--btc)">BTC</b><br><span class="muted">track 92%</span><br><span style="color:var(--red)">SHORT</span></div>
+            <div><b style="color:var(--eth)">ETH</b><br><span class="muted">track 88%</span><br><span style="color:var(--red)">SHORT</span></div>
+            <div><b style="color:var(--sol)">SOL</b><br><span class="muted">track 61%</span><br><span class="muted">abst</span></div>
+          </div>
+          <div class="muted" style="margin-top:8px;font-size:0.5rem">lock 3/3 &middot; drift 0.12 &middot; horizon 15m</div>
+        </div>
+        <div class="panel"><div class="plabel">Live status</div>
+          <div class="grid g-2" style="gap:12px">
+            <div class="kpi"><span class="l">Status</span><span class="v" style="color:var(--green);font-size:1.1rem" data-src="bot-status">ACTIEF</span></div>
+            <div class="kpi"><span class="l">Live P/L</span><span class="v neg" style="font-size:1.1rem" data-src="bot-pnl">&minus;0.15% (&minus;&#8366;1.53)</span></div>
+            <div class="kpi"><span class="l">Open posities</span><span class="v" style="font-size:1.1rem" data-src="bot-position">SHORT + LONG</span></div>
+            <div class="kpi"><span class="l">Engine runtime</span><span class="v" style="font-size:1.1rem" data-src="bot-runtime">4u 46m</span></div>
+            <div class="kpi"><span class="l">Laatste actie</span><span class="s" style="margin-top:4px;color:var(--cyan);display:block;line-height:1.5">ENTRY LONG @ $76 [OSIRIS SOL LONG (kans 59%) TESTNET fill] (08:33:27)</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="netwrap mb">
+        <canvas id="net-wal" style="width:100%;height:320px;display:block;"></canvas>
+        <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">multi-brein neuraal netwerk &middot; live</div></div>
+        <div class="net-out"><div class="l">Beslissing</div><div class="v">ETH SHORT 60%</div></div>
+      </div>
+
+      <div class="grid g-2 mb">
+        <div class="panel">
+          <div class="plabel">Exit &middot; bijdrage</div>
+          <div class="flex between center" style="margin-bottom:7px;font-size:0.58rem"><span style="width:78px;color:var(--dim)">EARLY_STOP</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:90%;background:var(--red)"></i></div><span class="neg">&minus;29.4</span></div>
+          <div class="flex between center" style="margin-bottom:7px;font-size:0.58rem"><span style="width:78px;color:var(--dim)">PROB_COLL</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:35%;background:var(--red)"></i></div><span class="neg">&minus;7.7</span></div>
+          <div class="flex between center" style="margin-bottom:7px;font-size:0.58rem"><span style="width:78px;color:var(--dim)">TIME_STOP</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:14%;background:var(--red)"></i></div><span class="neg">&minus;2.9</span></div>
+          <div class="flex between center" style="margin-bottom:7px;font-size:0.58rem"><span style="width:78px;color:var(--dim)">STOP_LOSS</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:9%;background:var(--red)"></i></div><span class="neg">&minus;1.6</span></div>
+          <div class="flex between center" style="margin-bottom:7px;font-size:0.58rem"><span style="width:78px;color:var(--dim)">REALLOCAT</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:7%;background:var(--red)"></i></div><span class="neg">&minus;1.3</span></div>
+          <div class="flex between center" style="font-size:0.58rem"><span style="width:78px;color:var(--dim)">TARGET</span><div class="bar" style="flex:1;margin:0 8px"><i style="width:6%;background:var(--green)"></i></div><span class="pos">+0.4</span></div>
+          <div class="note">EARLY_STOP_TREND is de grootste verliesbron &mdash; nachtelijke uren (00&ndash;06 UTC) blijven zwak.</div>
+        </div>
+        <div class="panel">
+          <div class="plabel">Equity-verdeling</div>
+          <div><div class="flex between"><span style="color:var(--eth);font-weight:700;font-size:0.68rem;">ETH SHORT</span><span class="muted">60% &middot; 100%</span></div><div class="bar"><i style="width:100%;background:var(--eth)"></i></div></div>
+          <div style="margin-top:8px"><div class="flex between"><span style="color:var(--sol);font-weight:700;font-size:0.68rem;">SOL LONG</span><span class="muted">56% &middot; 46%</span></div><div class="bar"><i style="width:46%;background:var(--sol)"></i></div></div>
+          <div style="margin-top:8px"><div class="flex between"><span style="color:var(--btc);font-weight:700;font-size:0.68rem;">BTC &mdash;</span><span class="muted">56% &middot; 0%</span></div><div class="bar"><i style="width:4%;background:var(--btc)"></i></div></div>
+          <div class="plabel" style="margin-top:16px">Fundamentals &middot; cross-markt</div>
+          <div class="stat"><span class="muted">Funding rate</span><b>0.0056%</b></div>
+          <div class="stat"><span class="muted">Open interest</span><b>+0.0%</b></div>
+          <div class="stat"><span class="muted">Long/short ratio</span><b>1.14</b></div>
+          <div class="stat" style="border:0"><span class="muted">BTC-correlatie</span><b>0.82</b></div>
+        </div>
+      </div>
+
+      <div class="panel mb">
+        <div class="plabel">Open posities</div>
+        <table><thead><tr><th>Type</th><th>Markt</th><th>Side</th><th>Entry</th><th>Size</th><th>Alloc</th><th>P/L</th><th></th></tr></thead><tbody>
+          <tr><td><span class="tag" style="background:rgba(0,217,255,0.12);color:var(--cyan)">OSIRIS</span> <span class="tag" style="background:rgba(124,92,255,0.15);color:var(--iris)">TREND</span></td><td style="color:var(--eth)">ETH</td><td class="neg">SHORT</td><td>$1917</td><td>&#8366;368</td><td>37%</td><td class="neg">&minus;0.41%</td><td><button class="btn danger" style="padding:3px 9px;font-size:0.5rem">Sluit</button></td></tr>
+          <tr><td><span class="tag" style="background:rgba(0,217,255,0.12);color:var(--cyan)">OSIRIS</span> <span class="tag" style="background:rgba(124,92,255,0.15);color:var(--iris)">TREND</span></td><td style="color:var(--sol)">SOL</td><td class="pos">LONG</td><td>$75</td><td>&#8366;233</td><td>23%</td><td class="neg">&minus;0.11%</td><td><button class="btn danger" style="padding:3px 9px;font-size:0.5rem">Sluit</button></td></tr>
+        </tbody></table>
+        <div class="plabel" style="margin-top:16px;">Pending orders</div>
+        <div class="muted">Geen pending orders &mdash; Osiris wacht op instapprijs.</div>
+      </div>
+
+      <div class="panel mb">
+        <div class="plabel">Gesloten posities &middot; historie</div>
+        <table><thead><tr><th>Datum/tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th></tr></thead><tbody id="jv-history-body">
+          <tr><td class="muted">08-08 11:31</td><td class="muted">OSIRIS&middot;TREND</td><td style="color:var(--sol)">SOL</td><td>LONG</td><td>$75</td><td>&#8366;331</td><td>33%</td><td class="pos">+0.12% (+&#8366;0.40)</td></tr>
+          <tr><td class="muted">08-08 10:01</td><td class="muted">OSIRIS&middot;TREND</td><td style="color:var(--sol)">SOL</td><td>LONG</td><td>$75</td><td>&#8366;221</td><td>22%</td><td class="pos">+0.01% (+&#8366;0.03)</td></tr>
+          <tr><td class="muted">08-08 09:24</td><td class="muted">OSIRIS&middot;TREND</td><td style="color:var(--eth)">ETH</td><td>LONG</td><td>$1918</td><td>&#8366;350</td><td>35%</td><td class="neg">&minus;0.01% (&minus;&#8366;0.03)</td></tr>
+          <tr><td class="muted">08-08 08:51</td><td class="muted">OSIRIS&middot;TREND</td><td style="color:var(--sol)">SOL</td><td>LONG</td><td>$75</td><td>&#8366;233</td><td>23%</td><td class="pos">+0.23% (+&#8366;0.53)</td></tr>
+        </tbody></table>
+      </div>
+
+      <div class="grid g-2">
+        <div class="panel"><div class="plabel">Beredenering (live &middot; scrollbaar)</div><div class="feed" style="height:240px">
+          <div class="row"><span class="k">INDICATOREN</span> &middot; MA12 65049 / MA26 65023 &middot; RSI14 65</div>
+          <div class="row"><span class="k">EINDSCORE</span> &middot; LONG ~28% (kal. 13%) vs. drempel 80%</div>
+          <div class="row"><span class="k">FUNDAMENTALS</span> &middot; funding 0.0056% &middot; L/S 1.14 &middot; bias &minus;0.11</div>
+          <div class="row"><span class="k">DEEPNET</span> &middot; BTC 23% &middot; ETH 36% &middot; SOL 30% SHORT</div>
+          <div class="row"><span class="k">OSIRIS</span> &middot; opent SOL LONG &middot; kans 56% &middot; alloc 46%</div>
+          <div class="row"><span class="k">STATUS</span> &middot; bearish &middot; geen setup boven drempel</div>
+          <div class="row"><span class="k">NODE</span> &middot; volgende NN over 01:33:45</div>
+        </div></div>
+        <div class="panel"><div class="plabel">Autonome aanpassing &mdash; wat Neo zelf aanpast (scrollbaar)</div><div class="feed adapt" style="height:240px">
+          <div class="row"><span class="t">[11:50]</span> Neo SOL: factor-gewichten bijgesteld <span class="muted">rsi 1.00&rarr;0.92, ema 1.00&rarr;1.06</span></div>
+          <div class="row"><span class="t">[11:46]</span> Osiris opent SOL LONG <span class="muted">kans 56%, allocatie 46%</span></div>
+          <div class="row"><span class="t">[11:31]</span> Meta-poort SOL geopend <span class="muted">winrate 60% &rarr; drempel 44%</span></div>
+          <div class="row"><span class="t">[11:14]</span> Circuit breaker: expectancy hersteld <span class="muted">entries hervat</span></div>
+          <div class="row"><span class="t">[11:13]</span> Engine herzien (winrate 43%) <span class="muted">instellingen passen bij de data</span></div>
+          <div class="row"><span class="t">[10:45]</span> Time-stop A/B: dynamisch actief <span class="muted">beter dan vast</span></div>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- CHARTS -->
+    <section class="tab" id="tab-charts">
+      <div class="eyebrow">Markt &middot; prijs &amp; volume &middot; view-only (bot rekent altijd op 15m)</div><h1 class="h">MARKET CHART</h1>
+      <div class="flex gap wrap mb"><span class="chip" data-act="timeframe" data-arg="1m">1m</span><span class="chip on" data-act="timeframe" data-arg="15m">15m</span><span class="chip" data-act="timeframe" data-arg="30m">30m</span><span class="chip" data-act="timeframe" data-arg="45m">45m</span><span class="chip" data-act="timeframe" data-arg="1h">1h</span><span class="chip" data-act="timeframe" data-arg="4h">4h</span></div>
+      <div class="cfg mb">
+        <div class="field"><label>Fibonacci schaal</label><div class="box">Micro</div></div>
+        <div class="field"><label>Node type</label><div class="box">Alle nodes</div></div>
+        <div class="field"><label>Posities op chart</label><div class="box">Verborgen</div></div>
+        <div class="field"><label>Patronen op chart</label><div class="box">Verborgen</div></div>
+        <div class="field"><label>Neo's Node (NN) &middot; exp.</label><div class="box">Verborgen</div></div>
+        <div class="field"><label>Valuta (chart)</label><div class="box">USD ($)</div></div>
+        <div class="field"><label>Moving average</label><div class="box">Verborgen</div></div>
+        <div class="field"><label>RSI</label><div class="box">Verborgen</div></div>
+        <div class="field"><label>Voorspelling</label><div class="box">Verborgen</div></div>
+        <div class="field"><label>Orderblocks</label><div class="box">Verborgen</div></div>
+        <div class="field"><label>SVP / value area</label><div class="box">Tonen</div></div>
+        <div class="field"><label>Cumulatief delta (COB)</label><div class="box">Verborgen</div></div>
+      </div>
+      <div class="flex gap mb"><span class="chip on" onclick="setChartMkt('BTC',this)">BTC</span><span class="chip" onclick="setChartMkt('ETH',this)">ETH</span><span class="chip" onclick="setChartMkt('SOL',this)">SOL</span><span class="muted" style="align-self:center">&middot; multi-markt engine actief &middot; 29s geleden ververst</span></div>
+      <div class="grid mb" style="grid-template-columns:1fr 210px;gap:14px">
+        <div class="panel" style="padding:10px"><div class="flex between" style="font-size:0.58rem;margin-bottom:6px"><b id="chart-sym" style="color:var(--cyan)">BTC/USDT</b><span class="muted">O 64815 &middot; H 64821 &middot; L 64815 &middot; C 64821</span></div><div id="chart-container" style="width:100%;height:340px;"></div></div>
+        <div class="panel" style="padding:10px"><div class="flex gap mb"><span class="chip on">SVP</span><span class="chip">COB</span></div><canvas id="svp" style="width:100%;height:320px;display:block;"></canvas><div class="muted" style="margin-top:6px;font-size:0.48rem">POC 65805 &middot; VA 63717&ndash;65856</div></div>
+      </div>
+      <div class="panel mb">
+        <div class="plabel"><span>Prijs &amp; volume historie &middot; 15M (scrollbaar)</span><span class="flex gap"><span class="chip on" onclick="setHistMkt('BTC',this)">BTC</span><span class="chip" onclick="setHistMkt('ETH',this)">ETH</span><span class="chip" onclick="setHistMkt('SOL',this)">SOL</span><button class="btn">&#8595; download</button></span></div>
+        <div style="max-height:220px;overflow:auto"><table><thead><tr><th>Datum/tijd</th><th>O</th><th>H</th><th>L</th><th>C</th><th>Vol</th></tr></thead><tbody id="hist-body"></tbody></table></div>
+      </div>
+      <div class="grid g-3">
+        <div class="panel"><div class="flex between center"><span style="color:var(--btc);font-family:Orbitron;font-weight:700">BTC</span><span style="font-family:Orbitron">$64,158</span></div><canvas class="spark" data-c="#f7931a" style="width:100%;height:52px;margin-top:8px"></canvas><div class="muted" style="margin-top:6px">MA12 65049 &middot; RSI 65 &middot; bullish</div></div>
+        <div class="panel"><div class="flex between center"><span style="color:var(--eth);font-family:Orbitron;font-weight:700">ETH</span><span style="font-family:Orbitron">$1,877</span></div><canvas class="spark" data-c="#627eea" style="width:100%;height:52px;margin-top:8px"></canvas><div class="muted" style="margin-top:6px">MA12 1875 &middot; RSI 58 &middot; neutraal</div></div>
+        <div class="panel"><div class="flex between center"><span style="color:var(--sol);font-family:Orbitron;font-weight:700">SOL</span><span style="font-family:Orbitron">$74.20</span></div><canvas class="spark" data-c="#14f195" style="width:100%;height:52px;margin-top:8px"></canvas><div class="muted" style="margin-top:6px">MA12 74.0 &middot; RSI 61 &middot; bullish</div></div>
+      </div>
+    </section>
+
+    <!-- BRAINS -->
+    <section class="tab" id="tab-brains">
+      <div class="eyebrow">Adaptief leren &middot; per markt</div><h1 class="h">DE CORTEX &amp; HET LEREN</h1>
+      <div class="flex gap mb wrap center"><span class="chip on">Neo BTC</span><span class="chip">Neo ETH</span><span class="chip">Neo SOL</span><span class="chip">Osiris Mainbrain</span><span style="flex:1"></span><button class="btn" data-act="fn" data-arg="downloadAdaptiveLearning">&#8681; download leerdata</button></div>
+      <div class="panel mb" style="border-color:rgba(0,217,255,0.4)">
+        <div class="plabel" style="color:var(--cyan)">&#9673; OSIRIS DEEPNET &mdash; voorspellend leren (live)</div>
+        <div style="font-size:0.64rem;line-height:2"><span style="color:var(--btc);font-weight:700">BTC</span> wf-prec <b>88%</b> &middot; nu 23% SHORT &nbsp;&nbsp; <span style="color:var(--eth);font-weight:700">ETH</span> wf-prec <b>82%</b> &middot; nu 34% SHORT &nbsp;&nbsp; <span style="color:var(--sol);font-weight:700">SOL</span> wf-prec <b>61%</b> &middot; nu 32% [abst]<br>Time-stop A/B: dyn &minus;0.07% vs vast &minus;0.08% &rarr; <span style="color:var(--green)">dyn actief</span></div>
+        <div class="note">Bar-level forward-return per markt &middot; Platt-gekalibreerd &middot; abstentie &ge;60% &middot; meta-gate wf-prec &ge;50%. Osiris meet autonoom of de dynamische time-stop beter is dan de oude vaste, en zet 'm anders zelf terug.</div>
+      </div>
+      <div class="panel mb">
+        <div class="plabel">Per-core detail</div>
+        <div style="font-size:0.62rem;line-height:1.8"><b style="color:var(--eth)">&#9673; Neo ETH &mdash; getraind net</b><br>Het eigen net van Neo ETH traint zodra er genoeg ETH-trades zijn (nu 8, doel ~60). Tot dan gebruikt ETH zijn core-score plus de gedeelde fundamentals.</div>
+      </div>
+      <div class="grid g-3 mb">
+        <div class="panel"><div class="plabel"><span>Level 1 &middot; factor-gewichten</span><span class="muted">contrafactueel</span></div>
+          <div class="stat"><span class="muted">confluence</span><b>1.00</b></div>
+          <div class="stat"><span class="muted">node-influence</span><b>0.55 &#9660;</b></div>
+          <div class="stat"><span class="muted">momentum</span><b>1.42 &#9650;</b></div>
+          <div class="stat"><span class="muted">fib-confluence</span><b>0.60 &#9660;</b></div>
+          <div class="stat"><span class="muted">pattern</span><b>0.68 &#9660;</b></div>
+          <div class="stat"><span class="muted">rsi</span><b>0.92 &#9660;</b></div>
+          <div class="stat"><span class="muted">ema</span><b>1.06 &#9650;</b></div>
+          <div class="stat"><span class="muted">cnn</span><b>1.00</b></div>
+          <div class="stat"><span class="muted">nn</span><b>0.50 &#9660;</b></div>
+          <div class="stat" style="border:0"><span class="muted">node-conf</span><b>0.50 &#9660;</b></div>
+          <div class="note">Elk gewicht leert uit de winrate m&eacute;t vs. z&oacute;nder die factor. Laatst bijgewerkt 11:50 &middot; 379 BTC-trades.</div>
+        </div>
+        <div class="panel"><div class="plabel"><span>Level 2 &middot; logistisch model</span><span class="muted">per core</span></div>
+          <div class="stat"><span class="muted">Getraind op</span><b>1948 samples</b></div>
+          <div class="stat"><span class="muted">Validatie-acc</span><b style="color:var(--green)">65%</b></div>
+          <div class="stat"><span class="muted">Features</span><b>15 inputs</b></div>
+          <div class="stat"><span class="muted">Blend-gewicht</span><b>15% (&gt;52% acc)</b></div>
+          <div class="stat"><span class="muted">Regularisatie</span><b>L2 &middot; &lambda; 0.01</b></div>
+          <div class="stat" style="border:0"><span class="muted">Per markt</span><b>via DeepNet-laag</b></div>
+          <div class="note">Logistische regressie op de gestandaardiseerde signalen; Platt-gekalibreerd zodat 60% ook echt ~60% is.</div>
+        </div>
+        <div class="panel"><div class="plabel"><span>Level 3 &middot; neuraal net</span><span class="muted">advisory</span></div>
+          <div class="stat"><span class="muted">Architectuur</span><b>15&middot;14&middot;8&middot;1</b></div>
+          <div class="stat"><span class="muted">Validatie-acc</span><b style="color:var(--green)">61%</b></div>
+          <div class="stat"><span class="muted">Autonome weging</span><b>29% (cap 45%)</b></div>
+          <div class="stat"><span class="muted">Blend-drempel</span><b>val-acc &gt;52%</b></div>
+          <div class="stat"><span class="muted">Optimizer</span><b>backprop &middot; adam</b></div>
+          <div class="stat" style="border:0"><span class="muted">Purged walk-forward</span><b>143 test</b></div>
+          <div class="note">Deep feedforward met backpropagation; weegt alleen mee als de gevalideerde accuratesse de drempel haalt.</div>
+        </div>
+      </div>
+      <div class="panel mb">
+        <div class="plabel">Kalibratie &middot; predicted vs. measured (DeepNet) &middot; per markt</div>
+        <div class="grid g-4" style="gap:10px;">
+          <div><div style="font-size:0.54rem;color:var(--btc);font-weight:700;margin-bottom:4px;">NEO BTC &middot; goed</div><svg viewBox="0 0 120 92" style="width:100%;background:rgba(0,0,0,0.18);border-radius:6px;"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><polyline points="20,72 45,56 70,40 95,22" fill="none" stroke="var(--btc)" stroke-width="1.6"/><circle cx="95" cy="22" r="2.2" fill="var(--btc)"/></svg></div>
+          <div><div style="font-size:0.54rem;color:var(--eth);font-weight:700;margin-bottom:4px;">NEO ETH &middot; overconf +10</div><svg viewBox="0 0 120 92" style="width:100%;background:rgba(0,0,0,0.18);border-radius:6px;"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><polyline points="20,74 45,66 70,58 95,52" fill="none" stroke="var(--eth)" stroke-width="1.6"/><circle cx="95" cy="52" r="2.2" fill="var(--eth)"/></svg></div>
+          <div><div style="font-size:0.54rem;color:var(--sol);font-weight:700;margin-bottom:4px;">NEO SOL &middot; onderconf &minus;14</div><svg viewBox="0 0 120 92" style="width:100%;background:rgba(0,0,0,0.18);border-radius:6px;"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><polyline points="20,60 45,44 70,30 95,16" fill="none" stroke="var(--sol)" stroke-width="1.6"/><circle cx="95" cy="16" r="2.2" fill="var(--sol)"/></svg></div>
+          <div><div style="font-size:0.54rem;color:var(--cyan);font-weight:700;margin-bottom:4px;">OSIRIS MAINBRAIN &middot; goed</div><svg viewBox="0 0 120 92" style="width:100%;background:rgba(0,0,0,0.18);border-radius:6px;"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><polyline points="20,70 45,54 70,38 95,20" fill="none" stroke="var(--cyan)" stroke-width="1.6"/><circle cx="95" cy="20" r="2.2" fill="var(--cyan)"/></svg></div>
+        </div>
+        <div class="note">Onder de stippellijn = overmoedig; erboven = te voorzichtig. Elk brein zijn eigen curve.</div>
+      </div>
+      <div class="grid g-2b">
+        <div class="panel"><div class="plabel">Core zelf-kalibratie (live)</div><div class="feed adapt" style="height:150px">
+          <div class="row"><span class="t">[11:50]</span> Neo SOL: gewichten bijgesteld <span class="muted">rsi&rarr;0.92, ema&rarr;1.06</span></div>
+          <div class="row"><span class="t">[11:32]</span> Neo ETH: gewichten bijgesteld <span class="muted">momentum&rarr;1.18</span></div>
+          <div class="row"><span class="t">[11:14]</span> Neo SOL: meta-poort geopend <span class="muted">winrate 60% &rarr; drempel 44%</span></div>
+        </div></div>
+        <div class="panel"><div class="plabel">Presets per core</div>
+          <div class="stat"><b style="color:var(--btc)">Neo BTC</b><span class="muted">instap 80% &middot; stop 2%</span></div>
+          <div class="stat"><b style="color:var(--eth)">Neo ETH</b><span class="muted">instap 69% &middot; agressief</span></div>
+          <div class="stat" style="border:0"><b style="color:var(--sol)">Neo SOL</b><span class="muted">instap 72% &middot; behoudend</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FEED -->
+    <section class="tab" id="tab-feed">
+      <div class="eyebrow">Transparantie</div><h1 class="h">LIVE FEED</h1>
+      <div class="grid g-2">
+        <div class="panel"><div class="plabel">Beredenering (live)</div><div class="feed" id="jv-reasoning"">
+          <div class="row"><span class="k">FIB-CONFLUENTIE</span> &middot; +6 (2 extra schalen dichtbij)</div>
+          <div class="row"><span class="k">INDICATOREN</span> &middot; MA12 65049 / MA26 65023 &middot; RSI14 65</div>
+          <div class="row"><span class="k">EINDSCORE</span> &middot; LONG ~28% (kal. 13%) vs. drempel 80%</div>
+          <div class="row"><span class="k">FUNDAMENTALS</span> &middot; funding 0.0056% &middot; L/S 1.14 &middot; OI +0.0% &rarr; bias &minus;0.11</div>
+          <div class="row"><span class="k">NEURAAL NET (L3)</span> &middot; LONG 30% &middot; validatie 61% &middot; weegt 29% mee</div>
+          <div class="row"><span class="k">OSIRIS MULTI-MARKT</span> &middot; BTC 56% &middot; ETH 50% &middot; SOL 47%</div>
+          <div class="row"><span class="k">DEEPNET</span> &middot; BTC 23% &middot; ETH 36% &middot; SOL 30% SHORT</div>
+          <div class="row"><span class="k">STATUS</span> &middot; bearish &middot; geen setup boven drempel</div>
+        </div></div>
+        <div class="panel"><div class="plabel">Autonome aanpassing &mdash; wat Neo zelf aanpast</div><div class="feed adapt">
+          <div class="row"><span class="t">[11:50]</span> Neo SOL: factor-gewichten bijgesteld <span class="muted">rsi 1.00&rarr;0.92, ema 1.00&rarr;1.06</span></div>
+          <div class="row"><span class="t">[11:46]</span> Osiris opent SOL LONG <span class="muted">kans 56%, allocatie 46%</span></div>
+          <div class="row"><span class="t">[11:31]</span> Meta-poort SOL geopend <span class="muted">echte winrate 60% &rarr; drempel 44%</span></div>
+          <div class="row"><span class="t">[11:14]</span> Circuit breaker: expectancy hersteld <span class="muted">entries hervat</span></div>
+          <div class="row"><span class="t">[11:13]</span> Engine herzien (winrate 43%) <span class="muted">instellingen passen bij de data</span></div>
+          <div class="row"><span class="t">[10:45]</span> Time-stop A/B: dynamisch actief <span class="muted">beter dan vast over 14 samples</span></div>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- ENGINE -->
+    <section class="tab" id="tab-engine">
+      <div class="eyebrow">Configuratie &middot; presets &middot; toggles</div><h1 class="h">ENGINE SETUP</h1>
+      <div class="panel mb" style="border-color:rgba(0,217,255,0.35)">
+        <div class="plabel" style="color:var(--cyan)">DeepNet-besturing</div>
+        <div class="flex gap wrap center">
+          <span class="cbx on"><i></i> poort entries</span>
+          <span class="cbx on"><i></i> live (stuurt exits)</span>
+          <span class="muted" style="margin-left:6px">De gekalibreerde DeepNet bewaakt de entries (poort) en stuurt de dynamische time-stop (live).</span>
+        </div>
+      </div>
+      <div class="panel mb">
+        <div class="plabel">Executie &amp; testnet</div>
+        <div class="cfg">
+          <div class="field"><label>Executiemodus</label><div class="box sel">Binance Spot Testnet</div></div>
+          <div class="field"><label>Testnet API key</label><div class="box">&bull;&bull;&bull;&bull; alleen testnet</div></div>
+          <div class="field"><label>Testnet API secret</label><div class="box">&bull;&bull;&bull;&bull; alleen testnet</div></div>
+          <div class="field"><label>&nbsp;</label><button class="btn go">Sync wallet &larr; testnet</button></div>
+        </div>
+        <div class="plabel" style="margin-top:14px">Handmatige trade</div>
+        <div class="flex gap wrap center"><div class="field" style="width:160px"><label>% van balance</label><div class="box">20</div></div><button class="btn go">&#9650; Manual long</button><button class="btn danger">&#9660; Manual short</button><span class="muted">tegen live prijs &middot; telt niet mee voor kalibratie</span></div>
+      </div>
+      <div class="panel mb">
+        <div class="plabel"><span>Trend engine</span><span class="cbx on"><i></i> actief</span></div>
+        <div class="cfg">
+          <div class="field"><label>Max % per trade</label><div class="box">70</div></div>
+          <div class="field"><label>Stop-loss %</label><div class="box">2</div></div>
+          <div class="field"><label>Min. kans % (entry)</label><div class="box">80</div></div>
+          <div class="field"><label>Min. kans (doorloop &gt;2%)</label><div class="box">85</div></div>
+          <div class="field"><label>Min. verwacht rendement %</label><div class="box">0.34</div></div>
+          <div class="field"><label>Pending order geldig (min)</label><div class="box">30</div></div>
+          <div class="field"><label>Min. verlies % vroege exit</label><div class="box">1</div></div>
+          <div class="field"><label>Winst-bescherming activatiepiek %</label><div class="box">0.50</div></div>
+          <div class="field"><label>Winst-bescherming % behouden</label><div class="box">80</div></div>
+          <div class="field"><label>Kans-collaps mechanisme</label><div class="box sel">Uit (aanbevolen)</div></div>
+          <div class="field"><label>Kans-demping (metingen)</label><div class="box">18</div></div>
+          <div class="field"><label>Kans-collaps drempel %</label><div class="box">30</div></div>
+          <div class="field"><label>Kans-collaps bevestiging (sec)</label><div class="box">180</div></div>
+          <div class="field"><label>Regime-poort (dode markt)</label><div class="box sel">Aan</div></div>
+          <div class="field"><label>Tijd-stop (min, 0=uit)</label><div class="box">90</div></div>
+          <div class="field"><label>Kleine-winst-oogst (min)</label><div class="box">30</div></div>
+          <div class="field"><label>Node-gewicht</label><div class="box sel">Adaptief (leersys)</div></div>
+          <div class="field"><label>Node-gewicht handmatig</label><div class="box">1</div></div>
+          <div class="field"><label>Bevestigingstijd exit (sec)</label><div class="box">20</div></div>
+          <div class="field"><label>Chase: min. kans % / na (min)</label><div class="box">90 / 10</div></div>
+        </div>
+      </div>
+      <div class="grid g-3 mb">
+        <div class="panel"><div class="plabel"><span>Range-scalp engine</span><span class="cbx on"><i></i> actief</span></div><div class="stat"><span class="muted">Target %</span><b>0.7</b></div><div class="stat"><span class="muted">Stop %</span><b>0.7</b></div><div class="stat"><span class="muted">Min. kans %</span><b>74</b></div><div class="stat" style="border:0"><span class="muted">Alloc %</span><b>10</b></div></div>
+        <div class="panel"><div class="plabel"><span>ICT engine</span><span class="cbx"><i></i> uit</span></div><div class="stat"><span class="muted">Status</span><b style="color:var(--dim)">uit</b></div><div class="stat"><span class="muted">HTF / sweep</span><b>4h / 15m</b></div><div class="stat"><span class="muted">FVG min gap %</span><b>0.03</b></div><div class="stat" style="border:0"><span class="muted">Orderblock lookback</span><b>50</b></div></div>
+        <div class="panel"><div class="plabel"><span>Micro fast-lane</span><span class="cbx on"><i></i> actief</span></div><div class="stat"><span class="muted">Target / stop %</span><b>0.25 / 0.30</b></div><div class="stat"><span class="muted">Min. kans %</span><b>72</b></div><div class="stat"><span class="muted">Alloc %</span><b>20</b></div><div class="stat" style="border:0"><span class="muted">Max gelijktijdig</span><b>2</b></div></div>
+      </div>
+      <div class="grid g-2b">
+        <div class="panel"><div class="plabel">Autonome toggles</div>
+          <div class="toggle-row"><span>DeepNet-poort op entries</span><span class="sw on"><i></i></span></div>
+          <div class="toggle-row"><span>Per-markt zelf-kalibratie</span><span class="sw on"><i></i></span></div>
+          <div class="toggle-row"><span>Circuit breaker</span><span class="sw on"><i></i></span></div>
+          <div class="toggle-row"><span>Dynamische time-stop (A/B)</span><span class="sw on"><i></i></span></div>
+          <div class="toggle-row"><span>Regime-poort</span><span class="sw on"><i></i></span></div>
+          <div class="toggle-row"><span>Kans-collaps</span><span class="sw"><i></i></span></div>
+          <div class="toggle-row"><span>Multi-engine watchdog</span><span class="sw on"><i></i></span></div>
+          <div class="toggle-row"><span>Nacht-rem (00&ndash;06 UTC)</span><span class="sw on"><i></i></span></div>
+        </div>
+        <div class="panel"><div class="plabel">Bediening</div>
+          <div class="flex gap wrap"><button class="btn danger" data-act="fn" data-arg="stopAutonomousBot">Stop bot</button><button class="btn">Instellingen live bijwerken</button><button class="btn go">Leg champion vast</button><button class="btn">Herstel champion</button><button class="btn">Download instellingen</button><button class="btn">Download all data</button></div>
+          <div class="note">Champion/challenger: leg een goede config vast; de bot valt terug als het zelf-tunen wegdrijft.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLOUD -->
+    <section class="tab" id="tab-cloud">
+      <div class="eyebrow">Altijd online</div><h1 class="h">CLOUD &amp; WORKER</h1>
+      <div class="grid g-3 mb">
+        <div class="panel"><div class="plabel">Oracle worker</div><div class="kpi"><span class="l">Status</span><span class="v" style="color:var(--green);font-size:1rem">ONLINE</span></div><div class="muted" style="margin-top:8px">tick 3s geleden &middot; 15s interval<br>DeepNet shadow &middot; 24/7 &middot; pm2</div></div>
+        <div class="panel"><div class="plabel">Supabase</div><div class="kpi"><span class="l">Sync</span><span class="v" style="color:var(--cyan);font-size:1rem">ACTIEF</span></div><div class="muted" style="margin-top:8px">laatst verbonden 11:50 &middot; RLS aan<br>state &middot; trades &middot; predictions</div></div>
+        <div class="panel"><div class="plabel">Afstandsbediening</div><div class="flex between center" style="margin-top:6px"><span style="font-size:0.7rem">Bot draaien</span><span class="sw on"><i></i></span></div><div class="muted" style="margin-top:12px">osiris_control &middot; elk apparaat<br>alleen jij (RLS)</div></div>
+      </div>
+      <div class="panel">
+        <div class="plabel">Live voorspellingen (worker)</div>
+        <table><thead><tr><th>Markt</th><th>Gekalibreerd</th><th>Side</th><th>Walk-forward</th><th>Meta</th><th>Heartbeat</th></tr></thead><tbody>
+          <tr><td style="color:var(--btc)">BTC</td><td>23%</td><td class="neg">SHORT</td><td>69%</td><td><span class="chip on">open</span></td><td class="muted">3s</td></tr>
+          <tr><td style="color:var(--eth)">ETH</td><td>36%</td><td class="neg">SHORT</td><td>65%</td><td><span class="chip on">open</span></td><td class="muted">3s</td></tr>
+          <tr><td style="color:var(--sol)">SOL</td><td>30%</td><td class="neg">SHORT</td><td>48%</td><td><span class="chip on">open*</span></td><td class="muted">3s</td></tr>
+        </tbody></table>
+      </div>
+    </section>
+
+    <!-- SYSTEM -->
+    <section class="tab" id="tab-system">
+      <div class="eyebrow">Diagnose</div><h1 class="h">SYSTEEM</h1>
+      <div class="flex gap mb center"><span class="muted">Markt:</span><span class="chip on" onclick="setSys('BTC',this)">BTC</span><span class="chip" onclick="setSys('ETH',this)">ETH</span><span class="chip" onclick="setSys('SOL',this)">SOL</span><span class="muted">&middot; alle systeemdata schakelt mee</span></div>
+      <div class="grid g-4 mb">
+        <div class="panel"><div class="kpi"><span class="l">DeepNet-service</span><span class="v" style="color:var(--green);font-size:0.95rem">ACTIEF</span></div><div class="muted" style="margin-top:6px">hertraint elke 30m</div></div>
+        <div class="panel"><div class="kpi"><span class="l">Watchdog</span><span class="v" style="color:var(--green);font-size:0.95rem">LEVEND</span></div><div class="muted" style="margin-top:6px">auto-herstart 15s</div></div>
+        <div class="panel"><div class="kpi"><span class="l">Circuit breaker</span><span class="v" style="color:var(--amber);font-size:0.95rem">ACTIEF</span></div><div class="muted" style="margin-top:6px">expectancy +0.02%</div></div>
+        <div class="panel"><div class="kpi"><span class="l">Rate-limit</span><span class="v" style="color:var(--green);font-size:0.95rem">~1%</span></div><div class="muted" style="margin-top:6px">backoff paraat</div></div>
+      </div>
+      <div class="panel mb">
+        <div class="plabel">Meters &middot; VFM / ER / DB / chaos-index</div>
+        <div class="grid g-4">
+          <div><div class="muted">VFM</div><div class="kpi"><span class="v" data-src="vfm-display" data-sys="vfm" style="color:var(--green);font-size:1.1rem">0.397</span></div><div class="muted">significant</div></div>
+          <div><div class="muted">ER (energy ratio)</div><div class="kpi"><span class="v" data-src="er-display" data-sys="er" style="font-size:1.1rem">0.40</span></div><div class="muted">low energy</div></div>
+          <div><div class="muted">DB (delta balance)</div><div class="kpi"><span class="v" data-src="db-display" data-sys="db" style="font-size:1.1rem">1.00</span></div><div class="muted" style="color:var(--green)">bullish</div></div>
+          <div><div class="muted">Chaos-index</div><div class="kpi"><span class="v" data-src="chaos-display" data-sys="chaos" style="font-size:1.1rem">0.04%</span></div><div class="muted">stabiel</div></div>
+        </div>
+      </div>
+      <div class="grid g-2b mb">
+        <div class="panel" style="border-color:rgba(20,241,149,0.4)"><div class="plabel">Osiris market status</div><div style="font-size:0.85rem;color:var(--green);font-weight:700"><span data-sys="status">BULLISH BREAKOUT (aanhoudend)</span></div><div class="muted" style="margin-top:6px">Confidence: <span data-sys="conf">zeer hoog (80&ndash;95%)</span></div></div>
+        <div class="panel"><div class="plabel">Patroon &amp; structuur</div><div style="font-size:0.62rem;line-height:1.9"><span style="color:var(--green)" data-sys="pattern">&#9650;&#9650;&#9650; 3 Soldiers (bullish)</span><br><span class="muted">markt-structuur: range-bound / geen duidelijke structuur</span></div></div>
+      </div>
+      <div class="grid g-3 mb">
+        <div class="panel"><div class="plabel" style="color:var(--green)">Micro (9)</div><div class="stat"><span class="muted">Bull</span><b data-sys="micb">$64849</b></div><div class="stat" style="border:0"><span class="muted">Bear</span><b data-sys="micbr">$64774</b></div></div>
+        <div class="panel" style="border-color:rgba(255,182,39,0.4)"><div class="plabel" style="color:var(--amber)">Meso (36)</div><div class="stat"><span class="muted">Bull</span><b data-sys="mesb">$65071</b></div><div class="stat" style="border:0"><span class="muted">Bear</span><b data-sys="mesbr">$64718</b></div></div>
+        <div class="panel"><div class="plabel">Macro (144)</div><div class="stat"><span class="muted">Bull</span><b data-sys="macb">$65212</b></div><div class="stat" style="border:0"><span class="muted">Bear</span><b data-sys="macbr">$64656</b></div></div>
+      </div>
+      <div class="panel mb">
+        <div class="plabel">Node countdown</div>
+        <div class="grid g-6" style="font-size:0.54rem">
+          <div><b style="color:var(--green)">RESET (Vertex 9)</b><br><span class="muted">08:44 UTC (00:03:07)</span></div>
+          <div><b style="color:var(--eth)">VOLA (Node 1)</b><br><span class="muted">09:53 UTC (03:11:47)</span></div>
+          <div><b style="color:var(--cyan)">CORE (Vertex 3/6)</b><br><span class="muted">16:18 UTC (09:29:07)</span></div>
+          <div><b>OSC (Node 2/4/5/7)</b><br><span class="muted">13:01 UTC (06:20:27)</span></div>
+          <div><b style="color:var(--amber)">MID PULSE</b><br><span class="muted">08:18 UTC (01:37:27)</span></div>
+          <div><b>NEXT NODE</b><br><span class="muted">08:44 UTC &middot; RESET</span></div>
+        </div>
+        <div class="grid g-2" style="margin-top:12px;font-size:0.56rem">
+          <div><b style="color:var(--green)">NEO's node (NN)</b><br><span class="muted">volgende NN over <span data-sys="nn">01:33:45</span> &middot; ritme ~128min &middot; anker: top (54 caps)</span></div>
+          <div><b>Node-confluentie</b><br><span class="muted">samenval over 01:33:45 &middot; overlap sterk (97%, gap 4min)</span></div>
+        </div>
+      </div>
+      <div class="panel mb">
+        <div class="plabel">Live volume &amp; market pressure</div>
+        <div class="flex between center"><div><div class="muted">Live volume</div><div class="kpi"><span class="v" data-sys="vol" style="color:var(--amber);font-size:1.1rem">15.2670</span></div></div><div style="text-align:right"><div class="muted">Volume rate / score</div><div style="font-size:0.7rem">Rate 15.9% &middot; Score <span style="color:var(--green)">100/100</span></div></div></div>
+        <div class="bar" style="height:8px;background:linear-gradient(90deg,var(--green),var(--amber),var(--red))"><i style="width:0"></i></div>
+        <div class="flex between"><span class="muted">buyers</span><span class="muted">sellers</span></div>
+      </div>
+      <div class="grid g-2">
+        <div class="panel"><div class="plabel">Data &amp; geheugen</div><div class="stat"><span class="muted">learningLog</span><b>473 entries</b></div><div class="stat"><span class="muted">trade-historie</span><b>97 exits</b></div><div class="stat"><span class="muted">candle-buffer per markt</span><b>672</b></div><div class="stat"><span class="muted">DeepNet testset</span><b>144/markt</b></div><div class="stat" style="border:0"><span class="muted">config-versie</span><b>pc0_es10_mp80</b></div></div>
+        <div class="panel"><div class="plabel">Verbindingen</div><div class="stat"><span class="muted">Binance WebSocket</span><b style="color:var(--green)">verbonden</b></div><div class="stat"><span class="muted">Testnet order-API</span><b style="color:var(--green)">ok</b></div><div class="stat"><span class="muted">Supabase</span><b style="color:var(--green)">ok &middot; RLS</b></div><div class="stat"><span class="muted">Oracle VM</span><b style="color:var(--green)">141.148.241.199</b></div><div class="stat" style="border:0"><span class="muted">executiemodus</span><b>TESTNET</b></div></div>
+      </div>
+    </section>
+
+    <!-- DOWNLOADS -->
+    <section class="tab" id="tab-downloads">
+      <div class="eyebrow">Alles op &eacute;&eacute;n plek</div><h1 class="h">DOWNLOADS</h1>
+      <div class="grid g-3 mb">
+        <div class="panel"><div class="plabel">Leren &amp; modellen</div>
+          <div class="flex gap wrap"><button class="btn" data-act="fn" data-arg="downloadAdaptiveLearning">&#8681; Adaptive learning (JSON)</button><button class="btn">&#8681; DeepNet-modellen</button><button class="btn">&#8681; Kalibratie-log (CSV)</button></div></div>
+        <div class="panel"><div class="plabel">Trades &amp; wallet</div>
+          <div class="flex gap wrap"><button class="btn">&#8681; Trade-historie (CSV)</button><button class="btn" data-act="fn" data-arg="downloadAdaptationLog">&#8681; Autonome aanpassingen</button><button class="btn" data-act="fn" data-arg="downloadAllMarketData">&#8681; Multi-markt data</button></div></div>
+        <div class="panel"><div class="plabel">Markt &amp; config</div>
+          <div class="flex gap wrap"><button class="btn" data-act="fn" data-arg="downloadPriceVolumeHistory">&#8681; Prijs &amp; volume historie</button><button class="btn" data-act="fn" data-arg="downloadBotSettings">&#8681; Instellingen</button><button class="btn" data-act="fn" data-arg="osirisFullBackup">&#8681; Volledige backup</button></div></div>
+      </div>
+      <div class="panel">
+        <div class="plabel">Alles in &eacute;&eacute;n</div>
+        <div class="flex gap wrap center"><button class="btn go" data-act="fn" data-arg="downloadAllData">&#8681; Download ALL data</button><span class="muted">bundelt wallet, trades, learningLog, DeepNet-modellen, kalibratie, instellingen en de volledige backup in &eacute;&eacute;n export.</span></div>
+        <div class="note">Alle exports zijn lokaal &middot; bevatten nooit je testnet-keys.</div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+
+<div id="jv-legacy" aria-hidden="true">
 <canvas id="site-plexus"></canvas>
 <div id="dashboard">
 <canvas id="starmap"></canvas>
@@ -645,7 +1257,7 @@ section { position:relative; z-index:2; }
             <div id="multi-engine-status" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--text-dim); margin-bottom:8px;"><span style="color:#ff4f6d;">&#9679;</span> multi-markt engine uit</div>
 
             <div style="display:flex; gap:12px; align-items:stretch;">
-              <div id="chart-container" style="flex:1;"></div>
+              <!-- chart-container verplaatst naar mockup Charts-tab -->
               <div id="vp-panel" style="width:150px; flex:none; border-left:1px solid var(--line); display:flex; flex-direction:column;">
                 <div style="display:flex; gap:4px; padding:4px; font-family:'JetBrains Mono',monospace; font-size:0.56rem;">
                   <button type="button" id="vp-tab-svp" onclick="setDepthMode('svp')" class="btn btn-ghost btn-mini" style="flex:1; color:var(--teal); border-color:rgba(20,241,149,0.4);">SVP</button>
@@ -1232,11 +1844,116 @@ section { position:relative; z-index:2; }
 
 <footer class="wrap">OSIRIS INTELLIGENCE &middot; client-side &middot; testnet &middot; not financial advice</footer>
 </div>
-<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
-<script src="app.js?v=20260808-1"></script>
+
+
 <!-- OSIRIS cloud-sync (Fase 1) -->
+
+
+
+</div>
+<script>
+function autoCanvas(id,setup){var canvas=document.getElementById(id);if(!canvas||!canvas.getContext)return;var ctx=canvas.getContext('2d'),W=0,H=0,st=null;
+  function loop(now){requestAnimationFrame(loop);if(canvas.offsetParent===null)return;var w=canvas.clientWidth,h=canvas.clientHeight;if(w<2||h<2)return;
+    if(w!==W||h!==H){W=w;H=h;canvas.width=W*2;canvas.height=H*2;ctx.setTransform(2,0,0,2,0,0);st=setup(W,H,ctx);}if(st)st.draw(now);}
+  requestAnimationFrame(loop);}
+
+function brainSetup(W,H,ctx){var cx=W/2,cy=H*0.5,rx=W*0.17,ry=H*0.30,pts=[],tries=0;
+  while(pts.length<230&&tries<9000){tries++;var a=Math.random()*6.283,rr=Math.sqrt(Math.random()),px=cx+Math.cos(a)*rx*rr,py=cy+Math.sin(a)*ry*rr,nx=(px-cx)/rx;
+    if(py<cy-ry*(0.80+0.16*Math.sin(nx*7)))continue;if(Math.abs(px-cx)<W*0.007&&Math.random()<0.7)continue;pts.push({x:px,y:py,b:Math.random()});}
+  var COLS=['#00d9ff','#3a86ff','#14f195','#ffb627','#7c5cff','#ff6ec7','#4fc3f7','#f7931a'];
+  var tend=[];for(var t=0;t<48;t++){var ang=Math.random()*6.283,sx=cx+Math.cos(ang)*rx*0.9,sy=cy+Math.sin(ang)*ry*0.9,len=Math.min(W,H)*(0.22+Math.random()*0.4),ex=cx+Math.cos(ang)*len*1.9,ey=cy+Math.sin(ang)*len*1.05,mx=(sx+ex)/2+(Math.random()-0.5)*90,my=(sy+ey)/2+(Math.random()-0.5)*90;
+    tend.push({sx:sx,sy:sy,mx:mx,my:my,ex:ex,ey:ey,c:COLS[(Math.random()*COLS.length)|0],ph:Math.random()});}
+  var edges=[];for(var i=0;i<pts.length;i++){var d=[];for(var j=0;j<pts.length;j++)if(i!==j){var dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y;d.push([dx*dx+dy*dy,j]);}d.sort(function(a,b){return a[0]-b[0];});for(var k=0;k<3;k++)if(d[k])edges.push([i,d[k][1]]);}
+  function bez(q,a,b,c){return (1-q)*(1-q)*a+2*(1-q)*q*b+q*q*c;}
+  return{draw:function(now){ctx.clearRect(0,0,W,H);
+    for(var t=0;t<tend.length;t++){var T=tend[t];ctx.beginPath();ctx.moveTo(T.sx,T.sy);ctx.quadraticCurveTo(T.mx,T.my,T.ex,T.ey);ctx.strokeStyle=T.c;ctx.globalAlpha=0.30;ctx.lineWidth=0.8;ctx.stroke();ctx.globalAlpha=1;
+      ctx.save();ctx.shadowColor=T.c;ctx.shadowBlur=9;ctx.beginPath();ctx.arc(T.ex,T.ey,1.7+Math.sin(now/400+T.ph*6)*0.6,0,6.28);ctx.fillStyle=T.c;ctx.fill();ctx.restore();
+      var q=(now/1100+T.ph)%1,qx=bez(q,T.sx,T.mx,T.ex),qy=bez(q,T.sy,T.my,T.ey);ctx.beginPath();ctx.arc(qx,qy,1.1,0,6.28);ctx.fillStyle=T.c;ctx.globalAlpha=0.85;ctx.fill();ctx.globalAlpha=1;}
+    ctx.lineWidth=0.4;for(var m=0;m<edges.length;m++){var e=edges[m];ctx.beginPath();ctx.moveTo(pts[e[0]].x,pts[e[0]].y);ctx.lineTo(pts[e[1]].x,pts[e[1]].y);ctx.strokeStyle='rgba(185,215,240,0.11)';ctx.stroke();}
+    for(var p2=0;p2<pts.length;p2++){var P=pts[p2],b=Math.max(0.35,Math.min(1,0.55+0.4*Math.sin(now/600+P.b*9)));ctx.beginPath();ctx.arc(P.x,P.y,1.4,0,6.28);ctx.fillStyle='rgba(224,238,252,'+b.toFixed(2)+')';ctx.fill();}
+    var g=ctx.createRadialGradient(cx,cy,0,cx,cy,rx*1.6);g.addColorStop(0,'rgba(130,195,235,0.30)');g.addColorStop(1,'rgba(0,217,255,0)');ctx.fillStyle=g;ctx.beginPath();ctx.arc(cx,cy,rx*1.6,0,6.28);ctx.fill();}};}
+function netSetup(W,H,ctx){
+  var IN=['VFM','ER','DB','CHAOS','MOM','VOL-Z','RSI','EMA','CNN','FIB','NN','CONF','FUND','L/S','BTC-COR'];
+  var ICOL=['#00d9ff','#4fc3f7','#81d4fa','#ffb627','#14f195','#c792ea','#ff6ec7','#7fffd4','#ff4fd8','#ffd54a','#c792ea','#ffb627','#ff8fa3','#8fb8ff','#f7931a'];
+  var SZ=[15,14,3,4,3,1],LB=['INPUTS','INTEGRATIE','CORES','OSIRIS','BESLISSING','UITKOMST'];
+  var BR=['#f7931a','#627eea','#14f195'],BRL=['BTC','ETH','SOL'],OC=['#00ff9f','#5c7488','#ff4f6d'],OL=['LONG','NEUT','SHORT'];
+  var padX=W*0.11,padT=H*0.14,padB=H*0.12,fx=[0,0.32,0.49,0.66,0.83,1.0],pos=[];
+  for(var li=0;li<SZ.length;li++){var cnt=SZ[li],colH=H-padT-padB,gap=colH/Math.max(1,cnt-1),cxx=padX+fx[li]*(W-padX*2),c=[];for(var i=0;i<cnt;i++)c.push({x:cxx,y:cnt===1?padT+colH/2:padT+i*gap});pos.push(c);}
+  var acts=[];for(var l2=0;l2<SZ.length;l2++){var aa=[];for(var z=0;z<SZ[l2];z++)aa.push(Math.random());acts.push(aa);}
+  var parts=[];for(var l3=0;l3<pos.length-1;l3++)for(var a3=0;a3<pos[l3].length;a3++)for(var b3=0;b3<pos[l3+1].length;b3++)if(Math.random()<0.55)parts.push({li:l3,a:a3,b:b3,p:Math.random(),sp:0.004+Math.random()*0.007});
+  var endLi=pos.length-1,outLi=pos.length-2;
+  return{draw:function(now){ctx.clearRect(0,0,W,H);var wave=(now/700)%(SZ.length+1.5);
+    for(var L=0;L<acts.length;L++)for(var i=0;i<acts[L].length;i++)acts[L][i]+=(0.5+0.5*Math.sin(now/800+L*1.3+i)-acts[L][i])*0.05;
+    for(var l=0;l<pos.length-1;l++){var near=Math.exp(-Math.pow((wave-l)/0.7,2));for(var a=0;a<pos[l].length;a++)for(var b=0;b<pos[l+1].length;b++){var A=pos[l][a],B=pos[l+1][b];ctx.beginPath();ctx.moveTo(A.x,A.y);ctx.lineTo(B.x,B.y);ctx.strokeStyle='rgba(0,180,225,'+(0.04+0.16*near).toFixed(3)+')';ctx.lineWidth=near>0.4?1:0.5;ctx.stroke();}}
+    for(var pi=0;pi<parts.length;pi++){var pt=parts[pi];pt.p+=pt.sp;if(pt.p>1)pt.p=0;var AA=pos[pt.li][pt.a],BB=pos[pt.li+1][pt.b],x=AA.x+(BB.x-AA.x)*pt.p,y=AA.y+(BB.y-AA.y)*pt.p;ctx.beginPath();ctx.arc(x,y,1.1,0,6.28);ctx.fillStyle='rgba(127,216,255,'+(0.55*(1-Math.abs(pt.p-0.5)*2)+0.25).toFixed(2)+')';ctx.fill();}
+    for(var ln=0;ln<pos.length;ln++){var nr=Math.exp(-Math.pow((wave-ln)/0.7,2));for(var ni=0;ni<pos[ln].length;ni++){var p=pos[ln][ni],act=acts[ln][ni]||0,r=4+act*3+nr*2,col;
+      if(ln===0)col=ICOL[ni];else if(ln===endLi){r=13+act*4+nr*3;col='#00d9ff';}else if(ln===outLi)col=OC[ni];else if(ln===2)col=BR[ni];else col='rgba(130,200,255,0.9)';
+      ctx.save();ctx.shadowColor=col;ctx.shadowBlur=(ln===endLi?22:8)*(0.4+act+nr);ctx.beginPath();ctx.arc(p.x,p.y,r,0,6.28);ctx.fillStyle=col;ctx.globalAlpha=ln===0?0.45+0.55*act:0.9;ctx.fill();ctx.restore();
+      if(ln===endLi){ctx.beginPath();ctx.arc(p.x,p.y,r+5,0,6.28);ctx.strokeStyle='rgba(0,217,255,0.6)';ctx.lineWidth=1.4;ctx.stroke();}}}
+    ctx.textAlign='right';ctx.font='7px JetBrains Mono';for(var t=0;t<IN.length;t++){ctx.fillStyle=ICOL[t];ctx.fillText(IN[t],pos[0][t].x-9,pos[0][t].y+2.5);}
+    ctx.textAlign='center';ctx.font='bold 8px Orbitron';for(var s=0;s<3;s++){ctx.fillStyle=BR[s];ctx.fillText(BRL[s],pos[2][s].x,pos[2][s].y-11);}
+    ctx.font='7px JetBrains Mono';ctx.textAlign='left';for(var o=0;o<3;o++){ctx.fillStyle=OC[o];ctx.fillText(OL[o],pos[outLi][o].x+9,pos[outLi][o].y+2.5);}
+    ctx.fillStyle='rgba(92,116,136,0.85)';ctx.font='7px Orbitron';ctx.textAlign='center';for(var lb=0;lb<pos.length;lb++)ctx.fillText(LB[lb],pos[lb][0].x,H-6);}};}
+
+function drawChart(){var c=document.getElementById('chart');if(!c||c.offsetParent===null)return;var r=c.getBoundingClientRect();if(r.width<2)return;var x=c.getContext('2d');c.width=r.width*2;c.height=r.height*2;x.setTransform(2,0,0,2,0,0);var W=r.width,H=r.height;x.clearRect(0,0,W,H);
+  var price=64000,n=60,bw=(W-40)/n,hi=0,lo=1e9,bars=[];for(var i=0;i<n;i++){var o=price;price+=(Math.random()-0.48)*180;var cl=price,h=Math.max(o,cl)+Math.random()*90,l=Math.min(o,cl)-Math.random()*90;bars.push({o:o,cl:cl,h:h,l:l});hi=Math.max(hi,h);lo=Math.min(lo,l);}
+  function Y(v){return H-24-((v-lo)/(hi-lo))*(H-50);}x.strokeStyle='rgba(255,255,255,0.05)';for(var g=0;g<5;g++){var gy=20+g*(H-50)/4;x.beginPath();x.moveTo(20,gy);x.lineTo(W-20,gy);x.stroke();}
+  for(var bi=0;bi<bars.length;bi++){var bb=bars[bi],ccx=24+bi*bw+bw/2,up=bb.cl>=bb.o;x.strokeStyle=up?'#14f195':'#ff5c6a';x.fillStyle=up?'rgba(20,241,149,0.85)':'rgba(255,92,106,0.85)';x.beginPath();x.moveTo(ccx,Y(bb.h));x.lineTo(ccx,Y(bb.l));x.stroke();var yo=Y(bb.o),yc=Y(bb.cl);x.fillRect(ccx-bw*0.3,Math.min(yo,yc),bw*0.6,Math.max(2,Math.abs(yc-yo)));x.fillStyle=up?'rgba(20,241,149,0.14)':'rgba(255,92,106,0.14)';x.fillRect(ccx-bw*0.3,H-20,bw*0.6,-Math.random()*16);}}
+function drawSparks(){var els=document.querySelectorAll('.spark');for(var e=0;e<els.length;e++){(function(c){if(c.offsetParent===null)return;var r=c.getBoundingClientRect();if(r.width<2)return;var x=c.getContext('2d');c.width=r.width*2;c.height=r.height*2;x.setTransform(2,0,0,2,0,0);var W=r.width,H=r.height,col=c.dataset.c;x.beginPath();for(var i=0;i<40;i++){var px=i/39*W,py=H*0.5+Math.sin(i/3)*H*0.28+(Math.random()-0.5)*6;i?x.lineTo(px,py):x.moveTo(px,py);}x.strokeStyle=col;x.lineWidth=1.4;x.stroke();})(els[e]);}}
+
+function showTab(id){var tabs=document.querySelectorAll('.tab');for(var i=0;i<tabs.length;i++){var on=tabs[i].id==='tab-'+id;tabs[i].classList.toggle('show',on);tabs[i].style.display=on?'block':'none';}
+  if(id==='charts'){fillHist('BTC');setTimeout(function(){drawChart();drawSparks();},80);}}
+document.getElementById('rail').addEventListener('click',function(e){var b=e.target.closest('.navb');if(!b)return;var navs=document.querySelectorAll('.navb');for(var i=0;i<navs.length;i++)navs[i].classList.remove('active');b.classList.add('active');showTab(b.dataset.tab);});
+document.getElementById('main').addEventListener('click',function(e){var s=e.target.closest('.sw');if(s)s.classList.toggle('on');var cb=e.target.closest('.cbx');if(cb)cb.classList.toggle('on');});
+function tk(){document.getElementById('clock').textContent=new Date().toLocaleTimeString('nl-NL');}tk();setInterval(tk,1000);
+var MKTSYS={
+ BTC:{vfm:'0.397',er:'0.40',db:'1.00',chaos:'0.04%',status:'BULLISH BREAKOUT (aanhoudend)',conf:'zeer hoog (80-95%)',pattern:'3 Soldiers (bullish)',micb:'$64849',micbr:'$64774',mesb:'$65071',mesbr:'$64718',macb:'$65212',macbr:'$64656',vol:'15.2670',nn:'01:33:45'},
+ ETH:{vfm:'0.312',er:'0.55',db:'0.82',chaos:'0.06%',status:'NEUTRAAL - consolidatie',conf:'gemiddeld (55-70%)',pattern:'Doji / besluiteloos',micb:'$1881',micbr:'$1872',mesb:'$1889',mesbr:'$1866',macb:'$1902',macbr:'$1851',vol:'8.4120',nn:'00:58:12'},
+ SOL:{vfm:'0.468',er:'0.33',db:'1.14',chaos:'0.03%',status:'BULLISH - opbouwend',conf:'hoog (70-85%)',pattern:'Higher lows (bullish)',micb:'$74.60',micbr:'$73.90',mesb:'$75.20',mesbr:'$73.40',macb:'$76.10',macbr:'$72.80',vol:'74.02',nn:'02:11:30'}
+};
+function setSys(m,el){var d=MKTSYS[m];for(var k in d){var els=document.querySelectorAll('[data-sys="'+k+'"]');for(var i=0;i<els.length;i++)els[i].textContent=d[k];}var chips=el.parentNode.querySelectorAll('.chip');for(var c=0;c<chips.length;c++)chips[c].classList.remove('on');el.classList.add('on');}
+var MKTHIST={
+ BTC:[['09-08 08:15','64815','64821','64815','64821','5.8'],['09-08 08:00','64790','64830','64780','64815','12.4'],['09-08 07:45','64760','64800','64740','64790','9.1'],['09-08 07:30','64720','64775','64705','64760','7.7'],['09-08 07:15','64700','64740','64680','64720','6.3'],['09-08 07:00','64680','64715','64665','64700','8.0']],
+ ETH:[['09-08 08:15','1877','1879','1876','1878','120'],['09-08 08:00','1874','1878','1872','1877','210'],['09-08 07:45','1871','1876','1869','1874','185'],['09-08 07:30','1868','1873','1866','1871','160'],['09-08 07:15','1866','1870','1864','1868','140'],['09-08 07:00','1864','1868','1861','1866','155']],
+ SOL:[['09-08 08:15','74.20','74.35','74.10','74.28','9800'],['09-08 08:00','74.05','74.30','73.95','74.20','14200'],['09-08 07:45','73.88','74.10','73.80','74.05','11100'],['09-08 07:30','73.70','73.95','73.62','73.88','10300'],['09-08 07:15','73.55','73.80','73.48','73.70','8700'],['09-08 07:00','73.42','73.60','73.35','73.55','9200']]
+};
+var CHARTSYM={BTC:'BTC/USDT',ETH:'ETH/USDT',SOL:'SOL/USDT'};
+function fillHist(m){var b=document.getElementById('hist-body');if(!b)return;var rows=MKTHIST[m],h='';for(var i=0;i<rows.length;i++){var r=rows[i];h+='<tr><td class="muted">'+r[0]+'</td><td>'+r[1]+'</td><td>'+r[2]+'</td><td>'+r[3]+'</td><td style="color:var(--cyan)">'+r[4]+'</td><td>'+r[5]+'</td></tr>';}b.innerHTML=h;}
+function setHistMkt(m,el){fillHist(m);var chips=el.parentNode.querySelectorAll('.chip');for(var c=0;c<chips.length;c++)chips[c].classList.remove('on');el.classList.add('on');}
+function setChartMkt(m,el){var sym=document.getElementById('chart-sym');if(sym)sym.textContent=CHARTSYM[m];var chips=el.parentNode.querySelectorAll('.chip');for(var c=0;c<chips.length;c++)chips[c].classList.remove('on');el.classList.add('on');drawChart();}
+function eyeSetup(W,H,ctx){var cx=W/2,cy=H/2,R=Math.min(W,H)*0.44;
+  function ring(rad,seg,rot,col,lw){ctx.strokeStyle=col;ctx.lineWidth=lw;if(seg){for(var i=0;i<seg;i++){var a0=rot+i/seg*6.283,a1=a0+(6.283/seg)*0.62;ctx.beginPath();ctx.arc(cx,cy,rad,a0,a1);ctx.stroke();}}else{ctx.beginPath();ctx.arc(cx,cy,rad,0,6.283);ctx.stroke();}}
+  return{draw:function(now){ctx.clearRect(0,0,W,H);
+    ring(R,0,0,'rgba(0,217,255,0.20)',1);
+    ring(R*0.95,3,now/6000,'rgba(0,217,255,0.55)',2.4);
+    ring(R*0.88,32,now/4200,'rgba(0,217,255,0.45)',1.3);
+    ring(R*0.80,20,-now/3200,'rgba(127,216,255,0.35)',1.1);
+    ring(R*0.70,52,now/2400,'rgba(0,217,255,0.4)',1);
+    for(var i=0;i<60;i++){var a=i/60*6.283,r1=(i%5===0?R*0.56:R*0.59),r2=R*0.64;ctx.strokeStyle='rgba(0,217,255,'+(i%5===0?0.6:0.22)+')';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);ctx.lineTo(cx+Math.cos(a)*r2,cy+Math.sin(a)*r2);ctx.stroke();}
+    var g=ctx.createRadialGradient(cx,cy,0,cx,cy,R*0.52);g.addColorStop(0,'#03100e');g.addColorStop(0.45,'#0c6a58');g.addColorStop(0.82,'#14c8b0');g.addColorStop(1,'#7fffe8');ctx.fillStyle=g;ctx.beginPath();ctx.arc(cx,cy,R*0.52,0,6.283);ctx.fill();
+    for(var i=0;i<40;i++){var a=now/3400+i/40*6.283;ctx.strokeStyle='rgba(190,255,242,0.22)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(cx+Math.cos(a)*R*0.30,cy+Math.sin(a)*R*0.30);ctx.lineTo(cx+Math.cos(a)*R*0.50,cy+Math.sin(a)*R*0.50);ctx.stroke();}
+    ctx.fillStyle='#02100e';ctx.beginPath();ctx.arc(cx,cy,R*0.17,0,6.283);ctx.fill();
+    ctx.save();ctx.shadowColor='#7fffe8';ctx.shadowBlur=12;ctx.fillStyle='#a7fff0';ctx.beginPath();ctx.arc(cx,cy,R*0.05+Math.sin(now/500)*1.2,0,6.283);ctx.fill();ctx.restore();
+    var sa=now/1000;ctx.strokeStyle='rgba(190,255,242,0.5)';ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(sa)*R*0.50,cy+Math.sin(sa)*R*0.50);ctx.stroke();
+    var mk=[['BTC','#f7931a',0],['ETH','#627eea',2.094],['SOL','#14f195',4.188]];for(var m=0;m<3;m++){var a=now/2200+mk[m][2],ox=cx+Math.cos(a)*R*1.0,oy=cy+Math.sin(a)*R*1.0;ctx.save();ctx.shadowColor=mk[m][1];ctx.shadowBlur=10;ctx.beginPath();ctx.arc(ox,oy,3.5,0,6.283);ctx.fillStyle=mk[m][1];ctx.fill();ctx.restore();ctx.fillStyle=mk[m][1];ctx.font='6px JetBrains Mono';ctx.textAlign='center';ctx.fillText(mk[m][0],ox,oy-6);}
+    ctx.fillStyle='rgba(190,255,242,0.85)';ctx.font='bold 8px Orbitron';ctx.textAlign='center';ctx.fillText('OSIRIS',cx,cy+2.5);
+  }};}
+function svpSetup(W,H,ctx){var n=28,rows=[],poc=(Math.random()*n)|0;for(var i=0;i<n;i++)rows.push({v:0.2+Math.random()*0.8,up:Math.random()>0.42});
+  return{draw:function(){ctx.clearRect(0,0,W,H);var rh=H/n;for(var i=0;i<n;i++){var r=rows[i],w=r.v*W*0.92,y=i*rh;ctx.fillStyle=i===poc?'#ffb627':(r.up?'rgba(20,241,149,0.55)':'rgba(255,92,106,0.55)');ctx.fillRect(W-w,y+1,w,rh-2);}ctx.strokeStyle='rgba(255,182,39,0.85)';ctx.setLineDash([4,3]);ctx.beginPath();ctx.moveTo(0,poc*rh+rh/2);ctx.lineTo(W,poc*rh+rh/2);ctx.stroke();ctx.setLineDash([]);}};}
+
+autoCanvas('brain',brainSetup);
+autoCanvas('netcv',netSetup);
+autoCanvas('net-ov',netSetup);
+autoCanvas('net-wal',netSetup);
+autoCanvas('svp',svpSetup);
+autoCanvas('eye',eyeSetup);
+showTab('overview');
+</script>
+<script src="app.js?v=20260809-jarvis4"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js"></script>
-<script>window.addEventListener('DOMContentLoaded', osirisSyncInit);</script>
+<script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
+<script src="osiris-ui.js?v=1"></script>
+<script>(function(){function r(){try{window.dispatchEvent(new Event("resize"));}catch(e){}}var o=window.showTab;if(typeof o==="function"){window.showTab=function(id){o(id);setTimeout(r,60);};}window.addEventListener("load",function(){setTimeout(r,250);});})();</script>
 </body>
 </html>
