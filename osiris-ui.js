@@ -35,7 +35,9 @@
     'level 3 · neuraal net':'l3-body',
     'deepnet-band · live':'deepnet-status',
     'presets per core':'subbrain-presets-body',
-    'core zelf-kalibratie (live)':'osiris-shadow-panel'
+    'core zelf-kalibratie (live)':'osiris-shadow-panel',
+    'prijs & volume historie · 15m (scrollbaar)':'history-list',
+    'prijs & volume historie · 15m':'history-list'
   };
   var _panels=null;
   function norm(t){return (t||'').replace(/\s+/g,' ').replace(/&middot;/g,'·').replace(/&mdash;/g,'—').trim().toLowerCase();}
@@ -102,6 +104,7 @@
 
   function tick(){ try{ mirrorText(); mirrorPanels(); }catch(e){} }
   function init(){
+    try{ window.fillHist=function(){}; }catch(e){}
     moveBlocks(); wireButtons(); wrapCoinFns();
     indexPanels(); tick();
     setInterval(tick,1000);
