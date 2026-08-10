@@ -12,7 +12,7 @@
     --btc:#f7931a;--eth:#627eea;--sol:#14f195;--text:#d6e6f2;--dim:#7d99ac;--dimmer:#4d647a;}
   *{box-sizing:border-box;}
   html,body{margin:0;height:100%;}
-  body{background:radial-gradient(1200px 700px at 80% -10%,rgba(58,134,255,0.10),transparent 0%),radial-gradient(900px 600px at 8% 112%,rgba(124,92,255,0.09),transparent 60%),var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;overflow:hidden;}
+  body{background:radial-gradient(1200px 700px at 80% -10%,rgba(58,134,255,0.10),transparent 60%),radial-gradient(900px 600px at 8% 112%,rgba(124,92,255,0.09),transparent 60%),var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;overflow:hidden;}
   body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;background-image:linear-gradient(rgba(0,217,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,217,255,0.03) 1px,transparent 1px);background-size:46px 46px;mask-image:radial-gradient(circle at 55% 40%,#000 30%,transparent 88%);}
   .app{position:relative;z-index:1;display:grid;grid-template-columns:82px 1fr;grid-template-rows:58px 1fr;height:100vh;}
   .top{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(7,12,22,0.92),rgba(7,12,22,0.35));}
@@ -561,7 +561,7 @@ section { position:relative; z-index:2; }
   #flow-svg{min-height:220px;}
 }
 </style>
-<style>#tab-charts .hud,#tab-system .hud,#tab-net .hud,#tab-wallet .hud,#tab-feed .hud,#tab-brains .hud,#tab-engine .hud,#tab-overview .hud{background:var(--panel)!important;} .app{position:relative;z-index:1;}</style>
+<style>#tab-charts .hud,#tab-system .hud,#tab-net .hud,#tab-wallet .hud,#tab-feed .hud,#tab-brains .hud,#tab-engine .hud,#tab-overview .hud{background:var(--panel)!important;}.app{position:relative;z-index:1;}</style>
 </head>
 <body>
 <div id="jv-holders" style="display:none"><svg id="hero-eye"></svg><button id="bull-btn" onclick="setEyeSignalManual('bull')"></button><button id="bear-btn" onclick="setEyeSignalManual('bear')"></button><span id="nav-live-price"></span><span id="hub-engine-badge"></span><div id="sec-hub"></div></div><canvas id="site-plexus" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas><canvas id="starmap" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas>
@@ -577,7 +577,8 @@ section { position:relative; z-index:2; }
     <div class="clock" id="clock">--:--:--</div>
   </div>
   <div class="rail" id="rail">
-    <div class="navb active" data-tab="overview"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg><span>Overzicht</span></div>
+    <div class="navb active" data-tab="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><span>About</span></div>
+    <div class="navb" data-tab="overview"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg><span>Overzicht</span></div>
     <div class="navb" data-tab="net"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 12l3-5M7 12l3 5M14 7l4 4M14 17l4-4"/></svg><span>Neuraal net</span></div>
     <div class="navb" data-tab="wallet"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 14h2"/></svg><span>Wallet</span></div>
     <div class="navb" data-tab="charts"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 4-6"/></svg><span>Charts</span></div>
@@ -591,9 +592,22 @@ section { position:relative; z-index:2; }
   <div class="main" id="main">
 
     <!-- OVERVIEW -->
-    <section class="tab show" id="tab-overview">
-      <div class="eyebrow">Systeemoverzicht</div><h1 class="h">System  Overview</h1>
-<div class="reactor"><canvas id="brain" style="width:100%;height:280px;"></canvas><div class="core-label"><div class="v">OSIRIS</div><div class="l">KPX Mark I</div></div></div>
+    <section class="tab show" id="tab-about">
+  <div class="eyebrow">Introductie</div><h1 class="h">OSIRIS &middot; AUTONOOM MULTI-BREIN</h1>
+  <div class="grid g-2 mb">
+    <div class="panel"><div class="plabel">Wat is Osiris?</div><div style="font-size:0.66rem;line-height:1.8;color:var(--dim)">Autonome, zelflerende multi-crypto trading-bot op Binance Spot <b style="color:var(--cyan)">testnet</b>. Eén mainbrain verdeelt de inzet over drie markt-<b>cores</b> (BTC/ETH/SOL) volgens winkans en verwachte winst.</div></div>
+    <div class="panel"><div class="plabel">De cores</div><div style="font-size:0.66rem;line-height:1.8;color:var(--dim)"><b style="color:var(--btc)">Neo BTC</b> hoofdmotor; <b style="color:var(--eth)">Neo ETH</b> &amp; <b style="color:var(--sol)">Neo SOL</b> sub-cores met eigen gewichten. <b style="color:var(--cyan)">Osiris</b> is de mainbrain, winner-take-all.</div></div>
+  </div>
+  <div class="grid g-3 mb">
+    <div class="panel"><div class="plabel">Adaptief leren</div><div style="font-size:0.62rem;line-height:1.7;color:var(--dim)">L1 factor-gewichten, L2 logistisch per markt, L3 deep net. Hertraint zichzelf op echte trade-data.</div></div>
+    <div class="panel"><div class="plabel">De engines</div><div style="font-size:0.62rem;line-height:1.7;color:var(--dim)">Trend, range-scalp, ICT en micro fast-lane parallel. Circuit-breaker + watchdog bewaken alles.</div></div>
+    <div class="panel"><div class="plabel">Altijd online</div><div style="font-size:0.62rem;line-height:1.7;color:var(--dim)">Oracle-worker 24/7, sync via Supabase, op afstand bestuurbaar.</div></div>
+  </div>
+  <div class="panel"><div class="plabel">Navigatie</div><div style="font-size:0.62rem;line-height:1.8;color:var(--dim)"><b>Overzicht</b> commandokern &middot; <b>Neuraal net</b> live forward-pass &middot; <b>Wallet</b> kapitaal &amp; posities &middot; <b>Charts</b> markt &middot; <b>Cortex</b> het leren &middot; <b>Live feed</b> beredenering &middot; <b>Engine</b> configuratie &middot; <b>Systeem</b> diagnose.</div></div>
+</section>
+    <section class="tab" id="tab-overview">
+      <div class="eyebrow">Systeemoverzicht</div><h1 class="h">COMMANDOKERN</h1>
+<div class="reactor"><canvas id="brain" style="width:100%;height:280px;"></canvas><div class="core-label"><div class="v">OSIRIS</div><div class="l">mainbrain · levend</div></div></div>
 <div id="bot-monitor" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px;">
           <div class="meter"><div class="l">STATUS</div><div class="v" style="font-size:0.9rem; color:var(--teal);" id="bot-status">STANDBY</div></div>
           <div class="meter"><div class="l">LIVE P/L</div><div class="v" style="font-size:0.9rem;" id="bot-pnl">0.00%</div></div>
@@ -688,12 +702,12 @@ section { position:relative; z-index:2; }
 
     <!-- NEURAL NET -->
     <section class="tab" id="tab-net">
-      <div class="eyebrow">Neural Network Visualisation</div><h1 class="h">Deepnet Neural Net</h1>
-<div class="subhead" style="margin-top:20px;">&#9673; Neural Net &middot; Osiris + Neo BTC/ETH/SOL &middot; DeepNet-layer</div>
-        <div id="neonet-big-panel" style="position:relative; height:100%; background:#000004; border:1px solid rgba(0,217,255,0.2); border-radius:10px; overflow:hidden;">
+      <div class="eyebrow">Kernvisualisatie</div><h1 class="h">MULTI-BREIN NEURAAL NETWERK</h1>
+<div class="subhead" style="margin-top:20px;">&#9673; Multi-Brein Neuraal Netwerk &middot; Osiris + Neo BTC/ETH/SOL &middot; DeepNet-laag</div>
+        <div id="neonet-big-panel" style="position:relative; height:560px; background:#000004; border:1px solid rgba(0,217,255,0.2); border-radius:10px; overflow:hidden;">
           <canvas id="neo-net-canvas-big"></canvas>
-          <div style="position:absolute; top:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">MULTI-NET NEURAL NETWERK</div>
-          <div style="position:absolute; top:26px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">15 inputs &rarr; integratie &rarr; sub-net (BTC/ETH/SOL) &rarr; Osiris Core &rarr; 1 uitkomst</div>
+          <div style="position:absolute; top:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">MULTI-BREIN NEURAAL NETWERK</div>
+          <div style="position:absolute; top:26px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">15 inputs &rarr; integratie &rarr; sub-breinen (BTC/ETH/SOL) &rarr; Osiris mainbrain &rarr; 1 uitkomst</div>
           <div style="position:absolute; top:10px; right:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out-big" style="font-size:0.85rem;">&mdash;</span></div>
         </div>
 
@@ -938,8 +952,6 @@ section { position:relative; z-index:2; }
     <!-- BRAINS -->
     <section class="tab" id="tab-brains">
       <div class="eyebrow">Adaptief leren &middot; per markt</div><h1 class="h">DE CORTEX &amp; HET LEREN</h1>
-<div class="panel" style="margin-top:16px"><div class="plabel">Kalibratie &middot; predicted vs. measured &middot; 4 breinen (live)</div><div class="grid g-4" style="gap:12px"><div><div id="calib-head-btc" style="font-size:0.56rem;color:#f7931a;font-weight:700;margin-bottom:4px">Neo BTC</div><svg viewBox="0 0 100 62" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="8" y1="50" x2="94" y2="4" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-btc"></g></svg></div><div><div id="calib-head-eth" style="font-size:0.56rem;color:#627eea;font-weight:700;margin-bottom:4px">Neo ETH</div><svg viewBox="0 0 100 62" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="8" y1="50" x2="94" y2="4" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-eth"></g></svg></div><div><div id="calib-head-sol" style="font-size:0.56rem;color:#14f195;font-weight:700;margin-bottom:4px">Neo SOL</div><svg viewBox="0 0 100 62" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="8" y1="50" x2="94" y2="4" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-sol"></g></svg></div><div><div id="calib-head-osiris" style="font-size:0.56rem;color:#00d9ff;font-weight:700;margin-bottom:4px">Osiris Mainbrain</div><svg viewBox="0 0 100 62" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="8" y1="50" x2="94" y2="4" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-osiris"></g></svg></div></div><div class="note" style="margin-top:8px;color:#4d647a;font-size:0.54rem">Onder de stippellijn = overmoedig, erboven = te voorzichtig. Elk brein z’n eigen curve, live door de engine.</div></div>
-
 <div class="subhead" style="display:flex; justify-content:space-between; align-items:center;"><span>Adaptive Learning Levels &middot; data</span><button onclick="downloadAdaptiveLearning()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; letter-spacing:0.05em; padding:4px 10px; background:rgba(0,217,255,0.08); color:#7fd8ff; border:1px solid rgba(0,217,255,0.4); border-radius:5px; cursor:pointer; text-transform:none;">&#8681; download leerdata</button></div>
                 <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
                     <span>&#9679; Adaptive Learning · Level 1</span>
@@ -1006,6 +1018,7 @@ section { position:relative; z-index:2; }
         </div>
 
         
+<div class="panel" style="margin-top:16px"><div class="plabel">Kalibratie &middot; predicted vs. measured &middot; 4 breinen (live)</div><div class="grid g-4" style="gap:12px"><div><div id="calib-head-btc" style="font-size:0.56rem;color:#f7931a;font-weight:700;margin-bottom:4px">Neo BTC</div><svg viewBox="0 0 120 92" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-btc"></g></svg></div><div><div id="calib-head-eth" style="font-size:0.56rem;color:#627eea;font-weight:700;margin-bottom:4px">Neo ETH</div><svg viewBox="0 0 120 92" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-eth"></g></svg></div><div><div id="calib-head-sol" style="font-size:0.56rem;color:#14f195;font-weight:700;margin-bottom:4px">Neo SOL</div><svg viewBox="0 0 120 92" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-sol"></g></svg></div><div><div id="calib-head-osiris" style="font-size:0.56rem;color:#00d9ff;font-weight:700;margin-bottom:4px">Osiris Mainbrain</div><svg viewBox="0 0 120 92" preserveAspectRatio="none" style="width:100%;height:200px;background:rgba(0,0,0,0.18);border-radius:6px"><line x1="12" y1="80" x2="112" y2="10" stroke="rgba(255,255,255,0.12)" stroke-dasharray="3 3"/><g id="calib-plot-osiris"></g></svg></div></div></div>
 
     </section>
 
@@ -1489,12 +1502,12 @@ autoCanvas('net-ov',netSetup);
 autoCanvas('net-wal',netSetup);
 autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
-showTab('overview');
+showTab('about');
 </script>
-<script src="app.js?v=20260809-jarvis5"></script>
+<script src="app.js?v=20260810-jarvis7"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
-<script>(function(){function r(){try{window.dispatchEvent(new Event("resize"));}catch(e){}}var o=window.showTab;if(typeof o==="function"){window.showTab=function(id){o(id);setTimeout(r,60);};}window.addEventListener("load",function(){setTimeout(r,250);});})();</script>
+<script>(function(){function r(){try{window.dispatchEvent(new Event("resize"));}catch(e){}}var o=window.showTab;if(typeof o==="function"){window.showTab=function(id){o(id);setTimeout(r,60);};}window.addEventListener("load",function(){setTimeout(r,300);});})();</script>
 </body>
 </html>
