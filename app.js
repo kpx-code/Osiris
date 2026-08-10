@@ -9259,8 +9259,8 @@ function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin){
         if(gap>5){head.textContent=label+' \u00b7 overconf +'+gap.toFixed(0); head.style.color='#ffb627';}
         else if(gap<-5){head.textContent=label+' \u00b7 onderconf '+gap.toFixed(0); head.style.color='#14f195';}
         else {head.textContent=label+' \u00b7 goed'; head.style.color='#14f195';} }
-    var X=function(r){return 8+(Math.min(100,Math.max(xMin,r))-xMin)/(100-xMin)*86;};
-    var Y=function(w){return 50-Math.min(100,Math.max(0,w))/100*46;};
+    var X=function(r){return 12+(Math.min(100,Math.max(xMin,r))-xMin)/(100-xMin)*100;};
+    var Y=function(w){return 80-Math.min(100,Math.max(0,w))/100*70;};
     var svg='';
     if(!single){ var pts=map.map(function(p){return X(p[0]).toFixed(1)+','+Y(p[1]).toFixed(1);}).join(' ');
         svg+='<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>'; }
