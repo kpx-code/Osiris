@@ -10382,11 +10382,12 @@ function _neoNetDraw(now, canvasId, outId) {
     const layers = _neonet.layers, conns = _neonet.conns;
     const _isBigNet = (canvasId === 'neo-net-canvas-big');
     const padX = w * 0.13, padTop = h * 0.20, padBot = _isBigNet ? h * 0.24 : h * 0.12, padY = padTop;
-    const colW = (w - padX * 2) / (layers.length - 1);
+    const _FX = [0, 0.32, 0.49, 0.66, 0.83, 1.0];
+    const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
     // posities per node
     const pos = layers.map((nodes, li) => nodes.map((nd, i) => {
         const colH = h - padTop - padBot, gap = colH / Math.max(1, nodes.length - 1);
-        return { x: padX + li * colW, y: nodes.length === 1 ? padTop + colH / 2 : padTop + i * gap };
+        return { x: padX + _fxOf(li) * (w - padX * 2), y: nodes.length === 1 ? padTop + colH / 2 : padTop + i * gap };
     }));
 
     // ---- echte input-activaties injecteren + forward-propagatie (visueel) ----
