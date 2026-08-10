@@ -562,6 +562,28 @@ section { position:relative; z-index:2; }
 }
 </style>
 <style>#tab-charts .hud,#tab-system .hud,#tab-net .hud,#tab-wallet .hud,#tab-feed .hud,#tab-brains .hud,#tab-engine .hud,#tab-overview .hud{background:var(--panel)!important;}.app{position:relative;z-index:1;}</style>
+<style id="jv-fixes">
+/* 1) donkere achtergrond met licht zichtbare ruit-strepen */
+body{background:#04070e!important;}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(rgba(0,217,255,0.05) 1px,transparent 1px),linear-gradient(90deg,rgba(0,217,255,0.05) 1px,transparent 1px);
+  background-size:46px 46px;}
+#site-plexus,#starmap{display:none!important;}
+.app{position:relative;z-index:1;}
+/* 3) neuraal net beter zichtbaar: groter canvas + subtiele reactor-glow eronder */
+#neo-net-canvas-big{height:520px!important;min-height:520px!important;
+  background:radial-gradient(700px 340px at 50% 40%,rgba(0,60,90,0.28),transparent 70%)!important;border-radius:14px;}
+#neo-net-canvas{height:220px!important;}
+/* 2) WALLET nieuw design (niks weggelaten, alleen restyle) */
+#tab-wallet .hud{background:linear-gradient(180deg,rgba(13,22,38,0.85),rgba(9,15,26,0.75))!important;
+  border:1px solid rgba(124,92,255,0.28)!important;border-radius:16px!important;
+  box-shadow:0 0 0 1px rgba(0,0,0,0.25),0 10px 34px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,255,255,0.03)!important;}
+#tab-wallet .hud::before,#tab-wallet .hud::after{border-color:var(--iris,#7c5cff)!important;}
+#tab-wallet .plabel,#tab-wallet .subhead{color:#a99bff!important;letter-spacing:2px;}
+#tab-wallet .card,#tab-wallet .kpi-strip>*{background:rgba(3,8,16,0.6)!important;border:1px solid rgba(124,92,255,0.18)!important;border-radius:12px!important;}
+#tab-wallet table th{color:#a99bff!important;border-bottom:1px solid rgba(124,92,255,0.25)!important;}
+#tab-wallet .btn{border-color:rgba(124,92,255,0.4)!important;color:#c3b8ff!important;background:rgba(124,92,255,0.08)!important;}
+</style>
 </head>
 <body>
 <div id="jv-holders" style="display:none"><svg id="hero-eye"></svg><button id="bull-btn" onclick="setEyeSignalManual('bull')"></button><button id="bear-btn" onclick="setEyeSignalManual('bear')"></button><span id="nav-live-price"></span><span id="hub-engine-badge"></span><div id="sec-hub"></div></div><canvas id="site-plexus" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas><canvas id="starmap" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas>
