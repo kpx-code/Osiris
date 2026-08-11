@@ -626,6 +626,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <div class="panel"><div class="plabel">Altijd online</div><div style="font-size:0.62rem;line-height:1.7;color:var(--dim)">Oracle-worker 24/7, sync via Supabase, op afstand bestuurbaar.</div></div>
   </div>
   <div class="panel"><div class="plabel">Navigatie</div><div style="font-size:0.62rem;line-height:1.8;color:var(--dim)"><b>Overzicht</b> commandokern &middot; <b>Neuraal net</b> live forward-pass &middot; <b>Wallet</b> kapitaal &amp; posities &middot; <b>Charts</b> markt &middot; <b>Cortex</b> het leren &middot; <b>Live feed</b> beredenering &middot; <b>Engine</b> configuratie &middot; <b>Systeem</b> diagnose.</div></div>
+  <div class="panel" style="margin-top:14px;border-color:rgba(255,182,39,0.35);background:rgba(255,182,39,0.04);"><div class="plabel" style="color:var(--amber)">&#9888; Geen financieel advies</div><div style="font-size:0.62rem;line-height:1.8;color:var(--dim)">Osiris is een <b style="color:var(--amber)">experimenteel, educatief project</b> dat volledig op de Binance <b style="color:var(--cyan)">Spot testnet</b> draait met nep-kapitaal. Niets in deze app is financieel, beleggings- of handelsadvies. Cijfers, kansen en beslissingen zijn de output van een zelflerend model en kunnen fout zijn. Handel nooit met echt geld op basis van deze bot zonder eigen onderzoek; trading brengt risico op verlies met zich mee.</div></div>
 </section>
     <section class="tab" id="tab-overview">
       <div class="eyebrow">Systeemoverzicht</div><h1 class="h">COMMANDOKERN</h1>
@@ -725,16 +726,16 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <!-- NEURAL NET -->
     <section class="tab" id="tab-net">
       <div class="eyebrow">Kernvisualisatie</div><h1 class="h">MULTI-BREIN NEURAAL NETWERK</h1>
-<div class="subhead" style="margin-top:20px;">&#9673; Multi-Brein Neuraal Netwerk &middot; Osiris + Neo BTC/ETH/SOL &middot; DeepNet-laag</div>
-        <div id="neonet-big-panel" style="position:relative; height:560px; background:#000004; border:1px solid rgba(0,217,255,0.2); border-radius:10px; overflow:hidden;">
-          <canvas id="neo-net-canvas-big" style="position:absolute; inset:0; width:100%; height:100%; display:block;"></canvas>
-          <div style="position:absolute; top:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">MULTI-BREIN NEURAAL NETWERK</div>
-          <div style="position:absolute; top:26px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">15 inputs &rarr; integratie &rarr; sub-breinen (BTC/ETH/SOL) &rarr; Osiris mainbrain &rarr; 1 uitkomst</div>
-          <div style="position:absolute; top:10px; right:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out-big" style="font-size:0.85rem;">&mdash;</span></div>
-        </div>
-
-        
-
+      <div class="netwrap mb" style="margin-top:18px;">
+        <canvas id="neo-net-canvas-big" style="width:100%; height:540px; display:block;"></canvas>
+        <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">15 inputs &rarr; integratie &rarr; cores &rarr; osiris &rarr; 1 uitkomst</div></div>
+        <div class="net-out"><div class="l">Beslissing</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
+      </div>
+      <div class="grid g-3">
+        <div class="panel"><div class="plabel">DeepNet-band &middot; live</div><div id="net-deepnet-band" style="font-size:0.62rem;line-height:2;"><span class="muted">Wacht op DeepNet&hellip;</span></div></div>
+        <div class="panel"><div class="plabel">Lagen</div><div style="font-size:0.6rem;line-height:1.9;color:var(--dim)">INPUTS <b style="color:#eafcff">15</b> &middot; INTEGRATIE <b style="color:#eafcff">14</b> &middot; CORES <b style="color:#eafcff">3</b> &middot; OSIRIS <b style="color:#eafcff">4</b> &middot; BESLISSING <b style="color:#eafcff">3</b> &middot; UITKOMST <b style="color:#eafcff">1</b></div></div>
+        <div class="panel"><div class="plabel">Signalen (inputs)</div><div style="font-size:0.5rem;color:var(--dim);line-height:1.9;">VFM &middot; ER &middot; DB &middot; CHAOS &middot; MOM &middot; VOL-Z &middot; RSI &middot; EMA &middot; CNN &middot; FIB &middot; NN &middot; CONF &middot; FUND &middot; L/S &middot; BTC-COR</div></div>
+      </div>
     </section>
 
     <!-- WALLET -->
