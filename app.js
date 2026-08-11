@@ -10472,7 +10472,7 @@ function _neoNetDraw(now, canvasId, outId) {
 
     const layers = _neonet.layers, conns = _neonet.conns;
     const _isBigNet = (canvasId === 'neo-net-canvas-big');
-    const padX = w * 0.13, padTop = h * 0.20, padBot = _isBigNet ? h * 0.24 : h * 0.12, padY = padTop;
+    const padX = w * 0.13, padTop = h * 0.20, padBot = h * 0.12, padY = padTop;
     const _FX = [0, 0.32, 0.49, 0.66, 0.83, 1.0];
     const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
     // posities per node
@@ -10616,7 +10616,7 @@ function _neoNetDraw(now, canvasId, outId) {
     const lnames = (_neonet.layerLabels) || ['INPUTS', 'INTEGRATIE', 'SUB-BREINEN', 'OSIRIS', 'BESLISSING'];
     for (let li = 0; li < layers.length; li++) {
         ctx.fillStyle = 'rgba(92,116,136,0.85)';
-        ctx.fillText(lnames[li], pos[li][0].x, _isBigNet ? h * 0.775 : (h - padBot * 0.45));
+        ctx.fillText(lnames[li], pos[li][0].x, h - padBot * 0.32);
     }
     // input-labels links van de eerste kolom
     ctx.textAlign = 'right'; ctx.font = "7px 'JetBrains Mono', monospace";
@@ -11804,55 +11804,33 @@ window.updateDeepNetPanel = updateDeepNetPanel;
 // gekalibreerde kans + meta-poort en zet de mainbrain-keuze in 'neo-net-out-big'.
 // Tekent NIET het hele canvas leeg (overlay), zodat het bestaande net eronder blijft.
 function _deepnetOverlayBig() {
+    // Geen in-canvas band meer (design image 2): de per-markt gekalibreerde kansen
+    // gaan naar het HTML-paneel 'DeepNet-band \u00b7 live', en de Osiris-keuze naar de
+    // .net-out rechtsboven. Zo overlapt niets meer met de knopen/laag-labels.
     if (typeof OsirisDeepNet === 'undefined') return;
-    const cv = document.getElementById('neo-net-canvas-big');
-    if (!cv) return;
-    const rect = cv.getBoundingClientRect();
-    if (rect.width < 10) return;
-    const ctx = cv.getContext('2d');
-    ctx.setTransform(2, 0, 0, 2, 0, 0);
-    const w = rect.width, h = rect.height;
-    const bandY = h * 0.80;
-    ctx.fillStyle = 'rgba(4,8,14,0.96)';
-    ctx.fillRect(0, bandY, w, h - bandY);
-    ctx.strokeStyle = 'rgba(0,217,255,0.25)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, bandY); ctx.lineTo(w, bandY); ctx.stroke();
-    ctx.textAlign = 'left'; ctx.font = '8px JetBrains Mono'; ctx.fillStyle = '#7fd8ff';
-    ctx.fillText('DEEPNET \u00b7 gekalibreerde kans per markt', 12, bandY + 13);
-
     const keys = ['BTC', 'ETH', 'SOL'];
-    const cy = bandY + (h - bandY) * 0.62;
-    let x0 = 12, choice = null, best = -1;
+    let choice = null, best = -1, lean = null, lb = -1;
     for (const key of keys) {
-        const p = OsirisDeepNet.last[key], col = _DN_COL[key];
-        const cal = p ? p.calProb : null;
-        const label = `${key} ${cal != null ? (cal * 100).toFixed(0) + '%' : '--'} ${p ? (p.meta ? p.side + '\u2713' : (p.trade ? p.side : 'abst')) : ''}`;
-        ctx.font = 'bold 9px JetBrains Mono';
-        const tw = ctx.measureText(label).width + 14;
-        ctx.fillStyle = (p && p.meta) ? _hexToRgba(col, 0.22) : _hexToRgba(col, 0.08);
-        ctx.fillRect(x0, cy - 9, tw, 18);
-        ctx.strokeStyle = (p && p.meta) ? col : _hexToRgba(col, 0.55);
-        ctx.lineWidth = (p && p.meta) ? 1.5 : 1.0;
-        ctx.strokeRect(x0, cy - 9, tw, 18);
-        ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.fillText(label, x0 + 7, cy + 3);
-        x0 += tw + 8;
+        const p = OsirisDeepNet.last[key];
         if (p && p.meta && p.conf > best) { best = p.conf; choice = p; }
+        if (p && p.conf > lb) { lb = p.conf; lean = p; }
     }
-    // sterkste neiging bepalen (voor de wacht-stand als de meta-poort nog dicht is)
-    let lean = null, lb = -1;
-    for (const key of keys) { const p = OsirisDeepNet.last[key]; if (p && p.conf > lb) { lb = p.conf; lean = p; } }
-    ctx.textAlign = 'right'; ctx.font = 'bold 10px JetBrains Mono';
-    if (choice) {
-        ctx.fillStyle = _DN_COL[choice.key];
-        ctx.fillText(`OSIRIS \u2192 ${choice.key} ${choice.side} ${(choice.calProb * 100).toFixed(0)}%`, w - 12, cy + 3);
-    } else if (lean) {
-        ctx.fillStyle = _hexToRgba(_DN_COL[lean.key], 0.9);
-        ctx.fillText(`OSIRIS \u2192 wacht \u00b7 ${lean.key} ${lean.side} ${(lean.calProb * 100).toFixed(0)}%`, w - 12, cy + 3);
-    } else { ctx.fillStyle = '#7d99ac'; ctx.fillText('OSIRIS \u2192 wacht', w - 12, cy + 3); }
-    ctx.textAlign = 'left';
     const outEl = document.getElementById('neo-net-out-big');
-    if (outEl) outEl.textContent = choice ? `${choice.key} ${choice.side} ${(choice.calProb * 100).toFixed(0)}%`
-        : (lean ? `wacht \u00b7 ${lean.key} ${lean.side} ${(lean.calProb * 100).toFixed(0)}%` : 'wacht');
+    if (outEl) {
+        outEl.textContent = choice ? `${choice.key} ${choice.side} ${(choice.calProb * 100).toFixed(0)}%`
+            : (lean ? `wacht \u00b7 ${lean.key} ${lean.side} ${(lean.calProb * 100).toFixed(0)}%` : 'wacht');
+    }
+    const band = document.getElementById('net-deepnet-band');
+    if (band) {
+        const col = (typeof _DN_COL !== 'undefined') ? _DN_COL : { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
+        band.innerHTML = keys.map(key => {
+            const p = OsirisDeepNet.last[key], c = col[key] || '#7fd8ff';
+            if (!p) return `<span style="color:${c}">${key}</span> <span class="muted">wacht\u2026</span>`;
+            const cal = (p.calProb != null) ? (p.calProb * 100).toFixed(0) + '%' : '--';
+            const meta = p.meta ? '<span style="color:var(--green)">open</span>' : '<span style="color:var(--red)">dicht</span>';
+            return `<span style="color:${c}">${key} ${cal} ${p.side || ''}</span> &middot; meta ${meta}`;
+        }).join('<br>');
+    }
 }
 window._deepnetOverlayBig = _deepnetOverlayBig;
 
