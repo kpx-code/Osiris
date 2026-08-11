@@ -741,59 +741,80 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <!-- WALLET -->
     <section class="tab" id="tab-wallet">
       <div class="eyebrow">Kapitaal</div><h1 class="h">WALLET &amp; POSITIES</h1>
-<div class="panel" style="text-align:center;margin-bottom:14px"><div class="plabel" style="justify-content:center;color:var(--cyan)">OSIRIS · QUANTUM TRACKING</div><canvas id="eye" style="width:100%;height:220px;display:block"></canvas></div>
-<div class="subhead" style="display:flex; justify-content:space-between; align-items:center; gap:8px;"><span>Wallet status</span><span style="display:flex; gap:8px;"><button type="button" onclick="stopAutonomousBot()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);">&#9632; Stop bot</button><button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button></span></div>
-        <div class="kpi-strip" style="border:1px solid var(--line);">
-          <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
-          <div class="kpi"><small>win rate</small><b id="kpi-winrate">&mdash;</b></div>
-          <div class="kpi"><small>cal. edge</small><b id="kpi-cal" style="color:var(--amber);">&mdash;</b></div>
-          <div class="kpi" title="De winrate die je minimaal nodig hebt om quitte te spelen, berekend uit de gemiddelde winst/verlies-verhouding van gesloten trades. Zit je werkelijke winrate hierboven, dan ben je netto winstgevend."><small>break-even</small><b id="kpi-breakeven" style="color:var(--cyan);">&mdash;</b></div>
-          <div class="kpi"><small>alloc</small><b id="kpi-alloc">&mdash;</b></div>
-          <div class="kpi"><small>equity</small><b id="hub-equity">&mdash;</b><span id="hub-equity-pct" style="display:none;"></span></div>
+
+      <div class="grid mb" style="grid-template-columns:1fr 1.15fr 1fr; gap:14px;">
+        <div class="panel"><div class="plabel">Kern-metrics</div>
+          <div class="kpi-strip" style="border:1px solid var(--line); margin-top:8px;">
+            <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
+            <div class="kpi"><small>win rate</small><b id="kpi-winrate">&mdash;</b></div>
+            <div class="kpi"><small>cal. edge</small><b id="kpi-cal" style="color:var(--amber);">&mdash;</b></div>
+            <div class="kpi" title="De winrate die je minimaal nodig hebt om quitte te spelen, uit de gemiddelde winst/verlies-verhouding van gesloten trades."><small>break-even</small><b id="kpi-breakeven" style="color:var(--cyan);">&mdash;</b></div>
+            <div class="kpi"><small>alloc</small><b id="kpi-alloc">&mdash;</b></div>
+            <div class="kpi"><small>equity</small><b id="hub-equity">&mdash;</b><span id="hub-equity-pct" style="display:none;"></span></div>
+          </div>
+          <span id="wallet-realized-pnl" style="display:none;"></span><span id="wallet-unrealized-pnl" style="display:none;"></span>
+          <div class="flex gap wrap" style="margin-top:12px;">
+            <button type="button" onclick="stopAutonomousBot()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);">&#9632; Stop bot</button>
+            <button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button>
+          </div>
         </div>
-        <span id="wallet-realized-pnl" style="display:none;"></span><span id="wallet-unrealized-pnl" style="display:none;"></span>
-        <!-- LIVE: runtime / laatste actie / feed -->
-        <div class="panel" style="margin-top:14px;">
-          <div class="plabel" style="color:var(--cyan);">&#9673; Live &middot; runtime &amp; activiteit</div>
-          <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 18px; align-items:baseline; font-family:'JetBrains Mono',monospace; font-size:0.66rem; margin-top:8px;">
-            <span style="color:var(--text-dim);">Runtime</span><b id="wallet-runtime" style="color:var(--cyan); letter-spacing:1px;">--:--:--</b>
-            <span style="color:var(--text-dim);">Laatste actie</span><span id="wallet-last-action" style="color:#eaffff;">nog geen acties</span>
+
+        <div class="panel" style="text-align:center;">
+          <div class="plabel" style="justify-content:center;color:var(--cyan)">OSIRIS &middot; QUANTUM TRACKING</div>
+          <div style="position:relative;">
+            <div style="position:absolute; top:4px; left:8px; font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#5c7488; z-index:2;">ocular core &middot; live feed</div>
+            <svg id="wallet-eye" viewBox="0 0 400 380" preserveAspectRatio="xMidYMid meet" style="display:block; width:100%; height:230px;"></svg>
+          </div>
+          <div class="grid g-3" style="gap:6px;margin-top:6px;font-size:0.52rem">
+            <div><b style="color:var(--btc)">BTC</b><br><span id="eye-track-btc" class="muted">--</span></div>
+            <div><b style="color:var(--eth)">ETH</b><br><span id="eye-track-eth" class="muted">--</span></div>
+            <div><b style="color:var(--sol)">SOL</b><br><span id="eye-track-sol" class="muted">--</span></div>
+          </div>
+        </div>
+
+        <div class="panel"><div class="plabel">Live status</div>
+          <div style="display:grid; grid-template-columns:auto 1fr; gap:9px 16px; align-items:baseline; font-family:'JetBrains Mono',monospace; font-size:0.66rem; margin-top:8px;">
+            <span style="color:var(--dim);">Runtime</span><b id="wallet-runtime" style="color:var(--cyan); letter-spacing:1px;">--:--:--</b>
+            <span style="color:var(--dim);">Laatste actie</span><span id="wallet-last-action" style="color:#eaffff; line-height:1.5;">nog geen acties</span>
           </div>
           <div class="mock-title" style="margin:14px 0 6px;">Live feed &middot; laatste trades</div>
-          <div id="wallet-feed" style="max-height:180px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:0.6rem; line-height:1.85; background:rgba(0,0,0,0.45); border:1px solid rgba(0,217,255,0.15); border-radius:6px; padding:8px 10px;"><span style="color:var(--text-dim);">Wacht op eerste trade...</span></div>
+          <div id="wallet-feed" style="max-height:150px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:0.58rem; line-height:1.8; background:rgba(0,0,0,0.45); border:1px solid rgba(0,217,255,0.15); border-radius:6px; padding:8px 10px;"><span style="color:var(--dim);">Wacht op eerste trade...</span></div>
         </div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
-          <div>
-            <div class="mock-title" style="margin-bottom:8px;">Exit &middot; bijdrage</div>
-            <div class="mono" id="exit-dist" style="font-size:0.62rem; color:#7d99ac;">Nog geen gesloten trades.</div>
-          </div>
-          <div>
-            <div class="mock-title" style="margin-bottom:8px;">&#9673; Osiris &middot; equity-verdeling</div>
-            <div id="osiris-panel"><span style="color:var(--text-dim); font-size:0.62rem;">Osiris verzamelt data van de sub-breinen...</span></div>
-          </div>
+      </div>
+
+      <div class="netwrap mb">
+        <canvas id="net-wal" style="width:100%;height:300px;display:block;"></canvas>
+        <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">multi-brein neuraal netwerk &middot; live</div></div>
+      </div>
+
+      <div class="grid g-2 mb">
+        <div class="panel"><div class="plabel">Exit &middot; bijdrage</div>
+          <div class="mono" id="exit-dist" style="font-size:0.62rem; color:#7d99ac; margin-top:8px;">Nog geen gesloten trades.</div>
         </div>
-        <div class="subhead">Open Posities</div>
+        <div class="panel"><div class="plabel">&#9673; Osiris &middot; equity-verdeling</div>
+          <div id="osiris-panel" style="margin-top:8px;"><span style="color:var(--dim); font-size:0.62rem;">Osiris verzamelt data van de sub-breinen...</span></div>
+        </div>
+      </div>
+
+      <div class="panel mb"><div class="plabel">Open posities</div>
         <div class="table-wrap" style="overflow-x:auto;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
             <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th>Markt</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size</th><th>Alloc</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
-            <tbody id="open-positions-body">
-              <tr><td colspan="10" style="text-align:center; color:var(--dim); padding:8px;">Geen open posities</td></tr>
-            </tbody>
+            <tbody id="open-positions-body"><tr><td colspan="10" style="text-align:center; color:var(--dim); padding:8px;">Geen open posities</td></tr></tbody>
           </table>
         </div>
-        <div class="subhead">Pending Orders <span style="font-weight:400; color:var(--dimmer); font-size:0.85em; text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
-        <div id="pending-orders-list" style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--tx);">
-          <span style="color:var(--dim);">Geen pending orders</span>
-        </div>
-        <div class="subhead">Gesloten Posities &mdash; Huidige Sessie</div>
-        <div class="table-wrap scrollable" style="max-height:220px; overflow-y:auto;">
+        <div class="plabel" style="margin-top:16px;">Pending orders <span class="muted" style="text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
+        <div id="pending-orders-list" style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--tx); margin-top:6px;"><span style="color:var(--dim);">Geen pending orders</span></div>
+      </div>
+
+      <div class="panel mb"><div class="plabel">Gesloten posities &middot; huidige sessie</div>
+        <div class="table-wrap scrollable" style="max-height:240px; overflow-y:auto; margin-top:6px;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
             <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th></tr></thead>
             <tbody id="history-body"></tbody>
           </table>
         </div>
-        
-
+      </div>
     </section>
 
     <!-- CHARTS -->
