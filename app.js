@@ -5309,6 +5309,19 @@ function syncWalletLive() {
                 la.textContent = `${l.action} ${mk} ${l.side || ''} @ $${pr}${pnl} \u00b7 ${l.timestamp || ''}`.replace(/\s+/g, ' ').trim();
             } else la.textContent = 'nog geen acties';
         }
+        // per-munt tracking onder het ocular-core oog (gekalibreerde kans + side)
+        if (typeof OsirisDeepNet !== 'undefined') {
+            for (const key of ['BTC', 'ETH', 'SOL']) {
+                const el = document.getElementById('eye-track-' + key.toLowerCase());
+                if (!el) continue;
+                const pp = OsirisDeepNet.last[key];
+                if (!pp) { el.textContent = '--'; el.style.color = ''; continue; }
+                const cal = (pp.calProb != null) ? (pp.calProb * 100).toFixed(0) + '%' : '--';
+                const side = pp.meta ? (pp.side || '') : 'abst';
+                el.innerHTML = 'track ' + cal + '<br>' + side;
+                el.style.color = pp.meta ? (pp.side === 'SHORT' ? 'var(--red)' : 'var(--green)') : '';
+            }
+        }
         const wf = document.getElementById('wallet-feed');
         if (wf && log.length) {
             wf.innerHTML = log.slice(-8).reverse().map(l => {
@@ -10976,6 +10989,7 @@ window.toggleCortexHeadPanel = toggleCortexHeadPanel;
     function go() {
         try { buildDecorEye('hero-eye', 150, false); } catch (e) {}
         try { buildDecorEye('engine-eye', 132, false); } catch (e) {}
+        try { buildDecorEye('wallet-eye', 150, true); } catch (e) {}
         try { initStarmap(); } catch (e) {}
         // (v4 gebruikt waypoint-tekst i.p.v. SVG jump-rails)
         try { initScrollSpy(); } catch (e) {}
