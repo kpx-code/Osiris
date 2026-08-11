@@ -5284,7 +5284,48 @@ window.importOsirisData = importOsirisData;
 // Globale variabele om de 10-seconden cyclus bij te houden
 let botTickCounter = 0;
 
+// Live wallet-strip: runtime, laatste actie en mini trade-feed. Leest bestaande
+// bronnen (botStartTime / botTradeLog), raakt geen trading-logica. ADD-only.
+function syncWalletLive() {
+    try {
+        const rt = document.getElementById('wallet-runtime');
+        if (rt) {
+            if (typeof botStartTime !== 'undefined' && botStartTime) {
+                const d = Date.now() - botStartTime;
+                const h = Math.floor(d / 3600000).toString().padStart(2, '0');
+                const m = Math.floor((d % 3600000) / 60000).toString().padStart(2, '0');
+                const s = Math.floor((d % 60000) / 1000).toString().padStart(2, '0');
+                rt.textContent = `${h}:${m}:${s}`;
+            } else rt.textContent = 'gestopt';
+        }
+        const log = (typeof botTradeLog !== 'undefined' && botTradeLog) ? botTradeLog : [];
+        const la = document.getElementById('wallet-last-action');
+        if (la) {
+            if (log.length) {
+                const l = log[log.length - 1];
+                const mk = l.market || 'BTC';
+                const pr = (typeof l.price === 'number') ? (l.price >= 1000 ? l.price.toFixed(0) : l.price.toFixed(2)) : l.price;
+                const pnl = (l.action === 'EXIT' && typeof l.pnl === 'number') ? ` \u00b7 ${(l.pnl * 100 >= 0 ? '+' : '')}${(l.pnl * 100).toFixed(2)}%` : '';
+                la.textContent = `${l.action} ${mk} ${l.side || ''} @ $${pr}${pnl} \u00b7 ${l.timestamp || ''}`.replace(/\s+/g, ' ').trim();
+            } else la.textContent = 'nog geen acties';
+        }
+        const wf = document.getElementById('wallet-feed');
+        if (wf && log.length) {
+            wf.innerHTML = log.slice(-8).reverse().map(l => {
+                const mk = l.market || 'BTC', side = l.side || '';
+                const pr = (typeof l.price === 'number') ? (l.price >= 1000 ? l.price.toFixed(0) : l.price.toFixed(2)) : l.price;
+                const isExit = l.action === 'EXIT';
+                const col = isExit ? ((l.pnl || 0) >= 0 ? '#14f195' : '#ff5f7e') : '#7fd8ff';
+                const pnl = (isExit && typeof l.pnl === 'number') ? ` ${(l.pnl * 100 >= 0 ? '+' : '')}${(l.pnl * 100).toFixed(2)}%` : '';
+                const tijd = (l.timestamp || '').slice(-8);
+                return `<div style="color:${col};">${tijd} \u00b7 ${l.action} ${mk} ${side} @ $${pr}${pnl}</div>`;
+            }).join('');
+        }
+    } catch (e) {}
+}
+
 function botHeartbeat() {
+    try { syncWalletLive(); } catch (e) {}
     // 1. Runtime UI Update (elke seconde)
     if (botStartTime) {
         const diff = Date.now() - botStartTime;
@@ -9185,9 +9226,23 @@ function _drawCalibCurve(map, n, provisional, col, label, xMin) {
 // Tekent de curve van het ACTIEVE brein (wordt ook door de live-loop aangeroepen).
 function _calibInsight(rel) {
     if (!rel || !rel.map || !rel.map.length) return 'onvoldoende data';
-    const gap = rel.map.reduce((a, p) => a + (p[0] - p[1]), 0) / rel.map.length;
-    if (gap > 5) return `overconfident (+${gap.toFixed(0)}pt) - voorspelt hoger dan werkelijk`;
-    if (gap < -5) return `onderconfident (${gap.toFixed(0)}pt) - voorspelt lager dan werkelijk`;
+    const pts = rel.map.slice().sort((a, b) => a[0] - b[0]); // [voorspeldPct, gemetenPct]
+    if (pts.length < 2) return 'onvoldoende data';
+    const bias = pts.reduce((a, p) => a + (p[0] - p[1]), 0) / pts.length;        // + = voorspelt hoger dan werkelijk
+    const ece  = pts.reduce((a, p) => a + Math.abs(p[0] - p[1]), 0) / pts.length; // absolute fout (ECE)
+    const trend = pts[pts.length - 1][1] - pts[0][1];                             // stijgt gemeten mee met voorspeld?
+    let up = 0, down = 0;
+    for (let i = 1; i < pts.length; i++) { const d = pts[i][1] - pts[i - 1][1]; if (d > 0.5) up++; else if (d < -0.5) down++; }
+    // 1) INVERSIE: gemeten daalt terwijl voorspeld stijgt -> model omgekeerd, niet vertrouwen (bv. ETH)
+    if (pts.length >= 3 && trend < -8 && down >= up)
+        return `INVERSIE (ECE ${ece.toFixed(0)}pt) - curve omgekeerd, niet vertrouwen`;
+    // 2) geen bruikbare rangschikking (vlak/ruis)
+    if (pts.length >= 3 && up === 0 && down === 0)
+        return `geen discriminatie (ECE ${ece.toFixed(0)}pt)`;
+    // 3) systematische bias (herstelbaar via kalibratie)
+    if (bias > 5)  return `overconfident (+${bias.toFixed(0)}pt, ECE ${ece.toFixed(0)}pt) - voorspelt hoger dan werkelijk`;
+    if (bias < -5) return `onderconfident (${bias.toFixed(0)}pt, ECE ${ece.toFixed(0)}pt) - voorspelt lager dan werkelijk`;
+    if (ece > 12)  return `wisselvallig (ECE ${ece.toFixed(0)}pt)`;
     return 'goed gekalibreerd';
 }
 // Downloadt de volledige Adaptive Learning-staat als leesbaar JSON-rapport.
@@ -9248,6 +9303,42 @@ function downloadAdaptiveLearning() {
     } catch (e) { console.warn('download-fout', e); alert('Download mislukt: ' + e.message); }
 }
 window.downloadAdaptiveLearning = downloadAdaptiveLearning;
+
+// Losse export van de getrainde DeepNet-modellen (per markt: model-gewichten,
+// Platt-kalibratie, walk-forward) + L2/L3. Best-effort serialisatie: typed
+// arrays -> gewone arrays, functies weggelaten, per markt in eigen try zodat
+// een enkel kapot model de rest niet blokkeert. ADD-only, raakt geen trading.
+function downloadDeepNetModels() {
+    try {
+        const dn = (typeof OsirisDeepNet !== 'undefined') ? OsirisDeepNet : null;
+        if (!dn) { alert('DeepNet nog niet ge\u00efnitialiseerd.'); return; }
+        const safe = (k, v) => (ArrayBuffer.isView(v) ? Array.from(v) : v);
+        const out = { exportedAt: new Date().toISOString(), markets: {}, level2: null, level3: null };
+        for (const b of ['BTC', 'ETH', 'SOL']) {
+            const m = (dn.markets && dn.markets[b]) ? dn.markets[b] : {};
+            const rec = {
+                trainedMs: m.trainedMs || null,
+                trainedAt: m.trainedMs ? new Date(m.trainedMs).toISOString() : null,
+                walkForward: m.wf || null,
+                platt: (m.platt != null) ? m.platt : null,
+                reliabilityCurve: (typeof dn.calibrationCurve === 'function' && dn.calibrationCurve(b)) ? dn.calibrationCurve(b).map : null,
+                kalibratieOordeel: (typeof dn.calibrationCurve === 'function') ? _calibInsight(dn.calibrationCurve(b)) : null,
+                model: null
+            };
+            try { rec.model = m.model ? JSON.parse(JSON.stringify(m.model, safe)) : null; }
+            catch (e) { rec.model = '(niet-serialiseerbaar)'; }
+            out.markets[b] = rec;
+        }
+        try { if (typeof _l2 !== 'undefined' && _l2) out.level2 = JSON.parse(JSON.stringify(_l2, safe)); } catch (e) {}
+        try { if (typeof _l3 !== 'undefined' && _l3) out.level3 = JSON.parse(JSON.stringify(_l3, safe)); } catch (e) {}
+        const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `osiris_deepnet_modellen_${Date.now()}.json`;
+        document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) { console.warn('deepnet-export', e); alert('DeepNet-export mislukt: ' + e.message); }
+}
+window.downloadDeepNetModels = downloadDeepNetModels;
 
 function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin){
     var plot=document.getElementById(plotId); if(!plot) return;
