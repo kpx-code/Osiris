@@ -727,7 +727,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="eyebrow">Kernvisualisatie</div><h1 class="h">MULTI-BREIN NEURAAL NETWERK</h1>
 <div class="subhead" style="margin-top:20px;">&#9673; Multi-Brein Neuraal Netwerk &middot; Osiris + Neo BTC/ETH/SOL &middot; DeepNet-laag</div>
         <div id="neonet-big-panel" style="position:relative; height:560px; background:#000004; border:1px solid rgba(0,217,255,0.2); border-radius:10px; overflow:hidden;">
-          <canvas id="neo-net-canvas-big"></canvas>
+          <canvas id="neo-net-canvas-big" style="position:absolute; inset:0; width:100%; height:100%; display:block;"></canvas>
           <div style="position:absolute; top:10px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">MULTI-BREIN NEURAAL NETWERK</div>
           <div style="position:absolute; top:26px; left:14px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">15 inputs &rarr; integratie &rarr; sub-breinen (BTC/ETH/SOL) &rarr; Osiris mainbrain &rarr; 1 uitkomst</div>
           <div style="position:absolute; top:10px; right:14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out-big" style="font-size:0.85rem;">&mdash;</span></div>
@@ -751,6 +751,16 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <div class="kpi"><small>equity</small><b id="hub-equity">&mdash;</b><span id="hub-equity-pct" style="display:none;"></span></div>
         </div>
         <span id="wallet-realized-pnl" style="display:none;"></span><span id="wallet-unrealized-pnl" style="display:none;"></span>
+        <!-- LIVE: runtime / laatste actie / feed -->
+        <div class="panel" style="margin-top:14px;">
+          <div class="plabel" style="color:var(--cyan);">&#9673; Live &middot; runtime &amp; activiteit</div>
+          <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 18px; align-items:baseline; font-family:'JetBrains Mono',monospace; font-size:0.66rem; margin-top:8px;">
+            <span style="color:var(--text-dim);">Runtime</span><b id="wallet-runtime" style="color:var(--cyan); letter-spacing:1px;">--:--:--</b>
+            <span style="color:var(--text-dim);">Laatste actie</span><span id="wallet-last-action" style="color:#eaffff;">nog geen acties</span>
+          </div>
+          <div class="mock-title" style="margin:14px 0 6px;">Live feed &middot; laatste trades</div>
+          <div id="wallet-feed" style="max-height:180px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:0.6rem; line-height:1.85; background:rgba(0,0,0,0.45); border:1px solid rgba(0,217,255,0.15); border-radius:6px; padding:8px 10px;"><span style="color:var(--text-dim);">Wacht op eerste trade...</span></div>
+        </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
           <div>
             <div class="mock-title" style="margin-bottom:8px;">Exit &middot; bijdrage</div>
@@ -1411,15 +1421,15 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="eyebrow">Alles op &eacute;&eacute;n plek</div><h1 class="h">DOWNLOADS</h1>
       <div class="grid g-3 mb">
         <div class="panel"><div class="plabel">Leren &amp; modellen</div>
-          <div class="flex gap wrap"><button class="btn">&#8681; Adaptive learning (JSON)</button><button class="btn">&#8681; DeepNet-modellen</button><button class="btn">&#8681; Kalibratie-log (CSV)</button></div></div>
+          <div class="flex gap wrap"><button class="btn" type="button" onclick="downloadAdaptiveLearning()">&#8681; Adaptive learning (JSON)</button><button class="btn" type="button" onclick="downloadDeepNetModels()">&#8681; DeepNet-modellen</button><button class="btn" type="button" onclick="exportOsirisData()">&#8681; Kalibratie-log (CSV)</button></div></div>
         <div class="panel"><div class="plabel">Trades &amp; wallet</div>
-          <div class="flex gap wrap"><button class="btn">&#8681; Trade-historie (CSV)</button><button class="btn">&#8681; Autonome aanpassingen</button><button class="btn">&#8681; Multi-markt data</button></div></div>
+          <div class="flex gap wrap"><button class="btn" type="button" onclick="exportBotTradeLog()">&#8681; Trade-historie (CSV)</button><button class="btn" type="button" onclick="downloadAdaptationLog()">&#8681; Autonome aanpassingen</button><button class="btn" type="button" onclick="downloadAllMarketData()">&#8681; Multi-markt data</button></div></div>
         <div class="panel"><div class="plabel">Markt &amp; config</div>
-          <div class="flex gap wrap"><button class="btn">&#8681; Prijs &amp; volume historie</button><button class="btn">&#8681; Instellingen</button><button class="btn">&#8681; Volledige backup</button></div></div>
+          <div class="flex gap wrap"><button class="btn" type="button" onclick="downloadPriceVolumeHistory()">&#8681; Prijs &amp; volume historie</button><button class="btn" type="button" onclick="downloadBotSettings()">&#8681; Instellingen</button><button class="btn" type="button" onclick="osirisFullBackup()">&#8681; Volledige backup</button></div></div>
       </div>
       <div class="panel">
         <div class="plabel">Alles in &eacute;&eacute;n</div>
-        <div class="flex gap wrap center"><button class="btn go">&#8681; Download ALL data</button><span class="muted">bundelt wallet, trades, learningLog, DeepNet-modellen, kalibratie, instellingen en de volledige backup in &eacute;&eacute;n export.</span></div>
+        <div class="flex gap wrap center"><button class="btn go" type="button" onclick="downloadAllData()">&#8681; Download ALL data</button><span class="muted">bundelt wallet, trades, learningLog, DeepNet-modellen, kalibratie, instellingen en de volledige backup in &eacute;&eacute;n export.</span></div>
         <div class="note">Alle exports zijn lokaal &middot; bevatten nooit je testnet-keys.</div>
       </div>
     </section>
