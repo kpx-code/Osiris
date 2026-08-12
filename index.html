@@ -763,12 +763,20 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <div class="plabel" style="justify-content:center;color:var(--cyan)">OSIRIS &middot; QUANTUM TRACKING</div>
           <div style="position:relative;">
             <div style="position:absolute; top:4px; left:8px; font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#5c7488; z-index:2;">ocular core &middot; live feed</div>
-            <svg id="wallet-eye" viewBox="0 0 400 380" preserveAspectRatio="xMidYMid meet" style="display:block; width:100%; height:230px;"></svg>
-          </div>
-          <div class="grid g-3" style="gap:6px;margin-top:6px;font-size:0.52rem">
-            <div><b style="color:var(--btc)">BTC</b><br><span id="eye-track-btc" class="muted">--</span></div>
-            <div><b style="color:var(--eth)">ETH</b><br><span id="eye-track-eth" class="muted">--</span></div>
-            <div><b style="color:var(--sol)">SOL</b><br><span id="eye-track-sol" class="muted">--</span></div>
+            <svg id="wallet-eye" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="display:block; margin:0 auto; width:100%; height:250px;">
+              <g font-family="'JetBrains Mono',monospace" font-size="13">
+                <text x="14" y="200" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm-w">&mdash;</tspan></text>
+                <text x="150" y="105" fill="#5c7488">ER <tspan fill="#4fc3f7" id="flow-er-w">&mdash;</tspan></text>
+                <text x="150" y="295" fill="#5c7488">DB <tspan fill="#81d4fa" id="flow-db-w">&mdash;</tspan></text>
+                <text x="240" y="40" fill="#5c7488">CHAOS <tspan fill="#ffb627" id="flow-chaos-w">&mdash;</tspan></text>
+                <text x="240" y="360" fill="#5c7488">SENT <tspan fill="#c792ea" id="flow-sent-w">&mdash;</tspan></text>
+                <text x="986" y="200" fill="#5c7488" text-anchor="end">KANS L/S <tspan fill="#00ff9f" id="flow-prob-w">&mdash;</tspan></text>
+                <text x="850" y="105" fill="#5c7488" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal-w">&mdash;</tspan></text>
+                <text x="850" y="295" fill="#5c7488" text-anchor="end">REGIME <tspan fill="#14f195" id="flow-regime-w">&mdash;</tspan></text>
+                <text x="760" y="40" fill="#5c7488" text-anchor="end">NODE <tspan fill="#c792ea" id="flow-node-w">&mdash;</tspan></text>
+                <text x="760" y="360" fill="#5c7488" text-anchor="end">MID <tspan fill="#4fc3f7" id="flow-mid-w">&mdash;</tspan></text>
+              </g>
+            </svg>
           </div>
         </div>
 
