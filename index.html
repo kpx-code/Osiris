@@ -724,17 +724,77 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     </section>
 
     <!-- NEURAL NET -->
+    <style id="net-eye-redesign">
+      .hudframe{position:relative;border:1px solid rgba(0,217,255,0.22);border-radius:12px;
+        background:radial-gradient(120% 90% at 50% 0%, rgba(0,70,105,0.20), rgba(2,7,14,0.55) 60%), #020509;
+        box-shadow:inset 0 0 70px rgba(0,140,200,0.06), 0 10px 34px rgba(0,0,0,0.5);overflow:hidden;}
+      .hudframe .corner{position:absolute;width:15px;height:15px;border:2px solid var(--cyan);opacity:.65;z-index:3;pointer-events:none;}
+      .hudframe .corner.tl{top:8px;left:8px;border-right:0;border-bottom:0;}
+      .hudframe .corner.tr{top:8px;right:8px;border-left:0;border-bottom:0;}
+      .hudframe .corner.bl{bottom:8px;left:8px;border-right:0;border-top:0;}
+      .hudframe .corner.br{bottom:8px;right:8px;border-left:0;border-top:0;}
+      .hudframe .scan{position:absolute;left:0;right:0;top:-90px;height:90px;z-index:2;pointer-events:none;
+        background:linear-gradient(180deg,rgba(0,217,255,0) 0%,rgba(0,217,255,0.07) 50%,rgba(0,217,255,0) 100%);
+        animation:hudscan 6.5s linear infinite;}
+      @keyframes hudscan{0%{transform:translateY(0)}100%{transform:translateY(760px)}}
+      .core-card{position:relative;border:1px solid rgba(120,160,190,0.16);border-radius:10px;padding:14px 14px 11px;
+        background:linear-gradient(180deg,rgba(10,20,32,0.72),rgba(4,9,15,0.72));text-align:center;overflow:hidden;}
+      .core-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--cc-col,#00d9ff);opacity:.85;box-shadow:0 0 12px var(--cc-col,#00d9ff);}
+      .cc-head{display:flex;justify-content:space-between;align-items:center;font-family:'JetBrains Mono',monospace;font-size:0.6rem;margin-bottom:9px;}
+      .cc-name{font-weight:700;letter-spacing:1px;}
+      .cc-side{font-size:0.52rem;padding:2px 8px;border-radius:20px;border:1px solid rgba(255,255,255,0.14);color:var(--dim);}
+      .cc-ring{width:106px;height:106px;border-radius:50%;margin:2px auto 7px;position:relative;
+        background:conic-gradient(var(--cc-col,#00d9ff) calc(var(--cc-pct,0)*1%),rgba(255,255,255,0.05) 0);
+        transition:background .5s ease;filter:drop-shadow(0 0 9px rgba(0,180,255,0.22));}
+      .cc-ring::after{content:'';position:absolute;inset:8px;border-radius:50%;background:#060c14;}
+      .cc-ring .cc-val{position:absolute;inset:0;display:grid;place-items:center;z-index:1;line-height:1.15;
+        font-family:'JetBrains Mono',monospace;font-size:1.15rem;font-weight:700;color:#eafcff;}
+      .cc-meta{font-family:'JetBrains Mono',monospace;font-size:0.53rem;margin:3px 0 7px;min-height:12px;}
+      .cc-stats{display:flex;justify-content:space-around;font-family:'JetBrains Mono',monospace;font-size:0.5rem;color:var(--dim);border-top:1px solid rgba(255,255,255,0.06);padding-top:7px;}
+      .cc-stats b{color:#cfe3f0;font-weight:600;}
+      .cc-mini-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px;}
+      .cc-mini{text-align:center;}
+      .cc-mini .cc-ring{width:60px;height:60px;margin:0 auto 3px;}
+      .cc-mini .cc-ring::after{inset:5px;}
+      .cc-mini .cc-ring .cc-val{font-size:0.6rem;}
+      .cc-mini .lbl{font-family:'JetBrains Mono',monospace;font-size:0.5rem;letter-spacing:1px;}
+    </style>
     <section class="tab" id="tab-net">
       <div class="eyebrow">Kernvisualisatie</div><h1 class="h">MULTI-BREIN NEURAAL NETWERK</h1>
-      <div class="netwrap mb" style="margin-top:18px;">
-        <canvas id="neo-net-canvas-big" style="width:100%; height:540px; display:block;"></canvas>
+
+      <div class="hudframe mb" style="margin-top:18px;">
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+        <span class="scan"></span>
+        <canvas id="neo-net-canvas-big" style="width:100%; height:520px; display:block; position:relative; z-index:1;"></canvas>
         <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">15 inputs &rarr; integratie &rarr; cores &rarr; osiris &rarr; 1 uitkomst</div></div>
-        <div class="net-out"><div class="l">Beslissing</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
+        <div class="net-out"><div class="l">Osiris-beslissing</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
       </div>
+
+      <div class="grid g-3 mb">
+        <div class="core-card">
+          <div class="cc-head"><span class="cc-name" style="color:var(--btc)">NEO &middot; BTC</span><span class="cc-side" id="cc-side-btc">&mdash;</span></div>
+          <div class="cc-ring" id="cc-ring-btc"><div class="cc-val" id="cc-val-btc">&mdash;</div></div>
+          <div class="cc-meta" id="cc-meta-btc"><span class="muted">wacht&hellip;</span></div>
+          <div class="cc-stats" id="cc-stats-btc"><span>prec <b>&mdash;</b></span><span>acc <b>&mdash;</b></span><span>cov <b>&mdash;</b></span></div>
+        </div>
+        <div class="core-card">
+          <div class="cc-head"><span class="cc-name" style="color:var(--eth)">NEO &middot; ETH</span><span class="cc-side" id="cc-side-eth">&mdash;</span></div>
+          <div class="cc-ring" id="cc-ring-eth"><div class="cc-val" id="cc-val-eth">&mdash;</div></div>
+          <div class="cc-meta" id="cc-meta-eth"><span class="muted">wacht&hellip;</span></div>
+          <div class="cc-stats" id="cc-stats-eth"><span>prec <b>&mdash;</b></span><span>acc <b>&mdash;</b></span><span>cov <b>&mdash;</b></span></div>
+        </div>
+        <div class="core-card">
+          <div class="cc-head"><span class="cc-name" style="color:var(--sol)">NEO &middot; SOL</span><span class="cc-side" id="cc-side-sol">&mdash;</span></div>
+          <div class="cc-ring" id="cc-ring-sol"><div class="cc-val" id="cc-val-sol">&mdash;</div></div>
+          <div class="cc-meta" id="cc-meta-sol"><span class="muted">wacht&hellip;</span></div>
+          <div class="cc-stats" id="cc-stats-sol"><span>prec <b>&mdash;</b></span><span>acc <b>&mdash;</b></span><span>cov <b>&mdash;</b></span></div>
+        </div>
+      </div>
+
       <div class="grid g-3">
         <div class="panel"><div class="plabel">DeepNet-band &middot; live</div><div id="net-deepnet-band" style="font-size:0.62rem;line-height:2;"><span class="muted">Wacht op DeepNet&hellip;</span></div></div>
-        <div class="panel"><div class="plabel">Lagen</div><div style="font-size:0.6rem;line-height:1.9;color:var(--dim)">INPUTS <b style="color:#eafcff">15</b> &middot; INTEGRATIE <b style="color:#eafcff">14</b> &middot; CORES <b style="color:#eafcff">3</b> &middot; OSIRIS <b style="color:#eafcff">4</b> &middot; BESLISSING <b style="color:#eafcff">3</b> &middot; UITKOMST <b style="color:#eafcff">1</b></div></div>
-        <div class="panel"><div class="plabel">Signalen (inputs)</div><div style="font-size:0.5rem;color:var(--dim);line-height:1.9;">VFM &middot; ER &middot; DB &middot; CHAOS &middot; MOM &middot; VOL-Z &middot; RSI &middot; EMA &middot; CNN &middot; FIB &middot; NN &middot; CONF &middot; FUND &middot; L/S &middot; BTC-COR</div></div>
+        <div class="panel"><div class="plabel">Ensemble &middot; L1 / L2 / L3</div><div id="net-ensemble" style="font-size:0.58rem;line-height:2;color:var(--dim)"><span class="muted">laden&hellip;</span></div></div>
+        <div class="panel"><div class="plabel">Signalen &middot; live per markt</div><div id="net-signals" style="font-size:0.56rem;line-height:2;color:var(--dim)"><span class="muted">laden&hellip;</span></div></div>
       </div>
     </section>
 
@@ -759,8 +819,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           </div>
         </div>
 
-        <div class="panel" style="text-align:center;">
-          <div class="plabel" style="justify-content:center;color:var(--cyan)">OSIRIS &middot; QUANTUM TRACKING</div>
+        <div class="panel hudframe" style="text-align:center;">
+          <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span><span class="scan"></span>
+          <div class="plabel" style="justify-content:center;color:var(--cyan);position:relative;z-index:2;">OSIRIS &middot; QUANTUM TRACKING</div>
           <div style="position:relative;">
             <div style="position:absolute; top:4px; left:8px; font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#5c7488; z-index:2;">ocular core &middot; live feed</div>
             <svg id="wallet-eye" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="display:block; margin:0 auto; width:100%; height:250px;">
@@ -777,6 +838,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
                 <text x="760" y="360" fill="#5c7488" text-anchor="end">MID <tspan fill="#4fc3f7" id="flow-mid-w">&mdash;</tspan></text>
               </g>
             </svg>
+          </div>
+          <div class="cc-mini-row">
+            <div class="cc-mini"><div class="lbl" style="color:var(--btc)">BTC</div><div class="cc-ring" id="we-ring-btc"><div class="cc-val" id="we-val-btc">&mdash;</div></div></div>
+            <div class="cc-mini"><div class="lbl" style="color:var(--eth)">ETH</div><div class="cc-ring" id="we-ring-eth"><div class="cc-val" id="we-val-eth">&mdash;</div></div></div>
+            <div class="cc-mini"><div class="lbl" style="color:var(--sol)">SOL</div><div class="cc-ring" id="we-ring-sol"><div class="cc-val" id="we-val-sol">&mdash;</div></div></div>
           </div>
         </div>
 
