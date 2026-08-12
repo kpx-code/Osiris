@@ -5316,6 +5316,18 @@ function syncWalletLive() {
             const src = document.getElementById('flow-' + _k), dst = document.getElementById('flow-' + _k + '-w');
             if (src && dst) dst.textContent = src.textContent;
         }
+        // multi-markt readout in het oogcentrum (BTC/ETH/SOL live uit de DeepNet)
+        if (typeof OsirisDeepNet !== 'undefined') {
+            for (const key of ['BTC', 'ETH', 'SOL']) {
+                const el = document.getElementById('we-mkt-' + key.toLowerCase());
+                if (!el) continue;
+                const pp = OsirisDeepNet.last[key];
+                if (!pp) { el.textContent = key + ' --'; el.setAttribute('opacity', '0.4'); continue; }
+                const arrow = pp.side === 'SHORT' ? '\u2193' : '\u2191';
+                el.textContent = `${key} ${(pp.calProb * 100).toFixed(0)}% ${arrow}${pp.meta ? '' : ' abst'}`;
+                el.setAttribute('opacity', pp.meta ? '1' : '0.55');
+            }
+        }
         const wf = document.getElementById('wallet-feed');
         if (wf && log.length) {
             wf.innerHTML = log.slice(-8).reverse().map(l => {
@@ -11017,7 +11029,26 @@ window.toggleCortexHeadPanel = toggleCortexHeadPanel;
     function go() {
         try { buildDecorEye('hero-eye', 150, false); } catch (e) {}
         try { buildDecorEye('engine-eye', 132, false); } catch (e) {}
-        try { buildDecorEye('wallet-eye', 150, true); } catch (e) {}
+        try {
+            buildDecorEye('wallet-eye', 150, false); // geen statische 6/9-teller
+            const wsvg = document.getElementById('wallet-eye');
+            if (wsvg) {
+                const NS = 'http://www.w3.org/2000/svg';
+                const g = document.createElementNS(NS, 'g');
+                g.setAttribute('text-anchor', 'middle');
+                g.setAttribute('font-family', "'JetBrains Mono',monospace");
+                g.setAttribute('font-weight', 'bold');
+                g.setAttribute('font-size', '15');
+                [['btc', 174, '#f7931a'], ['eth', 192, '#8aa0ff'], ['sol', 210, '#14f195']].forEach(([k, y, c]) => {
+                    const t = document.createElementNS(NS, 'text');
+                    t.setAttribute('x', '500'); t.setAttribute('y', String(y));
+                    t.setAttribute('fill', c); t.setAttribute('id', 'we-mkt-' + k);
+                    t.textContent = k.toUpperCase() + ' --';
+                    g.appendChild(t);
+                });
+                wsvg.appendChild(g); // ná buildDecorEye => bovenop de pupil
+            }
+        } catch (e) {}
         try { initStarmap(); } catch (e) {}
         // (v4 gebruikt waypoint-tekst i.p.v. SVG jump-rails)
         try { initScrollSpy(); } catch (e) {}
@@ -11869,8 +11900,17 @@ function _deepnetOverlayBig() {
             const p = OsirisDeepNet.last[key], c = col[key] || '#7fd8ff';
             if (!p) return `<span style="color:${c}">${key}</span> <span class="muted">wacht\u2026</span>`;
             const cal = (p.calProb != null) ? (p.calProb * 100).toFixed(0) + '%' : '--';
-            const meta = p.meta ? '<span style="color:var(--green)">open</span>' : '<span style="color:var(--red)">dicht</span>';
-            return `<span style="color:${c}">${key} ${cal} ${p.side || ''}</span> &middot; meta ${meta}`;
+            let meta, reden = '';
+            if (p.meta) {
+                meta = '<span style="color:var(--green)">open</span>';
+            } else {
+                meta = '<span style="color:var(--red)">dicht</span>';
+                // waarom dicht? (leest de gate-velden uit predict())
+                if (!p.trade) reden = ' <span class="muted">(onzeker \u00b7 poort vraagt \u226440% of \u226560%)</span>';
+                else if (p.agree === false) reden = ' <span class="muted">(sub-brein wijst andere kant op)</span>';
+                else reden = ' <span class="muted">(walk-forward-precisie onder drempel)</span>';
+            }
+            return `<span style="color:${c}">${key} ${cal} ${p.side || ''}</span> &middot; meta ${meta}${reden}`;
         }).join('<br>');
     }
 }
