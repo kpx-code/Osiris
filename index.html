@@ -764,7 +764,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
       <div class="hudframe mb" style="margin-top:18px;">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-        <span class="scan"></span>
         <canvas id="neo-net-canvas-big" style="width:100%; height:520px; display:block; position:relative; z-index:1;"></canvas>
         <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">15 inputs &rarr; integratie &rarr; cores &rarr; osiris &rarr; 1 uitkomst</div></div>
         <div class="net-out"><div class="l">Osiris-beslissing</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
@@ -820,7 +819,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         </div>
 
         <div class="panel hudframe" style="text-align:center;">
-          <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span><span class="scan"></span>
+          <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
           <div class="plabel" style="justify-content:center;color:var(--cyan);position:relative;z-index:2;">OSIRIS &middot; QUANTUM TRACKING</div>
           <div style="position:relative;">
             <div style="position:absolute; top:4px; left:8px; font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#5c7488; z-index:2;">ocular core &middot; live feed</div>
@@ -856,9 +855,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         </div>
       </div>
 
-      <div class="netwrap mb">
-        <canvas id="net-wal" style="width:100%;height:300px;display:block;"></canvas>
-        <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">multi-brein neuraal netwerk &middot; live</div></div>
+      <div class="hudframe mb">
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+        <canvas id="neo-net-canvas-wal" style="width:100%; height:460px; display:block; position:relative; z-index:1;"></canvas>
+        <div class="net-hud"><div class="t">NEO &middot; MARK I</div><div class="s">15 inputs &rarr; integratie &rarr; cores &rarr; osiris &rarr; 1 uitkomst</div></div>
+        <div class="net-out"><div class="l">Osiris-beslissing</div><div class="v"><span id="neo-net-out-wal">&mdash;</span></div></div>
       </div>
 
       <div class="grid g-2 mb">
