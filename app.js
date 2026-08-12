@@ -10,7 +10,7 @@ const CONF_ER_TH = 1.2;
 
 // ONTKOPPELING BOT vs. VIEW (13-07): de bot rekent ALTIJD op 15m spot-data
 // (BOT_INTERVAL); currentInterval is voortaan uitsluitend de CHART-WEERGAVE.
-// Wisselen van view (1m/30m/45m/1h/4h) raakt de handelslogica dus niet meer
+// Wisselen van view (1m/30m/45m/1h/4h) raakt de handelslogica dus niet meer.
 const BOT_INTERVAL = '15m';
 const BOT_INTERVAL_MS = 15 * 60 * 1000;
 let currentInterval = '15m'; // VIEW-interval van de chart (niet van de bot)
@@ -5309,18 +5309,12 @@ function syncWalletLive() {
                 la.textContent = `${l.action} ${mk} ${l.side || ''} @ $${pr}${pnl} \u00b7 ${l.timestamp || ''}`.replace(/\s+/g, ' ').trim();
             } else la.textContent = 'nog geen acties';
         }
-        // per-munt tracking onder het ocular-core oog (gekalibreerde kans + side)
-        if (typeof OsirisDeepNet !== 'undefined') {
-            for (const key of ['BTC', 'ETH', 'SOL']) {
-                const el = document.getElementById('eye-track-' + key.toLowerCase());
-                if (!el) continue;
-                const pp = OsirisDeepNet.last[key];
-                if (!pp) { el.textContent = '--'; el.style.color = ''; continue; }
-                const cal = (pp.calProb != null) ? (pp.calProb * 100).toFixed(0) + '%' : '--';
-                const side = pp.meta ? (pp.side || '') : 'abst';
-                el.innerHTML = 'track ' + cal + '<br>' + side;
-                el.style.color = pp.meta ? (pp.side === 'SHORT' ? 'var(--red)' : 'var(--green)') : '';
-            }
+        // ocular-core live feed: spiegel de overzicht-signalen naar de wallet-eye
+        // (updateFlowHud vult flow-* elke seconde, los van de actieve tab)
+        const _fm = ['vfm', 'er', 'db', 'chaos', 'sent', 'prob', 'cal', 'regime', 'node', 'mid'];
+        for (const _k of _fm) {
+            const src = document.getElementById('flow-' + _k), dst = document.getElementById('flow-' + _k + '-w');
+            if (src && dst) dst.textContent = src.textContent;
         }
         const wf = document.getElementById('wallet-feed');
         if (wf && log.length) {
@@ -7504,6 +7498,40 @@ function osirisShadowTick() {
     } catch (e) { /* stil */ }
 }
 window.osirisShadowTick = osirisShadowTick;
+
+// Read-only diagnose: waarom handelen ETH/SOL (nu) niet? Typ osirisWhyIdle()
+// in de console. Raakt niets aan de logica; leest alleen de live gate-status.
+function osirisWhyIdle() {
+    const st = (typeof osirisState !== 'undefined') ? osirisState : {};
+    const alloc = st.allocations || {};
+    const out = {
+        multiMarktTradingAan: (typeof osirisLiveEnabled !== 'undefined') ? osirisLiveEnabled : null,
+        executionMode: botSettings.executionMode,
+        engineDraait: (typeof _multiEngineRunning !== 'undefined') ? _multiEngineRunning : null,
+        picks: (st.picks || []).map(p => ({ sym: p.sym, side: p.side, prob: p.prob })),
+        allocaties: alloc,
+        perMarkt: {}
+    };
+    for (const sym of ['ETH', 'SOL']) {
+        const m = (typeof neoMultiState !== 'undefined') ? neoMultiState.markets[sym] : null;
+        const dnp = (typeof OsirisDeepNet !== 'undefined') ? OsirisDeepNet.last[sym] : null;
+        const bin = (typeof MULTI_BINANCE !== 'undefined') ? MULTI_BINANCE[sym] : null;
+        const alOpen = openPositions.some(x => x.symbol === bin);
+        const cd = !!(typeof _osirisLastEntry !== 'undefined' && _osirisLastEntry[sym] && (Date.now() - _osirisLastEntry[sym]) < 60000);
+        const a = alloc[sym] || 0;
+        let reden = 'zou instappen bij kans';
+        if (!out.multiMarktTradingAan) reden = 'multi-markt trading staat UIT (schakelaar in wallet)';
+        else if (a <= 0) reden = 'allocatie 0% - winner-take-all geeft equity aan een andere munt';
+        else if (!m || m.lastPrice == null) reden = 'geen verse prijs - multi-engine niet actief?';
+        else if (alOpen) reden = 'al een open positie op deze munt';
+        else if (cd) reden = '60s cooldown na vorige entry';
+        else if (dnp && dnp.meta && st.picks && (st.picks.find(p => p.sym === sym) || {}).side && dnp.side !== (st.picks.find(p => p.sym === sym) || {}).side) reden = 'DeepNet wijst met open meta-poort de andere kant op';
+        out.perMarkt[sym] = { allocatiePct: +(a * 100).toFixed(1), versePrijs: m ? m.lastPrice : null, alReedsOpen: alOpen, cooldownActief: cd, deepnetMeta: dnp ? dnp.meta : null, deepnetSide: dnp ? dnp.side : null, waarschijnlijkeReden: reden };
+    }
+    console.log('%c[Osiris why-idle]', 'color:#00d9ff', out);
+    return out;
+}
+window.osirisWhyIdle = osirisWhyIdle;
 
 // ============================================================
 // AUTONOME PRESET-AANPASSING PER MUNT (01-08)
