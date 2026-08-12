@@ -10716,22 +10716,31 @@ function _neoNetDraw(now, canvasId, outId) {
         const baseCol = srcCol[cn.li][cn.a];
         const hot = signal > 0.28;
         const col = hot ? OSIRIS_NEON : baseCol;
-        ctx.strokeStyle = `rgba(${col},${(0.05 + 0.30 * signal).toFixed(3)})`;
+        // FLASH-shimmer zodat de lijnen ALTIJD leven; data bepaalt hoe fel + hoe dik.
+        const shimmer = 0.5 + 0.5 * Math.sin(now / 480 * (0.6 + cn.sp) + cn.flow * 6.28);
+        const lineA = 0.05 + 0.32 * signal + 0.11 * shimmer * (0.35 + signal);
+        ctx.strokeStyle = `rgba(${col},${lineA.toFixed(3)})`;
         ctx.lineWidth = 0.5 + 2.4 * signal;
         if (hot) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.9)`; ctx.shadowBlur = 5 + 10 * signal; }
         ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
         if (hot) ctx.restore();
-        // gerichte data-puls langs de edge
-        if (signal > 0.06) {
-            const speed = 0.30 + 0.95 * signal;
-            const t = (now / 1000 * speed + cn.flow) % 1;         // 0..1 van bron naar doel
-            const px = A.x + (B.x - A.x) * t, py = A.y + (B.y - A.y) * t;
-            const pr = 0.8 + 2.4 * signal;
+        // gerichte data-puls: ALTIJD zichtbaar (baseline-flash), feller + sneller bij meer signaal.
+        const speed = 0.28 + 0.95 * signal;
+        const t = (now / 1000 * speed + cn.flow) % 1;             // 0..1 van bron naar doel
+        const px = A.x + (B.x - A.x) * t, py = A.y + (B.y - A.y) * t;
+        const pr = 0.7 + 2.2 * signal;
+        const pulseA = 0.22 + 0.63 * signal;
+        const pulseCol = hot ? OSIRIS_NEON : col;
+        if (signal > 0.12) {   // glow alleen op sterkere pulsen (mobielvriendelijk)
             ctx.save();
-            ctx.shadowColor = `rgba(${hot ? OSIRIS_NEON : '0,217,255'},0.95)`; ctx.shadowBlur = 6 + 9 * signal;
+            ctx.shadowColor = `rgba(${hot ? OSIRIS_NEON : '0,217,255'},0.9)`; ctx.shadowBlur = 5 + 9 * signal;
             ctx.beginPath(); ctx.arc(px, py, pr, 0, 6.283);
-            ctx.fillStyle = `rgba(${hot ? OSIRIS_NEON : col},${(0.4 + 0.6 * signal).toFixed(3)})`;
+            ctx.fillStyle = `rgba(${pulseCol},${pulseA.toFixed(3)})`;
             ctx.fill(); ctx.restore();
+        } else {
+            ctx.beginPath(); ctx.arc(px, py, pr, 0, 6.283);
+            ctx.fillStyle = `rgba(${pulseCol},${pulseA.toFixed(3)})`;
+            ctx.fill();
         }
     }
 
