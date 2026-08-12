@@ -5317,6 +5317,69 @@ window.importOsirisData = importOsirisData;
 // Globale variabele om de 10-seconden cyclus bij te houden
 let botTickCounter = 0;
 
+// Live neuraal-net tab: per-markt core-gauges (conf-ring, calProb, meta+reden,
+// walk-forward-stats), het L1/L2/L3-ensemble en de live signalen per markt.
+// Read-only op bestaande state; raakt geen trading-logica.
+function syncNetTab() {
+    try {
+        if (typeof OsirisDeepNet === 'undefined') return;
+        const COL = { BTC: '#f7931a', ETH: '#8aa0ff', SOL: '#14f195' };
+        for (const K of ['BTC', 'ETH', 'SOL']) {
+            const k = K.toLowerCase();
+            const ring = document.getElementById('cc-ring-' + k);
+            if (!ring) continue;
+            const p = OsirisDeepNet.last[K];
+            const wf = (OsirisDeepNet.markets[K] || {}).wf;
+            const sideEl = document.getElementById('cc-side-' + k);
+            const valEl = document.getElementById('cc-val-' + k);
+            const metaEl = document.getElementById('cc-meta-' + k);
+            const statsEl = document.getElementById('cc-stats-' + k);
+            const cardEl = ring.closest ? ring.closest('.core-card') : null;
+            if (!p) { if (valEl) valEl.textContent = '--'; ring.style.setProperty('--cc-pct', '0'); continue; }
+            const sideCol = p.side === 'SHORT' ? '#ff5f7e' : '#14f195';
+            const col = p.meta ? sideCol : '#5c7488';
+            const conf = Math.round((p.conf || 0) * 100);
+            ring.style.setProperty('--cc-pct', String(conf));
+            ring.style.setProperty('--cc-col', col);
+            if (cardEl) cardEl.style.setProperty('--cc-col', col);
+            const arrow = p.side === 'SHORT' ? '\u2193' : '\u2191';
+            if (valEl) valEl.innerHTML = `${(p.calProb * 100).toFixed(0)}%<br><span style="font-size:0.5rem;color:${col}">${arrow} ${p.side}</span>`;
+            if (sideEl) { sideEl.textContent = p.meta ? 'meta open' : 'dicht'; sideEl.style.color = p.meta ? '#14f195' : '#ff5f7e'; }
+            if (metaEl) {
+                if (p.meta) metaEl.innerHTML = `<span style="color:#14f195">poort open &middot; conf ${conf}%</span>`;
+                else {
+                    let reden = 'wf-precisie laag';
+                    if (!p.trade) reden = 'onzeker (\u226440% of \u226560%)';
+                    else if (p.agree === false) reden = 'sub-brein oneens';
+                    metaEl.innerHTML = `<span style="color:#ff8a94">poort dicht &middot; ${reden}</span>`;
+                }
+            }
+            if (statsEl && wf) statsEl.innerHTML = `<span>prec <b>${(wf.precision * 100).toFixed(0)}%</b></span><span>acc <b>${(wf.acc * 100).toFixed(0)}%</b></span><span>cov <b>${(wf.coverage * 100).toFixed(0)}%</b></span>`;
+        }
+        const ens = document.getElementById('net-ensemble');
+        if (ens) {
+            const l2 = (typeof _l2 !== 'undefined') ? _l2 : null;
+            const l3 = (typeof _l3 !== 'undefined') ? _l3 : null;
+            ens.innerHTML =
+                `<div>L1 &middot; factor-gewichten &mdash; <b style="color:#14f195">adaptief actief</b></div>` +
+                `<div>L2 &middot; logistisch &mdash; ${(l2 && l2.trained) ? `<b style="color:#14f195">getraind</b> &middot; n=${l2.trainedOn || '?'}` : '<span class="muted">niet getraind</span>'}</div>` +
+                `<div>L3 &middot; neuraal &mdash; ${(l3 && l3.trained) ? `<b style="color:#14f195">val ${(l3.valAcc * 100).toFixed(0)}%</b> &middot; blend ${((((l3.weightCap && l3.weightCap.cap) || 0.15)) * 100).toFixed(0)}%` : '<span class="muted">niet getraind</span>'}</div>`;
+        }
+        const sig = document.getElementById('net-signals');
+        if (sig && typeof neoMultiState !== 'undefined') {
+            sig.innerHTML = ['BTC', 'ETH', 'SOL'].map(K => {
+                const m = neoMultiState.markets[K];
+                if (!m) return `<span style="color:${COL[K]}">${K}</span> <span class="muted">--</span>`;
+                const rsi = m.rsi != null ? m.rsi.toFixed(0) : '--';
+                const vfm = m.vfm != null ? m.vfm.toFixed(2) : '--';
+                const chaos = m.chaos != null ? m.chaos.toFixed(2) : '--';
+                const prob = m.bestProb != null ? (m.bestProb * 100).toFixed(0) + '%' : '--';
+                return `<span style="color:${COL[K]}">${K}</span> ${prob} ${m.bestSide || ''} &middot; RSI ${rsi} &middot; VFM ${vfm} &middot; CHAOS ${chaos}`;
+            }).join('<br>');
+        }
+    } catch (e) {}
+}
+
 // Live wallet-strip: runtime, laatste actie en mini trade-feed. Leest bestaande
 // bronnen (botStartTime / botTradeLog), raakt geen trading-logica. ADD-only.
 function syncWalletLive() {
@@ -5349,16 +5412,28 @@ function syncWalletLive() {
             const src = document.getElementById('flow-' + _k), dst = document.getElementById('flow-' + _k + '-w');
             if (src && dst) dst.textContent = src.textContent;
         }
-        // multi-markt readout in het oogcentrum (BTC/ETH/SOL live uit de DeepNet)
+        // multi-markt readout in het oogcentrum + mini-gauges (BTC/ETH/SOL live)
         if (typeof OsirisDeepNet !== 'undefined') {
             for (const key of ['BTC', 'ETH', 'SOL']) {
-                const el = document.getElementById('we-mkt-' + key.toLowerCase());
-                if (!el) continue;
+                const k = key.toLowerCase();
                 const pp = OsirisDeepNet.last[key];
-                if (!pp) { el.textContent = key + ' --'; el.setAttribute('opacity', '0.4'); continue; }
+                const el = document.getElementById('we-mkt-' + k);
+                const ring = document.getElementById('we-ring-' + k);
+                const rval = document.getElementById('we-val-' + k);
+                if (!pp) {
+                    if (el) { el.textContent = key + ' --'; el.setAttribute('opacity', '0.4'); }
+                    if (ring) ring.style.setProperty('--cc-pct', '0');
+                    if (rval) rval.textContent = '--';
+                    continue;
+                }
                 const arrow = pp.side === 'SHORT' ? '\u2193' : '\u2191';
-                el.textContent = `${key} ${(pp.calProb * 100).toFixed(0)}% ${arrow}${pp.meta ? '' : ' abst'}`;
-                el.setAttribute('opacity', pp.meta ? '1' : '0.55');
+                const col = pp.meta ? (pp.side === 'SHORT' ? '#ff5f7e' : '#14f195') : '#5c7488';
+                if (el) {
+                    el.textContent = `${key} ${(pp.calProb * 100).toFixed(0)}% ${arrow}${pp.meta ? '' : ' abst'}`;
+                    el.setAttribute('opacity', pp.meta ? '1' : '0.55');
+                }
+                if (ring) { ring.style.setProperty('--cc-pct', String(Math.round((pp.conf || 0) * 100))); ring.style.setProperty('--cc-col', col); }
+                if (rval) { rval.textContent = `${(pp.calProb * 100).toFixed(0)}%`; rval.style.color = col; }
             }
         }
         const wf = document.getElementById('wallet-feed');
@@ -5378,6 +5453,7 @@ function syncWalletLive() {
 
 function botHeartbeat() {
     try { syncWalletLive(); } catch (e) {}
+    try { syncNetTab(); } catch (e) {}
     // 1. Runtime UI Update (elke seconde)
     if (botStartTime) {
         const diff = Date.now() - botStartTime;
@@ -7251,40 +7327,24 @@ function osirisReview() {
         // zijn (binnen een kleine marge) wordt verdeeld - want dan is er geen duidelijke
         // beste keuze en spreidt verdelen het risico zonder verwachte winst op te geven.
         const MIN_PROB = 0.55;
-        const EQUAL_MARGIN = 0.05;   // kansen binnen 5 procentpunt = "gelijk"
         const eligible = cands.filter(c => c.side && c.prob >= MIN_PROB);
         const alloc = {};
         for (const c of cands) alloc[c.sym] = 0;
         if (eligible.length === 0) {
             osirisState.note = 'Geen munt boven de drempel - Osiris wacht.';
         } else if (eligible.length === 1) {
-            osirisState.note = `${eligible[0].sym} is de enige kans (${(eligible[0].prob*100|0)}%) - volledige equity.`;
+            osirisState.note = `${eligible[0].sym} is de enige kans (${(eligible[0].prob * 100 | 0)}%) - volledige equity.`;
             alloc[eligible[0].sym] = 1;
         } else {
-            // bepaal welke munten binnen de gelijk-marge van de beste zitten
-            const best = eligible[0];   // al gesorteerd op kans (hoogste eerst)
-            const tied = eligible.filter(c => (best.prob - c.prob) <= EQUAL_MARGIN);
-            if (tied.length === 1) {
-                // duidelijke winnaar -> alles op de beste kans (winner-take-all)
-                alloc[best.sym] = 1;
-                const second = eligible[1];
-                osirisState.note = `${best.sym} heeft de beste kans (${(best.prob*100|0)}% vs ${(second.prob*100|0)}%) - volledige equity op de sterkste markt.`;
-            } else {
-                // meerdere munten vrijwel gelijk -> verdeel kans-gewogen over alleen die
-                const weights = tied.map(c => ({ sym: c.sym, w: c.prob * c.prob }));
-                const sumW = weights.reduce((a, x) => a + x.w, 0);
-                for (const x of weights) alloc[x.sym] = sumW > 0 ? x.w / sumW : 1 / tied.length;
-                // bij écht gelijk (binnen 3pt) exact gelijk verdelen
-                const probs = tied.map(c => c.prob);
-                const spread = Math.max(...probs) - Math.min(...probs);
-                if (spread < 0.03) {
-                    const eq = 1 / tied.length;
-                    for (const c of tied) alloc[c.sym] = eq;
-                    osirisState.note = `${tied.length} munten vrijwel gelijk (~${(probs[0]*100|0)}%) - elk ${(eq*100|0)}% equity.`;
-                } else {
-                    osirisState.note = `${tied.length} munten dicht bij elkaar - equity kans-gewogen over die markten.`;
-                }
-            }
+            // MULTI-MARKT (hersteld 12-08): verdeel de equity kans-gewogen over ALLE
+            // geschikte munten i.p.v. winner-take-all, zodat ETH/SOL blijven meedraaien.
+            // De sterkste markt krijgt nog steeds het grootste deel (gewicht = kans^2),
+            // maar elke geschikte markt houdt een deel zodat hij kan handelen.
+            const weights = eligible.map(c => ({ sym: c.sym, w: c.prob * c.prob }));
+            const sumW = weights.reduce((a, x) => a + x.w, 0) || 1;
+            for (const x of weights) alloc[x.sym] = x.w / sumW;
+            const rank = eligible.map(c => `${c.sym} ${(alloc[c.sym] * 100 | 0)}%`).join(' \u00b7 ');
+            osirisState.note = `${eligible.length} munten geschikt - equity kans-gewogen (${rank}).`;
         }
         osirisState.allocations = alloc;
         osirisState.lastReview = Date.now();
@@ -7566,7 +7626,7 @@ function osirisWhyIdle() {
         const a = alloc[sym] || 0;
         let reden = 'zou instappen bij kans';
         if (!out.multiMarktTradingAan) reden = 'multi-markt trading staat UIT (schakelaar in wallet)';
-        else if (a <= 0) reden = 'allocatie 0% - winner-take-all geeft equity aan een andere munt';
+        else if (a <= 0) reden = 'allocatie 0% - kans < 55% of geen richting, dus niet geschikt';
         else if (!m || m.lastPrice == null) reden = 'geen verse prijs - multi-engine niet actief?';
         else if (alOpen) reden = 'al een open positie op deze munt';
         else if (cd) reden = '60s cooldown na vorige entry';
