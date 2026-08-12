@@ -14,9 +14,8 @@
  *   <script>window.addEventListener('DOMContentLoaded', osirisSyncInit);</script>
  * ============================================================ */
 
-const OSIRIS_SUPABASE_URL = 'brhvybtokdjlmbxmxaiy.supabase.co';   // <-- INVULLEN
-const OSIRIS_SUPABASE_KEY = 'sb_publishable_bTchUvswyWHLAHkumkbN8w_HEAVP0R9
-';       // <-- INVULLEN (publiek, veilig)
+const OSIRIS_SUPABASE_URL = 'https://brhvybtokdjlmbxmxaiy.supabase.co';   // <-- INVULLEN
+const OSIRIS_SUPABASE_KEY = 'sb_publishable_bTchUvswyWHLAHkumkbN8w_HEAVP0R9';       // <-- INVULLEN (publiek, veilig)
 
 // localStorage-sleutels die we naar de cloud spiegelen (de EXACTE keys die je app schrijft).
 const OSIRIS_STATE_KEYS = [
