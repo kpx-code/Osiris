@@ -1177,7 +1177,7 @@ let displayCurrency = 'USD'; // 'USD' of 'EUR' - alleen voor chart-labels
 // gewoon via de normale fetch. Signatuur == fetch(url, opts) -> Promise<Response>.
 // ============================================================
 const _BINANCE_HOSTS = {
-    'api.binance.com': ['api.binance.com', 'data-api.binance.com', 'api-gcp.binance.com', 'api1.binance.com', 'api2.binance.com', 'api3.binance.com'],
+    'api.binance.com': ['api.binance.com', 'api-gcp.binance.com', 'api1.binance.com', 'api2.binance.com', 'api3.binance.com', 'api4.binance.com', 'data-api.binance.vision'],
     'fapi.binance.com': ['fapi.binance.com', 'fapi1.binance.com', 'fapi2.binance.com']
 };
 const _binanceGoodHost = {};   // onthoudt per familie de laatst werkende mirror
