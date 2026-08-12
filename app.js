@@ -1579,7 +1579,7 @@ function initializeOnReady() {
     // reload/afsluiten). osirisShadowTick heeft de draaiende multi-engine nodig,
     // die start hierboven mee met de bot-herstart.
     try {
-        if (localStorage.getItem('osirisLiveEnabled') === 'true') {
+        if (localStorage.getItem('osirisLiveEnabled') !== 'false') {   // standaard AAN; alleen uit als je 'm bewust uitzet
             const cb = document.getElementById('osiris-shadow-toggle');
             if (cb) cb.checked = true;
             toggleOsirisShadow(true);
@@ -10599,6 +10599,7 @@ function _neoNetFrame(now) {
     // render zowel het kleine kwadrant-canvas als het grote multi-brein-canvas
     _neoNetDraw(now, 'neo-net-canvas', 'neo-net-out');
     _neoNetDraw(now, 'neo-net-canvas-big', 'neo-net-out-big');
+    _neoNetDraw(now, 'neo-net-canvas-wal', 'neo-net-out-wal');
     // DEEPNET-integratie: leg de gekalibreerde per-markt-kansen + mainbrain-keuze
     // als band onderop het grote multi-brein-canvas (breidt de bestaande visual uit).
     try { _deepnetOverlayBig(); } catch (e) {}
@@ -10617,7 +10618,7 @@ function _neoNetDraw(now, canvasId, outId) {
     _neonet._outId = outId;
 
     const layers = _neonet.layers, conns = _neonet.conns;
-    const _isBigNet = (canvasId === 'neo-net-canvas-big');
+    const _isBigNet = (canvasId === 'neo-net-canvas-big' || canvasId === 'neo-net-canvas-wal');
     const padX = w * 0.13, padTop = h * 0.20, padBot = h * 0.12, padY = padTop;
     const _FX = [0, 0.32, 0.49, 0.66, 0.83, 1.0];
     const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
@@ -10703,34 +10704,46 @@ function _neoNetDraw(now, canvasId, outId) {
         _neonet._srcCol = src;
     }
     const srcCol = _neonet._srcCol;
+    // DATA-WARE VERBINDINGEN (12-08): helderheid + dikte volgen de ECHTE co-activatie
+    // (bron-activatie x doel-activatie). Inactieve edges blijven een zwakke structuurlijn;
+    // actieve edges dragen een gerichte data-puls die van bron -> doel reist (links -> rechts),
+    // met snelheid en helderheid evenredig aan het signaal. Geen sweep-golf meer.
     for (const cn of conns) {
         const A = pos[cn.li][cn.a], B = pos[cn.li + 1][cn.b];
-        const a0 = layers[cn.li][cn.a].act;
-        const near = Math.exp(-Math.pow((wavePos - (cn.li + 0.5)) / 0.5, 2));
-        const flow = (Math.sin(now / 1000 * cn.sp * 2 + cn.flow * 6.28) * 0.5 + 0.5);
-        const active = a0 * (0.35 + 0.65 * near) * (0.4 + 0.6 * flow) * _neonet.actLevel;
-        // grondkleur = herkomst-input-kleur; actieve verbinding verschuift naar Osiris-neon
+        const aAct = layers[cn.li][cn.a].act || 0;
+        const bAct = layers[cn.li + 1][cn.b].act || 0;
+        const signal = Math.max(0, Math.min(1, aAct * bAct));     // echte signaalsterkte over deze edge
         const baseCol = srcCol[cn.li][cn.a];
-        const col = active > 0.35 ? OSIRIS_NEON : baseCol;
-        const baseVis = 0.20 + 0.16 * Math.abs(cn.w);     // sterkere gewichten iets zichtbaarder
-        ctx.strokeStyle = `rgba(${col},${Math.min(0.96, baseVis + 0.75 * active).toFixed(3)})`;
-        ctx.lineWidth = 0.7 + Math.abs(cn.w) * 0.5 + active * 2.6;
-        // felle Osiris-neon kern-glow op sterk actieve verbindingen
-        if (active > 0.35) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.95)`; ctx.shadowBlur = 7 + active * 10; }
-        const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2 + Math.sin(now / 700 * cn.sp + cn.flow * 6.28) * 6 * near;
-        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(mx, my, B.x, B.y); ctx.stroke();
-        if (active > 0.35) ctx.restore();
+        const hot = signal > 0.28;
+        const col = hot ? OSIRIS_NEON : baseCol;
+        ctx.strokeStyle = `rgba(${col},${(0.05 + 0.30 * signal).toFixed(3)})`;
+        ctx.lineWidth = 0.5 + 2.4 * signal;
+        if (hot) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.9)`; ctx.shadowBlur = 5 + 10 * signal; }
+        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+        if (hot) ctx.restore();
+        // gerichte data-puls langs de edge
+        if (signal > 0.06) {
+            const speed = 0.30 + 0.95 * signal;
+            const t = (now / 1000 * speed + cn.flow) % 1;         // 0..1 van bron naar doel
+            const px = A.x + (B.x - A.x) * t, py = A.y + (B.y - A.y) * t;
+            const pr = 0.8 + 2.4 * signal;
+            ctx.save();
+            ctx.shadowColor = `rgba(${hot ? OSIRIS_NEON : '0,217,255'},0.95)`; ctx.shadowBlur = 6 + 9 * signal;
+            ctx.beginPath(); ctx.arc(px, py, pr, 0, 6.283);
+            ctx.fillStyle = `rgba(${hot ? OSIRIS_NEON : col},${(0.4 + 0.6 * signal).toFixed(3)})`;
+            ctx.fill(); ctx.restore();
+        }
     }
 
     // ---- neuronen ----
     const outLabels = ['LONG', 'NEUT', 'SHORT'], outCols = ['#00ff9f', '#5c7488', '#ff4f6d'];
-    const isBig = (canvasId === 'neo-net-canvas-big');   // meer detail op het grote canvas
+    const isBig = (canvasId === 'neo-net-canvas-big' || canvasId === 'neo-net-canvas-wal');   // meer detail op het grote canvas
     for (let li = 0; li < layers.length; li++) {
         for (let i = 0; i < layers[li].length; i++) {
             const p = pos[li][i], nd = layers[li][i];
-            const near = Math.exp(-Math.pow((wavePos - li) / 0.6, 2));
-            const glow = nd.act * (0.5 + 0.5 * near);
-            const r = (li === layers.length - 1 ? 12 : 5) + nd.act * 4 + near * 2;
+            const puls = 0.5 + 0.5 * Math.sin(now / 620 + (nd.tw || 0));   // zachte eigen-puls
+            const glow = nd.act * (0.55 + 0.45 * puls);                     // helderheid ~ echte activatie
+            const r = (li === layers.length - 1 ? 12 : 5) + nd.act * 4 + nd.act * puls * 1.6;
             // input-knopen krijgen hun eigen signaalkleur (rijker beeld)
             let baseCol = 'rgba(130,200,255,GLOW)';
             if (li === 0) { const c = NEONET_INPUTS[i].c; baseCol = _hexToRgba(c, '__A__'); }
@@ -10745,8 +10758,8 @@ function _neoNetDraw(now, canvasId, outId) {
             ctx.fill(); ctx.globalAlpha = 1;
             if (li === _endLi) { ctx.save(); ctx.shadowColor = 'rgba(0,217,255,0.9)'; ctx.shadowBlur = 12 + 14 * nd.act; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.strokeStyle = 'rgba(0,217,255,0.8)'; ctx.lineWidth = 1.6; ctx.stroke(); ctx.restore(); }
             ctx.lineWidth = 1; ctx.strokeStyle = `rgba(200,235,255,${0.2 + 0.6 * glow})`; ctx.stroke();
-            // kern-flits op de golf
-            if (near > 0.3) { ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.4, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${near * glow})`; ctx.fill(); }
+            // kern-flits op sterk-actieve knopen (data-gedreven, niet golf)
+            if (nd.act > 0.5) { ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.4, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${(0.5 * nd.act * puls).toFixed(3)})`; ctx.fill(); }
             // ACTIVATIE-WAARDE als percentage (alleen groot canvas, waar ruimte is)
             if (isBig && nd.act > 0.08) {
                 ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = 'center';
