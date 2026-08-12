@@ -758,6 +758,26 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       .cc-mini .cc-ring::after{inset:5px;}
       .cc-mini .cc-ring .cc-val{font-size:0.6rem;}
       .cc-mini .lbl{font-family:'JetBrains Mono',monospace;font-size:0.5rem;letter-spacing:1px;}
+      /* ---- mobiel: net/eye/wallet compact + gestapeld ---- */
+      @media(max-width:900px){
+        #neo-net-canvas-big,#neo-net-canvas-wal{height:320px!important;}
+        #tab-wallet .grid[style*="1.15fr"]{grid-template-columns:1fr!important;}
+        #wallet-eye{height:210px!important;}
+        .core-card{padding:12px 12px 10px;}
+        .cc-ring{width:92px;height:92px;}
+        .cc-mini .cc-ring{width:52px;height:52px;}
+        .hudframe .corner{width:11px;height:11px;}
+        .net-hud .t{font-size:0.56rem;}.net-hud .s{font-size:0.44rem;}
+        .net-out .v{font-size:0.8rem;}
+      }
+      @media(max-width:560px){
+        #neo-net-canvas-big,#neo-net-canvas-wal{height:250px!important;}
+        #wallet-eye{height:180px!important;}
+        .cc-ring{width:84px;height:84px;}
+        .cc-ring .cc-val{font-size:1rem;}
+        .cc-stats{font-size:0.46rem;}
+        .cc-meta{font-size:0.5rem;}
+      }
     </style>
     <section class="tab" id="tab-net">
       <div class="eyebrow">Kernvisualisatie</div><h1 class="h">MULTI-BREIN NEURAAL NETWERK</h1>
