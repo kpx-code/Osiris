@@ -1169,9 +1169,42 @@ function handlePredictionHorizonSelect(value) {
 let eurUsdtRate = null; // Binance's eigen EURUSDT-koers: hoeveel USDT is 1 EUR waard
 let displayCurrency = 'USD'; // 'USD' of 'EUR' - alleen voor chart-labels
 
+// ============================================================
+// VEERKRACHTIGE BINANCE-FETCH met host-fallback (13-08)
+// api.binance.com / fapi.binance.com kunnen door DNS- of regioblokkade
+// onbereikbaar zijn (ERR_NAME_NOT_RESOLVED). bFetch probeert dan automatisch
+// alternatieve Binance-mirrors die vaak wel resolven. Non-binance URLs gaan
+// gewoon via de normale fetch. Signatuur == fetch(url, opts) -> Promise<Response>.
+// ============================================================
+const _BINANCE_HOSTS = {
+    'api.binance.com': ['api.binance.com', 'data-api.binance.com', 'api-gcp.binance.com', 'api1.binance.com', 'api2.binance.com', 'api3.binance.com'],
+    'fapi.binance.com': ['fapi.binance.com', 'fapi1.binance.com', 'fapi2.binance.com']
+};
+const _binanceGoodHost = {};   // onthoudt per familie de laatst werkende mirror
+async function bFetch(url, opts) {
+    let fam = null;
+    for (const key of Object.keys(_BINANCE_HOSTS)) { if (typeof url === 'string' && url.indexOf('https://' + key) === 0) { fam = key; break; } }
+    if (!fam) return fetch(url, opts);   // geen binance-url -> normale fetch
+    const hosts = _BINANCE_HOSTS[fam].slice();
+    const good = _binanceGoodHost[fam];
+    if (good) hosts.sort((a, b) => (a === good ? -1 : b === good ? 1 : 0)); // bekende goede host eerst
+    let lastErr = null, lastRes = null;
+    for (const h of hosts) {
+        const u = url.replace('https://' + fam, 'https://' + h);
+        try {
+            const res = await fetch(u, opts);
+            if (res.ok) { _binanceGoodHost[fam] = h; return res; }
+            lastRes = res;                // niet-ok (bv. 451/5xx): probeer volgende mirror
+        } catch (e) { lastErr = e; }      // netwerk/DNS: probeer volgende mirror
+    }
+    if (lastRes) return lastRes;          // geef laatste (niet-ok) response terug -> caller checkt r.ok
+    throw lastErr || new Error('binance fetch faalde op alle mirrors');
+}
+window.bFetch = bFetch;
+
 async function fetchEurUsdtRate() {
     try {
-        const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=EURUSDT');
+        const res = await bFetch('https://api.binance.com/api/v3/ticker/price?symbol=EURUSDT');
         const data = await res.json();
         const rate = parseFloat(data.price);
         if (rate && isFinite(rate) && rate > 0) eurUsdtRate = rate;
@@ -5443,10 +5476,10 @@ function aggregate15mTo45m(klines15m) {
 async function fetchViewKlines(iv) {
     if (iv === BOT_INTERVAL && rawData && rawData.length) return rawData; // zelfde data, geen extra fetch
     if (iv === '45m') {
-        const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=1000`);
+        const r = await bFetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=1000`);
         return aggregate15mTo45m(await r.json());
     }
-    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${iv}&limit=672`);
+    const r = await bFetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${iv}&limit=672`);
     return r.json();
 }
 
@@ -5516,7 +5549,7 @@ async function fetchOrderBookDepth() {
         // munt-bewust: gebruik de actieve tab-munt (BTC standaard)
         const sym = (typeof neoMultiState !== 'undefined' && neoMultiState) ? neoMultiState.active : 'BTC';
         const pair = (typeof MULTI_BINANCE !== 'undefined' && MULTI_BINANCE[sym]) ? MULTI_BINANCE[sym] : 'BTCUSDT';
-        const r = await fetch(`https://api.binance.com/api/v3/depth?symbol=${pair}&limit=1000`);
+        const r = await bFetch(`https://api.binance.com/api/v3/depth?symbol=${pair}&limit=1000`);
         const ob = await r.json();
         if (!ob.bids || !ob.asks) return null;
         const bids = ob.bids.map(([p, q]) => [+p, +q]);
@@ -5661,7 +5694,7 @@ async function l2BuildAndTrain() {
     // 1) historische candles over meerdere timeframes voor variatie
     for (const iv of ['15m', '1h']) {
         try {
-            const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${iv}&limit=1000`);
+            const r = await bFetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${iv}&limit=1000`);
             const kl = await r.json();
             for (let i = 20; i < kl.length - 6; i += 1) {
                 const x = l2ExtractFeatures(kl, i);
@@ -5847,7 +5880,7 @@ try {
 
 // --- REST-fetch van de achtergrond-timeframes (binnen Binance-limieten) ---
 async function fetchIctKlines(iv, limit) {
-    const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${iv}&limit=${limit}`);
+    const r = await bFetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${iv}&limit=${limit}`);
     if (!r.ok) throw new Error('klines ' + iv + ' status ' + r.status);
     return r.json();  // [ [openTime,o,h,l,c,v,...], ... ]
 }
@@ -6385,7 +6418,7 @@ async function initDashboard() {
         // 1. BOT-DATA: altijd 672 x 15m spot-candles (7 dagen) - de vaste basis
         // voor alle handelslogica (structuur, meters, nodes, fib), ongeacht
         // welke view de chart toont.
-        const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${BOT_INTERVAL}&limit=672`);
+        const response = await bFetch(`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${BOT_INTERVAL}&limit=672`);
         rawData = await response.json();
 
         // 2. TRADING-instrumenten op de bot-data: nodes + fib-niveaus.
@@ -7699,7 +7732,7 @@ async function multiRefreshSymbol(sym) {
     try {
         const pair = MULTI_BINANCE[sym];
         const iv = (typeof BOT_INTERVAL !== 'undefined') ? BOT_INTERVAL : '15m';
-        const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${iv}&limit=672`);
+        const r = await bFetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${iv}&limit=672`);
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const kl = await r.json();
         if (!Array.isArray(kl) || kl.length < 30) throw new Error('te weinig candles');
@@ -7826,17 +7859,17 @@ async function refreshFundamentals(sym) {
     const pair = FUND_BINANCE[sym];
     try {
         // 1) funding rate (premiumIndex) - gewicht 1
-        const fr = await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${pair}`).then(r => r.ok ? r.json() : null);
+        const fr = await bFetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${pair}`).then(r => r.ok ? r.json() : null);
         if (fr && fr.lastFundingRate != null) m.fund.fundingRate = parseFloat(fr.lastFundingRate);
         // 2) open interest - gewicht 1
-        const oi = await fetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${pair}`).then(r => r.ok ? r.json() : null);
+        const oi = await bFetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${pair}`).then(r => r.ok ? r.json() : null);
         if (oi && oi.openInterest != null) {
             const val = parseFloat(oi.openInterest);
             m.fund.oiPrev = m.fund.openInterest;
             m.fund.openInterest = val;
         }
         // 3) long/short account ratio (laatste 5m-punt) - gewicht 1
-        const ls = await fetch(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${pair}&period=5m&limit=1`).then(r => r.ok ? r.json() : null);
+        const ls = await bFetch(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${pair}&period=5m&limit=1`).then(r => r.ok ? r.json() : null);
         if (Array.isArray(ls) && ls.length && ls[0].longShortRatio != null) m.fund.longShortRatio = parseFloat(ls[0].longShortRatio);
         m.fund.error = null; m.fund.lastUpdate = Date.now();
     } catch (e) {
@@ -11289,7 +11322,7 @@ const OsirisDeepNet = {
 
     // ---------- helpers ----------
     async _fetchKl(sym, interval, limit) {
-        const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`);
+        const r = await bFetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`);
         if (!r.ok) throw new Error(`klines ${sym} ${r.status}`);
         return await r.json();
     },
