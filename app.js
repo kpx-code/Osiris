@@ -3831,12 +3831,22 @@ function tryReallocateForBetterOpportunity(newSide, newProbabilityPct) {
 function scanForOpportunities(decision, metrics) {
     revalidatePendingOrders(decision, metrics);
 
-    ['LONG', 'SHORT'].forEach(side => {
+    // Kies MAXIMAAL EEN richting: een tegengestelde LONG+SHORT pending tegelijk is
+    // tegenstrijdig ("long en short klopt niet"). Evalueer beide kanten, neem die met
+    // de hoogste kans, en annuleer een eventuele pending aan de andere kant.
+    const _sideEvals = ['LONG', 'SHORT']
+        .map(sd => ({ side: sd, evalResult: evaluateEntryOpportunity(sd, decision, metrics, livePrice) }))
+        .filter(e => e.evalResult && e.evalResult.eligible)
+        .sort((a, b) => (b.evalResult.probabilityPct || 0) - (a.evalResult.probabilityPct || 0));
+    if (_sideEvals.length) {
+        const _opp = _sideEvals[0].side === 'LONG' ? 'SHORT' : 'LONG';
+        for (let _i = pendingOrders.length - 1; _i >= 0; _i--) {
+            if (pendingOrders[_i].side === _opp) { try { logBotAction('CANCELLED', 'tegengestelde kant sterker (' + _sideEvals[0].side + ')'); } catch (e) {} pendingOrders.splice(_i, 1); }
+        }
+    }
+    _sideEvals.slice(0, 1).forEach(({ side, evalResult }) => {
         const hasPending = pendingOrders.some(p => p.side === side);
         if (hasPending) return;
-
-        const evalResult = evaluateEntryOpportunity(side, decision, metrics, livePrice);
-        if (!evalResult.eligible) return;
 
         if (openPositions.length >= botSettings.maxOpenPositions) {
             const madeRoom = tryReallocateForBetterOpportunity(side, evalResult.probabilityPct);
@@ -5459,6 +5469,11 @@ function syncWalletLive() {
                 return `<div style="color:${col};">${tijd} \u00b7 ${l.action} ${mk} ${side} @ $${pr}${pnl}</div>`;
             }).join('');
         }
+        // spiegel de reasoning-feed en de autonome-aanpassingen-feed naar de wallet
+        const _rs = document.getElementById('bot-reasoning'), _rd = document.getElementById('wallet-reasoning');
+        if (_rs && _rd && _rs.innerHTML) _rd.innerHTML = _rs.innerHTML;
+        const _as = document.getElementById('bot-adaptation'), _ad = document.getElementById('wallet-adaptation');
+        if (_as && _ad && _as.innerHTML) _ad.innerHTML = _as.innerHTML;
     } catch (e) {}
 }
 
@@ -7306,6 +7321,41 @@ let osirisState = {
     note: ''
 };
 
+// ============================================================
+// OSIRIS · AUTONOME DREMPELS (13-08)
+// ============================================================
+let osirisTune = { minProb: 0.53, abstain: 0.56, lastAdjust: 0 };
+window.osirisTune = osirisTune;
+
+function osirisAutoTune() {
+    try {
+        const now = Date.now();
+        if (now - (osirisTune.lastAdjust || 0) < 5 * 60000) return;
+        const entries = Object.values(_osirisLastEntry || {}).filter(v => v);
+        const lastEntry = entries.length ? Math.max.apply(null, entries) : 0;
+        const idleMin = lastEntry ? (now - lastEntry) / 60000 : 999;
+        const closed = (botTradeLog || []).filter(t => t.action === 'EXIT' && t.isOsiris).slice(-15);
+        const wins = closed.filter(t => (t.pnl || 0) > 0).length;
+        const wr = closed.length >= 6 ? wins / closed.length : null;
+        let changed = false, why = '';
+        if (wr != null && wr < 0.42) {
+            osirisTune.minProb = Math.min(0.60, +(osirisTune.minProb + 0.01).toFixed(3));
+            osirisTune.abstain = Math.min(0.62, +(osirisTune.abstain + 0.01).toFixed(3));
+            changed = true; why = `winrate ${(wr * 100 | 0)}% te laag - drempels omhoog`;
+        } else if (idleMin > 20) {
+            osirisTune.minProb = Math.max(0.51, +(osirisTune.minProb - 0.01).toFixed(3));
+            osirisTune.abstain = Math.max(0.53, +(osirisTune.abstain - 0.01).toFixed(3));
+            changed = true; why = `${idleMin | 0} min geen trade - drempels omlaag`;
+        }
+        if (changed) {
+            if (typeof OsirisDeepNet !== 'undefined') OsirisDeepNet.ABSTAIN_MARGIN = osirisTune.abstain;
+            osirisTune.lastAdjust = now;
+            try { logAdaptation('Osiris stelt drempels bij', `${why} (kans-drempel ${(osirisTune.minProb * 100).toFixed(0)}%, abstain ${(osirisTune.abstain * 100).toFixed(0)}%)`); } catch (e) {}
+        }
+    } catch (e) {}
+}
+window.osirisAutoTune = osirisAutoTune;
+
 function osirisReview() {
     try {
         // verzamel de kans/kant per munt uit de sub-breinen
@@ -7337,7 +7387,7 @@ function osirisReview() {
         // en zet daar de volledige equity op. Alleen als de top-kansen NAGENOEG GELIJK
         // zijn (binnen een kleine marge) wordt verdeeld - want dan is er geen duidelijke
         // beste keuze en spreidt verdelen het risico zonder verwachte winst op te geven.
-        const MIN_PROB = 0.55;
+        const MIN_PROB = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
         const EQUAL_MARGIN = 0.05;   // kansen binnen 5 procentpunt = "gelijk"
         // BTC draait op zijn EIGEN hoofd-engine en wordt door osirisShadowTick overgeslagen.
         // Namen we BTC mee in de winner-take-all, dan "won" een sterk BTC-signaal de
@@ -7869,6 +7919,7 @@ function multiRoundRobinTick() {
         try { osirisReview(); } catch (e) {}
         // schaduw-trading (indien aan): simuleer ETH/SOL-trades met echte prijzen
         try { osirisShadowTick(); } catch (e) {}
+        try { osirisAutoTune(); } catch (e) {}
         // sub-brein presets-overzicht bijwerken
         try { renderSubBrainPresets(); } catch (e) {}
     });
@@ -11416,7 +11467,7 @@ const OsirisDeepNet = {
     GATE_ENTRIES: true,          // INGREEP 1: DeepNet-poort op ETH/SOL-entries (terugdraaibaar)
     HORIZON: 5,                  // forward-return over 5 candles (15m -> ~75 min)
     THR: 0.001,                  // labeldrempel (+0.1%)
-    ABSTAIN_MARGIN: 0.60,        // gekalibreerde kans moet >= 0.60 (long) of <= 0.40 (short)
+    ABSTAIN_MARGIN: 0.56,        // soepeler: >= 0.56 (long) of <= 0.44 (short); Osiris tuned dit autonoom
     META_MIN_PRECISION: 0.50,    // ZACHTE basis-drempel; _metaThreshold verlaagt 'm nog als de markt zich bewijst
     _realizedWinrate: {},        // werkelijke winrate per markt (uit gesloten trades)
     _lastWrUpdate: 0,
@@ -11625,7 +11676,7 @@ const OsirisDeepNet = {
         // niet permanent dicht blijft. agree !== false blijft (geen tegenspraak sub-brein).
         if (Date.now() - (this._lastWrUpdate || 0) > 30000) { this._updateRealizedWinrate(); this._lastWrUpdate = Date.now(); }
         const wfOk = m.wf ? (m.wf.precision >= this._metaThreshold(key)) : false;
-        const meta = trade && (agree !== false) && wfOk;
+        const meta = trade && wfOk && (agree !== false || conf >= 0.34);   // sterke DeepNet mag door ondanks core-onenigheid
         const out = { key, raw, calProb: cal, side, conf, trade, agree, meta, features: x, ts: Date.now() };
         this.last[key] = out;
         return out;
