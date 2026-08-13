@@ -845,6 +845,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
             <button type="button" onclick="stopAutonomousBot()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);">&#9632; Stop bot</button>
             <button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button>
           </div>
+          <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 14px; align-items:baseline; font-family:'JetBrains Mono',monospace; font-size:0.62rem; margin-top:14px;">
+            <span style="color:var(--dim);">Runtime</span><b id="wallet-runtime" style="color:var(--cyan); letter-spacing:1px;">--:--:--</b>
+            <span style="color:var(--dim);">Laatste actie</span><span id="wallet-last-action" style="color:#eaffff; line-height:1.4;">nog geen acties</span>
+          </div>
+          <div class="mock-title" style="margin:12px 0 5px;">Live feed &middot; laatste trades</div>
+          <div id="wallet-feed" style="max-height:120px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:0.56rem; line-height:1.75; background:rgba(0,0,0,0.45); border:1px solid rgba(0,217,255,0.15); border-radius:6px; padding:7px 9px;"><span style="color:var(--dim);">Wacht op eerste trade...</span></div>
         </div>
 
         <div class="panel hudframe" style="text-align:center;">
@@ -863,13 +869,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           </div>
         </div>
 
-        <div class="panel"><div class="plabel">Live status</div>
-          <div style="display:grid; grid-template-columns:auto 1fr; gap:9px 16px; align-items:baseline; font-family:'JetBrains Mono',monospace; font-size:0.66rem; margin-top:8px;">
-            <span style="color:var(--dim);">Runtime</span><b id="wallet-runtime" style="color:var(--cyan); letter-spacing:1px;">--:--:--</b>
-            <span style="color:var(--dim);">Laatste actie</span><span id="wallet-last-action" style="color:#eaffff; line-height:1.5;">nog geen acties</span>
-          </div>
-          <div class="mock-title" style="margin:14px 0 6px;">Live feed &middot; laatste trades</div>
-          <div id="wallet-feed" style="max-height:150px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:0.58rem; line-height:1.8; background:rgba(0,0,0,0.45); border:1px solid rgba(0,217,255,0.15); border-radius:6px; padding:8px 10px;"><span style="color:var(--dim);">Wacht op eerste trade...</span></div>
+        <div class="panel"><div class="plabel">Live &middot; reasoning &amp; aanpassingen</div>
+          <div class="mock-title" style="margin:8px 0 5px;">Reasoning &middot; elke stap</div>
+          <div id="wallet-reasoning" style="max-height:140px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:0.54rem; line-height:1.7; background:rgba(0,0,0,0.45); border:1px solid rgba(0,217,255,0.15); border-radius:6px; padding:7px 9px;"><span style="color:var(--dim);">Wacht op beredenering&hellip;</span></div>
+          <div class="mock-title" style="margin:12px 0 5px;">Autonome aanpassingen</div>
+          <div id="wallet-adaptation" style="max-height:140px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:0.54rem; line-height:1.7; background:rgba(0,0,0,0.45); border:1px solid rgba(255,182,39,0.18); border-radius:6px; padding:7px 9px;"><span style="color:var(--dim);">Nog geen aanpassingen&hellip;</span></div>
         </div>
       </div>
 
