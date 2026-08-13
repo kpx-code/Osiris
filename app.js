@@ -1838,6 +1838,14 @@ function startAutonomousBot(isAutoRestart = false) {
     isBotRunning = true;
     localStorage.setItem('botIsRunning', 'true');
 
+    // Multi-markt shadow-trading (ETH/SOL) AAN zodra de bot draait. Zonder dit krijgt
+    // Osiris wel een allocatie (bv. SOL/ETH 50/50) maar voert osirisShadowTick NIETS uit
+    // (`if (!osirisLiveEnabled) return;`), en handelt de bot alleen BTC via de hoofd-engine.
+    // We forceren AAN én overschrijven een eventueel op 'false' blijven hangen localStorage.
+    osirisLiveEnabled = true;
+    try { localStorage.setItem('osirisLiveEnabled', 'true'); } catch (e) {}
+    try { const _shadowCb = document.getElementById('osiris-shadow-toggle'); if (_shadowCb) _shadowCb.checked = true; } catch (e) {}
+
     // Badge in de (ingeklapte) ENGINE CONFIGURATION-header: toont in één
     // oogopslag de executiemodus én hoe de sessie gestart is (manual vs.
     // auto-restart na een refresh) - ook als het paneel dicht is.
@@ -7388,9 +7396,11 @@ function renderOsirisPanel() {
     for (const p of picks) {
         const a = (alloc[p.sym] || 0) * 100;
         const barCol = colors[p.sym] || '#00d9ff';
+        const skip = (osirisState.skip && p.sym !== 'BTC') ? osirisState.skip[p.sym] : null;
+        const skipHtml = (skip && a > 0) ? ` <span style="color:#ff8a94; font-size:0.54rem;">&middot; ${skip}</span>` : '';
         html += `<div style="margin-bottom:7px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-                <span style="color:${barCol}; font-weight:700;">${p.sym} ${p.side || ''}</span>
+                <span style="color:${barCol}; font-weight:700;">${p.sym} ${p.side || ''}${skipHtml}</span>
                 <span>kans ${(p.prob*100|0)}% &middot; equity ${a.toFixed(0)}%</span>
             </div>
             <div style="height:5px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden;"><div style="height:100%; width:${a}%; background:${barCol};"></div></div>
@@ -7548,6 +7558,7 @@ function osirisShadowTick() {
         const now = Date.now();
         try { if (typeof OsirisGuard !== 'undefined') OsirisGuard.evaluate(); } catch (e) {}
         let allocSoFar = getAllocatedPct();   // lopende allocatie: voorkomt >100% binnen 1 tick
+        osirisState.skip = osirisState.skip || {};   // zichtbare 'waarom niet'-reden per munt
         for (const p of picks) {
             const sym = p.sym;
             if (sym === 'BTC') continue;                    // BTC loopt via de hoofd-engine
@@ -7556,11 +7567,11 @@ function osirisShadowTick() {
             const a = alloc[sym] || 0;
             if (a <= 0 || !p.side) continue;
             // al een open positie op deze munt? niet dubbelen
-            if (openPositions.some(x => (x.symbol === MULTI_BINANCE[sym]))) continue;
+            if (openPositions.some(x => (x.symbol === MULTI_BINANCE[sym]))) { osirisState.skip[sym] = 'al open'; continue; }
             // cooldown: max 1 nieuwe entry per munt per 60s
-            if (_osirisLastEntry[sym] && (now - _osirisLastEntry[sym]) < 60000) continue;
+            if (_osirisLastEntry[sym] && (now - _osirisLastEntry[sym]) < 60000) { osirisState.skip[sym] = '60s cooldown'; continue; }
             const m = neoMultiState.markets[sym];
-            if (!m || m.lastPrice == null) continue;
+            if (!m || m.lastPrice == null) { osirisState.skip[sym] = 'geen verse prijs (multi-engine?)'; continue; }
             // INGREEP 1 - DeepNet-poort: alleen instappen als de per-markt DeepNet het eens
             // is met de richting EN zijn meta-poort open staat (genoeg walk-forward-precisie).
             // Zo vallen zwakke, over-getraden ETH/SOL-setups weg. We gebruiken bovendien de
@@ -7576,6 +7587,7 @@ function osirisShadowTick() {
                         // alles stil zodra de DeepNet even geen sterk signaal heeft.
                         if (dnp.meta && dnp.side !== p.side) {
                             try { logAdaptation(`Osiris slaat ${sym} ${p.side} over`, `DeepNet wijst mét open poort de andere kant op (${dnp.side}) - tegengestelde trade vermeden`); } catch (e) {}
+                            osirisState.skip[sym] = `DeepNet tegengesteld (${dnp.side})`;
                             continue;
                         }
                         if (dnp.meta && dnp.side === p.side) dnCalProb = dnp.calProb;   // gekalibreerde kans bij bevestiging
@@ -7593,9 +7605,9 @@ function osirisShadowTick() {
             const reservePct = botSettings.minHedgeReservePct || 0;
             const availablePct = Math.max(0, 1 - allocSoFar - reservePct);
             const sizePct = Math.min(a * maxAlloc, availablePct);
-            if (sizePct <= 0) continue;                         // wallet al vol -> overslaan
+            if (sizePct <= 0) { osirisState.skip[sym] = 'geen vrije equity'; continue; }   // wallet al vol
             const notionalUSD = freeEquity * sizePct;
-            if (notionalUSD < 5) continue;
+            if (notionalUSD < 5) { osirisState.skip[sym] = 'order < $5'; continue; }
             const amount = notionalUSD / m.lastPrice;
             const position = {
                 id: 'osiris-' + sym + '-' + now,
@@ -7617,6 +7629,7 @@ function osirisShadowTick() {
                 customStopLossPct: preset.stopLossPct != null ? preset.stopLossPct / 100 : null
             };
             _osirisLastEntry[sym] = now;
+            osirisState.skip[sym] = null;   // succesvol geopend -> geen blokkade-reden
             allocSoFar += sizePct;   // lokaal reserveren, ongeacht async-timing van de commit
             try { logAdaptation(`Osiris opent ${sym} ${p.side}`, `kans ${(p.prob*100|0)}%, allocatie ${(a*100|0)}% van de gedeelde wallet ($${notionalUSD.toFixed(0)})`); } catch (e) {}
             commitPositionEntry(position, `OSIRIS ${sym} ${p.side} (kans ${(p.prob*100|0)}%)`);
