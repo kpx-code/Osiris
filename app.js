@@ -7331,7 +7331,11 @@ function osirisReview() {
         // beste keuze en spreidt verdelen het risico zonder verwachte winst op te geven.
         const MIN_PROB = 0.55;
         const EQUAL_MARGIN = 0.05;   // kansen binnen 5 procentpunt = "gelijk"
-        const eligible = cands.filter(c => c.side && c.prob >= MIN_PROB);
+        // BTC draait op zijn EIGEN hoofd-engine en wordt door osirisShadowTick overgeslagen.
+        // Namen we BTC mee in de winner-take-all, dan "won" een sterk BTC-signaal de
+        // allocatie zonder dat er iets mee gedaan werd, en verhongerden ETH/SOL (0%).
+        // Osiris verdeelt daarom alleen de markten die hij daadwerkelijk shadow-trade.
+        const eligible = cands.filter(c => c.side && c.prob >= MIN_PROB && c.sym !== 'BTC');
         const alloc = {};
         for (const c of cands) alloc[c.sym] = 0;
         if (eligible.length === 0) {
