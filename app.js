@@ -9507,20 +9507,39 @@ window.downloadDeepNetModels = downloadDeepNetModels;
 function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin){
     var plot=document.getElementById(plotId); if(!plot) return;
     xMin=(xMin==null)?50:xMin;
+    var lc=plotId.replace('calib-plot-','');
+    var xlo=document.getElementById('calib-xlo-'+lc); if(xlo) xlo.textContent=xMin;
     var head=document.getElementById(headId);
-    if(!map||map.length<1){ plot.innerHTML=''; if(head){head.textContent=label+' \u2014 nog geen data'; head.style.color='#5c7488';} return; }
+    if(!map||map.length<1){ plot.innerHTML=''; if(head){head.innerHTML=label+' <span style="color:#5c7488;font-weight:400">\u2014 no data yet</span>';} return; }
     var single=map.length<2;
-    if(head){ var gap=map.reduce(function(x,p){return x+(p[0]-p[1]);},0)/map.length;
-        if(gap>5){head.textContent=label+' \u00b7 overconf +'+gap.toFixed(0); head.style.color='#ffb627';}
-        else if(gap<-5){head.textContent=label+' \u00b7 onderconf '+gap.toFixed(0); head.style.color='#14f195';}
-        else {head.textContent=label+' \u00b7 goed'; head.style.color='#14f195';} }
-    var X=function(r){return 12+(Math.min(100,Math.max(xMin,r))-xMin)/(100-xMin)*100;};
-    var Y=function(w){return 80-Math.min(100,Math.max(0,w))/100*70;};
+    // kop: verdict + gemeten eindpercentage
+    var gap=map.reduce(function(x,p){return x+(p[0]-p[1]);},0)/map.length;
+    if(head){
+        var verdict,vcol;
+        if(gap>5){verdict='overconfident +'+gap.toFixed(0)+'pt';vcol='#ffb627';}
+        else if(gap<-5){verdict='underconfident '+gap.toFixed(0)+'pt';vcol='#14f195';}
+        else{verdict='well calibrated';vcol='#14f195';}
+        head.innerHTML=label+' <span style="color:'+vcol+';font-weight:400">\u00b7 '+verdict+' \u00b7 '+n+' trades</span>';
+        head.style.color=col;
+    }
+    // plot-area binnen de viewBox: x[30..228], y[120..12]  (0..100%)
+    var X=function(r){return 30+(Math.min(100,Math.max(xMin,r))-xMin)/(100-xMin)*198;};
+    var Y=function(w){return 120-Math.min(100,Math.max(0,w))/100*108;};
     var svg='';
-    if(!single){ var pts=map.map(function(p){return X(p[0]).toFixed(1)+','+Y(p[1]).toFixed(1);}).join(' ');
-        svg+='<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>'; }
-    map.forEach(function(p,i){ var toon=single||i===map.length-1;
-        svg+='<circle cx="'+X(p[0]).toFixed(1)+'" cy="'+Y(p[1]).toFixed(1)+'" r="'+(toon?2.2:1.1)+'" fill="'+col+'"/>'; });
+    if(!single){
+        var pts=map.map(function(p){return X(p[0]).toFixed(1)+','+Y(p[1]).toFixed(1);}).join(' ');
+        // zachte glow-onderlaag + heldere progress-lijn vanaf het eerste punt
+        svg+='<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="5" stroke-linejoin="round" stroke-linecap="round" opacity="0.18"/>';
+        svg+='<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>';
+    }
+    map.forEach(function(p,i){
+        var isLast=i===map.length-1, isFirst=i===0;
+        var r=isLast?4.2:2.6;
+        svg+='<circle cx="'+X(p[0]).toFixed(1)+'" cy="'+Y(p[1]).toFixed(1)+'" r="'+r+'" fill="'+col+'"/>';
+        if(isLast||isFirst||single){
+            svg+='<text x="'+X(p[0]).toFixed(1)+'" y="'+(Y(p[1])-6).toFixed(1)+'" font-size="10" font-weight="bold" fill="'+col+'" text-anchor="middle" font-family="\'JetBrains Mono\',monospace">'+p[1].toFixed(0)+'%</text>';
+        }
+    });
     plot.innerHTML=svg;
 }
 function renderAllCalibrationCurves(){
@@ -11152,6 +11171,7 @@ window.toggleCortexHeadPanel = toggleCortexHeadPanel;
         try { buildDecorEye('engine-eye', 132, false); } catch (e) {}
         try {
             buildDecorEye('wallet-eye', 150, false); // geen statische 6/9-teller
+            try { buildDecorEye('about-eye', 150, false); } catch (e) {} // ocular core in de intro/About-tab
             const wsvg = document.getElementById('wallet-eye');
             if (wsvg) {
                 const NS = 'http://www.w3.org/2000/svg';
