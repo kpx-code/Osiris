@@ -129,9 +129,13 @@ window.osirisRestoreFromCloud = osirisRestoreFromCloud;
  * afstandsbediening komt in FASE 2, wanneer de Oracle-worker deze vlag leest. */
 function _osirisApplyDesiredRunning(want) {
     try {
+        // Alleen handelen bij een EXPLICIETE wens. Is desired_running null/undefined
+        // (nog nooit gezet), dan NIETS doen - anders stopte de sync elke 60s de
+        // draaiende bot (want !null === true), wat de hele handel platlegde.
+        if (want !== true && want !== false) return;
         const running = (typeof isBotRunning !== 'undefined') ? isBotRunning : false;
-        if (want && !running && typeof startAutonomousBot === 'function') startAutonomousBot();
-        else if (!want && running && typeof stopAutonomousBot === 'function') stopAutonomousBot();
+        if (want === true && !running && typeof startAutonomousBot === 'function') startAutonomousBot();
+        else if (want === false && running && typeof stopAutonomousBot === 'function') stopAutonomousBot();
     } catch (e) {}
 }
 
