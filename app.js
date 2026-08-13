@@ -5350,12 +5350,12 @@ function syncNetTab() {
             if (valEl) valEl.innerHTML = `${(p.calProb * 100).toFixed(0)}%<br><span style="font-size:0.5rem;color:${col}">${arrow} ${p.side}</span>`;
             if (sideEl) { sideEl.textContent = p.meta ? 'meta open' : 'dicht'; sideEl.style.color = p.meta ? '#14f195' : '#ff5f7e'; }
             if (metaEl) {
-                if (p.meta) metaEl.innerHTML = `<span style="color:#14f195">poort open &middot; conf ${conf}%</span>`;
+                if (p.meta) metaEl.innerHTML = `<span style="color:#14f195">gate open &middot; conf ${conf}%</span>`;
                 else {
-                    let reden = 'wf-precisie laag';
-                    if (!p.trade) reden = 'onzeker (\u226440% of \u226560%)';
-                    else if (p.agree === false) reden = 'sub-brein oneens';
-                    metaEl.innerHTML = `<span style="color:#ff8a94">poort dicht &middot; ${reden}</span>`;
+                    let reden = 'low wf-precision';
+                    if (!p.trade) reden = 'uncertain (\u226440% or \u226560%)';
+                    else if (p.agree === false) reden = 'core disagrees';
+                    metaEl.innerHTML = `<span style="color:#ff8a94">gate closed &middot; ${reden}</span>`;
                 }
             }
             if (statsEl && wf) statsEl.innerHTML = `<span>prec <b>${(wf.precision * 100).toFixed(0)}%</b></span><span>acc <b>${(wf.acc * 100).toFixed(0)}%</b></span><span>cov <b>${(wf.coverage * 100).toFixed(0)}%</b></span>`;
@@ -5365,9 +5365,9 @@ function syncNetTab() {
             const l2 = (typeof _l2 !== 'undefined') ? _l2 : null;
             const l3 = (typeof _l3 !== 'undefined') ? _l3 : null;
             ens.innerHTML =
-                `<div>L1 &middot; factor-gewichten &mdash; <b style="color:#14f195">adaptief actief</b></div>` +
-                `<div>L2 &middot; logistisch &mdash; ${(l2 && l2.trained) ? `<b style="color:#14f195">getraind</b> &middot; n=${l2.trainedOn || '?'}` : '<span class="muted">niet getraind</span>'}</div>` +
-                `<div>L3 &middot; neuraal &mdash; ${(l3 && l3.trained) ? `<b style="color:#14f195">val ${(l3.valAcc * 100).toFixed(0)}%</b> &middot; blend ${((((l3.weightCap && l3.weightCap.cap) || 0.15)) * 100).toFixed(0)}%` : '<span class="muted">niet getraind</span>'}</div>`;
+                `<div>L1 &middot; factor weights &mdash; <b style="color:#14f195">adaptive active</b></div>` +
+                `<div>L2 &middot; logistic &mdash; ${(l2 && l2.trained) ? `<b style="color:#14f195">trained</b> &middot; n=${l2.trainedOn || '?'}` : '<span class="muted">not trained</span>'}</div>` +
+                `<div>L3 &middot; neural &mdash; ${(l3 && l3.trained) ? `<b style="color:#14f195">val ${(l3.valAcc * 100).toFixed(0)}%</b> &middot; blend ${((((l3.weightCap && l3.weightCap.cap) || 0.15)) * 100).toFixed(0)}%` : '<span class="muted">not trained</span>'}</div>`;
         }
         const sig = document.getElementById('net-signals');
         if (sig && typeof neoMultiState !== 'undefined') {
@@ -10569,7 +10569,7 @@ function buildNeoNet() {
     }
     _neonet.layers = layers; _neonet.conns = conns; _neonet.built = true;
     // labels voor de betekenisvolle lagen
-    _neonet.layerLabels = ['INPUTS', 'INTEGRATIE', 'SUB-BREINEN', 'OSIRIS', 'BESLISSING', 'UITKOMST'];
+    _neonet.layerLabels = ['INPUTS', 'INTEGRATION', 'CORES', 'OSIRIS', 'DECISION', 'OUTPUT'];
     _neonet.subBrainLabels = ['BTC', 'ETH', 'SOL'];
     _neonet.outputLabels = ['LONG', 'NEUTRAAL', 'SHORT'];
 }
@@ -10637,14 +10637,19 @@ function _neoNetDraw(now, canvasId, outId) {
 
     const layers = _neonet.layers, conns = _neonet.conns;
     const _isBigNet = (canvasId === 'neo-net-canvas-big' || canvasId === 'neo-net-canvas-wal');
-    const padX = w * 0.13, padTop = h * 0.20, padBot = h * 0.12, padY = padTop;
+    const padX = w * 0.13, padTop = h * 0.13, padBot = h * 0.11, padY = padTop;
     const _FX = [0, 0.32, 0.49, 0.66, 0.83, 1.0];
     const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
-    // posities per node
-    const pos = layers.map((nodes, li) => nodes.map((nd, i) => {
-        const colH = h - padTop - padBot, gap = colH / Math.max(1, nodes.length - 1);
-        return { x: padX + _fxOf(li) * (w - padX * 2), y: nodes.length === 1 ? padTop + colH / 2 : padTop + i * gap };
-    }));
+    // Per-laag verticale spreiding: inputs/integratie vol uitgespreid (meer ruimte tussen
+    // de punten), en cores/osiris/beslissing compacter EN gecentreerd zodat die punten
+    // dichter bij elkaar staan. Alles blijft binnen het canvas zichtbaar.
+    const colH = h - padTop - padBot, cyMid = padTop + colH / 2;
+    const _SPREAD = [1.0, 0.98, 0.52, 0.60, 0.52, 0.40];
+    const _spreadOf = li => (_SPREAD[li] != null ? _SPREAD[li] : 1.0);
+    const pos = layers.map((nodes, li) => {
+        const h2 = colH * _spreadOf(li), top = cyMid - h2 / 2, gap = h2 / Math.max(1, nodes.length - 1);
+        return nodes.map((nd, i) => ({ x: padX + _fxOf(li) * (w - padX * 2), y: nodes.length === 1 ? cyMid : top + i * gap }));
+    });
 
     // ---- echte input-activaties injecteren + forward-propagatie (visueel) ----
     const inp = neoNetInputs();
@@ -10782,7 +10787,7 @@ function _neoNetDraw(now, canvasId, outId) {
 
     // ---- laag-labels (in de ondermarge, boven de HTML-voettekst) ----
     ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = 'center';
-    const lnames = (_neonet.layerLabels) || ['INPUTS', 'INTEGRATIE', 'SUB-BREINEN', 'OSIRIS', 'BESLISSING'];
+    const lnames = (_neonet.layerLabels) || ['INPUTS', 'INTEGRATION', 'CORES', 'OSIRIS', 'DECISION', 'OUTPUT'];
     for (let li = 0; li < layers.length; li++) {
         ctx.fillStyle = 'rgba(92,116,136,0.85)';
         ctx.fillText(lnames[li], pos[li][0].x, h - padBot * 0.32);
@@ -12028,9 +12033,9 @@ function _deepnetOverlayBig() {
             } else {
                 meta = '<span style="color:var(--red)">dicht</span>';
                 // waarom dicht? (leest de gate-velden uit predict())
-                if (!p.trade) reden = ' <span class="muted">(onzeker \u00b7 poort vraagt \u226440% of \u226560%)</span>';
-                else if (p.agree === false) reden = ' <span class="muted">(sub-brein wijst andere kant op)</span>';
-                else reden = ' <span class="muted">(walk-forward-precisie onder drempel)</span>';
+                if (!p.trade) reden = ' <span class="muted">(uncertain \u00b7 gate needs \u226440% or \u226560%)</span>';
+                else if (p.agree === false) reden = ' <span class="muted">(core points the other way)</span>';
+                else reden = ' <span class="muted">(walk-forward precision below threshold)</span>';
             }
             return `<span style="color:${c}">${key} ${cal} ${p.side || ''}</span> &middot; meta ${meta}${reden}`;
         }).join('<br>');
