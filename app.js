@@ -2249,8 +2249,12 @@ function resetWallet() {
 
     updateWalletUI();
     updatePendingOrdersUI();
-    console.log(`Wallet gereset naar ${walletSymbol()}${walletState.startingCapital} (${walletState.currency})`);
+    try { localStorage.removeItem('osirisSessionLog'); localStorage.removeItem('osirisLearningLog'); } catch (e) {}
+    try { updateWalletUI(); updatePendingOrdersUI(); syncWalletLive(); } catch (e) {}
+    try { renderOsirisShadowPanel(); } catch (e) {}
+    try { console.log(`Wallet gereset naar ${walletSymbol()}${walletState.startingCapital} (${walletState.currency})`); } catch (e) { console.log('Wallet gereset.'); }
 }
+window.resetWallet = resetWallet;
 
 // ============================================================
 // UI UPDATES
@@ -5405,32 +5409,31 @@ function syncWalletLive() {
                 la.textContent = `${l.action} ${mk} ${l.side || ''} @ $${pr}${pnl} \u00b7 ${l.timestamp || ''}`.replace(/\s+/g, ' ').trim();
             } else la.textContent = 'nog geen acties';
         }
-        // ocular-core live feed: spiegel de overzicht-signalen naar de wallet-eye
-        // (updateFlowHud vult flow-* elke seconde, los van de actieve tab)
-        const _fm = ['vfm', 'er', 'db', 'chaos', 'sent', 'prob', 'cal', 'regime', 'node', 'mid'];
-        for (const _k of _fm) {
-            const src = document.getElementById('flow-' + _k), dst = document.getElementById('flow-' + _k + '-w');
-            if (src && dst) dst.textContent = src.textContent;
-        }
-        // multi-markt readout in het oogcentrum + mini-gauges (BTC/ETH/SOL live)
+        // Wallet-eye: ronddraaiende market-balken + mini-gauges (BTC/ETH/SOL live).
+        // Balklengte ~ confidence, kleur = kant (groen long / rood short) als de meta-poort
+        // open is, anders gedimd de basiskleur van de markt.
         if (typeof OsirisDeepNet !== 'undefined') {
+            const BASECOL = { btc: '#f7931a', eth: '#8aa0ff', sol: '#14f195' };
             for (const key of ['BTC', 'ETH', 'SOL']) {
                 const k = key.toLowerCase();
                 const pp = OsirisDeepNet.last[key];
-                const el = document.getElementById('we-mkt-' + k);
+                const bar = document.getElementById('we-bar-' + k);
                 const ring = document.getElementById('we-ring-' + k);
                 const rval = document.getElementById('we-val-' + k);
                 if (!pp) {
-                    if (el) { el.textContent = key + ' --'; el.setAttribute('opacity', '0.4'); }
+                    if (bar) { const c = parseFloat(bar.dataset.circ) || 1000; bar.setAttribute('stroke-dasharray', `${(c * 0.05).toFixed(0)} ${(c * 0.95).toFixed(0)}`); bar.setAttribute('opacity', '0.25'); }
                     if (ring) ring.style.setProperty('--cc-pct', '0');
                     if (rval) rval.textContent = '--';
                     continue;
                 }
-                const arrow = pp.side === 'SHORT' ? '\u2193' : '\u2191';
                 const col = pp.meta ? (pp.side === 'SHORT' ? '#ff5f7e' : '#14f195') : '#5c7488';
-                if (el) {
-                    el.textContent = `${key} ${(pp.calProb * 100).toFixed(0)}% ${arrow}${pp.meta ? '' : ' abst'}`;
-                    el.setAttribute('opacity', pp.meta ? '1' : '0.55');
+                if (bar) {
+                    const circ = parseFloat(bar.dataset.circ) || 1000;
+                    const conf = Math.max(0.05, Math.min(1, pp.conf || 0));
+                    const barLen = circ * (0.08 + 0.34 * conf);   // langer = meer confidence
+                    bar.setAttribute('stroke-dasharray', `${barLen.toFixed(0)} ${(circ - barLen).toFixed(0)}`);
+                    bar.setAttribute('stroke', pp.meta ? col : BASECOL[k]);
+                    bar.setAttribute('opacity', pp.meta ? '0.95' : '0.4');
                 }
                 if (ring) { ring.style.setProperty('--cc-pct', String(Math.round((pp.conf || 0) * 100))); ring.style.setProperty('--cc-col', col); }
                 if (rval) { rval.textContent = `${(pp.calProb * 100).toFixed(0)}%`; rval.style.color = col; }
@@ -10730,31 +10733,16 @@ function _neoNetDraw(now, canvasId, outId) {
         const signal = Math.max(0, Math.min(1, aAct * bAct));     // echte signaalsterkte over deze edge
         const baseCol = srcCol[cn.li][cn.a];
         const hot = signal > 0.28;
-        const fireCol = hot ? OSIRIS_NEON : baseCol;
-        // 1) zwakke structuurlijn (altijd leesbaar) met lichte shimmer zodat het net leeft
-        const shimmer = 0.5 + 0.5 * Math.sin(now / 480 * (0.6 + cn.sp) + cn.flow * 6.28);
-        ctx.strokeStyle = `rgba(${baseCol},${(0.045 + 0.16 * signal + 0.05 * shimmer).toFixed(3)})`;
-        ctx.lineWidth = 0.6 + 1.3 * signal;
+        const col = hot ? OSIRIS_NEON : baseCol;
+        // De LIJN zelf flasht: de verbinding tussen de parameters licht op, helderheid
+        // pulseert (data bepaalt de basis + hoe fel). Geen los reizend deeltje meer.
+        const flash = 0.5 + 0.5 * Math.sin(now / 340 * (0.7 + cn.sp) + cn.flow * 6.28);
+        const a = 0.05 + 0.30 * signal + (0.10 + 0.34 * signal) * flash;
+        ctx.strokeStyle = `rgba(${col},${a.toFixed(3)})`;
+        ctx.lineWidth = 0.6 + 2.2 * signal;
+        if (hot) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.9)`; ctx.shadowBlur = (4 + 9 * signal) * (0.4 + 0.6 * flash); }
         ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
-        // 2) SYNAPS-vuur: een helder segment reist van bron -> doel en licht de lijn
-        //    plaatselijk op (zoals een signaal door een axon vuurt). Lengte, dikte,
-        //    snelheid en helderheid volgen de echte co-activatie -> data-waar en levendig.
-        const speed = 0.30 + 0.90 * signal;
-        const headT = (now / 1000 * speed + cn.flow) % 1;         // koppositie 0..1
-        const tailT = Math.max(0, headT - (0.12 + 0.12 * signal));
-        const hx = A.x + (B.x - A.x) * headT, hy = A.y + (B.y - A.y) * headT;
-        const tx = A.x + (B.x - A.x) * tailT, ty = A.y + (B.y - A.y) * tailT;
-        ctx.strokeStyle = `rgba(${fireCol},${(0.22 + 0.55 * signal).toFixed(3)})`;
-        ctx.lineWidth = 1.1 + 2.6 * signal;
-        ctx.lineCap = 'round';
-        if (signal > 0.12) { ctx.save(); ctx.shadowColor = `rgba(${fireCol},0.95)`; ctx.shadowBlur = 6 + 11 * signal; }
-        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
-        // heldere kop-flits (het vurende uiteinde van de synaps)
-        ctx.beginPath(); ctx.arc(hx, hy, 1 + 2.2 * signal, 0, 6.283);
-        ctx.fillStyle = `rgba(${fireCol},${(0.5 + 0.4 * signal).toFixed(3)})`;
-        ctx.fill();
-        if (signal > 0.12) ctx.restore();
-        ctx.lineCap = 'butt';
+        if (hot) ctx.restore();
     }
 
     // ---- neuronen ----
@@ -11162,19 +11150,25 @@ window.toggleCortexHeadPanel = toggleCortexHeadPanel;
             const wsvg = document.getElementById('wallet-eye');
             if (wsvg) {
                 const NS = 'http://www.w3.org/2000/svg';
-                const g = document.createElementNS(NS, 'g');
-                g.setAttribute('text-anchor', 'middle');
-                g.setAttribute('font-family', "'JetBrains Mono',monospace");
-                g.setAttribute('font-weight', 'bold');
-                g.setAttribute('font-size', '15');
-                [['btc', 174, '#f7931a'], ['eth', 192, '#8aa0ff'], ['sol', 210, '#14f195']].forEach(([k, y, c]) => {
-                    const t = document.createElementNS(NS, 'text');
-                    t.setAttribute('x', '500'); t.setAttribute('y', String(y));
-                    t.setAttribute('fill', c); t.setAttribute('id', 'we-mkt-' + k);
-                    t.textContent = k.toUpperCase() + ' --';
-                    g.appendChild(t);
-                });
-                wsvg.appendChild(g); // ná buildDecorEye => bovenop de pupil
+                // Ronddraaiende balken per markt (BTC/ETH/SOL) om het oog i.p.v. tekst.
+                // Ná buildDecorEye toegevoegd zodat ze niet in de sentiment-herkleuring vallen.
+                const bars = [['btc', 186, '#f7931a', '16s', 0], ['eth', 172, '#8aa0ff', '21s', 1], ['sol', 158, '#14f195', '27s', 0]];
+                for (const [k, r, c, dur, rev] of bars) {
+                    const circ = 2 * Math.PI * r;
+                    const circle = document.createElementNS(NS, 'circle');
+                    circle.setAttribute('cx', '500'); circle.setAttribute('cy', '190'); circle.setAttribute('r', String(r));
+                    circle.setAttribute('fill', 'none'); circle.setAttribute('stroke', c);
+                    circle.setAttribute('stroke-width', '6'); circle.setAttribute('stroke-linecap', 'round');
+                    circle.setAttribute('stroke-dasharray', `${(circ * 0.10).toFixed(0)} ${(circ * 0.90).toFixed(0)}`);
+                    circle.setAttribute('opacity', '0.35'); circle.setAttribute('id', 'we-bar-' + k);
+                    circle.dataset.circ = circ.toFixed(1);
+                    const anim = document.createElementNS(NS, 'animateTransform');
+                    anim.setAttribute('attributeName', 'transform'); anim.setAttribute('type', 'rotate');
+                    anim.setAttribute('from', `${rev ? 360 : 0} 500 190`); anim.setAttribute('to', `${rev ? 0 : 360} 500 190`);
+                    anim.setAttribute('dur', dur); anim.setAttribute('repeatCount', 'indefinite');
+                    circle.appendChild(anim);
+                    wsvg.appendChild(circle);
+                }
             }
         } catch (e) {}
         try { initStarmap(); } catch (e) {}
