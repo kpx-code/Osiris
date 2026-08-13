@@ -7327,6 +7327,7 @@ function osirisReview() {
         // zijn (binnen een kleine marge) wordt verdeeld - want dan is er geen duidelijke
         // beste keuze en spreidt verdelen het risico zonder verwachte winst op te geven.
         const MIN_PROB = 0.55;
+        const EQUAL_MARGIN = 0.05;   // kansen binnen 5 procentpunt = "gelijk"
         const eligible = cands.filter(c => c.side && c.prob >= MIN_PROB);
         const alloc = {};
         for (const c of cands) alloc[c.sym] = 0;
@@ -7336,15 +7337,29 @@ function osirisReview() {
             osirisState.note = `${eligible[0].sym} is de enige kans (${(eligible[0].prob * 100 | 0)}%) - volledige equity.`;
             alloc[eligible[0].sym] = 1;
         } else {
-            // MULTI-MARKT (hersteld 12-08): verdeel de equity kans-gewogen over ALLE
-            // geschikte munten i.p.v. winner-take-all, zodat ETH/SOL blijven meedraaien.
-            // De sterkste markt krijgt nog steeds het grootste deel (gewicht = kans^2),
-            // maar elke geschikte markt houdt een deel zodat hij kan handelen.
-            const weights = eligible.map(c => ({ sym: c.sym, w: c.prob * c.prob }));
-            const sumW = weights.reduce((a, x) => a + x.w, 0) || 1;
-            for (const x of weights) alloc[x.sym] = x.w / sumW;
-            const rank = eligible.map(c => `${c.sym} ${(alloc[c.sym] * 100 | 0)}%`).join(' \u00b7 ');
-            osirisState.note = `${eligible.length} munten geschikt - equity kans-gewogen (${rank}).`;
+            // bepaal welke munten binnen de gelijk-marge van de beste zitten
+            const best = eligible[0];   // al gesorteerd op kans (hoogste eerst)
+            const tied = eligible.filter(c => (best.prob - c.prob) <= EQUAL_MARGIN);
+            if (tied.length === 1) {
+                // duidelijke winnaar -> alles op de beste kans (winner-take-all)
+                alloc[best.sym] = 1;
+                const second = eligible[1];
+                osirisState.note = `${best.sym} heeft de beste kans (${(best.prob * 100 | 0)}% vs ${(second.prob * 100 | 0)}%) - volledige equity op de sterkste markt.`;
+            } else {
+                // meerdere munten vrijwel gelijk -> verdeel kans-gewogen over alleen die
+                const weights = tied.map(c => ({ sym: c.sym, w: c.prob * c.prob }));
+                const sumW = weights.reduce((a, x) => a + x.w, 0);
+                for (const x of weights) alloc[x.sym] = sumW > 0 ? x.w / sumW : 1 / tied.length;
+                const probs = tied.map(c => c.prob);
+                const spread = Math.max(...probs) - Math.min(...probs);
+                if (spread < 0.03) {
+                    const eq = 1 / tied.length;
+                    for (const c of tied) alloc[c.sym] = eq;
+                    osirisState.note = `${tied.length} munten vrijwel gelijk (~${(probs[0] * 100 | 0)}%) - elk ${(eq * 100 | 0)}% equity.`;
+                } else {
+                    osirisState.note = `${tied.length} munten dicht bij elkaar - equity kans-gewogen over die markten.`;
+                }
+            }
         }
         osirisState.allocations = alloc;
         osirisState.lastReview = Date.now();
@@ -10715,33 +10730,31 @@ function _neoNetDraw(now, canvasId, outId) {
         const signal = Math.max(0, Math.min(1, aAct * bAct));     // echte signaalsterkte over deze edge
         const baseCol = srcCol[cn.li][cn.a];
         const hot = signal > 0.28;
-        const col = hot ? OSIRIS_NEON : baseCol;
-        // FLASH-shimmer zodat de lijnen ALTIJD leven; data bepaalt hoe fel + hoe dik.
+        const fireCol = hot ? OSIRIS_NEON : baseCol;
+        // 1) zwakke structuurlijn (altijd leesbaar) met lichte shimmer zodat het net leeft
         const shimmer = 0.5 + 0.5 * Math.sin(now / 480 * (0.6 + cn.sp) + cn.flow * 6.28);
-        const lineA = 0.05 + 0.32 * signal + 0.11 * shimmer * (0.35 + signal);
-        ctx.strokeStyle = `rgba(${col},${lineA.toFixed(3)})`;
-        ctx.lineWidth = 0.5 + 2.4 * signal;
-        if (hot) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.9)`; ctx.shadowBlur = 5 + 10 * signal; }
+        ctx.strokeStyle = `rgba(${baseCol},${(0.045 + 0.16 * signal + 0.05 * shimmer).toFixed(3)})`;
+        ctx.lineWidth = 0.6 + 1.3 * signal;
         ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
-        if (hot) ctx.restore();
-        // gerichte data-puls: ALTIJD zichtbaar (baseline-flash), feller + sneller bij meer signaal.
-        const speed = 0.28 + 0.95 * signal;
-        const t = (now / 1000 * speed + cn.flow) % 1;             // 0..1 van bron naar doel
-        const px = A.x + (B.x - A.x) * t, py = A.y + (B.y - A.y) * t;
-        const pr = 0.7 + 2.2 * signal;
-        const pulseA = 0.22 + 0.63 * signal;
-        const pulseCol = hot ? OSIRIS_NEON : col;
-        if (signal > 0.12) {   // glow alleen op sterkere pulsen (mobielvriendelijk)
-            ctx.save();
-            ctx.shadowColor = `rgba(${hot ? OSIRIS_NEON : '0,217,255'},0.9)`; ctx.shadowBlur = 5 + 9 * signal;
-            ctx.beginPath(); ctx.arc(px, py, pr, 0, 6.283);
-            ctx.fillStyle = `rgba(${pulseCol},${pulseA.toFixed(3)})`;
-            ctx.fill(); ctx.restore();
-        } else {
-            ctx.beginPath(); ctx.arc(px, py, pr, 0, 6.283);
-            ctx.fillStyle = `rgba(${pulseCol},${pulseA.toFixed(3)})`;
-            ctx.fill();
-        }
+        // 2) SYNAPS-vuur: een helder segment reist van bron -> doel en licht de lijn
+        //    plaatselijk op (zoals een signaal door een axon vuurt). Lengte, dikte,
+        //    snelheid en helderheid volgen de echte co-activatie -> data-waar en levendig.
+        const speed = 0.30 + 0.90 * signal;
+        const headT = (now / 1000 * speed + cn.flow) % 1;         // koppositie 0..1
+        const tailT = Math.max(0, headT - (0.12 + 0.12 * signal));
+        const hx = A.x + (B.x - A.x) * headT, hy = A.y + (B.y - A.y) * headT;
+        const tx = A.x + (B.x - A.x) * tailT, ty = A.y + (B.y - A.y) * tailT;
+        ctx.strokeStyle = `rgba(${fireCol},${(0.22 + 0.55 * signal).toFixed(3)})`;
+        ctx.lineWidth = 1.1 + 2.6 * signal;
+        ctx.lineCap = 'round';
+        if (signal > 0.12) { ctx.save(); ctx.shadowColor = `rgba(${fireCol},0.95)`; ctx.shadowBlur = 6 + 11 * signal; }
+        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
+        // heldere kop-flits (het vurende uiteinde van de synaps)
+        ctx.beginPath(); ctx.arc(hx, hy, 1 + 2.2 * signal, 0, 6.283);
+        ctx.fillStyle = `rgba(${fireCol},${(0.5 + 0.4 * signal).toFixed(3)})`;
+        ctx.fill();
+        if (signal > 0.12) ctx.restore();
+        ctx.lineCap = 'butt';
     }
 
     // ---- neuronen ----
