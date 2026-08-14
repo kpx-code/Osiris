@@ -1845,6 +1845,9 @@ function startAutonomousBot(isAutoRestart = false) {
     osirisLiveEnabled = true;
     try { localStorage.setItem('osirisLiveEnabled', 'true'); } catch (e) {}
     try { const _shadowCb = document.getElementById('osiris-shadow-toggle'); if (_shadowCb) _shadowCb.checked = true; } catch (e) {}
+    // Reset een eventueel vastgelopen circuit breaker bij elke start. Zonder recente
+    // Osiris-trades kon die zichzelf nooit hervatten en blokkeerde hij ETH/SOL stil.
+    try { if (typeof OsirisGuard !== 'undefined' && OsirisGuard.paused) { OsirisGuard.paused = false; if (OsirisGuard._persist) OsirisGuard._persist(); try { logAdaptation('Circuit breaker: gereset bij start', 'vastgelopen pauze opgeheven zodat ETH/SOL kunnen instappen'); } catch (e) {} } } catch (e) {}
 
     // Badge in de (ingeklapte) ENGINE CONFIGURATION-header: toont in één
     // oogopslag de executiemodus én hoe de sessie gestart is (manual vs.
@@ -5365,7 +5368,11 @@ function syncNetTab() {
             ring.style.setProperty('--cc-col', col);
             if (cardEl) cardEl.style.setProperty('--cc-col', col);
             const arrow = p.side === 'SHORT' ? '\u2193' : '\u2191';
-            if (valEl) valEl.innerHTML = `${(p.calProb * 100).toFixed(0)}%<br><span style="font-size:0.5rem;color:${col}">${arrow} ${p.side}</span>`;
+            // Bij onzekerheid (geen trade, bijna 50/50) tonen we NEUTRAL i.p.v. LONG/SHORT,
+            // anders staat er "51% LONG" terwijl de poort "uncertain" is - dat klopt niet.
+            const dirLabel = p.trade ? `${arrow} ${p.side}` : '&middot; NEUTRAL';
+            const dirCol = p.trade ? col : '#7d99ac';
+            if (valEl) valEl.innerHTML = `${(p.calProb * 100).toFixed(0)}%<br><span style="font-size:0.5rem;color:${dirCol}">${dirLabel}</span>`;
             if (sideEl) { sideEl.textContent = p.meta ? 'meta open' : 'dicht'; sideEl.style.color = p.meta ? '#14f195' : '#ff5f7e'; }
             if (metaEl) {
                 if (p.meta) metaEl.innerHTML = `<span style="color:#14f195">gate open &middot; conf ${conf}%</span>`;
@@ -7613,9 +7620,9 @@ function osirisShadowTick() {
             const sym = p.sym;
             if (sym === 'BTC') continue;                    // BTC loopt via de hoofd-engine
             // INGREEP 2 - circuit breaker: geen nieuwe Osiris-entries zolang gepauzeerd
-            if (typeof OsirisGuard !== 'undefined' && OsirisGuard.ENABLED && OsirisGuard.paused) continue;
+            if (typeof OsirisGuard !== 'undefined' && OsirisGuard.ENABLED && OsirisGuard.paused) { osirisState.skip[sym] = 'circuit breaker gepauzeerd'; continue; }
             const a = alloc[sym] || 0;
-            if (a <= 0 || !p.side) continue;
+            if (a <= 0 || !p.side) { if (a <= 0 && p.side) osirisState.skip[sym] = 'geen allocatie (andere munt won)'; continue; }
             // al een open positie op deze munt? niet dubbelen
             if (openPositions.some(x => (x.symbol === MULTI_BINANCE[sym]))) { osirisState.skip[sym] = 'al open'; continue; }
             // cooldown: max 1 nieuwe entry per munt per 60s
@@ -11875,7 +11882,17 @@ const OsirisGuard = {
         if (!this.ENABLED) { if (this.paused) { this.paused = false; this._persist(); } return; }
         const { exp, n } = this.rollingExpectancy();
         this.lastExpectancy = exp;
-        if (exp == null) return;
+        if (exp == null) {
+            // Geen (genoeg) recente Osiris-trades om op te oordelen. Blijft de breaker dan
+            // gepauzeerd hangen (uit een oude verliezende sessie), dan kan hij zichzelf nooit
+            // hervatten en blokkeert hij ETH/SOL eeuwig. Daarom hier resetten.
+            if (this.paused) {
+                this.paused = false; this._persist();
+                try { logAdaptation('Circuit breaker: gereset', 'geen recente Osiris-trades om op te oordelen - pauze opgeheven zodat ETH/SOL weer kunnen instappen'); } catch (e) {}
+                try { updateDeepNetPanel(); } catch (e) {}
+            }
+            return;
+        }
         if (!this.paused && exp < this.FLOOR) {
             this.paused = true; this._persist();
             try { logAdaptation('Circuit breaker: Osiris-entries GEPAUZEERD', `Rollende expectancy ${(exp * 100).toFixed(3)}% over ${n} trades onder de vloer - geen nieuwe entries tot herstel`); } catch (e) {}
@@ -12129,7 +12146,8 @@ function _deepnetOverlayBig() {
                 else if (p.agree === false) reden = ' <span class="muted">(core points the other way)</span>';
                 else reden = ' <span class="muted">(walk-forward precision below threshold)</span>';
             }
-            return `<span style="color:${c}">${key} ${cal} ${p.side || ''}</span> &middot; meta ${meta}${reden}`;
+            const dir = p.trade ? (p.side || '') : 'NEUTRAL';
+            return `<span style="color:${c}">${key} ${cal} ${dir}</span> &middot; meta ${meta}${reden}`;
         }).join('<br>');
     }
 }
