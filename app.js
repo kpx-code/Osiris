@@ -7635,9 +7635,13 @@ function osirisShadowTick() {
                         // de ANDERE kant op wijst (confident tegen). Is de DeepNet onzeker
                         // (meta dicht), dan laten we de Osiris-pick door - anders ligt bijna
                         // alles stil zodra de DeepNet even geen sterk signaal heeft.
-                        if (dnp.meta && dnp.side !== p.side) {
-                            try { logAdaptation(`Osiris slaat ${sym} ${p.side} over`, `DeepNet wijst mét open poort de andere kant op (${dnp.side}) - tegengestelde trade vermeden`); } catch (e) {}
-                            osirisState.skip[sym] = `DeepNet tegengesteld (${dnp.side})`;
+                        // Alleen blokkeren als de DeepNet STERK de andere kant op wijst
+                        // (conf >= 55%). Bij een matige onenigheid volgen we de sub-brein-pick,
+                        // anders blijven ETH/SOL eeuwig geblokkeerd zodra DeepNet en cores het
+                        // oneens zijn (DeepNet SHORT vs sub-brein LONG) en handelt alleen BTC.
+                        if (dnp.meta && dnp.side !== p.side && (dnp.conf || 0) >= 0.55) {
+                            try { logAdaptation(`Osiris slaat ${sym} ${p.side} over`, `DeepNet wijst STERK de andere kant op (${dnp.side}, conf ${((dnp.conf || 0) * 100 | 0)}%) - tegengestelde trade vermeden`); } catch (e) {}
+                            osirisState.skip[sym] = `DeepNet sterk tegengesteld (${dnp.side})`;
                             continue;
                         }
                         if (dnp.meta && dnp.side === p.side) dnCalProb = dnp.calProb;   // gekalibreerde kans bij bevestiging
