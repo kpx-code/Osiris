@@ -918,16 +918,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <section class="tab" id="tab-charts">
       <div class="eyebrow">Markt &middot; prijs &amp; volume &middot; view-only (bot rekent altijd op 15m)</div><h1 class="h">MARKET CHART</h1>
 
-  <div class="wrap">
-    <div class="waypoint">Waypoint 01 &middot; Market feed</div>
-    <div class="sec-eyebrow">Market Chart</div>
-    <h2 class="sec">The market, with every tool</h2>
-    <p class="body">Multi-timeframe candles from 1m to 4h, with Fibonacci scales, UOTAM nodes, moving average, RSI, pattern recognition and projection lines &mdash; all toggleable, decoupled from the bot's fixed 15m analysis.</p>
-    <div class="mock">
-      <div class="mock-head"><span class="dot" style="background:var(--cyan);"></span><span class="mock-title">BTC/USDT &middot; 15m</span><span style="flex:1;"></span><span class="mono" style="font-size:0.8rem; color:var(--tx);" id="mkt-price">&mdash;</span></div>
-      <div class="mock-body">
-        <div class="hud chart-clean">
-            <div class="eyebrow chart-title"><span class="chart-bar"></span>Market Chart</div>
+  <div class="panel" style="margin-top:16px; padding:16px;">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
+      <span class="dot" style="background:var(--cyan);"></span><span class="mock-title" style="color:var(--cyan);">BTC/USDT &middot; 15m</span><span style="flex:1;"></span><span class="mono" style="font-size:0.8rem; color:var(--tx);" id="mkt-price">&mdash;</span>
+    </div>
 
             <div class="timeframe-selector" style="margin-bottom: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                 <button onclick="changeTimeframe('1m')" id="btn-1m" class="btn btn-mini">1m</button>
@@ -1087,9 +1081,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
                 <div id="vp-legend" style="padding:6px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:var(--dim); line-height:1.6;"></div>
               </div>
             </div>
-        </div>
-      </div>
-    </div>
   </div>
 
 <div class="hud" style="margin-top:28px;">
