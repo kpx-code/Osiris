@@ -568,9 +568,18 @@ const chart = LightweightCharts.createChart(chartContainer, {
     crosshair: {
         mode: LightweightCharts.CrosshairMode.Normal,
     },
+    rightPriceScale: {
+        visible: true,              // prijsschaal rechts
+        borderVisible: true,
+        borderColor: '#2a2e3e',
+        scaleMargins: { top: 0.08, bottom: 0.12 },
+    },
     timeScale: {
-        timeVisible: true,
+        timeVisible: true,          // tijdschaal onderaan
         secondsVisible: false,
+        visible: true,
+        borderVisible: true,
+        borderColor: '#2a2e3e',
     },
 });
 
@@ -6457,8 +6466,55 @@ async function switchCoin(sym) {
 window.switchCoin = switchCoin;
 
 // Werk de System Data-sectie bij voor de gekozen munt (headless waarden uit de motor).
+// Vult ALLE system-panelen (METERS, fib micro/meso/macro, market status, live
+// volume, NN-ritme) met de data van de gekozen munt. Voor BTC doet de live
+// BTC-loop dit met de volledige engine; dit is voor ETH/SOL (uit neoMultiState).
+function _fillSystemForCoin(m, sym) {
+    try {
+        const C = m.candles; if (!C || !C.length) return;
+        const price = m.lastPrice || parseFloat(C[C.length - 1][4]);
+        const set = (id, txt, col) => { const e = document.getElementById(id); if (e) { e.innerText = txt; if (col) e.style.color = col; } };
+        const vfm = m.vfm || 0, chaos = m.chaos || 0;
+        // ER (efficiency ratio) uit de laatste 15 closes
+        const closes = C.slice(-15).map(c => parseFloat(c[4]));
+        let er = 0;
+        if (closes.length > 2) { const net = Math.abs(closes[closes.length - 1] - closes[0]); let vol = 0; for (let i = 1; i < closes.length; i++) vol += Math.abs(closes[i] - closes[i - 1]); er = vol > 0 ? (net / vol) * 2 : 0; }
+        // DB (delta balance): netto (close-open) over laatste 10 candles, in %
+        let db = 0; for (const c of C.slice(-10)) db += (parseFloat(c[4]) - parseFloat(c[1])); db = db / (price || 1) * 100;
+        const vfmCol = Math.abs(vfm) < 0.1 ? '#808080' : (vfm > 0 ? '#00ffcc' : '#ef5350');
+        set('vfm-display', vfm.toFixed(3), vfmCol);
+        set('vfm-status', Math.abs(vfm) < 0.1 ? 'NEUTRAAL' : (Math.abs(vfm) > 1.5 ? 'EXTREME' : 'SIGNIFICANT'), vfmCol);
+        set('er-display', er.toFixed(2)); set('er-status', er > 1.2 ? 'HIGH ENERGY' : 'LOW ENERGY', er > 1.2 ? '#00ffcc' : '#ef5350');
+        set('db-display', db.toFixed(2)); set('db-status', db > 0 ? 'BULLISH' : 'BEARISH', db > 0 ? '#00ffcc' : '#ef5350');
+        set('chaos-display', chaos.toFixed(2) + '%'); set('chaos-status', chaos > CONF_CHAOS_TH ? 'VOLATIEL' : 'STABIEL', chaos > CONF_CHAOS_TH ? '#ef5350' : '#00ffcc');
+        // FIB micro/meso/macro: hoog/laag over 9/36/144 candles
+        const hiLo = (nn) => { const seg = C.slice(-nn); let hi = -Infinity, lo = Infinity; for (const c of seg) { const h = parseFloat(c[2]), l = parseFloat(c[3]); if (h > hi) hi = h; if (l < lo) lo = l; } return { hi, lo }; };
+        const fmt = (typeof formatChartPrice === 'function') ? formatChartPrice : (v => '$' + Number(v).toLocaleString());
+        const mic = hiLo(9), mes = hiLo(36), mac = hiLo(144);
+        set('mic-bull', fmt(mic.hi)); set('mic-bear', fmt(mic.lo));
+        set('mes-bull', fmt(mes.hi)); set('mes-bear', fmt(mes.lo));
+        set('mac-bull', fmt(mac.hi)); set('mac-bear', fmt(mac.lo));
+        // Market status uit sub-brein
+        const side = m.bestSide, prob = m.bestProb || 0.5;
+        const strong = prob >= 0.6 ? 'zeer hoog' : (prob >= 0.55 ? 'hoog' : 'gemiddeld');
+        set('market-status-main', side === 'SHORT' ? 'BEARISH DRUK' : (side === 'LONG' ? 'BULLISH DRUK' : 'NEUTRAAL'), side === 'SHORT' ? '#ef5350' : (side === 'LONG' ? '#00ffcc' : '#aaa'));
+        set('probability-score', `Confidence: ${strong} (${(prob * 100).toFixed(0)}%)`, prob >= 0.55 ? '#00ffcc' : '#aaa');
+        // Live volume (laatste candle) + score uit vfm
+        const lastVol = parseFloat(C[C.length - 1][5]) || 0;
+        set('live-volume', lastVol.toFixed(4));
+        set('vol-score', Math.round(50 + Math.max(-50, Math.min(50, vfm * 30))) + '/100');
+        set('vol-rate', chaos.toFixed(1) + '%');
+        // NN-ritme
+        const nnState = (typeof _nnState !== 'undefined') ? _nnState[sym] : null;
+        if (nnState && nnState.period) set('nn-display', `~${Math.round(nnState.period / 60000)}min ritme \u00b7 ${nnState.caps.length} caps`);
+        else if (m.nnRitmeMin) set('nn-display', `~${m.nnRitmeMin}min ritme \u00b7 ${m.nnCaps || 0} caps`);
+    } catch (e) {}
+}
+window._fillSystemForCoin = _fillSystemForCoin;
+
 function renderSystemDataTab(sym) {
     const m = neoMultiState.markets[sym];
+    if (sym !== 'BTC') { try { _fillSystemForCoin(m, sym); } catch (e) {} }   // vul alle system-panelen per munt
     const el = document.getElementById('system-data-multi');
     if (!el) return;
     if (!m || m.lastPrice == null) { el.innerHTML = `<span style="color:var(--text-dim);">${sym}: nog geen data</span>`; return; }
@@ -8699,10 +8755,10 @@ function startLiveUpdates() {
 
                     // UI Updates
                     const statusDisplay = document.getElementById('market-status-main');
-                    if (statusDisplay) statusDisplay.innerText = `${decisionResult.decision}`;
+                    if (_btcTabActive && statusDisplay) statusDisplay.innerText = `${decisionResult.decision}`;
 
                     // FRACTALE TARGETS UPDATE
-                    if (decisionResult.targets) {
+                    if (_btcTabActive && decisionResult.targets) {
                         document.getElementById('mic-bull').innerText = formatChartPrice(parseFloat(decisionResult.targets.micro.bullish));
                         document.getElementById('mic-bear').innerText = formatChartPrice(parseFloat(decisionResult.targets.micro.bearish));
                         document.getElementById('mes-bull').innerText = formatChartPrice(parseFloat(decisionResult.targets.meso.bullish));
@@ -8713,7 +8769,7 @@ function startLiveUpdates() {
 
                     // Confidence Score
                     const confEl = document.getElementById('probability-score');
-                    if (confEl) {
+                    if (_btcTabActive && confEl) {
                         confEl.innerText = `Confidence: ${decisionResult.probability}`;
                         confEl.style.color = (decisionResult.probability.includes('hoog') || decisionResult.probability.includes('Hoog')) ? '#00ffcc' : '#aaa';
                     }
