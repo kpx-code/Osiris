@@ -4234,6 +4234,17 @@ function checkIctExit(pos) {
 }
 
 function commitPositionEntry(position, reasonText) {
+    // ANTI-CHURN (15-08): geen tweede positie in dezelfde markt + richting. Voorheen
+    // kon een wachtende order een near-identieke positie openen terwijl de oude nog
+    // (net) open was -> sluiten + heropenen van hetzelfde. Bestaat die al, dan is dit
+    // een continuation: laat de bestaande positie staan i.p.v. te dupliceren.
+    try {
+        const dupMkt = position.symbol || position.market;
+        if (dupMkt && openPositions.some(p => (p.symbol || p.market) === dupMkt && p.side === position.side)) {
+            try { logBotAction('CANCELLED', 'duplicaat vermeden - zelfde markt+richting al open (continuation)'); } catch (e) {}
+            return;
+        }
+    } catch (e) {}
     // 31-07: leg het marktregime vast waarin deze positie wordt geopend, zodat de
     // regime-bewuste laag er later per regime van kan leren.
     if (!position.regimeAtEntry) { try { position.regimeAtEntry = classifyRegime(); } catch (e) { position.regimeAtEntry = 'RANGE'; } }
@@ -4644,8 +4655,8 @@ function logAdaptation(what, why) {
 function autonomousEngineAdapt(reason = 'start') {
     try {
         const bot = learningLog.filter(l => !l.manual && l.outcome);
-        if (bot.length < 20) {
-            logAdaptation('Nog te weinig data om de engine te herzien', `wacht op meer trades (nu ${bot.length}, drempel 20) voordat autonome aanpassing veilig is`);
+        if (bot.length < 5) {
+            logAdaptation('Nog te weinig data om de engine te herzien', `wacht op meer trades (nu ${bot.length}, drempel 5) voordat autonome aanpassing veilig is`);
             return;
         }
         const wins = bot.filter(l => l.outcome === 'win');
@@ -5436,6 +5447,21 @@ function syncNetTab() {
                 if (bEl) bEl.innerHTML = `target <b style="color:#14f195">${B.best.target}%</b> &middot; stop <b style="color:#ff8a94">${B.best.stop}%</b>`;
                 if (shEl) { shEl.textContent = `Sharpe ${B.best.sharpe.toFixed(2)}`; shEl.style.color = B.best.sharpe > 0.3 ? '#14f195' : '#ffb627'; }
                 if (btd) btd.innerHTML = `beste van ${B.tested} combinaties &middot; ${B.best.n} sim-trades &middot; gem ${B.best.mean.toFixed(3)}%/trade`;
+            }
+        }
+        // SWEEP-ENTRY status: welke munten wachten op hun liquidatie-/stop-niveau
+        const swEl = document.getElementById('net-sweep');
+        if (swEl && typeof _osirisSweep !== 'undefined') {
+            const keys = Object.keys(_osirisSweep);
+            if (!keys.length) { swEl.innerHTML = '<span class="muted">geen wachtende sweeps</span>'; }
+            else {
+                swEl.innerHTML = keys.map(k => {
+                    const sw = _osirisSweep[k]; const m = neoMultiState.markets[k];
+                    const px = m ? m.lastPrice : null; const dp = (px && px < 10) ? 3 : 2;
+                    const dist = (px && sw.refPrice) ? Math.abs((px - sw.level) / sw.level * 100).toFixed(2) : '—';
+                    const col = sw.side === 'LONG' ? '#14f195' : '#ff8a94';
+                    return `<span style="color:${col}">${k} ${sw.side}</span> → wacht op ${sw.level.toFixed(dp)} <span class="muted">(nu ${px != null ? px.toFixed(dp) : '—'}, ${dist}% weg)</span>`;
+                }).join('<br>');
             }
         }
     } catch (e) {}
@@ -7418,6 +7444,42 @@ let osirisState = {
 let osirisTune = { minProb: 0.53, abstain: 0.56, lastAdjust: 0 };
 window.osirisTune = osirisTune;
 
+// ---- SWEEP-ENTRY (15-08): stap in op het verwachte stop-/liquidatie-niveau ----
+// I.p.v. direct at-market wacht Osiris tot de prijs terugkomt naar waar de stops/
+// liquidaties liggen (een fractie van de stop-afstand) en stapt dáár in. Zo krijg je
+// een betere entry en voorkom je dat een positie die je toch zou uitstoppen juist je
+// instap wordt. Fallback: niet geraakt binnen het venster => alsnog at-market.
+let osirisSweepEnabled = true;
+const OSIRIS_SWEEP_FRAC = 0.7;               // deel van de stop-afstand als sweep-diepte
+const OSIRIS_SWEEP_WINDOW_MS = 20 * 60000;   // venster voordat we alsnog at-market instappen
+let _osirisSweep = {};
+window.osirisSweepEnabled = osirisSweepEnabled;
+window._osirisSweep = _osirisSweep;
+
+function osirisSweepCheck() {
+    try {
+        for (const sym of Object.keys(_osirisSweep)) {
+            const sw = _osirisSweep[sym]; if (!sw) continue;
+            const m = neoMultiState.markets[sym];
+            const price = m ? m.lastPrice : null;
+            const binSym = (typeof MULTI_BINANCE !== 'undefined') ? MULTI_BINANCE[sym] : sym;
+            // al een positie open in deze markt+richting? sweep laten vallen (anti-dup)
+            if (openPositions.some(x => (x.symbol || x.market) === binSym && x.side === sw.side)) { delete _osirisSweep[sym]; continue; }
+            if (price == null) continue;
+            const hit = sw.side === 'LONG' ? (price <= sw.level) : (price >= sw.level);
+            const expired = Date.now() > sw.expiry;
+            if (hit || expired) {
+                sw.position.entryPrice = price;   // instappen op het (betere) huidige niveau
+                try { logAdaptation(`Osiris sweep ${hit ? 'geraakt' : 'venster verlopen'} · ${sym} ${sw.side}`, hit ? `prijs raakte ${sw.level.toFixed(price < 10 ? 3 : 2)} - instap op het liquidatie-/stop-niveau` : `niet geraakt binnen venster - alsnog at-market (${price.toFixed(price < 10 ? 3 : 2)})`); } catch (e) {}
+                commitPositionEntry(sw.position, sw.reason + (hit ? ' [sweep]' : ' [market-fallback]'));
+                delete _osirisSweep[sym];
+            }
+        }
+    } catch (e) {}
+}
+window.osirisSweepCheck = osirisSweepCheck;
+
+
 function osirisAutoTune() {
     try {
         const now = Date.now();
@@ -8005,8 +8067,19 @@ function osirisShadowTick() {
             _osirisLastEntry[sym] = now;
             osirisState.skip[sym] = null;   // succesvol geopend -> geen blokkade-reden
             allocSoFar += sizePct;   // lokaal reserveren, ongeacht async-timing van de commit
-            try { logAdaptation(`Osiris opent ${sym} ${p.side}`, `kans ${(p.prob*100|0)}%, allocatie ${(a*100|0)}% van de gedeelde wallet ($${notionalUSD.toFixed(0)})`); } catch (e) {}
-            commitPositionEntry(position, `OSIRIS ${sym} ${p.side} (kans ${(p.prob*100|0)}%)`);
+            const _swReason = `OSIRIS ${sym} ${p.side} (kans ${(p.prob * 100 | 0)}%)`;
+            if (typeof osirisSweepEnabled !== 'undefined' && osirisSweepEnabled) {
+                // SWEEP-ENTRY: stap pas in op het verwachte stop-/liquidatie-niveau (waar de
+                // liquidaties zitten) i.p.v. direct at-market -> betere entry. Fallback:
+                // niet geraakt binnen het venster => alsnog at-market (traden valt niet stil).
+                const stopDist = ((preset.stopLossPct != null ? preset.stopLossPct : 0.5) / 100) * OSIRIS_SWEEP_FRAC;
+                const level = p.side === 'LONG' ? m.lastPrice * (1 - stopDist) : m.lastPrice * (1 + stopDist);
+                _osirisSweep[sym] = { side: p.side, level, refPrice: m.lastPrice, position, reason: _swReason, created: now, expiry: now + OSIRIS_SWEEP_WINDOW_MS };
+                try { logAdaptation(`Osiris wacht op sweep · ${sym} ${p.side}`, `entry pas bij ${level.toFixed(m.lastPrice < 10 ? 3 : 2)} (verwacht liquidatie-/stop-niveau); anders at-market binnen ${(OSIRIS_SWEEP_WINDOW_MS / 60000) | 0} min`); } catch (e) {}
+            } else {
+                try { logAdaptation(`Osiris opent ${sym} ${p.side}`, `kans ${(p.prob * 100 | 0)}%, allocatie ${(a * 100 | 0)}% van de gedeelde wallet ($${notionalUSD.toFixed(0)})`); } catch (e) {}
+                commitPositionEntry(position, _swReason);
+            }
         }
         renderOsirisShadowPanel();
     } catch (e) { /* stil */ }
@@ -8243,6 +8316,7 @@ function multiRoundRobinTick() {
         try { osirisReview(); } catch (e) {}
         // schaduw-trading (indien aan): simuleer ETH/SOL-trades met echte prijzen
         try { osirisShadowTick(); } catch (e) {}
+        try { osirisSweepCheck(); } catch (e) {}
         try { osirisAutoTune(); } catch (e) {}
         try { osirisAdaptiveLearn(); } catch (e) {}
         // sub-brein presets-overzicht bijwerken
@@ -9702,7 +9776,14 @@ function updateKpiStrip() {
     // een score van 0 en toont hij misleidend "1%".
     const pL = readSmoothedProb('LONG'), pS = readSmoothedProb('SHORT');
     const beste = (pL === null && pS === null) ? null : Math.max(pL ?? 0, pS ?? 0);
-    const cal = beste === null ? null : calibrateProbability(beste);
+    let cal = beste === null ? null : calibrateProbability(beste);
+    // Fallback: heeft BTC geen live kans (ETH/SOL zijn nu de workhorse), gebruik dan de
+    // beste gekalibreerde kans over alle markten (Osiris/DeepNet) zodat de edge waarde toont.
+    if (cal === null && typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.last) {
+        let best = 0;
+        for (const k of ['BTC', 'ETH', 'SOL']) { const p = OsirisDeepNet.last[k]; if (p && p.calProb != null) best = Math.max(best, p.calProb * 100, (1 - p.calProb) * 100); }
+        if (best > 0) cal = best;
+    }
     set('kpi-cal', cal === null ? '\u2014' : `${cal.toFixed(0)}%`);
     // break-even winrate uit de werkelijke payoff-verhouding van gesloten trades
     const bot = learningLog.filter(l => !l.manual && l.pnlPct != null);
