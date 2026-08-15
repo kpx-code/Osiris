@@ -4250,7 +4250,8 @@ function commitPositionEntry(position, reasonText) {
     if (!position.regimeAtEntry) { try { position.regimeAtEntry = classifyRegime(); } catch (e) { position.regimeAtEntry = 'RANGE'; } }
     if (botSettings.executionMode !== 'TESTNET') {
         openPositions.push(position);
-        logBotAction("ENTRY", position.entryPrice, position.side, 0, position.amount, reasonText, 0, position.notional, position.isScalp || false);
+        const _entMkt = (position.isOsiris && position.symbol && typeof MULTI_BINANCE !== 'undefined') ? (Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === position.symbol) || 'BTC') : 'BTC';
+        logBotAction("ENTRY", position.entryPrice, position.side, 0, position.amount, reasonText, 0, position.notional, position.isScalp || false, _entMkt, position.isOsiris === true, position.isManual === true, position.isIct === true, (position.sizePct != null ? position.sizePct : null));
         savePersistentState();
         updateWalletUI();
         updatePositionLines();
@@ -4297,7 +4298,7 @@ async function commitPositionEntryOnTestnet(position, reasonText) {
         position.isTestnet = true;
         position.symbol = symbol;
         openPositions.push(position);
-        logBotAction("ENTRY", fill.avgPrice, position.side, 0, fill.executedQty, `${reasonText} [TESTNET ${symbol} fill]`, 0, position.notional, position.isScalp || false);
+        (() => { const _em = (position.isOsiris && position.symbol && typeof MULTI_BINANCE !== 'undefined') ? (Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === position.symbol) || 'BTC') : 'BTC'; logBotAction("ENTRY", fill.avgPrice, position.side, 0, fill.executedQty, `${reasonText} [TESTNET ${symbol} fill]`, 0, position.notional, position.isScalp || false, _em, position.isOsiris === true, position.isManual === true, position.isIct === true, (position.sizePct != null ? position.sizePct : null)); })();
         savePersistentState();
         updateWalletUI();
         updatePositionLines();
@@ -5513,7 +5514,8 @@ function syncWalletLive() {
         if (la) {
             if (log.length) {
                 const l = log[log.length - 1];
-                const mk = l.market || 'BTC';
+                let mk = l.market;
+                if (!mk) { const _pn = (typeof l.price === 'number') ? l.price : parseFloat(l.price); mk = _pn > 10000 ? 'BTC' : (_pn > 200 ? 'ETH' : 'SOL'); }
                 const pr = (typeof l.price === 'number') ? (l.price >= 1000 ? l.price.toFixed(0) : l.price.toFixed(2)) : l.price;
                 const pnl = (l.action === 'EXIT' && typeof l.pnl === 'number') ? ` \u00b7 ${(l.pnl * 100 >= 0 ? '+' : '')}${(l.pnl * 100).toFixed(2)}%` : '';
                 la.textContent = `${l.action} ${mk} ${l.side || ''} @ $${pr}${pnl} \u00b7 ${l.timestamp || ''}`.replace(/\s+/g, ' ').trim();
@@ -5552,7 +5554,9 @@ function syncWalletLive() {
         const wf = document.getElementById('wallet-feed');
         if (wf && log.length) {
             wf.innerHTML = log.slice(-8).reverse().map(l => {
-                const mk = l.market || 'BTC', side = l.side || '';
+                let mk = l.market;
+                if (!mk) { const _pn = (typeof l.price === 'number') ? l.price : parseFloat(l.price); mk = _pn > 10000 ? 'BTC' : (_pn > 200 ? 'ETH' : 'SOL'); }
+                const side = l.side || '';
                 const pr = (typeof l.price === 'number') ? (l.price >= 1000 ? l.price.toFixed(0) : l.price.toFixed(2)) : l.price;
                 const isExit = l.action === 'EXIT';
                 const col = isExit ? ((l.pnl || 0) >= 0 ? '#14f195' : '#ff5f7e') : '#7fd8ff';
