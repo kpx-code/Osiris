@@ -824,6 +824,16 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="panel"><div class="plabel">Ensemble &middot; L1 / L2 / L3</div><div id="net-ensemble" style="font-size:0.58rem;line-height:2;color:var(--dim)"><span class="muted">loading&hellip;</span></div></div>
         <div class="panel"><div class="plabel">Signals &middot; live per market</div><div id="net-signals" style="font-size:0.56rem;line-height:2;color:var(--dim)"><span class="muted">loading&hellip;</span></div></div>
       </div>
+      <div class="grid g-2" style="margin-top:14px;">
+        <div class="core-card" style="text-align:left; padding:14px;"><div class="cc-head"><span class="cc-name" style="color:#c792ea">REGIME &middot; HMM</span><span class="cc-side" id="hmm-stable">&mdash;</span></div>
+          <div id="hmm-regime" style="font-family:'Orbitron',sans-serif; font-size:1.15rem; font-weight:700; color:#eafcff; letter-spacing:1px; margin:2px 0 6px;">kalibreert&hellip;</div>
+          <div id="hmm-detail" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--dim); line-height:1.8;">Gaussian HMM (Baum-Welch) op de candle-buffer &middot; 4 verborgen states.</div>
+        </div>
+        <div class="core-card" style="text-align:left; padding:14px;"><div class="cc-head"><span class="cc-name" style="color:#14f195">SHADOW-BACKTEST</span><span class="cc-side" id="bt-sharpe">&mdash;</span></div>
+          <div id="bt-best" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; font-weight:700; color:#eafcff; margin:2px 0 6px;">wacht op run&hellip;</div>
+          <div id="bt-detail" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--dim); line-height:1.8;">Coordinate-descent over target/stop &middot; optimaliseert Sharpe (Bayesian-lite).</div>
+        </div>
+      </div>
     </section>
 
     <!-- WALLET -->
@@ -1453,6 +1463,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
             <div class="subhead">Osiris Market Status <span style="font-weight:400; color:var(--dimmer); font-size:0.8em; text-transform:none; letter-spacing:0;">(Neo BTC · UOTAM-nodes)</span></div>
             <div class="status-banner">
                 <p id="market-status-main">--</p>
+                <p id="sys-hmm-regime" style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#c792ea; margin-top:4px;">Regime (HMM): kalibreert&hellip;</p>
                 <p id="probability-score">Confidence: --</p>
             </div>
             <div class="target-grid">
