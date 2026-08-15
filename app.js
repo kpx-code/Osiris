@@ -6447,6 +6447,11 @@ async function switchCoin(sym) {
                 time: Math.floor(d[0] / 1000), open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4])
             }));
             candlestickSeries.setData(chartData);
+            // Wis de BTC fib-price-lines + node-markers: die zitten op $62k-$63k en zouden
+            // de ETH/SOL-chart ($1878 / $75) volledig uit schaal trekken (afbeelding 2).
+            try { activeFibLines.forEach(l => candlestickSeries.removePriceLine(l)); activeFibLines = []; } catch (e) {}
+            try { candlestickSeries.setMarkers([]); } catch (e) {}
+            try { candlestickSeries.priceScale().applyOptions({ autoScale: true }); } catch (e) {}
             // SVP (volume profile) uit de klines van DEZE munt. We schrijven naar de
             // globale _volumeProfile zodat renderDepthPanel hem tekent - maar de
             // BTC-handelslogica draait op zijn eigen data, dus dit is puur weergave.
@@ -7414,6 +7419,25 @@ function osirisAutoTune() {
             if (typeof OsirisDeepNet !== 'undefined') OsirisDeepNet.ABSTAIN_MARGIN = osirisTune.abstain;
             osirisTune.lastAdjust = now;
             try { logAdaptation('Osiris stelt drempels bij', `${why} (kans-drempel ${(osirisTune.minProb * 100).toFixed(0)}%, abstain ${(osirisTune.abstain * 100).toFixed(0)}%)`); } catch (e) {}
+        }
+        // EXIT-KALIBRATIE (14-08): analyse toonde dat trades op breakeven uit-TIME_STOP-en
+        // (micro-marges niet vastgehouden). Zit >60% van de recente exits op TIME_STOP,
+        // dan houdt Osiris te lang vast -> sneller oogsten + korter vasthouden. Dit vangt
+        // de micro-marges EN verhoogt de omloop (meer traden). Zelfcorrigerend: zodra er
+        // meer echte oogsten/targets zijn, stopt het bijstellen.
+        const recentEx = (botTradeLog || []).filter(t => t.action === 'EXIT').slice(-20);
+        if (recentEx.length >= 10) {
+            const ts = recentEx.filter(t => (t.reason || '').indexOf('TIME_STOP') === 0).length;
+            const tsRatio = ts / recentEx.length;
+            let exChanged = false;
+            if (tsRatio > 0.6) {
+                if ((botSettings.smallProfitHarvestMinutes || 30) > 10) { botSettings.smallProfitHarvestMinutes = Math.max(10, (botSettings.smallProfitHarvestMinutes || 30) - 5); exChanged = true; }
+                if ((botSettings.maxPositionAgeMinutes || 90) > 40) { botSettings.maxPositionAgeMinutes = Math.max(40, (botSettings.maxPositionAgeMinutes || 90) - 15); exChanged = true; }
+            }
+            if (exChanged) {
+                osirisTune.lastAdjust = now;
+                try { logAdaptation('Osiris stelt exit-timing bij', `${(tsRatio * 100 | 0)}% recente exits waren TIME_STOP op breakeven - sneller oogsten (${botSettings.smallProfitHarvestMinutes}min) + korter vasthouden (${botSettings.maxPositionAgeMinutes}min) om micro-marges vast te houden`); } catch (e) {}
+            }
         }
     } catch (e) {}
 }
