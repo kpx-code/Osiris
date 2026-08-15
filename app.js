@@ -5415,6 +5415,29 @@ function syncNetTab() {
                 return `<span style="color:${COL[K]}">${K}</span> ${prob} ${m.bestSide || ''} &middot; RSI ${rsi} &middot; VFM ${vfm} &middot; CHAOS ${chaos}`;
             }).join('<br>');
         }
+        // HMM regime-paneel + system-badge
+        if (typeof OsirisRegimeHMM !== 'undefined') {
+            const H = OsirisRegimeHMM;
+            const rc = { trending: '#14f195', volatiel: '#ffb627', compressie: '#7fd8ff', kalm: '#8aa0ff' };
+            const label = (H.label || 'kalibreert…');
+            const col = rc[label] || '#c792ea';
+            const rEl = document.getElementById('hmm-regime'); if (rEl) { rEl.textContent = label.toUpperCase(); rEl.style.color = col; }
+            const sEl = document.getElementById('hmm-stable'); if (sEl) { sEl.textContent = H.trained ? `${H.stable} candles stabiel` : 'kalibreert'; sEl.style.color = H.stable >= 3 ? '#14f195' : '#5c7488'; }
+            const dEl = document.getElementById('hmm-detail'); if (dEl && H.trained) dEl.innerHTML = `zekerheid <b style="color:${col}">${(H.prob * 100).toFixed(0)}%</b> &middot; Gaussian HMM (Baum-Welch) &middot; 4 states op de candle-buffer`;
+            const badge = document.getElementById('sys-hmm-regime'); if (badge) { badge.innerHTML = `Regime (HMM): <b style="color:${col}">${label.toUpperCase()}</b>${H.trained ? ` &middot; ${(H.prob * 100).toFixed(0)}% &middot; ${H.stable} stabiel` : ''}`; }
+        }
+        // Shadow-backtest-paneel
+        if (typeof OsirisShadowBacktest !== 'undefined') {
+            const B = OsirisShadowBacktest;
+            const bEl = document.getElementById('bt-best');
+            const shEl = document.getElementById('bt-sharpe');
+            const btd = document.getElementById('bt-detail');
+            if (B.best) {
+                if (bEl) bEl.innerHTML = `target <b style="color:#14f195">${B.best.target}%</b> &middot; stop <b style="color:#ff8a94">${B.best.stop}%</b>`;
+                if (shEl) { shEl.textContent = `Sharpe ${B.best.sharpe.toFixed(2)}`; shEl.style.color = B.best.sharpe > 0.3 ? '#14f195' : '#ffb627'; }
+                if (btd) btd.innerHTML = `beste van ${B.tested} combinaties &middot; ${B.best.n} sim-trades &middot; gem ${B.best.mean.toFixed(3)}%/trade`;
+            }
+        }
     } catch (e) {}
 }
 
@@ -7443,6 +7466,216 @@ function osirisAutoTune() {
 }
 window.osirisAutoTune = osirisAutoTune;
 
+// ============================================================
+// OSIRIS · HMM REGIME-DETECTIE + SHADOW-BACKTEST TUNER (14-08)
+// Twee zelf-lerende, volledig client-side modules die Osiris autonoom bijstellen
+// en in de feeds loggen. Alles is gewrapt in try/catch en raakt de trading pas als
+// het signaal stabiel/zeker is - het kan de werkende bot nooit breken.
+// ============================================================
+const OsirisRegimeHMM = {
+    K: 4, D: 3,
+    means: null, vars: null, trans: null, startP: null,
+    trained: false, current: -1, label: 'kalibreert…', prob: 0, stable: 0,
+    lastTrain: 0, _mu: null, _sd: null, order: null,
+
+    _features(buf) {
+        const F = [];
+        for (let i = 1; i < buf.length; i++) {
+            const c0 = parseFloat(buf[i - 1][4]), c1 = parseFloat(buf[i][4]);
+            const o = parseFloat(buf[i][1]), h = parseFloat(buf[i][2]), l = parseFloat(buf[i][3]), c = parseFloat(buf[i][4]);
+            const ret = c0 > 0 ? (c1 - c0) / c0 * 100 : 0;
+            const rng = h - l, body = Math.abs(c - o);
+            F.push([ret, Math.abs(ret), rng > 0 ? body / rng : 0]);
+        }
+        return F;
+    },
+    _standardize(F) {
+        const D = this.D, n = F.length, mu = new Array(D).fill(0), sd = new Array(D).fill(0);
+        for (const f of F) for (let d = 0; d < D; d++) mu[d] += f[d];
+        for (let d = 0; d < D; d++) mu[d] /= n;
+        for (const f of F) for (let d = 0; d < D; d++) sd[d] += (f[d] - mu[d]) ** 2;
+        for (let d = 0; d < D; d++) sd[d] = Math.sqrt(sd[d] / n) || 1;
+        this._mu = mu; this._sd = sd;
+        return F.map(f => f.map((v, d) => (v - mu[d]) / sd[d]));
+    },
+    _gauss(x, mean, varr) {
+        let lp = 0;
+        for (let d = 0; d < this.D; d++) { const v = Math.max(varr[d], 1e-3); lp += -0.5 * (Math.log(6.2831853 * v) + (x[d] - mean[d]) ** 2 / v); }
+        return lp;
+    },
+    _init(F) {
+        const K = this.K, D = this.D, n = F.length;
+        this.means = []; this.vars = [];
+        for (let k = 0; k < K; k++) {
+            const seed = F[Math.floor((k + 0.5) / K * n)] || F[0];
+            this.means.push(seed.slice());
+            this.vars.push(new Array(D).fill(1));
+        }
+        this.trans = Array.from({ length: K }, () => new Array(K).fill(1 / K));
+        this.startP = new Array(K).fill(1 / K);
+    },
+    _logsumexp(arr) { let m = -Infinity; for (const v of arr) if (v > m) m = v; if (m === -Infinity) return -Infinity; let s = 0; for (const v of arr) s += Math.exp(v - m); return m + Math.log(s); },
+
+    train(buf, iters) {
+        try {
+            if (!buf || buf.length < 80) return false;
+            const src = buf.slice(-320);            // laatste ~320 candles voor snelheid
+            let F = this._standardize(this._features(src));
+            const T = F.length, K = this.K, D = this.D;
+            if (T < 40) return false;
+            if (!this.trained || !this.means) this._init(F);
+            iters = iters || 8;
+            for (let it = 0; it < iters; it++) {
+                const B = new Array(T);
+                for (let t = 0; t < T; t++) { const row = new Array(K); for (let k = 0; k < K; k++) row[k] = this._gauss(F[t], this.means[k], this.vars[k]); B[t] = row; }
+                const logA = this.trans.map(r => r.map(x => Math.log(x + 1e-12)));
+                const logPi = this.startP.map(x => Math.log(x + 1e-12));
+                const alpha = new Array(T); alpha[0] = logPi.map((lp, k) => lp + B[0][k]);
+                for (let t = 1; t < T; t++) { const row = new Array(K); for (let k = 0; k < K; k++) { const terms = new Array(K); for (let j = 0; j < K; j++) terms[j] = alpha[t - 1][j] + logA[j][k]; row[k] = this._logsumexp(terms) + B[t][k]; } alpha[t] = row; }
+                const beta = new Array(T); beta[T - 1] = new Array(K).fill(0);
+                for (let t = T - 2; t >= 0; t--) { const row = new Array(K); for (let k = 0; k < K; k++) { const terms = new Array(K); for (let j = 0; j < K; j++) terms[j] = logA[k][j] + B[t + 1][j] + beta[t + 1][j]; row[k] = this._logsumexp(terms); } beta[t] = row; }
+                // gamma
+                const gamma = new Array(T);
+                for (let t = 0; t < T; t++) { const g = new Array(K); let norm = this._logsumexp(alpha[t].map((a, k) => a + beta[t][k])); for (let k = 0; k < K; k++) g[k] = Math.exp(alpha[t][k] + beta[t][k] - norm); gamma[t] = g; }
+                // M-step: means, vars
+                for (let k = 0; k < K; k++) {
+                    let gsum = 0; const mnew = new Array(D).fill(0);
+                    for (let t = 0; t < T; t++) { gsum += gamma[t][k]; for (let d = 0; d < D; d++) mnew[d] += gamma[t][k] * F[t][d]; }
+                    gsum = gsum || 1e-6; for (let d = 0; d < D; d++) mnew[d] /= gsum;
+                    const vnew = new Array(D).fill(0);
+                    for (let t = 0; t < T; t++) for (let d = 0; d < D; d++) vnew[d] += gamma[t][k] * (F[t][d] - mnew[d]) ** 2;
+                    for (let d = 0; d < D; d++) vnew[d] = Math.max(vnew[d] / gsum, 1e-3);
+                    this.means[k] = mnew; this.vars[k] = vnew;
+                }
+                // M-step: transitions
+                const Anew = Array.from({ length: K }, () => new Array(K).fill(1e-6));
+                for (let t = 0; t < T - 1; t++) {
+                    const denom = [];
+                    for (let i = 0; i < K; i++) for (let j = 0; j < K; j++) denom.push(alpha[t][i] + logA[i][j] + B[t + 1][j] + beta[t + 1][j]);
+                    const z = this._logsumexp(denom);
+                    for (let i = 0; i < K; i++) for (let j = 0; j < K; j++) Anew[i][j] += Math.exp(alpha[t][i] + logA[i][j] + B[t + 1][j] + beta[t + 1][j] - z);
+                }
+                for (let i = 0; i < K; i++) { let r = 0; for (let j = 0; j < K; j++) r += Anew[i][j]; for (let j = 0; j < K; j++) Anew[i][j] /= (r || 1); }
+                this.trans = Anew;
+                this.startP = gamma[0].slice();
+            }
+            this.trained = true;
+            // Viterbi voor de huidige state (laatste candle)
+            const st = this._viterbi(F);
+            const now = st[st.length - 1];
+            // label-mapping: rangschik states op volatiliteit (mean |ret|) en richting (bodyRatio)
+            this._relabel();
+            const newLabel = this.order[now] || 'kalm';
+            this.stable = (newLabel === this.label) ? this.stable + 1 : 1;
+            this.label = newLabel;
+            this.current = now;
+            // zekerheid = gamma van de laatste candle voor deze state
+            this.prob = 0;
+            try { const bl = new Array(K); for (let k = 0; k < K; k++) bl[k] = this._gauss(F[T - 1], this.means[k], this.vars[k]); const z = this._logsumexp(bl); this.prob = Math.exp(bl[now] - z); } catch (e) { }
+            return true;
+        } catch (e) { return false; }
+    },
+    _viterbi(F) {
+        const T = F.length, K = this.K;
+        const logA = this.trans.map(r => r.map(x => Math.log(x + 1e-12)));
+        const logPi = this.startP.map(x => Math.log(x + 1e-12));
+        const delta = new Array(T), psi = new Array(T);
+        delta[0] = logPi.map((lp, k) => lp + this._gauss(F[0], this.means[k], this.vars[k])); psi[0] = new Array(K).fill(0);
+        for (let t = 1; t < T; t++) { const dr = new Array(K), pr = new Array(K); for (let k = 0; k < K; k++) { let best = -Infinity, arg = 0; for (let j = 0; j < K; j++) { const v = delta[t - 1][j] + logA[j][k]; if (v > best) { best = v; arg = j; } } dr[k] = best + this._gauss(F[t], this.means[k], this.vars[k]); pr[k] = arg; } delta[t] = dr; psi[t] = pr; }
+        let last = 0, bv = -Infinity; for (let k = 0; k < K; k++) if (delta[T - 1][k] > bv) { bv = delta[T - 1][k]; last = k; }
+        const path = new Array(T); path[T - 1] = last; for (let t = T - 2; t >= 0; t--) path[t] = psi[t + 1][path[t + 1]];
+        return path;
+    },
+    _relabel() {
+        // means zijn gestandaardiseerd; index 1 = |ret| (volatiliteit), index 2 = bodyRatio (richting)
+        const K = this.K;
+        const vol = this.means.map(m => m[1]), dir = this.means.map(m => m[2]);
+        const byVol = [...Array(K).keys()].sort((a, b) => vol[a] - vol[b]);
+        const lowest = byVol[0], highest = byVol[K - 1], second = byVol[K - 2];
+        this.order = new Array(K).fill('kalm');
+        this.order[lowest] = 'compressie';
+        // hoogste volatiliteit: trending als richting sterk, anders volatiel-zijwaarts
+        this.order[highest] = dir[highest] >= 0 ? 'trending' : 'volatiel';
+        this.order[second] = dir[second] >= 0 ? 'trending' : 'volatiel';
+    }
+};
+window.OsirisRegimeHMM = OsirisRegimeHMM;
+
+const OsirisShadowBacktest = {
+    best: null, lastRun: 0, sharpe: null, tested: 0,
+    // Simpele momentum-strategie over de buffer; grid over (target, stop) -> beste Sharpe.
+    run(buf) {
+        try {
+            if (!buf || buf.length < 120) return null;
+            const src = buf.slice(-360).map(d => ({ o: parseFloat(d[1]), h: parseFloat(d[2]), l: parseFloat(d[3]), c: parseFloat(d[4]) }));
+            const targets = [0.15, 0.25, 0.35, 0.5], stops = [0.2, 0.3, 0.4, 0.5];
+            const cost = 0.05; // % round-trip proxy
+            let best = null;
+            for (const tg of targets) for (const sl of stops) {
+                const pnls = [];
+                for (let i = 3; i < src.length - 8; i++) {
+                    // signaal: momentum van laatste 3 candles
+                    const mom = src[i].c - src[i - 3].c;
+                    if (Math.abs(mom) / src[i].c * 100 < 0.05) continue;
+                    const dir = mom > 0 ? 1 : -1, entry = src[i].c;
+                    let pnl = null;
+                    for (let j = i + 1; j <= i + 8 && j < src.length; j++) {
+                        const up = (src[j].h - entry) / entry * 100, dn = (src[j].l - entry) / entry * 100;
+                        if (dir > 0) { if (up >= tg) { pnl = tg; break; } if (dn <= -sl) { pnl = -sl; break; } }
+                        else { if (-dn >= tg) { pnl = tg; break; } if (-up <= -sl) { pnl = -sl; break; } }
+                    }
+                    if (pnl == null) pnl = dir * (src[Math.min(i + 8, src.length - 1)].c - entry) / entry * 100; // time-out
+                    pnls.push(pnl - cost);
+                }
+                if (pnls.length < 8) continue;
+                const mean = pnls.reduce((a, b) => a + b, 0) / pnls.length;
+                const sd = Math.sqrt(pnls.reduce((a, b) => a + (b - mean) ** 2, 0) / pnls.length) || 1e-6;
+                const sharpe = mean / sd * Math.sqrt(pnls.length);
+                if (!best || sharpe > best.sharpe) best = { target: tg, stop: sl, sharpe, n: pnls.length, mean };
+            }
+            if (best) { this.best = best; this.sharpe = best.sharpe; this.tested = (targets.length * stops.length); this.lastRun = Date.now(); }
+            return best;
+        } catch (e) { return null; }
+    }
+};
+window.OsirisShadowBacktest = OsirisShadowBacktest;
+
+// Driver: laat de HMM + backtest periodiek draaien en Osiris zich autonoom aanpassen.
+let _osirisLearnLast = 0;
+function osirisAdaptiveLearn() {
+    try {
+        const now = Date.now();
+        if (now - _osirisLearnLast < 5 * 60000) return;   // elke 5 min
+        _osirisLearnLast = now;
+        const buf = (typeof rawData !== 'undefined' && rawData && rawData.length) ? rawData : null;
+        if (!buf) return;
+        // 1) HMM regime
+        const okH = OsirisRegimeHMM.train(buf, 8);
+        if (okH && OsirisRegimeHMM.stable >= 3) {
+            // per-regime zachte parameter-nudge (alleen als het regime stabiel is)
+            const reg = OsirisRegimeHMM.label; let nudge = '';
+            if (reg === 'trending') { if ((botSettings.maxPositionAgeMinutes || 90) < 80) { botSettings.maxPositionAgeMinutes = Math.min(90, (botSettings.maxPositionAgeMinutes || 90) + 10); nudge = 'langer vasthouden (trend laten lopen)'; } }
+            else if (reg === 'compressie') { if ((botSettings.maxPositionAgeMinutes || 90) > 35) { botSettings.maxPositionAgeMinutes = Math.max(35, (botSettings.maxPositionAgeMinutes || 90) - 10); nudge = 'korter vasthouden (compressie -> snel oogsten)'; } }
+            else if (reg === 'volatiel') { if ((botSettings.smallProfitHarvestMinutes || 30) > 10) { botSettings.smallProfitHarvestMinutes = Math.max(10, (botSettings.smallProfitHarvestMinutes || 30) - 5); nudge = 'sneller oogsten (volatiel -> winst pakken)'; } }
+            if (nudge && OsirisRegimeHMM.stable === 3) { try { logAdaptation(`HMM-regime: ${reg.toUpperCase()}`, `zekerheid ${(OsirisRegimeHMM.prob * 100 | 0)}% (${OsirisRegimeHMM.stable} candles stabiel) - ${nudge}`); } catch (e) { } }
+        }
+        // 2) Shadow-backtest tuner (Bayesian-lite): nudge micro target/stop naar de beste Sharpe
+        const b = OsirisShadowBacktest.run(buf);
+        if (b && b.sharpe > 0.3) {
+            const curT = botSettings.microTargetPct != null ? botSettings.microTargetPct : 0.25;
+            const curS = botSettings.microStopPct != null ? botSettings.microStopPct : 0.3;
+            const nT = +(curT + Math.sign(b.target - curT) * Math.min(0.05, Math.abs(b.target - curT))).toFixed(3);
+            const nS = +(curS + Math.sign(b.stop - curS) * Math.min(0.05, Math.abs(b.stop - curS))).toFixed(3);
+            if (Math.abs(nT - curT) > 0.001 || Math.abs(nS - curS) > 0.001) {
+                botSettings.microTargetPct = nT; botSettings.microStopPct = nS;
+                try { logAdaptation('Shadow-backtest optimaliseert', `beste Sharpe ${b.sharpe.toFixed(2)} bij target ${b.target}% / stop ${b.stop}% (n=${b.n}) - micro target->${nT}% stop->${nS}%`); } catch (e) { }
+            }
+        }
+    } catch (e) { }
+}
+window.osirisAdaptiveLearn = osirisAdaptiveLearn;
+
+
 function osirisReview() {
     try {
         // verzamel de kans/kant per munt uit de sub-breinen
@@ -8011,6 +8244,7 @@ function multiRoundRobinTick() {
         // schaduw-trading (indien aan): simuleer ETH/SOL-trades met echte prijzen
         try { osirisShadowTick(); } catch (e) {}
         try { osirisAutoTune(); } catch (e) {}
+        try { osirisAdaptiveLearn(); } catch (e) {}
         // sub-brein presets-overzicht bijwerken
         try { renderSubBrainPresets(); } catch (e) {}
     });
@@ -10969,6 +11203,38 @@ function _neoNetDraw(now, canvasId, outId) {
     for (let li = 0; li < layers.length; li++) {
         ctx.fillStyle = 'rgba(92,116,136,0.85)';
         ctx.fillText(lnames[li], pos[li][0].x, h - padBot * 0.32);
+    }
+    // ---- HMM-regime + shadow-backtest OP HET NETWERK (alleen groot canvas) ----
+    if (isBig) {
+        const rc = { trending: '#14f195', volatiel: '#ffb627', compressie: '#7fd8ff', kalm: '#8aa0ff' };
+        const cx = w / 2;
+        if (typeof OsirisRegimeHMM !== 'undefined') {
+            const H = OsirisRegimeHMM;
+            const label = H.trained ? (H.label || 'kalm') : 'kalibreert';
+            const col = rc[label] || '#c792ea';
+            ctx.textAlign = 'center';
+            ctx.font = "bold 11px 'Orbitron','JetBrains Mono',monospace";
+            ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 10; ctx.fillStyle = col;
+            ctx.fillText(`REGIME · ${label.toUpperCase()}`, cx, 18); ctx.restore();
+            if (H.trained) {
+                ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(180,200,220,0.7)';
+                ctx.fillText(`HMM · zekerheid ${(H.prob * 100 | 0)}% · ${H.stable} candles stabiel`, cx, 31);
+            }
+            // 4 verborgen-state dots, de actieve state opgelicht in zijn regime-kleur
+            const K = H.K || 4, dotY = 42, gap = 16, x0 = cx - (K - 1) * gap / 2;
+            for (let k = 0; k < K; k++) {
+                const active = (H.current === k);
+                const scol = (H.order && rc[H.order[k]]) ? rc[H.order[k]] : '#5a6b7a';
+                ctx.beginPath(); ctx.arc(x0 + k * gap, dotY, active ? 4.2 : 2.3, 0, 6.283);
+                if (active) { ctx.save(); ctx.shadowColor = scol; ctx.shadowBlur = 9; ctx.fillStyle = scol; ctx.fill(); ctx.restore(); }
+                else { ctx.fillStyle = 'rgba(120,140,160,0.35)'; ctx.fill(); }
+            }
+        }
+        if (typeof OsirisShadowBacktest !== 'undefined' && OsirisShadowBacktest.best) {
+            const B = OsirisShadowBacktest.best;
+            ctx.textAlign = 'right'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(20,241,149,0.85)';
+            ctx.fillText(`SHADOW-BT · tgt ${B.target}% / stop ${B.stop}% · Sharpe ${B.sharpe.toFixed(2)}`, w - 14, h - 8);
+        }
     }
     // input-labels links van de eerste kolom
     ctx.textAlign = 'right'; ctx.font = "7px 'JetBrains Mono', monospace";
