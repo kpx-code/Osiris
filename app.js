@@ -4439,6 +4439,7 @@ function finalizeClosePosition(pos, pnlPct, reason) {
         posMarket = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || 'BTC';
     }
     logBotAction("EXIT", exitPrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional, pos.isScalp || false, posMarket, pos.isOsiris === true, pos.isManual === true, pos.isIct === true, (pos.sizePct != null ? pos.sizePct : null));
+    try { if (botTradeLog.length) { const _e = botTradeLog[botTradeLog.length - 1]; _e.mfePct = (pos.mfe != null ? +(pos.mfe * 100).toFixed(3) : null); _e.maePct = (pos.mae != null ? +(pos.mae * 100).toFixed(3) : null); _e.walletFill = (typeof getEquity === 'function' ? +getEquity().toFixed(2) : null); _e.executionSource = (botSettings && botSettings.executionMode) || 'TESTNET'; _e.botVersion = OSIRIS_VERSION; _e.entryPrice = pos.entryPrice; _e.holdMinutes = pos.openTime ? +(((Date.now() - pos.openTime) / 60000).toFixed(1)) : null; } } catch (e) {}
     savePersistentState();
     updateWalletUI();
     updatePositionLines();
@@ -4524,6 +4525,11 @@ function backfillOsirisLearning() {
                 side: t.side, market,
                 outcome: pnlPct > 0 ? 'win' : 'loss', pnlPct,
                 exitReason: (t.reason || '').split(' ')[0],
+                mfePct: t.mfePct != null ? t.mfePct : null,
+                maePct: t.maePct != null ? t.maePct : null,
+                walletFill: t.walletFill != null ? t.walletFill : null,
+                executionSource: t.executionSource || null,
+                botVersion: t.botVersion || null,
                 holdMinutes: null, entryProbabilityPct: null,
                 manual: false, botWouldEnter: null,
                 configVersion: currentConfigVersion(),
@@ -4991,6 +4997,8 @@ function checkOpenPositionsExits() {
         const pnlPct = pos.side === 'LONG'
             ? (posPrice - pos.entryPrice) / pos.entryPrice
             : (pos.entryPrice - posPrice) / pos.entryPrice;
+        pos.mfe = Math.max(pos.mfe != null ? pos.mfe : 0, pnlPct);
+        pos.mae = Math.min(pos.mae != null ? pos.mae : 0, pnlPct);
 
         // 1. Harde stop-loss: -2% (of, voor een range-scalp, de eigen krappere
         // stop) - niet onderhandelbaar.
@@ -5299,7 +5307,26 @@ function downloadAllData() {
             low: parseFloat(d[3]),
             close: parseFloat(d[4]),
             volume: parseFloat(d[5])
-        }))
+        })),
+        // MULTI-MARKT: volledige per-munt state (ETH/SOL/BTC) incl. candle-buffers
+        multiMarket: (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? Object.fromEntries(
+            Object.keys(neoMultiState.markets).map(k => {
+                const m = neoMultiState.markets[k];
+                return [k, { lastPrice: m.lastPrice, ema: m.ema, emaSlow: m.emaSlow, rsi: m.rsi, vfm: m.vfm, chaos: m.chaos, bestProb: m.bestProb, bestSide: m.bestSide, subBrainLabel: m.subBrainLabel, nnRitmeMin: m.nnRitmeMin, nnCaps: m.nnCaps, candles: m.candles }];
+            })
+        ) : null,
+        // ZELF-LERENDE MODELLEN: DeepNet (per markt) + L2/L3 + HMM-regime + shadow-backtest
+        deepNetModels: (typeof OsirisDeepNet !== 'undefined') ? { markets: OsirisDeepNet.markets, last: OsirisDeepNet.last, abstainMargin: OsirisDeepNet.ABSTAIN_MARGIN } : null,
+        regimeHMM: (typeof OsirisRegimeHMM !== 'undefined') ? { label: OsirisRegimeHMM.label, prob: OsirisRegimeHMM.prob, stable: OsirisRegimeHMM.stable, current: OsirisRegimeHMM.current, order: OsirisRegimeHMM.order, means: OsirisRegimeHMM.means, trans: OsirisRegimeHMM.trans } : null,
+        shadowBacktest: (typeof OsirisShadowBacktest !== 'undefined') ? OsirisShadowBacktest.best : null,
+        osirisTune: (typeof osirisTune !== 'undefined') ? osirisTune : null,
+        pendingSweeps: (typeof _osirisSweep !== 'undefined') ? _osirisSweep : null,
+        // SCHEMA: beschrijft de velden in metricsHistory/learningLog voor runtime-reconstructie
+        datasetSchema: {
+            metricsHistory: 'timestamp, symbol, botVersion, executionSource, price, vfm, er, db, chaos, liveVol, volRate, rsi, emaFast, emaSlow, volumeShiftPct, nodeInfluence, lastNodeType, nextNodeType, minutesSinceLastNode, minutesUntilNextNode, probabilityPct, isBullish',
+            learningLog: 'timestampMs, side, market, outcome, pnlPct, exitReason, mfePct, maePct, walletFill, executionSource, botVersion, holdMinutes, entryProbabilityPct, configVersion, entryHourUTC, regimeAtEntry',
+            tradeLog: 'action, price, side, pnlPct, amount, reason, pnlAmount, notional, market, isOsiris, mfePct, maePct, walletFill, executionSource, botVersion, entryPrice, holdMinutes, timestamp/timestampMs'
+        }
     };
 
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -6894,6 +6921,7 @@ const METRICS_HISTORY_MAX = 500;
 
 let _lastSnapVol = 0;
 let _lastSnapCandleBucket = 0;
+const OSIRIS_VERSION = 'jarvis7-2026-08';
 function recordMetricsSnapshot() {
     // METER-FIX (13-07): liveVol is een OPLOPENDE teller binnen de candle -
     // volumeShift op de ruwe teller was daardoor vrijwel altijd positief
@@ -6906,13 +6934,23 @@ function recordMetricsSnapshot() {
         : liveVol; // nieuwe candle (of reset): alles sinds candle-opening
     _lastSnapVol = liveVol;
     _lastSnapCandleBucket = bucket;
+    let _nc = null, _ma = { fast: null, slow: null }, _rsi = null, _vs = null, _ni = null, _prob = null;
+    try { _nc = getNodeContext(); } catch (e) {}
+    try { _ma = getCurrentMAValues() || _ma; } catch (e) {}
+    try { _rsi = getCurrentRSIValue(); } catch (e) {}
+    try { _vs = +calculateVolumeShift(6).toFixed(2); } catch (e) {}
+    try { if (_nc) _ni = +calculateNodeInfluence(_nc).toFixed(2); } catch (e) {}
+    try { const pl = readSmoothedProb('LONG'), ps = readSmoothedProb('SHORT'); const bb = (pl == null && ps == null) ? null : Math.max(pl == null ? 0 : pl, ps == null ? 0 : ps); _prob = bb; } catch (e) {}
     metricsHistory.push({
-        timestamp: Date.now(),
-        price: livePrice,
-        vfm, er, db, chaos,
-        liveVol,
-        volRate,
-        isBullish
+        timestamp: Date.now(), symbol: 'BTC', botVersion: OSIRIS_VERSION,
+        executionSource: (typeof botSettings !== 'undefined' && botSettings.executionMode) ? botSettings.executionMode : 'TESTNET',
+        price: livePrice, vfm, er, db, chaos, liveVol, volRate,
+        rsi: _rsi, emaFast: _ma.fast, emaSlow: _ma.slow, volumeShiftPct: _vs, nodeInfluence: _ni,
+        lastNodeType: (_nc && _nc.lastNode) ? _nc.lastNode.type : null,
+        nextNodeType: (_nc && _nc.nextNode) ? _nc.nextNode.type : null,
+        minutesSinceLastNode: (_nc && _nc.lastNode && _nc.lastNode.minutesAgo != null) ? +(_nc.lastNode.minutesAgo).toFixed(1) : null,
+        minutesUntilNextNode: (_nc && _nc.nextNode && _nc.nextNode.minutesUntil != null) ? +(_nc.nextNode.minutesUntil).toFixed(1) : null,
+        probabilityPct: _prob, isBullish
     });
     if (metricsHistory.length > METRICS_HISTORY_MAX) metricsHistory.shift();
 }
@@ -7450,8 +7488,8 @@ window.osirisTune = osirisTune;
 // een betere entry en voorkom je dat een positie die je toch zou uitstoppen juist je
 // instap wordt. Fallback: niet geraakt binnen het venster => alsnog at-market.
 let osirisSweepEnabled = true;
-const OSIRIS_SWEEP_FRAC = 0.7;               // deel van de stop-afstand als sweep-diepte
-const OSIRIS_SWEEP_WINDOW_MS = 20 * 60000;   // venster voordat we alsnog at-market instappen
+const OSIRIS_SWEEP_FRAC = 0.35;              // ondiepe sweep (deel van de stop-afstand) - vult snel
+const OSIRIS_SWEEP_WINDOW_MS = 90 * 1000;    // kort venster: max 90s wachten, dan at-market (blokkeert traden niet)
 let _osirisSweep = {};
 window.osirisSweepEnabled = osirisSweepEnabled;
 window._osirisSweep = _osirisSweep;
@@ -7486,7 +7524,7 @@ function osirisAutoTune() {
         if (now - (osirisTune.lastAdjust || 0) < 5 * 60000) return;
         const entries = Object.values(_osirisLastEntry || {}).filter(v => v);
         const lastEntry = entries.length ? Math.max.apply(null, entries) : 0;
-        const idleMin = lastEntry ? (now - lastEntry) / 60000 : 999;
+        const idleMin = lastEntry ? (now - lastEntry) / 60000 : Infinity;
         const closed = (botTradeLog || []).filter(t => t.action === 'EXIT' && t.isOsiris).slice(-15);
         const wins = closed.filter(t => (t.pnl || 0) > 0).length;
         const wr = closed.length >= 6 ? wins / closed.length : null;
@@ -7498,7 +7536,7 @@ function osirisAutoTune() {
         } else if (idleMin > 20) {
             osirisTune.minProb = Math.max(0.51, +(osirisTune.minProb - 0.01).toFixed(3));
             osirisTune.abstain = Math.max(0.53, +(osirisTune.abstain - 0.01).toFixed(3));
-            changed = true; why = `${idleMin | 0} min geen trade - drempels omlaag`;
+            changed = true; why = (isFinite(idleMin) ? `${idleMin | 0} min geen trade` : 'nog geen trade') + ' - drempels omlaag';
         }
         if (changed) {
             if (typeof OsirisDeepNet !== 'undefined') OsirisDeepNet.ABSTAIN_MARGIN = osirisTune.abstain;
@@ -7784,29 +7822,14 @@ function osirisReview() {
             osirisState.note = `${eligible[0].sym} is de enige kans (${(eligible[0].prob * 100 | 0)}%) - volledige equity.`;
             alloc[eligible[0].sym] = 1;
         } else {
-            // bepaal welke munten binnen de gelijk-marge van de beste zitten
-            const best = eligible[0];   // al gesorteerd op kans (hoogste eerst)
-            const tied = eligible.filter(c => (best.prob - c.prob) <= EQUAL_MARGIN);
-            if (tied.length === 1) {
-                // duidelijke winnaar -> alles op de beste kans (winner-take-all)
-                alloc[best.sym] = 1;
-                const second = eligible[1];
-                osirisState.note = `${best.sym} heeft de beste kans (${(best.prob * 100 | 0)}% vs ${(second.prob * 100 | 0)}%) - volledige equity op de sterkste markt.`;
-            } else {
-                // meerdere munten vrijwel gelijk -> verdeel kans-gewogen over alleen die
-                const weights = tied.map(c => ({ sym: c.sym, w: c.prob * c.prob }));
-                const sumW = weights.reduce((a, x) => a + x.w, 0);
-                for (const x of weights) alloc[x.sym] = sumW > 0 ? x.w / sumW : 1 / tied.length;
-                const probs = tied.map(c => c.prob);
-                const spread = Math.max(...probs) - Math.min(...probs);
-                if (spread < 0.03) {
-                    const eq = 1 / tied.length;
-                    for (const c of tied) alloc[c.sym] = eq;
-                    osirisState.note = `${tied.length} munten vrijwel gelijk (~${(probs[0] * 100 | 0)}%) - elk ${(eq * 100 | 0)}% equity.`;
-                } else {
-                    osirisState.note = `${tied.length} munten dicht bij elkaar - equity kans-gewogen over die markten.`;
-                }
-            }
+            // MICRO-MARGINS (15-08): geen winner-take-all meer. Verdeel de equity KANS-GEWOGEN
+            // over ALLE geschikte munten, zodat ETH EN SOL tegelijk (kleiner) handelen - meer,
+            // snellere trades met kleinere allocaties i.p.v. alles op één markt.
+            const weights = eligible.map(c => ({ sym: c.sym, w: c.prob * c.prob }));
+            const sumW = weights.reduce((a, x) => a + x.w, 0);
+            for (const x of weights) alloc[x.sym] = sumW > 0 ? x.w / sumW : 1 / eligible.length;
+            const rank = eligible.map(c => `${c.sym} ${(alloc[c.sym] * 100 | 0)}%`).join(' \u00b7 ');
+            osirisState.note = `${eligible.length} munten geschikt - equity kans-gewogen verdeeld (${rank}) voor meer, kleinere trades.`;
         }
         osirisState.allocations = alloc;
         osirisState.lastReview = Date.now();
@@ -8000,6 +8023,7 @@ function osirisShadowTick() {
             if (a <= 0 || !p.side) { if (a <= 0 && p.side) osirisState.skip[sym] = 'geen allocatie (andere munt won)'; continue; }
             // al een open positie op deze munt? niet dubbelen
             if (openPositions.some(x => (x.symbol === MULTI_BINANCE[sym]))) { osirisState.skip[sym] = 'al open'; continue; }
+            if (typeof _osirisSweep !== 'undefined' && _osirisSweep[sym]) { osirisState.skip[sym] = 'wacht op sweep-niveau'; continue; }
             // cooldown: max 1 nieuwe entry per munt per 60s
             if (_osirisLastEntry[sym] && (now - _osirisLastEntry[sym]) < 60000) { osirisState.skip[sym] = '60s cooldown'; continue; }
             const m = neoMultiState.markets[sym];
