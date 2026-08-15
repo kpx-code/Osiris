@@ -7491,6 +7491,7 @@ window.osirisTune = osirisTune;
 // liquidaties liggen (een fractie van de stop-afstand) en stapt dáár in. Zo krijg je
 // een betere entry en voorkom je dat een positie die je toch zou uitstoppen juist je
 // instap wordt. Fallback: niet geraakt binnen het venster => alsnog at-market.
+const OSIRIS_BTC_RESERVE = 0.15;   // deel van de gedeelde wallet dat ETH/SOL vrijlaten voor BTC's eigen engine
 let osirisSweepEnabled = true;
 const OSIRIS_SWEEP_FRAC = 0.35;              // ondiepe sweep (deel van de stop-afstand) - vult snel
 const OSIRIS_SWEEP_WINDOW_MS = 90 * 1000;    // kort venster: max 90s wachten, dan at-market (blokkeert traden niet)
@@ -8067,7 +8068,13 @@ function osirisShadowTick() {
             // posities zit plus de hedge-reserve. Twee winner-take-all entries kunnen zo
             // nooit samen meer dan de wallet claimen.
             const reservePct = botSettings.minHedgeReservePct || 0;
-            const availablePct = Math.max(0, 1 - allocSoFar - reservePct);
+            // BTC-RESERVE (15-08): ETH/SOL zijn veel volatieler en zouden anders de hele
+            // wallet vullen, waardoor BTC's eigen engine nooit ruimte krijgt en Osiris niet
+            // meer op de BTC-markt leert. Daarom laten ETH/SOL 15% ongemoeid - MAAR alleen
+            // zolang BTC nog geen positie heeft (staat BTC al open, dan is die ruimte al benut).
+            const _btcOpen = openPositions.some(x => ((x.symbol === 'BTCUSDT') || (x.market === 'BTC')) && !x.isOsiris);
+            const btcReserve = _btcOpen ? 0 : (typeof OSIRIS_BTC_RESERVE !== 'undefined' ? OSIRIS_BTC_RESERVE : 0.15);
+            const availablePct = Math.max(0, 1 - allocSoFar - reservePct - btcReserve);
             const sizePct = Math.min(a * maxAlloc, availablePct);
             if (sizePct <= 0) { osirisState.skip[sym] = 'geen vrije equity'; continue; }   // wallet al vol
             const notionalUSD = freeEquity * sizePct;
