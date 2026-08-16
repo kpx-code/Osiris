@@ -11633,9 +11633,15 @@ function _neoNetDraw(now, canvasId, outId) {
     _neonet.actLevel += (( (_l2 && _l2.trained) ? 1 : 0.6) * (running ? 1 : 0.7) - _neonet.actLevel) * 0.05;
     _neonet.pulse = (_neonet.pulse + 0.010 + 0.012 * _neonet.actLevel) % 1;
     const wavePos = _neonet.pulse * (layers.length - 1);
-    // FEEDBACK-PULS: periodiek flitst de uitkomst TERUG langs dezelfde verbindingen naar de
-    // bron (output -> inputs). Groene deeltjes reizen achterwaarts over de bestaande lijnen.
-    _neonet.fbPulse = (_neonet.fbPulse || 0) + 0.007 + 0.005 * _neonet.actLevel;
+    // FEEDBACK-PULS: 2.5x sneller, en DATA-TRUE - vuurt een verse flits precies wanneer de
+    // bot echt leert (een trade sluit -> learningLog groeit, of de RL-agent hertraint).
+    try {
+        const _lc = (typeof learningLog !== 'undefined' && learningLog ? learningLog.length : 0)
+            + (typeof OsirisRL !== 'undefined' ? Math.floor((OsirisRL.episodes || 0) / 3000) : 0);
+        if (_neonet._lastLearn == null) _neonet._lastLearn = _lc;
+        if (_lc > _neonet._lastLearn) { _neonet.fbPulse = 0; _neonet._lastLearn = _lc; }   // leer-event -> flits vuurt vers
+    } catch (e) {}
+    _neonet.fbPulse = (_neonet.fbPulse || 0) + 0.0175 + 0.0125 * _neonet.actLevel;   // 2.5x sneller dan voorheen
     const _fbCycle = _neonet.fbPulse % 1.7;                 // deel actief, deel rust
     const _fbActive = _fbCycle < 1.0;
     const _fbPos = _fbActive ? (1 - _fbCycle) * (layers.length - 1) : -1;   // hoog(output) -> laag(input)
