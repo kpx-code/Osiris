@@ -5171,6 +5171,22 @@ function checkOpenPositionsExits() {
                 }
             } catch (e) {}
             if (ageMin >= deadline && Math.abs(pnlPct) < costBand) {
+                // TIME-STOP KALIBRATIE (16-08): staat de positie (licht) negatief maar is de
+                // kans op succes in dezelfde richting ECHT groot, houd dan langer vast i.p.v.
+                // sluiten en meteen dezelfde kant weer openen. Alleen bij zeer sterk signaal.
+                try {
+                    if (pnlPct < 0) {
+                        const _tsym = (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') ? Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) : 'BTC';
+                        const _tm = neoMultiState.markets[_tsym];
+                        const _rlHold = (typeof OsirisRL !== 'undefined' && OsirisRL.episodes > 2000) ? (() => { const dd = OsirisRL.decide(pos, _tm, pnlPct, ageMin); return dd && (dd.action === 0 || dd.action === 2) && dd.conf > 0.55; })() : false;
+                        if (_tm && _tm.bestSide === pos.side && ((_tm.bestProb || 0) >= 0.65 || _rlHold) && (pos._tsHoldCount || 0) < 2) {
+                            pos._tsHoldCount = (pos._tsHoldCount || 0) + 1;
+                            pos.openTime = (pos.openTime || Date.now()) + deadline * 0.5 * 60000;   // deadline verlengen
+                            try { logAdaptation('Osiris houdt langer vast', `${_tsym} ${pos.side} negatief maar kans ${(( _tm.bestProb||0)*100|0)}%${_rlHold ? ' + RL-HOLD' : ''} - time-stop uitgesteld i.p.v. sluiten+heropenen`); } catch (e) {}
+                            return;
+                        }
+                    }
+                } catch (e) {}
                 try { if (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.LIVE) OsirisDeepNet.recordTimeStop(pos._tsMode || 'FIXED', pnlPct); } catch (e) {}
                 closePosition(pos, pnlPct, `TIME_STOP (${ageMin.toFixed(0)}/${deadline.toFixed(0)} min${dyn ? ' dyn-EV' : ' vast'} - these niet uitgekomen)`);
                 return;
@@ -5551,6 +5567,17 @@ function syncNetTab() {
                 set('rl-action', `<span style="color:${R.ACTION_COL[d.action]}">${R.ACTIONS[d.action]}</span>`);
                 set('rl-conf', `&middot; zekerheid ${(d.conf * 100 | 0)}%`);
                 set('rl-state', `state: ${d.state} <span class="muted">(regime · pnl-zone · momentum · leeftijd)</span>`);
+                // begrijpbare uitleg van de huidige toestand + wat het advies betekent
+                try {
+                    const parts = d.state.split('|');
+                    const regN = ['compressie', 'kalm', 'trending', 'volatiel'][parts[0]] || '—';
+                    const pnlN = ['fors verlies', 'licht verlies', 'kleine winst', 'winst', 'grote winst'][parts[1]] || '—';
+                    const momN = ['tegen', 'neutraal', 'mee'][parts[2]] || '—';
+                    const ageN = ['vers', 'halverwege', 'oud'][parts[3]] || '—';
+                    const meaning = { 0: 'positie aanhouden', 1: 'nu sluiten/oogsten', 2: 'trailing (winst beschermen)', 3: 'bijladen op de winnaar' }[d.action];
+                    const uEl = document.getElementById('rl-explain');
+                    if (uEl) uEl.innerHTML = `Situatie: <b style="color:#eafcff">${regN}</b>-markt, <b style="color:#eafcff">${pnlN}</b>, momentum <b style="color:#eafcff">${momN}</b>, positie <b style="color:#eafcff">${ageN}</b>.<br>De agent leerde uit ${R.episodes.toLocaleString()} scenario's dat hier <b style="color:${R.ACTION_COL[d.action]}">${meaning}</b> gemiddeld het beste uitpakt.`;
+                } catch (e) {}
                 const mx = Math.max(1e-6, Math.max.apply(null, d.q.map(Math.abs)));
                 set('rl-qbars', d.q.map((v, i) => {
                     const w = Math.max(2, Math.abs(v) / mx * 100);
@@ -7904,8 +7931,23 @@ const OsirisRL = {
             this.statesLearned = d.states || Object.keys(this.Q).length;
             if (d.actionDist) for (let i = 0; i < 4; i++) this.actionDist[i] += d.actionDist[i];
             this._training = false;
+            this._save();
             try { logAdaptation('RL-agent getraind', `+${d.episodes} episodes (totaal ${this.episodes}) · ${this.statesLearned} states · gem reward ${(this.avgReward).toFixed(3)}`); } catch (e) {}
         } catch (e) { this._training = false; }
+    },
+    _save() {
+        // bewaar de getrainde Q-tabel + stats zodat scenario's behouden blijven bij
+        // refresh / herstart / wallet-reset (RL-model is opgebouwde kennis, geen sessie-data).
+        try { localStorage.setItem('osirisRLModel', JSON.stringify({ Q: this.Q, episodes: this.episodes, avgReward: this.avgReward, statesLearned: this.statesLearned, actionDist: this.actionDist, ts: Date.now() })); } catch (e) {}
+    },
+    _restore() {
+        try {
+            const raw = localStorage.getItem('osirisRLModel');
+            if (raw) {
+                const d = JSON.parse(raw);
+                if (d && d.Q) { this.Q = d.Q; this.episodes = d.episodes || 0; this.avgReward = d.avgReward || 0; this.statesLearned = d.statesLearned || Object.keys(this.Q).length; this.actionDist = d.actionDist || [0, 0, 0, 0]; }
+            }
+        } catch (e) {}
     },
     train() {
         try {
@@ -7920,6 +7962,7 @@ const OsirisRL = {
     }
 };
 window.OsirisRL = OsirisRL;
+try { OsirisRL._restore(); } catch (e) {}   // behoud getrainde scenario's over refresh/herstart
 
 let _osirisRLLast = 0;
 function osirisRLTick() {
@@ -11592,8 +11635,19 @@ function _neoNetDraw(now, canvasId, outId) {
         if (/bull|long|stijg/i.test(lastDecision.decision)) decisionBias = Math.max(decisionBias, 0.5);
         else if (/bear|short|crash|daal/i.test(lastDecision.decision)) decisionBias = Math.min(decisionBias, -0.5);
     } } catch (e) {}
+    // De STERKSTE core (BTC/ETH/SOL) bepaalt de richting - niet alleen BTC's lastDecision.
+    // Zo eindigt het net niet standaard op NEUTRAAL zodra BTC even geen mening heeft.
+    try {
+        let best = null;
+        for (const sym of ['BTC', 'ETH', 'SOL']) { const m = neoMultiState.markets[sym]; if (m && m.bestSide && m.bestProb != null && (!best || m.bestProb > best.prob)) best = { side: m.bestSide, prob: m.bestProb }; }
+        if (best && best.prob >= 0.5) {
+            const dir = best.side === 'SHORT' ? -1 : 1;
+            const strength = Math.min(1, (best.prob - 0.5) * 3);   // 0.55->0.15, 0.83->1.0
+            if (strength > Math.abs(decisionBias)) decisionBias = dir * strength;
+        }
+    } catch (e) {}
     layers[4][0].act = Math.max(0, decisionBias);       // LONG
-    layers[4][1].act = 1 - Math.abs(decisionBias);      // NEUTRAAL
+    layers[4][1].act = Math.max(0.05, 1 - Math.abs(decisionBias)); // NEUTRAAL
     layers[4][2].act = Math.max(0, -decisionBias);      // SHORT
     if (layers[5] && layers[5][0]) layers[5][0].act = Math.max(Math.abs(decisionBias), 0.2); // het ene eindpunt
 
@@ -11725,26 +11779,36 @@ function _neoNetDraw(now, canvasId, outId) {
             const adv = d ? `${R.ACTIONS[d.action]} ${(d.conf * 100 | 0)}%` : '\u2014';
             ctx.fillText(`RL · ${(R.episodes / 1000).toFixed(0)}k scenario's · advies ${adv}`, 14, h - 8);
         }
-        // FEEDBACK-LUS: geanimeerd retourpad van OUTPUT terug naar de INPUTS - de uitkomst
-        // voedt continu de gewichten/kalibratie/drempels terug het net in.
+        // FEEDBACK-LUS: gloeiende puls die HEEN EN WEER door het net loopt (output <-> inputs)
+        // - de uitkomst die continu de gewichten/kalibratie/drempels terugvoedt.
         try {
             const _outN = pos[pos.length - 1][0];
             const _inN = pos[0][Math.floor(pos[0].length / 2)];
             const _dipY = h - 14;
+            const P0 = { x: _outN.x, y: _outN.y }, C1 = { x: _outN.x + 6, y: _dipY }, C2 = { x: _inN.x, y: _dipY }, P3 = { x: _inN.x, y: _inN.y };
+            const bez = (t) => { const u = 1 - t; return { x: u * u * u * P0.x + 3 * u * u * t * C1.x + 3 * u * t * t * C2.x + t * t * t * P3.x, y: u * u * u * P0.y + 3 * u * u * t * C1.y + 3 * u * t * t * C2.y + t * t * t * P3.y }; };
             ctx.save();
-            ctx.strokeStyle = 'rgba(20,241,149,0.45)';
-            ctx.lineWidth = 1.3;
-            ctx.setLineDash([5, 6]);
-            ctx.lineDashOffset = (now / 45) % 11;   // beweegt richting inputs
-            ctx.beginPath();
-            ctx.moveTo(_outN.x, _outN.y);
-            ctx.bezierCurveTo(_outN.x + 6, _dipY, _inN.x, _dipY, _inN.x, _inN.y);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            // pijlpunt bij de inputs
-            ctx.fillStyle = 'rgba(20,241,149,0.7)';
-            ctx.beginPath(); ctx.moveTo(_inN.x, _inN.y); ctx.lineTo(_inN.x - 5, _inN.y + 5); ctx.lineTo(_inN.x + 2, _inN.y + 6); ctx.closePath(); ctx.fill();
-            ctx.font = "7.5px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+            // zwak basispad
+            ctx.strokeStyle = 'rgba(20,241,149,0.12)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(P0.x, P0.y); ctx.bezierCurveTo(C1.x, C1.y, C2.x, C2.y, P3.x, P3.y); ctx.stroke();
+            // ping-pong parameter (heen en weer)
+            const period = 2600;
+            let tt = ((now % period) / period) * 2; if (tt > 1) tt = 2 - tt;
+            const ease = tt * tt * (3 - 2 * tt);
+            // sleep-stippen achter de puls
+            for (let k = 1; k < 7; k++) {
+                const tk = Math.max(0, Math.min(1, ease - k * 0.028));
+                const pt = bez(tk); const a = (1 - k / 7) * 0.45;
+                ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(0.6, 2.4 - k * 0.3), 0, 6.283);
+                ctx.fillStyle = `rgba(20,241,149,${a})`; ctx.fill();
+            }
+            // heldere gloeiende puls-kop
+            const pk = bez(ease);
+            ctx.save(); ctx.shadowColor = '#14f195'; ctx.shadowBlur = 14;
+            ctx.beginPath(); ctx.arc(pk.x, pk.y, 3.4, 0, 6.283); ctx.fillStyle = '#eafff5'; ctx.fill();
+            ctx.beginPath(); ctx.arc(pk.x, pk.y, 6, 0, 6.283); ctx.fillStyle = 'rgba(20,241,149,0.25)'; ctx.fill();
+            ctx.restore();
+            ctx.fillStyle = 'rgba(20,241,149,0.7)'; ctx.font = "7.5px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
             ctx.fillText('\u21bb feedback \u00b7 leert van elke trade', w / 2, _dipY + 4);
             ctx.restore();
         } catch (e) {}
