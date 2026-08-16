@@ -3475,6 +3475,7 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     // Plus (14-07): de kans is GESMOOTHED (mediaan van de laatste metingen) -
     // een entry vergt een aanhoudend hoge kans, niet één opgewonden meting.
     probabilityPct = smoothProb(side, probabilityPct);
+    try { probabilityPct = Math.max(0, Math.min(100, probabilityPct + sentimentTilt(side))); } catch (e) {}   // Fear & Greed SENT-tilt
     const regime = evaluateMarketRegime();
     const eligible = probabilityPct >= botSettings.minProbabilityPct &&
                       projectedProfitPct > (botSettings.minProjectedProfitPct + roundTripCostPct()) &&
@@ -5000,6 +5001,31 @@ function checkOpenPositionsExits() {
             : (pos.entryPrice - posPrice) / pos.entryPrice;
         pos.mfe = Math.max(pos.mfe != null ? pos.mfe : 0, pnlPct);
         pos.mae = Math.min(pos.mae != null ? pos.mae : 0, pnlPct);
+        // RL SCHAAL-BIJ (live): zegt de agent SCHAAL met zekerheid en staat de positie in
+        // winst, laad dan bounded bij (+deel van de huidige grootte, gewogen entry, max 1×
+        // per positie, alleen als er vrije equity is). Zo laat de RL-policy winnaars groeien.
+        try {
+            if (typeof OsirisRL !== 'undefined' && OsirisRL.ENABLED && OsirisRL.INFLUENCE && OsirisRL.episodes > 2000 && (pos.scaleCount || 0) < 1 && pnlPct > 0.0015 && posPrice) {
+                const _ssym = (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') ? Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) : 'BTC';
+                const _sm = neoMultiState.markets[_ssym];
+                const _sage = (Date.now() - (pos.openTime || 0)) / 60000;
+                const _dec = OsirisRL.decide(pos, _sm, pnlPct, _sage);
+                if (_dec && _dec.action === 3 && _dec.conf > 0.5) {
+                    const freePct = Math.max(0, 1 - getAllocatedPct() - (botSettings.minHedgeReservePct || 0));
+                    const addPct = Math.min((pos.sizePct || 0.1) * 0.5, freePct);
+                    if (addPct > 0.02) {
+                        const addNotional = getEquity() * addPct;
+                        const addAmount = addNotional / posPrice;
+                        pos.entryPrice = (pos.entryPrice * pos.amount + posPrice * addAmount) / (pos.amount + addAmount);
+                        pos.amount += addAmount; pos.notional = (pos.notional || 0) + addNotional; pos.sizePct = (pos.sizePct || 0) + addPct;
+                        pos.scaleCount = (pos.scaleCount || 0) + 1;
+                        try { logBotAction('SCALE', posPrice, pos.side, 0, addAmount, `RL SCHAAL-BIJ (+${(addPct * 100 | 0)}% op winnaar, zekerheid ${(_dec.conf * 100 | 0)}%)`, 0, addNotional, false, (pos.isOsiris && pos.symbol ? _ssym : 'BTC'), pos.isOsiris === true); } catch (e) {}
+                        try { logAdaptation('RL laadt bij op winnaar', `${_ssym} ${pos.side} +${(addPct * 100 | 0)}% (RL SCHAAL, zekerheid ${(_dec.conf * 100 | 0)}%, winst +${(pnlPct * 100).toFixed(2)}%)`); } catch (e) {}
+                        try { updatePositionLines(); updateWalletUI(); } catch (e) {}
+                    }
+                }
+            }
+        } catch (e) {}
 
         // 1. Harde stop-loss: -2% (of, voor een range-scalp, de eigen krappere
         // stop) - niet onderhandelbaar.
@@ -7754,6 +7780,30 @@ window.osirisAutoTune = osirisAutoTune;
 
 // ============================================================
 // ============================================================
+// ---- FEAR & GREED SENTIMENT (16-08): externe marktsentiment-feed als SENT-input ----
+let osirisSentiment = { value: 50, label: 'Neutral', ts: 0 };
+function fetchFearGreed() {
+    try {
+        fetch('https://api.alternative.me/fng/?limit=1').then(r => r.json()).then(j => {
+            if (j && j.data && j.data[0]) {
+                osirisSentiment = { value: parseInt(j.data[0].value, 10) || 50, label: j.data[0].value_classification || 'Neutral', ts: Date.now() };
+                try { const e = document.getElementById('flow-sent'); if (e) e.textContent = `${osirisSentiment.value} ${osirisSentiment.label}`; } catch (x) {}
+            }
+        }).catch(() => {});
+    } catch (e) {}
+}
+try { fetchFearGreed(); setInterval(fetchFearGreed, 30 * 60000); } catch (e) {}
+// Contrarian sentiment-tilt: extreme angst steunt LONG, extreme hebzucht steunt SHORT.
+function sentimentTilt(side) {
+    const v = osirisSentiment.value;
+    if (v <= 25) return side === 'LONG' ? 3 : -3;   // extreme angst -> bodem-bias
+    if (v >= 75) return side === 'SHORT' ? 3 : -3;   // extreme hebzucht -> top-bias
+    if (v <= 40) return side === 'LONG' ? 1.5 : -1.5;
+    if (v >= 60) return side === 'SHORT' ? 1.5 : -1.5;
+    return 0;
+}
+window.osirisSentiment = osirisSentiment;
+
 // OSIRIS · RL EXIT/HOLD-AGENT (16-08) - lokaal, geen backend
 // Tabular Q-learning over gediscretiseerde toestand (regime × pnl × momentum ×
 // leeftijd). Acties: HOLD · SLUIT · TRAIL · SCHAAL. De zware buffer-replay
@@ -11385,7 +11435,8 @@ const NEONET_INPUTS = [
     { key: 'nodeconf', label: 'CONF',     c: '#ffb627' },
     { key: 'funding',  label: 'FUND',     c: '#ff8fa3' },
     { key: 'longshort',label: 'L/S',      c: '#8fb8ff' },
-    { key: 'btccorr',  label: 'BTC-COR',  c: '#f7931a' }
+    { key: 'btccorr',  label: 'BTC-COR',  c: '#f7931a' },
+    { key: 'sent',     label: 'SENT',     c: '#c792ea' }
 ];
 
 function buildNeoNet() {
