@@ -5095,9 +5095,19 @@ function checkOpenPositionsExits() {
         // onwaarschijnlijk is (41% vanuit de kleine-winst-zone). Innen.
         if (!pos.isScalp && cfg.smallProfitHarvestMinutes > 0) {
             const ageMinH = (Date.now() - (pos.openTime || 0)) / 60000;
+            // LET WINNERS RUN (16-08): oogst de kleine winst NIET als de richting nog
+            // steeds in ons voordeel is - laat 'm doorlopen (richting de trailing-zone)
+            // i.p.v. sluiten en meteen dezelfde kant weer openen.
+            let _stillFavored = false;
+            try {
+                const _wsym = (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') ? Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) : 'BTC';
+                const _wm = neoMultiState.markets[_wsym];
+                const _wthr = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
+                if (_wm && _wm.bestSide === pos.side && (_wm.bestProb || 0) >= _wthr) _stillFavored = true;
+            } catch (e) {}
             if (pnlPct >= roundTripCostPct() / 100 &&
                 (pos.peakPnlPct || 0) < cfg.profitProtectActivationPct &&
-                ageMinH >= cfg.smallProfitHarvestMinutes) {
+                ageMinH >= cfg.smallProfitHarvestMinutes && !_stillFavored) {
                 closePosition(pos, pnlPct, `SMALL_PROFIT_HARVEST (+${(pnlPct * 100).toFixed(2)}% na ${ageMinH.toFixed(0)} min - doorstoten statistisch onwaarschijnlijk)`);
                 return;
             }
@@ -7653,6 +7663,23 @@ function osirisAutoTune() {
             osirisTune.lastAdjust = now;
             try { logAdaptation('Osiris stelt drempels bij', `${why} (kans-drempel ${(osirisTune.minProb * 100).toFixed(0)}%, abstain ${(osirisTune.abstain * 100).toFixed(0)}%)`); } catch (e) {}
         }
+        // BTC-DREMPEL (16-08): BTC draait op zijn eigen engine met de globale
+        // minProbabilityPct. Osiris stelt die nu ook autonoom bij, zodat BTC blijft
+        // meedoen: lang geen BTC-trade -> drempel omlaag; recente BTC-verliezen -> omhoog.
+        try {
+            const bl = (botTradeLog || []);
+            const btcEnt = bl.filter(t => t.action === 'ENTRY' && ((t.market === 'BTC') || (!t.isOsiris && (t.price || 0) > 10000)));
+            const lastBtc = btcEnt.length ? (btcEnt[btcEnt.length - 1].timestampMs || 0) : 0;
+            const btcIdleMin = lastBtc ? (now - lastBtc) / 60000 : Infinity;
+            const btcEx = bl.filter(t => t.action === 'EXIT' && ((t.market === 'BTC') || (!t.isOsiris && (t.price || 0) > 10000))).slice(-10);
+            const btcWins = btcEx.filter(t => (t.pnl || 0) > 0).length;
+            const btcWr = btcEx.length >= 5 ? btcWins / btcEx.length : null;
+            const cur = botSettings.minProbabilityPct != null ? botSettings.minProbabilityPct : 64;
+            let nb = cur, bwhy = '';
+            if (btcWr != null && btcWr < 0.42) { nb = Math.min(75, cur + 2); bwhy = `BTC-winrate ${(btcWr * 100 | 0)}% te laag`; }
+            else if (btcIdleMin > 30) { nb = Math.max(55, cur - 2); bwhy = (isFinite(btcIdleMin) ? `${btcIdleMin | 0} min` : 'nog') + ' geen BTC-trade'; }
+            if (nb !== cur) { botSettings.minProbabilityPct = nb; try { logAdaptation('Osiris stelt BTC-drempel bij', `${bwhy} - BTC kans-drempel ${cur}% -> ${nb}%`); } catch (e) {} }
+        } catch (e) {}
         // EXIT-KALIBRATIE (14-08): analyse toonde dat trades op breakeven uit-TIME_STOP-en
         // (micro-marges niet vastgehouden). Zit >60% van de recente exits op TIME_STOP,
         // dan houdt Osiris te lang vast -> sneller oogsten + korter vasthouden. Dit vangt
@@ -8208,7 +8235,11 @@ function osirisShadowTick() {
             osirisState.skip[sym] = null;   // succesvol geopend -> geen blokkade-reden
             allocSoFar += sizePct;   // lokaal reserveren, ongeacht async-timing van de commit
             const _swReason = `OSIRIS ${sym} ${p.side} (kans ${(p.prob * 100 | 0)}%)`;
-            if (typeof osirisSweepEnabled !== 'undefined' && osirisSweepEnabled) {
+            // STERK MOMENTUM: dan komt de pullback naar het stop-niveau waarschijnlijk niet -
+            // direct at-market instappen i.p.v. wachten op een sweep die de move mist.
+            const _mom = m.vfm || 0;
+            const _strongMom = (p.side === 'LONG' && _mom > 1.0) || (p.side === 'SHORT' && _mom < -1.0);
+            if (typeof osirisSweepEnabled !== 'undefined' && osirisSweepEnabled && !_strongMom) {
                 // SWEEP-ENTRY: stap pas in op het verwachte stop-/liquidatie-niveau (waar de
                 // liquidaties zitten) i.p.v. direct at-market -> betere entry. Fallback:
                 // niet geraakt binnen het venster => alsnog at-market (traden valt niet stil).
@@ -8217,8 +8248,8 @@ function osirisShadowTick() {
                 _osirisSweep[sym] = { side: p.side, level, refPrice: m.lastPrice, position, reason: _swReason, created: now, expiry: now + OSIRIS_SWEEP_WINDOW_MS };
                 try { logAdaptation(`Osiris wacht op sweep · ${sym} ${p.side}`, `entry pas bij ${level.toFixed(m.lastPrice < 10 ? 3 : 2)} (verwacht liquidatie-/stop-niveau); anders at-market binnen ${(OSIRIS_SWEEP_WINDOW_MS / 60000) | 0} min`); } catch (e) {}
             } else {
-                try { logAdaptation(`Osiris opent ${sym} ${p.side}`, `kans ${(p.prob * 100 | 0)}%, allocatie ${(a * 100 | 0)}% van de gedeelde wallet ($${notionalUSD.toFixed(0)})`); } catch (e) {}
-                commitPositionEntry(position, _swReason);
+                try { logAdaptation(`Osiris opent ${sym} ${p.side}`, `${_strongMom ? 'sterk momentum (vfm ' + _mom.toFixed(2) + ') - sweep overgeslagen, direct at-market; ' : ''}kans ${(p.prob * 100 | 0)}%, allocatie ${(a * 100 | 0)}% van de gedeelde wallet ($${notionalUSD.toFixed(0)})`); } catch (e) {}
+                commitPositionEntry(position, _swReason + (_strongMom ? ' [momentum]' : ''));
             }
         }
         renderOsirisShadowPanel();
@@ -11456,6 +11487,29 @@ function _neoNetDraw(now, canvasId, outId) {
             ctx.textAlign = 'right'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(20,241,149,0.85)';
             ctx.fillText(`SHADOW-BT · tgt ${B.target}% / stop ${B.stop}% · Sharpe ${B.sharpe.toFixed(2)}`, w - 14, h - 8);
         }
+        // FEEDBACK-LUS: geanimeerd retourpad van OUTPUT terug naar de INPUTS - de uitkomst
+        // voedt continu de gewichten/kalibratie/drempels terug het net in.
+        try {
+            const _outN = pos[pos.length - 1][0];
+            const _inN = pos[0][Math.floor(pos[0].length / 2)];
+            const _dipY = h - 14;
+            ctx.save();
+            ctx.strokeStyle = 'rgba(20,241,149,0.45)';
+            ctx.lineWidth = 1.3;
+            ctx.setLineDash([5, 6]);
+            ctx.lineDashOffset = (now / 45) % 11;   // beweegt richting inputs
+            ctx.beginPath();
+            ctx.moveTo(_outN.x, _outN.y);
+            ctx.bezierCurveTo(_outN.x + 6, _dipY, _inN.x, _dipY, _inN.x, _inN.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // pijlpunt bij de inputs
+            ctx.fillStyle = 'rgba(20,241,149,0.7)';
+            ctx.beginPath(); ctx.moveTo(_inN.x, _inN.y); ctx.lineTo(_inN.x - 5, _inN.y + 5); ctx.lineTo(_inN.x + 2, _inN.y + 6); ctx.closePath(); ctx.fill();
+            ctx.font = "7.5px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+            ctx.fillText('\u21bb feedback \u00b7 leert van elke trade', w / 2, _dipY + 4);
+            ctx.restore();
+        } catch (e) {}
     }
     // input-labels links van de eerste kolom
     ctx.textAlign = 'right'; ctx.font = "7px 'JetBrains Mono', monospace";
