@@ -3475,7 +3475,7 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     // Plus (14-07): de kans is GESMOOTHED (mediaan van de laatste metingen) -
     // een entry vergt een aanhoudend hoge kans, niet één opgewonden meting.
     probabilityPct = smoothProb(side, probabilityPct);
-    try { probabilityPct = Math.max(0, Math.min(100, probabilityPct + sentimentTilt(side))); } catch (e) {}   // Fear & Greed SENT-tilt
+    try { probabilityPct = Math.max(0, Math.min(100, probabilityPct + sentimentTilt(side, 'BTC'))); } catch (e) {}   // Fear & Greed SENT-tilt
     const regime = evaluateMarketRegime();
     const eligible = probabilityPct >= botSettings.minProbabilityPct &&
                       projectedProfitPct > (botSettings.minProjectedProfitPct + roundTripCostPct()) &&
@@ -5376,7 +5376,7 @@ function downloadAllData() {
         multiMarket: (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? Object.fromEntries(
             Object.keys(neoMultiState.markets).map(k => {
                 const m = neoMultiState.markets[k];
-                return [k, { lastPrice: m.lastPrice, ema: m.ema, emaSlow: m.emaSlow, rsi: m.rsi, vfm: m.vfm, chaos: m.chaos, bestProb: m.bestProb, bestSide: m.bestSide, subBrainLabel: m.subBrainLabel, nnRitmeMin: m.nnRitmeMin, nnCaps: m.nnCaps, candles: m.candles }];
+                return [k, { lastPrice: m.lastPrice, ema: m.ema, emaSlow: m.emaSlow, rsi: m.rsi, vfm: m.vfm, chaos: m.chaos, bestProb: m.bestProb, bestSide: m.bestSide, subBrainLabel: m.subBrainLabel, nnRitmeMin: m.nnRitmeMin, nnCaps: m.nnCaps, sentScore: m.sentScore != null ? m.sentScore : null, fund: m.fund || null, candles: m.candles }];
             })
         ) : null,
         // ZELF-LERENDE MODELLEN: DeepNet (per markt) + L2/L3 + HMM-regime + shadow-backtest
@@ -7821,8 +7821,26 @@ function fetchFearGreed() {
 }
 try { fetchFearGreed(); setInterval(fetchFearGreed, 30 * 60000); } catch (e) {}
 // Contrarian sentiment-tilt: extreme angst steunt LONG, extreme hebzucht steunt SHORT.
-function sentimentTilt(side) {
-    const v = osirisSentiment.value;
+// PER-MARKT SENTIMENT (16-08): de crypto-brede Fear & Greed is de basis; per munt
+// verfijnd met de funding rate en long/short-ratio (die we al per munt ophalen).
+// Hoog = hebzuchtig/overwegend long, laag = angstig/overwegend short. 0..100.
+function marketSentiment(sym) {
+    let sc = osirisSentiment.value;   // crypto-brede F&G als basis
+    try {
+        const f = neoMultiState.markets[sym] && neoMultiState.markets[sym].fund;
+        if (f) {
+            if (f.fundingRate != null) sc += Math.max(-20, Math.min(20, f.fundingRate * 40000));       // +funding = greedy
+            if (f.longShortRatio != null) sc += Math.max(-15, Math.min(15, (f.longShortRatio - 1) * 30)); // >1 = greedy
+        }
+    } catch (e) {}
+    sc = Math.max(0, Math.min(100, sc));
+    try { if (neoMultiState.markets[sym]) neoMultiState.markets[sym].sentScore = Math.round(sc); } catch (e) {}
+    return sc;
+}
+window.marketSentiment = marketSentiment;
+// Contrarian tilt op basis van het sentiment van DIE markt.
+function sentimentTilt(side, sym) {
+    const v = sym ? marketSentiment(sym) : osirisSentiment.value;
     if (v <= 25) return side === 'LONG' ? 3 : -3;   // extreme angst -> bodem-bias
     if (v >= 75) return side === 'SHORT' ? 3 : -3;   // extreme hebzucht -> top-bias
     if (v <= 40) return side === 'LONG' ? 1.5 : -1.5;
@@ -8179,6 +8197,22 @@ function osirisAdaptiveLearn() {
                 try { logAdaptation('Shadow-backtest optimaliseert', `beste Sharpe ${b.sharpe.toFixed(2)} bij target ${b.target}% / stop ${b.stop}% (n=${b.n}) - micro target->${nT}% stop->${nS}%`); } catch (e) { }
             }
         }
+        // RL -> AUTONOME TIME-STOP HERKALIBRATIE (16-08): Osiris gebruikt wat de RL-agent
+        // leerde. Verkiest de policy overwegend HOLD/TRAIL (winnaars laten lopen), dan langer
+        // vasthouden; verkiest hij SLUIT, dan korter. Zo herkalibreert de time-stop zichzelf
+        // op basis van duizenden doorgespeelde scenario's i.p.v. alleen recente exits.
+        try {
+            if (typeof OsirisRL !== 'undefined' && OsirisRL.episodes > 5000) {
+                const ad = OsirisRL.actionDist, tot = ad.reduce((a, x) => a + x, 0) || 1;
+                const holdShare = (ad[0] + ad[2]) / tot;   // HOLD + TRAIL
+                const closeShare = ad[1] / tot;            // SLUIT
+                const cur = botSettings.maxPositionAgeMinutes || 90;
+                let nv = cur, why = '';
+                if (holdShare > 0.6 && cur < 120) { nv = Math.min(120, cur + 10); why = `RL verkiest vasthouden (${(holdShare * 100 | 0)}% HOLD/TRAIL)`; }
+                else if (closeShare > 0.45 && cur > 35) { nv = Math.max(35, cur - 10); why = `RL verkiest sluiten (${(closeShare * 100 | 0)}% SLUIT)`; }
+                if (nv !== cur) { botSettings.maxPositionAgeMinutes = nv; try { logAdaptation('RL herkalibreert time-stop', `${why} - vasthoudtijd ${cur}min -> ${nv}min (uit ${OsirisRL.episodes.toLocaleString()} scenario's)`); } catch (e) { } }
+            }
+        } catch (e) { }
     } catch (e) { }
 }
 window.osirisAdaptiveLearn = osirisAdaptiveLearn;
@@ -8202,6 +8236,8 @@ function osirisReview() {
                     }
                 } catch (e) {}
             }
+            // per-markt sentiment-tilt (Fear & Greed + funding + L/S van DEZE munt)
+            try { if (side) prob = Math.max(0, Math.min(1, prob + sentimentTilt(side, sym) / 100)); } catch (e) {}
             cands.push({ sym, prob, side });
         }
         if (!cands.length) return osirisState;
@@ -11536,7 +11572,8 @@ function neoNetInputs() {
         // FUNDAMENTALS (van de actieve munt in de multi-state): funding, long/short, BTC-corr
         funding: (() => { try { const f = neoMultiState.markets[neoMultiState.active].fund; return f && f.fundingRate != null ? Math.max(-1, Math.min(1, -Math.tanh(f.fundingRate * 2000))) : 0; } catch (e) { return 0; } })(),
         longshort: (() => { try { const f = neoMultiState.markets[neoMultiState.active].fund; return f && f.longShortRatio != null ? Math.max(-1, Math.min(1, -Math.tanh((f.longShortRatio - 1) * 1.5))) : 0; } catch (e) { return 0; } })(),
-        btccorr: (() => { try { const f = neoMultiState.markets[neoMultiState.active].fund; return f && f.btcCorr != null ? f.btcCorr : 0; } catch (e) { return 0; } })()
+        btccorr: (() => { try { const f = neoMultiState.markets[neoMultiState.active].fund; return f && f.btcCorr != null ? f.btcCorr : 0; } catch (e) { return 0; } })(),
+        sent: (() => { try { return Math.max(-1, Math.min(1, (marketSentiment(neoMultiState.active) - 50) / 50)); } catch (e) { return 0; } })()
     };
 }
 
@@ -11596,6 +11633,12 @@ function _neoNetDraw(now, canvasId, outId) {
     _neonet.actLevel += (( (_l2 && _l2.trained) ? 1 : 0.6) * (running ? 1 : 0.7) - _neonet.actLevel) * 0.05;
     _neonet.pulse = (_neonet.pulse + 0.010 + 0.012 * _neonet.actLevel) % 1;
     const wavePos = _neonet.pulse * (layers.length - 1);
+    // FEEDBACK-PULS: periodiek flitst de uitkomst TERUG langs dezelfde verbindingen naar de
+    // bron (output -> inputs). Groene deeltjes reizen achterwaarts over de bestaande lijnen.
+    _neonet.fbPulse = (_neonet.fbPulse || 0) + 0.007 + 0.005 * _neonet.actLevel;
+    const _fbCycle = _neonet.fbPulse % 1.7;                 // deel actief, deel rust
+    const _fbActive = _fbCycle < 1.0;
+    const _fbPos = _fbActive ? (1 - _fbCycle) * (layers.length - 1) : -1;   // hoog(output) -> laag(input)
 
     // zet input-laag activaties
     layers[0].forEach((nd, i) => { nd.act = Math.abs(inp[NEONET_INPUTS[i].key] || 0); nd.sign = Math.sign(inp[NEONET_INPUTS[i].key] || 0); });
@@ -11696,6 +11739,16 @@ function _neoNetDraw(now, canvasId, outId) {
         if (hot) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.9)`; ctx.shadowBlur = (4 + 9 * signal) * (0.4 + 0.6 * flash); }
         ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
         if (hot) ctx.restore();
+        // FEEDBACK-FLITS: groen deeltje reist achterwaarts (B -> A) langs deze bestaande lijn
+        // wanneer de feedback-golf door deze laag trekt - de uitkomst die terugvloeit.
+        if (_fbActive && _fbPos >= cn.li && _fbPos <= cn.li + 1) {
+            const _t = _fbPos - cn.li;
+            const _px = A.x + (B.x - A.x) * _t, _py = A.y + (B.y - A.y) * _t;
+            ctx.strokeStyle = `rgba(20,241,149,${(0.30 * (1 - Math.abs(_t - 0.5))).toFixed(3)})`;
+            ctx.lineWidth = 1.1; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+            ctx.save(); ctx.shadowColor = '#14f195'; ctx.shadowBlur = 7;
+            ctx.beginPath(); ctx.arc(_px, _py, 1.7, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.92)'; ctx.fill(); ctx.restore();
+        }
     }
 
     // ---- neuronen ----
@@ -11779,37 +11832,14 @@ function _neoNetDraw(now, canvasId, outId) {
             const adv = d ? `${R.ACTIONS[d.action]} ${(d.conf * 100 | 0)}%` : '\u2014';
             ctx.fillText(`RL · ${(R.episodes / 1000).toFixed(0)}k scenario's · advies ${adv}`, 14, h - 8);
         }
-        // FEEDBACK-LUS: gloeiende puls die HEEN EN WEER door het net loopt (output <-> inputs)
-        // - de uitkomst die continu de gewichten/kalibratie/drempels terugvoedt.
+        // FEEDBACK-LUS: de puls flitst nu TERUG langs de bestaande netwerklijnen (zie de
+        // groene deeltjes in de verbindingen hierboven). Alleen nog een label onderaan.
         try {
-            const _outN = pos[pos.length - 1][0];
-            const _inN = pos[0][Math.floor(pos[0].length / 2)];
-            const _dipY = h - 14;
-            const P0 = { x: _outN.x, y: _outN.y }, C1 = { x: _outN.x + 6, y: _dipY }, C2 = { x: _inN.x, y: _dipY }, P3 = { x: _inN.x, y: _inN.y };
-            const bez = (t) => { const u = 1 - t; return { x: u * u * u * P0.x + 3 * u * u * t * C1.x + 3 * u * t * t * C2.x + t * t * t * P3.x, y: u * u * u * P0.y + 3 * u * u * t * C1.y + 3 * u * t * t * C2.y + t * t * t * P3.y }; };
             ctx.save();
-            // zwak basispad
-            ctx.strokeStyle = 'rgba(20,241,149,0.12)'; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(P0.x, P0.y); ctx.bezierCurveTo(C1.x, C1.y, C2.x, C2.y, P3.x, P3.y); ctx.stroke();
-            // ping-pong parameter (heen en weer)
-            const period = 2600;
-            let tt = ((now % period) / period) * 2; if (tt > 1) tt = 2 - tt;
-            const ease = tt * tt * (3 - 2 * tt);
-            // sleep-stippen achter de puls
-            for (let k = 1; k < 7; k++) {
-                const tk = Math.max(0, Math.min(1, ease - k * 0.028));
-                const pt = bez(tk); const a = (1 - k / 7) * 0.45;
-                ctx.beginPath(); ctx.arc(pt.x, pt.y, Math.max(0.6, 2.4 - k * 0.3), 0, 6.283);
-                ctx.fillStyle = `rgba(20,241,149,${a})`; ctx.fill();
-            }
-            // heldere gloeiende puls-kop
-            const pk = bez(ease);
-            ctx.save(); ctx.shadowColor = '#14f195'; ctx.shadowBlur = 14;
-            ctx.beginPath(); ctx.arc(pk.x, pk.y, 3.4, 0, 6.283); ctx.fillStyle = '#eafff5'; ctx.fill();
-            ctx.beginPath(); ctx.arc(pk.x, pk.y, 6, 0, 6.283); ctx.fillStyle = 'rgba(20,241,149,0.25)'; ctx.fill();
-            ctx.restore();
-            ctx.fillStyle = 'rgba(20,241,149,0.7)'; ctx.font = "7.5px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
-            ctx.fillText('\u21bb feedback \u00b7 leert van elke trade', w / 2, _dipY + 4);
+            const _lblOn = (typeof _fbActive !== 'undefined' && _fbActive);
+            ctx.fillStyle = _lblOn ? 'rgba(20,241,149,0.85)' : 'rgba(20,241,149,0.4)';
+            ctx.font = "7.5px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+            ctx.fillText('\u21bb feedback \u00b7 uitkomst flitst terug door het net \u00b7 leert van elke trade', w / 2, h - 8);
             ctx.restore();
         } catch (e) {}
     }
