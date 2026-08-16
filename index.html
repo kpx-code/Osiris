@@ -648,6 +648,35 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#5c7488;letter-spacing:0.14em;text-transform:uppercase;margin-top:10px;text-align:center;">Reads price, volume &amp; volatility &middot; tests every prediction</div>
         </div>
       </div>
+      <div class="eyebrow" style="margin-top:30px;">&mdash; Under the hood</div>
+      <h1 class="h" style="margin-top:6px;">Four brains, one decision</h1>
+      <p class="hero-lead" style="max-width:none;">Osiris runs a four-brain hierarchy on one shared testnet wallet. Each coin has its own sub-brain; a mainbrain orchestrates them, splits equity by conviction and always keeps room for BTC's own engine.</p>
+      <div class="grid g-3" style="margin-top:14px;">
+        <div class="panel"><div class="plabel" style="color:var(--btc)">Neo BTC &middot; main engine</div><div style="font-size:0.62rem;line-height:1.8;color:var(--dim);margin-top:6px;">The proven trend + range-scalp engine. Trades BTC on its own, evaluates both sides and places only the strongest. Reserves ~15% of the wallet so it always stays in the game.</div></div>
+        <div class="panel"><div class="plabel" style="color:var(--eth)">Neo ETH &middot; Neo SOL &middot; cores</div><div style="font-size:0.62rem;line-height:1.8;color:var(--dim);margin-top:6px;">Sub-brains with their own presets (wider stops, more volatile). Each produces a best side + probability that flows up to the mainbrain.</div></div>
+        <div class="panel"><div class="plabel" style="color:var(--cyan)">Osiris &middot; mainbrain</div><div style="font-size:0.62rem;line-height:1.8;color:var(--dim);margin-top:6px;">Weighs the cores, splits equity probability-weighted for more, smaller trades, and routes execution &mdash; including sweep-entries at the expected liquidation level.</div></div>
+      </div>
+
+      <h1 class="h" style="margin-top:26px;">A stack that keeps learning</h1>
+      <p class="hero-lead" style="max-width:none;">Six layers learn on top of each other &mdash; from simple adaptive weights to a reinforcement-learning agent that replays thousands of scenarios in a background worker.</p>
+      <div class="grid g-3" style="margin-top:14px;">
+        <div class="panel"><div class="plabel">L1 &middot; adaptive weights</div><div style="font-size:0.6rem;line-height:1.75;color:var(--dim);margin-top:6px;">Learns counterfactually which factors help &mdash; win rate with vs. without each signal over the last 20+ trades.</div></div>
+        <div class="panel"><div class="plabel">L2 &middot; logistic regression</div><div style="font-size:0.6rem;line-height:1.75;color:var(--dim);margin-top:6px;">Trained on standardized signals (real trades weighted 8&times;), Platt-calibrated so 60% means ~60%.</div></div>
+        <div class="panel"><div class="plabel" style="color:#14f195">L3 &middot; OSIRIS DEEPNET</div><div style="font-size:0.6rem;line-height:1.75;color:var(--dim);margin-top:6px;">A 16-14-8-1 feedforward net per market with backprop, ECE + monotonicity calibration and a confidence meta-gate.</div></div>
+        <div class="panel"><div class="plabel" style="color:#7fd8ff">HMM &middot; regime detection</div><div style="font-size:0.6rem;line-height:1.75;color:var(--dim);margin-top:6px;">A Gaussian Hidden Markov Model (Baum-Welch + Viterbi) labels the market: trending, volatile, compression or calm.</div></div>
+        <div class="panel"><div class="plabel" style="color:#ffb627">Shadow-backtest tuner</div><div style="font-size:0.6rem;line-height:1.75;color:var(--dim);margin-top:6px;">Coordinate-descent over target/stop on the live buffer, optimizing Sharpe &mdash; a Bayesian-lite auto-tuner.</div></div>
+        <div class="panel"><div class="plabel" style="color:#c792ea">RL &middot; exit-agent</div><div style="font-size:0.6rem;line-height:1.75;color:var(--dim);margin-top:6px;">Tabular Q-learning (HOLD / CLOSE / TRAIL / SCALE) trained on thousands of replayed scenarios in a Web Worker; advises live exits and re-calibrates the time-stop.</div></div>
+      </div>
+
+      <h1 class="h" style="margin-top:26px;">16 live inputs, per market</h1>
+      <p class="hero-lead" style="max-width:none;">Every cycle the net reads sixteen signals per coin &mdash; from raw meters to per-market sentiment blended from Fear &amp; Greed, funding rate and long/short ratio.</p>
+      <div class="panel" style="margin-top:12px;"><div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;line-height:2.1;color:var(--dim);">
+        <b style="color:var(--cyan)">VFM</b> volume-flow momentum &middot; <b style="color:var(--cyan)">ER</b> efficiency ratio &middot; <b style="color:var(--cyan)">DB</b> delta balance &middot; <b style="color:var(--cyan)">CHAOS</b> realized volatility &middot; <b style="color:var(--cyan)">MOM</b> momentum &middot; <b style="color:var(--cyan)">VOL-Z</b> volume z-score &middot; <b style="color:var(--cyan)">RSI</b> &middot; <b style="color:var(--cyan)">EMA</b> &middot; <b style="color:var(--cyan)">CNN</b> candlestick pattern &middot; <b style="color:var(--cyan)">FIB</b> confluence &middot; <b style="color:var(--cyan)">NN</b> node timing &middot; <b style="color:var(--cyan)">CONF</b> confluence score &middot; <b style="color:var(--cyan)">FUND</b> funding/OI &middot; <b style="color:var(--cyan)">L/S</b> long-short ratio &middot; <b style="color:var(--cyan)">BTC-COR</b> correlation &middot; <b style="color:#c792ea">SENT</b> per-market sentiment
+      </div></div>
+
+      <h1 class="h" style="margin-top:26px;">The feedback loop</h1>
+      <p class="hero-lead" style="max-width:none;">Nothing is static. Every closed trade flashes back through the network &mdash; feeding the calibration table, the adaptive weights, the entry thresholds, the exit timing and the target/stop. The bot tunes itself: entry probability, harvest timing, per-regime holds and the time-stop all re-calibrate autonomously from its own recent results, the detected regime and the RL agent's learnings. Every adjustment is logged in the live <b style="color:var(--cyan)">Autonomous adjustments</b> feed.</p>
+
       <div class="panel" style="margin-top:24px;border-color:rgba(255,182,39,0.35);background:rgba(255,182,39,0.04);"><div class="plabel" style="color:var(--amber)">&#9888; Not financial advice</div><div style="font-size:0.62rem;line-height:1.8;color:var(--dim)">Osiris is an <b style="color:var(--amber)">experimental, educational project</b> running entirely on the Binance <b style="color:var(--cyan)">Spot testnet</b> with fake capital. Nothing in this app is financial, investment or trading advice. Numbers, probabilities and decisions are the output of a self-learning model and can be wrong. Never trade real money based on this bot without your own research; trading carries a risk of loss.</div></div>
     </section>
     <section class="tab" id="tab-overview">
