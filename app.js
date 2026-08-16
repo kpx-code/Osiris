@@ -4282,6 +4282,7 @@ async function commitPositionEntryOnTestnet(position, reasonText) {
             const baseAsset = filters.baseAsset || 'BTC';
             if ((bal[baseAsset] || 0) < qty) {
                 logBotAction("SKIPPED", position.entryPrice, position.side, 0, 0, `TESTNET: onvoldoende ${baseAsset}-saldo voor SHORT (nodig ${qty}, vrij ${(bal[baseAsset] || 0).toFixed(5)}) - wacht op maandelijkse testnet-reset of koop eerst ${baseAsset}`);
+                try { const _bsym = (typeof MULTI_BINANCE !== 'undefined') ? (Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === symbol) || null) : null; if (_bsym) { _osirisShortBlock[_bsym] = Date.now(); delete _osirisSweep[_bsym]; } } catch (e) {}   // blokkeer SHORTs -> geen sweep-loop
                 return;
             }
             if (qty < filters.minQty) {
@@ -7711,8 +7712,9 @@ window.osirisTune = osirisTune;
 const OSIRIS_BTC_RESERVE = 0.15;   // deel van de gedeelde wallet dat ETH/SOL vrijlaten voor BTC's eigen engine
 let osirisSweepEnabled = true;
 const OSIRIS_SWEEP_FRAC = 0.35;              // ondiepe sweep (deel van de stop-afstand) - vult snel
-const OSIRIS_SWEEP_WINDOW_MS = 90 * 1000;    // kort venster: max 90s wachten, dan at-market (blokkeert traden niet)
+const OSIRIS_SWEEP_WINDOW_MS = 35 * 1000;    // max 35s wachten, dan at-market (traden valt niet stil)
 let _osirisSweep = {};
+let _osirisShortBlock = {};   // munt -> ts: SHORTs tijdelijk geblokkeerd (onvoldoende testnet-saldo)
 window.osirisSweepEnabled = osirisSweepEnabled;
 window._osirisSweep = _osirisSweep;
 
@@ -8468,6 +8470,8 @@ function osirisShadowTick() {
             // al een open positie op deze munt? niet dubbelen
             if (openPositions.some(x => (x.symbol === MULTI_BINANCE[sym]))) { osirisState.skip[sym] = 'al open'; continue; }
             if (typeof _osirisSweep !== 'undefined' && _osirisSweep[sym]) { osirisState.skip[sym] = 'wacht op sweep-niveau'; continue; }
+            // SHORT geblokkeerd (onvoldoende testnet-saldo)? sla over - anders sweep->skip->loop.
+            if (p.side === 'SHORT' && _osirisShortBlock[sym] && (now - _osirisShortBlock[sym]) < 15 * 60000) { osirisState.skip[sym] = 'SHORT geblokkeerd (onvoldoende saldo op testnet)'; continue; }
             // cooldown: max 1 nieuwe entry per munt per 60s
             if (_osirisLastEntry[sym] && (now - _osirisLastEntry[sym]) < 60000) { osirisState.skip[sym] = '60s cooldown'; continue; }
             const m = neoMultiState.markets[sym];
@@ -8545,7 +8549,7 @@ function osirisShadowTick() {
             // STERK MOMENTUM: dan komt de pullback naar het stop-niveau waarschijnlijk niet -
             // direct at-market instappen i.p.v. wachten op een sweep die de move mist.
             const _mom = m.vfm || 0;
-            const _strongMom = (p.side === 'LONG' && _mom > 1.0) || (p.side === 'SHORT' && _mom < -1.0);
+            const _strongMom = (p.side === 'LONG' && _mom > 0.6) || (p.side === 'SHORT' && _mom < -0.6);
             if (typeof osirisSweepEnabled !== 'undefined' && osirisSweepEnabled && !_strongMom) {
                 // SWEEP-ENTRY: stap pas in op het verwachte stop-/liquidatie-niveau (waar de
                 // liquidaties zitten) i.p.v. direct at-market -> betere entry. Fallback:
