@@ -1479,7 +1479,7 @@ function loadPersistentState() {
 
 // TDZ-FIX: loadPersistentState() -> computeCalibrationMap() gebruikt deze vlag al bij
 // het opstarten, dus hij moet VOOR de aanroep gedeclareerd staan (stond op ~4362).
-let _calibCurrentVersionOnly = true;   // standaard: toon alleen de huidige config-versie
+let _calibCurrentVersionOnly = false;   // toon ALLE trades (elke versie) - kalibratie accumuleert de hele historie
 loadPersistentState();
 
 // FIX: na het herladen moeten de invoervelden zelf ook de herstelde waarden
@@ -2269,7 +2269,7 @@ function resetWallet() {
 
     updateWalletUI();
     updatePendingOrdersUI();
-    try { localStorage.removeItem('osirisSessionLog'); localStorage.removeItem('osirisLearningLog'); } catch (e) {}
+    try { localStorage.removeItem('osirisSessionLog'); } catch (e) {}   // learningLog NIET wissen: dat is de kalibratie-/leerhistorie die moet accumuleren
     try { updateWalletUI(); updatePendingOrdersUI(); syncWalletLive(); } catch (e) {}
     try { renderOsirisShadowPanel(); } catch (e) {}
     try { console.log(`Wallet gereset naar ${walletSymbol()}${walletState.startingCapital} (${walletState.currency})`); } catch (e) { console.log('Wallet gereset.'); }
@@ -7481,6 +7481,111 @@ let osirisState = {
 };
 
 // ============================================================
+// ============================================================
+// OSIRIS · INTERACTIEVE BRAIN (16-08) - Overzicht-tab
+// Cirkelvormig hersen-design met twee helften en vertakkende "zenuwbanen" per
+// subsysteem. Hover over een gebied -> dat gebied + zijn banen lichten op en een
+// paneel toont de data/tools die de bot daar gebruikt. Volledig SVG, client-side.
+// ============================================================
+const BRAIN_REGIONS = [
+    { id: 'perceptie', name: 'PERCEPTIE', cx: 175, cy: 150, col: '#00d9ff', tools: ['Candles · bFetch (mirror-fallback)', 'VFM · ER · DB · Chaos-meters', 'RSI · EMA · volume-shift', 'UOTAM-nodes · fib micro/meso/macro'] },
+    { id: 'regime', name: 'REGIME · HMM', cx: 255, cy: 128, col: '#7fd8ff', tools: ['Gaussian HMM (Baum-Welch + Viterbi)', 'TRENDING / VOLATIEL / COMPRESSIE / KALM', 'per-regime parameter-nudge'] },
+    { id: 'cores', name: 'SUB-BREINEN', cx: 225, cy: 235, col: '#c792ea', tools: ['Neo BTC (hoofd-engine)', 'Neo ETH · Neo SOL (cores)', 'bestProb / bestSide per markt'] },
+    { id: 'geheugen', name: 'GEHEUGEN · L1/L2', cx: 150, cy: 250, col: '#8aa0ff', tools: ['L1 adaptieve factor-gewichten', 'L2 logistische regressie (Platt)', 'learningLog · kalibratie-curve'] },
+    { id: 'deepnet', name: 'DEEPNET · L3', cx: 465, cy: 150, col: '#14f195', tools: ['Feedforward net 15-14-8-1 per markt', 'ECE + monotonie-kalibratie', 'meta-poort (confidence + wf-precisie)'] },
+    { id: 'tuning', name: 'TUNING', cx: 385, cy: 128, col: '#ffb627', tools: ['Auto-tuner: kans-drempels + exit-timing', 'Shadow-backtest: target/stop op Sharpe', 'osirisTune · elke 5 min'] },
+    { id: 'executie', name: 'EXECUTIE', cx: 415, cy: 235, col: '#2bd47f', tools: ['osirisReview: equity-verdeling', 'osirisShadowTick: ETH/SOL', 'Sweep-entry op stop-/liquidatie-niveau'] },
+    { id: 'risico', name: 'RISICO', cx: 490, cy: 250, col: '#ff5f7e', tools: ['OsirisGuard circuit breaker', 'Hedge-reserve · BTC-reserve 15%', 'Regime-gate (dode markt)'] },
+];
+
+function buildOsirisBrain() {
+    const svg = document.getElementById('osiris-brain');
+    if (!svg) return;
+    const NS = 'http://www.w3.org/2000/svg';
+    svg.innerHTML = '';
+    const stemX = 320, stemY = 372;
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    const mk = (t, at) => { const e = document.createElementNS(NS, t); for (const k in at) e.setAttribute(k, at[k]); return e; };
+
+    // defs: zachte gloed
+    const defs = mk('defs', {});
+    defs.innerHTML = '<radialGradient id="brainGlow" cx="50%" cy="45%" r="60%"><stop offset="0%" stop-color="#0f2740" stop-opacity="0.9"/><stop offset="100%" stop-color="#060a12" stop-opacity="0"/></radialGradient><filter id="brainBlur"><feGaussianBlur stdDeviation="2.2"/></filter>';
+    svg.appendChild(defs);
+    svg.appendChild(mk('ellipse', { cx: 320, cy: 200, rx: 250, ry: 150, fill: 'url(#brainGlow)' }));
+
+    // hersen-omtrek: twee helften (organische bezier-blobs)
+    const outlineL = 'M320,70 C250,58 190,70 150,110 C110,150 108,210 140,255 C168,295 235,320 300,300 C314,296 320,285 320,270 Z';
+    const outlineR = 'M320,70 C390,58 450,70 490,110 C530,150 532,210 500,255 C472,295 405,320 340,300 C326,296 320,285 320,270 Z';
+    for (const d of [outlineL, outlineR]) {
+        svg.appendChild(mk('path', { d, fill: 'rgba(10,20,32,0.55)', stroke: 'rgba(0,217,255,0.18)', 'stroke-width': '1' }));
+    }
+    // middenscheiding + brainstem
+    svg.appendChild(mk('line', { x1: 320, y1: 74, x2: 320, y2: 300, stroke: 'rgba(0,217,255,0.14)', 'stroke-width': '1' }));
+    svg.appendChild(mk('path', { d: `M312,296 C312,330 308,352 ${stemX - 6},${stemY} M328,296 C328,330 332,352 ${stemX + 6},${stemY}`, fill: 'none', stroke: 'rgba(120,216,255,0.4)', 'stroke-width': '3', 'stroke-linecap': 'round' }));
+
+    // ambient achtergrond-vezels (dim)
+    const amb = mk('g', { opacity: '0.28' });
+    for (let i = 0; i < 46; i++) {
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const ex = 320 + side * rnd(30, 195), ey = rnd(95, 285);
+        const mx = (stemX + ex) / 2 + rnd(-40, 40), my = (stemY + ey) / 2 - rnd(20, 90);
+        amb.appendChild(mk('path', { d: `M${stemX},${stemY} Q${mx},${my} ${ex},${ey}`, fill: 'none', stroke: 'rgba(120,150,180,0.5)', 'stroke-width': (Math.random() * 0.6 + 0.3).toFixed(2) }));
+        amb.appendChild(mk('circle', { cx: ex, cy: ey, r: (Math.random() * 1.2 + 0.6).toFixed(1), fill: 'rgba(160,190,215,0.6)' }));
+    }
+    svg.appendChild(amb);
+
+    // per subsysteem: een groep met oplichtende banen + node + label
+    for (const r of BRAIN_REGIONS) {
+        const g = mk('g', { class: 'brain-region', 'data-id': r.id, style: 'cursor:pointer;' });
+        const branches = mk('g', { class: 'br-branches', opacity: '0.5' });
+        const N = 9;
+        for (let i = 0; i < N; i++) {
+            const ang = (i / N) * Math.PI * 2, rad = rnd(14, 40);
+            const ex = r.cx + Math.cos(ang) * rad, ey = r.cy + Math.sin(ang) * rad * 0.8;
+            const mx = (stemX + ex) / 2 + rnd(-30, 30), my = (stemY + ey) / 2 - rnd(30, 80);
+            branches.appendChild(mk('path', { d: `M${stemX},${stemY} Q${mx},${my} ${ex.toFixed(1)},${ey.toFixed(1)}`, fill: 'none', stroke: r.col, 'stroke-width': (Math.random() * 0.8 + 0.5).toFixed(2), 'stroke-linecap': 'round' }));
+            branches.appendChild(mk('circle', { cx: ex.toFixed(1), cy: ey.toFixed(1), r: (Math.random() * 1.4 + 0.8).toFixed(1), fill: r.col }));
+        }
+        g.appendChild(branches);
+        // hoofd-node + label
+        const glow = mk('circle', { cx: r.cx, cy: r.cy, r: '13', fill: r.col, opacity: '0.12', class: 'br-halo' });
+        const node = mk('circle', { cx: r.cx, cy: r.cy, r: '4.5', fill: r.col, stroke: '#060a12', 'stroke-width': '1.4' });
+        const lbl = mk('text', { x: r.cx, y: r.cy - 17, 'text-anchor': 'middle', fill: r.col, 'font-family': "'JetBrains Mono',monospace", 'font-size': '7.5', 'font-weight': 'bold', class: 'br-label', opacity: '0.75' });
+        lbl.textContent = r.name;
+        g.appendChild(glow); g.appendChild(node); g.appendChild(lbl);
+        g.addEventListener('mouseenter', () => _brainHover(r, true));
+        g.addEventListener('mouseleave', () => _brainHover(r, false));
+        svg.appendChild(g);
+    }
+    // centrale kern
+    svg.appendChild(mk('circle', { cx: 320, cy: 200, r: '5', fill: '#eafcff', opacity: '0.85' }));
+    svg.appendChild(mk('circle', { cx: 320, cy: 200, r: '11', fill: 'none', stroke: 'rgba(0,217,255,0.5)', 'stroke-width': '1' }));
+}
+
+function _brainHover(r, on) {
+    const g = document.querySelector(`.brain-region[data-id="${r.id}"]`);
+    if (g) {
+        g.querySelector('.br-branches').setAttribute('opacity', on ? '1' : '0.5');
+        g.querySelector('.br-halo').setAttribute('opacity', on ? '0.32' : '0.12');
+        g.querySelector('.br-halo').setAttribute('r', on ? '20' : '13');
+        g.querySelector('.br-label').setAttribute('opacity', on ? '1' : '0.75');
+        if (on) { g.style.filter = `drop-shadow(0 0 6px ${r.col})`; } else { g.style.filter = ''; }
+    }
+    const info = document.getElementById('brain-info');
+    if (info && on) {
+        info.querySelector('.bi-title').textContent = r.name;
+        info.querySelector('.bi-title').style.color = r.col;
+        info.querySelector('.bi-sub').textContent = 'data & tools in dit gebied';
+        info.querySelector('.bi-tools').innerHTML = r.tools.map(t => `<div style="border-left:2px solid ${r.col}; padding-left:8px; margin:5px 0;">${t}</div>`).join('');
+    } else if (info && !on) {
+        info.querySelector('.bi-title').textContent = 'OSIRIS · MAINBRAIN';
+        info.querySelector('.bi-title').style.color = '#eafcff';
+        info.querySelector('.bi-sub').textContent = 'hover over een hersengebied';
+        info.querySelector('.bi-tools').innerHTML = '';
+    }
+}
+window.buildOsirisBrain = buildOsirisBrain;
+
 // OSIRIS · AUTONOME DREMPELS (13-08)
 // ============================================================
 let osirisTune = { minProb: 0.53, abstain: 0.56, lastAdjust: 0 };
@@ -11713,6 +11818,7 @@ window.toggleCortexHeadPanel = toggleCortexHeadPanel;
         try {
             buildDecorEye('wallet-eye', 150, false); // geen statische 6/9-teller
             try { buildDecorEye('about-eye', 150, false); } catch (e) {} // ocular core in de intro/About-tab
+            try { buildOsirisBrain(); } catch (e) {} // interactieve brain in de Overzicht-tab
             const wsvg = document.getElementById('wallet-eye');
             if (wsvg) {
                 const NS = 'http://www.w3.org/2000/svg';
