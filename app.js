@@ -5104,6 +5104,17 @@ function checkOpenPositionsExits() {
                 const _wm = neoMultiState.markets[_wsym];
                 const _wthr = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
                 if (_wm && _wm.bestSide === pos.side && (_wm.bestProb || 0) >= _wthr) _stillFavored = true;
+                // RL-agent (advies): zegt hij HOLD/TRAIL met zekerheid, laat dan doorlopen;
+                // zegt hij SLUIT, dan mag geoogst worden. Harde stops blijven altijd staan.
+                try {
+                    if (typeof OsirisRL !== 'undefined' && OsirisRL.ENABLED && OsirisRL.INFLUENCE && OsirisRL.episodes > 2000) {
+                        const dec = OsirisRL.decide(pos, _wm, pnlPct, ageMinH);
+                        if (dec && dec.conf > 0.4) {
+                            if (dec.action === 0 || dec.action === 2) _stillFavored = true;   // HOLD/TRAIL -> laten lopen
+                            else if (dec.action === 1) _stillFavored = false;                 // SLUIT -> oogsten toegestaan
+                        }
+                    }
+                } catch (e) {}
             } catch (e) {}
             if (pnlPct >= roundTripCostPct() / 100 &&
                 (pos.peakPnlPct || 0) < cfg.profitProtectActivationPct &&
@@ -5502,6 +5513,28 @@ function syncNetTab() {
                 }).join('<br>');
             }
         }
+        // RL EXIT-AGENT paneel
+        if (typeof OsirisRL !== 'undefined') {
+            const R = OsirisRL;
+            const set = (id, v) => { const e = document.getElementById(id); if (e) e.innerHTML = v; };
+            set('rl-episodes', R.episodes.toLocaleString());
+            set('rl-states', R.statesLearned);
+            set('rl-reward', (R.avgReward != null ? R.avgReward.toFixed(3) : '\u2014'));
+            const d = R.lastDecision;
+            if (d) {
+                set('rl-action', `<span style="color:${R.ACTION_COL[d.action]}">${R.ACTIONS[d.action]}</span>`);
+                set('rl-conf', `&middot; zekerheid ${(d.conf * 100 | 0)}%`);
+                set('rl-state', `state: ${d.state} <span class="muted">(regime · pnl-zone · momentum · leeftijd)</span>`);
+                const mx = Math.max(1e-6, Math.max.apply(null, d.q.map(Math.abs)));
+                set('rl-qbars', d.q.map((v, i) => {
+                    const w = Math.max(2, Math.abs(v) / mx * 100);
+                    const on = i === d.action;
+                    return `<div style="display:flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace; font-size:0.5rem;"><span style="width:42px; color:${R.ACTION_COL[i]}; ${on ? 'font-weight:bold;' : ''}">${R.ACTIONS[i]}</span><span style="flex:1; height:7px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden;"><span style="display:block; height:100%; width:${w}%; background:${R.ACTION_COL[i]}; opacity:${on ? 1 : 0.5};"></span></span><span style="width:34px; text-align:right; color:var(--dim);">${v.toFixed(2)}</span></div>`;
+                }).join(''));
+            } else if (R.episodes === 0) { set('rl-action', 'traint&hellip;'); }
+            const at = R.actionDist, tot = at.reduce((a, b) => a + b, 0) || 1;
+            set('rl-adist', R.ACTIONS.map((n, i) => `<span style="color:${R.ACTION_COL[i]}">${n} ${(at[i] / tot * 100 | 0)}%</span>`).join(' &middot; '));
+        }
     } catch (e) {}
 }
 
@@ -5580,6 +5613,22 @@ function syncWalletLive() {
         if (_rs && _rd && _rs.innerHTML) _rd.innerHTML = _rs.innerHTML;
         const _as = document.getElementById('bot-adaptation'), _ad = document.getElementById('wallet-adaptation');
         if (_as && _ad && _as.innerHTML) _ad.innerHTML = _as.innerHTML;
+        // RL-agent scenario-samenvatting
+        const _wrl = document.getElementById('wallet-rl');
+        if (_wrl && typeof OsirisRL !== 'undefined') {
+            const R = OsirisRL;
+            if (R.episodes === 0) { _wrl.innerHTML = '<span style="color:#5c7488;">RL-agent traint op de achtergrond&hellip;</span>'; }
+            else {
+                const at = R.actionDist, tot = at.reduce((a, b) => a + b, 0) || 1;
+                const d = R.lastDecision;
+                const adv = d ? `<span style="color:${R.ACTION_COL[d.action]}">${R.ACTIONS[d.action]}</span> (${(d.conf * 100 | 0)}%)` : '\u2014';
+                _wrl.innerHTML =
+                    `Scenario's doorgespeeld: <b style="color:#eafcff;">${R.episodes.toLocaleString()}</b><br>` +
+                    `Geleerde toestanden: <b style="color:#eafcff;">${R.statesLearned}</b> &middot; gem. reward <b style="color:${R.avgReward >= 0 ? '#14f195' : '#ff8a94'};">${R.avgReward.toFixed(3)}</b><br>` +
+                    `Huidig advies open positie: <b>${adv}</b><br>` +
+                    `<span style="color:#5c7488;">verdeling &mdash; ${R.ACTIONS.map((n, i) => `${n} ${(at[i] / tot * 100 | 0)}%`).join(' · ')}</span>`;
+            }
+        }
     } catch (e) {}
 }
 
@@ -7704,6 +7753,135 @@ function osirisAutoTune() {
 window.osirisAutoTune = osirisAutoTune;
 
 // ============================================================
+// ============================================================
+// OSIRIS · RL EXIT/HOLD-AGENT (16-08) - lokaal, geen backend
+// Tabular Q-learning over gediscretiseerde toestand (regime × pnl × momentum ×
+// leeftijd). Acties: HOLD · SLUIT · TRAIL · SCHAAL. De zware buffer-replay
+// (duizenden episodes) draait in een INLINE Web Worker (blob, geen extra bestand),
+// zodat de UI niet bevriest. De geleerde policy adviseert de exit-beslissing
+// (veilig: harde stops blijven; RL stuurt alleen de discretionaire hold/oogst).
+// ============================================================
+const OsirisRL = {
+    ACTIONS: ['HOLD', 'SLUIT', 'TRAIL', 'SCHAAL'],
+    ACTION_COL: ['#7fd8ff', '#ff5f7e', '#ffb627', '#14f195'],
+    Q: {}, episodes: 0, avgReward: 0, statesLearned: 0, actionDist: [0, 0, 0, 0],
+    lastDecision: null, history: [], _worker: null, _training: false, lastTrain: 0,
+    ENABLED: true, INFLUENCE: true,   // INFLUENCE=of de agent de live exit mag sturen
+
+    _regimeIdx() {
+        try { const m = { compressie: 0, kalm: 1, trending: 2, volatiel: 3 }; return (typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? (m[OsirisRegimeHMM.label] != null ? m[OsirisRegimeHMM.label] : 1) : 1; } catch (e) { return 1; }
+    },
+    _state(reg, pnlPct, mom, ageMin) {
+        const p = pnlPct * 100;
+        const pz = p < -0.4 ? 0 : p < 0 ? 1 : p < 0.2 ? 2 : p < 0.5 ? 3 : 4;
+        const mz = mom < -0.5 ? 0 : mom < 0.5 ? 1 : 2;
+        const az = ageMin < 10 ? 0 : ageMin < 40 ? 1 : 2;
+        return `${reg}|${pz}|${mz}|${az}`;
+    },
+    // live-beslissing (greedy) voor een open positie
+    decide(pos, mkt, pnlPct, ageMin) {
+        try {
+            const reg = this._regimeIdx();
+            const mom = mkt ? (mkt.vfm || 0) : 0;
+            const sk = this._state(reg, pnlPct, mom, ageMin);
+            const q = this.Q[sk];
+            let act = 0, conf = 0;
+            if (q) {
+                let bi = 0, bv = q[0], sum = 0, mx = -Infinity;
+                for (let i = 0; i < 4; i++) { if (q[i] > bv) { bv = q[i]; bi = i; } if (q[i] > mx) mx = q[i]; }
+                // softmax-achtige zekerheid
+                let z = 0; const e = q.map(v => { const x = Math.exp((v - mx)); z += x; return x; });
+                conf = z > 0 ? e[bi] / z : 0.25;
+                act = bi;
+            }
+            this.lastDecision = { state: sk, action: act, q: q ? q.slice() : [0, 0, 0, 0], conf, regime: reg, ts: Date.now() };
+            return this.lastDecision;
+        } catch (e) { return null; }
+    },
+
+    _ensureWorker() {
+        if (this._worker) return true;
+        try {
+            const code = `
+            let Q = {};
+            const A = 4, GAMMA = 0.95, ALPHA = 0.12;
+            function st(reg,p,mom,age){const pz=p<-0.4?0:p<0?1:p<0.2?2:p<0.5?3:4;const mz=mom<-0.5?0:mom<0.5?1:2;const az=age<10?0:age<40?1:2;return reg+'|'+pz+'|'+mz+'|'+az;}
+            function q(s){ if(!Q[s]) Q[s]=[0,0,0,0]; return Q[s]; }
+            onmessage=function(ev){
+              const d=ev.data; if(d.Q) Q=d.Q;
+              const C=d.candles||[]; const N=C.length; if(N<80){postMessage({Q,episodes:0,avgReward:0,states:Object.keys(Q).length,actionDist:[0,0,0,0]});return;}
+              const cost=0.05; let totR=0, ep=0; const adist=[0,0,0,0]; let eps=d.eps!=null?d.eps:0.15;
+              const EP=d.episodes||3000;
+              for(let e=0;e<EP;e++){
+                const i0=3+Math.floor(Math.random()*(N-40));
+                const entry=C[i0].c; const mom0=C[i0].c-C[i0-3].c; const side=mom0>=0?1:-1;
+                const reg=Math.floor(Math.random()*4);
+                let held=true, j=i0+1, epR=0, trailStop=null;
+                while(held && j<Math.min(i0+22,N)){
+                  const price=C[j].c; const pnl=side>0?(price-entry)/entry:(entry-price)/entry;
+                  const mom=C[j].c-C[j-2].c; const age=(j-i0)*15;
+                  const s=st(reg,pnl,side*mom,age);
+                  const qq=q(s);
+                  let a; if(Math.random()<eps){a=Math.floor(Math.random()*A);} else {a=0;let bv=qq[0];for(let k=1;k<A;k++)if(qq[k]>bv){bv=qq[k];a=k;}}
+                  adist[a]++;
+                  let r=0, done=false, nextS=s;
+                  if(a===1){ r=(pnl*100)-cost; done=true; }
+                  else if(a===0){ r=-0.005; }
+                  else if(a===2){ trailStop=Math.max(trailStop==null?-Infinity:trailStop, pnl-0.003); if(pnl<=trailStop){ r=(trailStop*100)-cost; done=true;} else r=-0.003; }
+                  else if(a===3){ r=(pnl*100)*1.5-cost*1.5; done=true; }
+                  const jn=j+1;
+                  if(!done && jn<Math.min(i0+22,N)){ const pn=C[jn].c; const pnl2=side>0?(pn-entry)/entry:(entry-pn)/entry; const m2=C[jn].c-C[jn-2].c; nextS=st(reg,pnl2,side*m2,(jn-i0)*15); }
+                  const qn=q(nextS); const maxn=Math.max(qn[0],qn[1],qn[2],qn[3]);
+                  qq[a]=qq[a]+ALPHA*(r+(done?0:GAMMA*maxn)-qq[a]);
+                  epR+=r; if(done)held=false; j++;
+                }
+                if(held){ const price=C[Math.min(i0+21,N-1)].c; const pnl=side>0?(price-entry)/entry:(entry-price)/entry; const s=st(reg,pnl,0,315); const qq=q(s); qq[1]=qq[1]+ALPHA*((pnl*100-cost)-qq[1]); }
+                totR+=epR; ep++;
+              }
+              postMessage({Q,episodes:ep,avgReward:ep?totR/ep:0,states:Object.keys(Q).length,actionDist:adist});
+            };`;
+            const blob = new Blob([code], { type: 'application/javascript' });
+            this._worker = new Worker(URL.createObjectURL(blob));
+            this._worker.onmessage = (ev) => this._onDone(ev.data);
+            return true;
+        } catch (e) { this._worker = null; return false; }
+    },
+    _onDone(d) {
+        try {
+            this.Q = d.Q || this.Q;
+            this.episodes += (d.episodes || 0);
+            this.avgReward = d.avgReward != null ? d.avgReward : this.avgReward;
+            this.statesLearned = d.states || Object.keys(this.Q).length;
+            if (d.actionDist) for (let i = 0; i < 4; i++) this.actionDist[i] += d.actionDist[i];
+            this._training = false;
+            try { logAdaptation('RL-agent getraind', `+${d.episodes} episodes (totaal ${this.episodes}) · ${this.statesLearned} states · gem reward ${(this.avgReward).toFixed(3)}`); } catch (e) {}
+        } catch (e) { this._training = false; }
+    },
+    train() {
+        try {
+            if (!this.ENABLED || this._training) return;
+            if (!this._ensureWorker()) return;
+            const src = (typeof rawData !== 'undefined' && rawData && rawData.length > 80) ? rawData.slice(-400) : null;
+            if (!src) return;
+            const candles = src.map(d => ({ c: parseFloat(d[4]) }));
+            this._training = true; this.lastTrain = Date.now();
+            this._worker.postMessage({ Q: this.Q, candles, episodes: 3000, eps: 0.15 });
+        } catch (e) { this._training = false; }
+    }
+};
+window.OsirisRL = OsirisRL;
+
+let _osirisRLLast = 0;
+function osirisRLTick() {
+    try {
+        const now = Date.now();
+        if (now - _osirisRLLast < 3 * 60000) return;   // hertrain elke 3 min in de worker
+        _osirisRLLast = now;
+        OsirisRL.train();
+    } catch (e) {}
+}
+window.osirisRLTick = osirisRLTick;
+
 // OSIRIS · HMM REGIME-DETECTIE + SHADOW-BACKTEST TUNER (14-08)
 // Twee zelf-lerende, volledig client-side modules die Osiris autonoom bijstellen
 // en in de feeds loggen. Alles is gewrapt in try/catch en raakt de trading pas als
@@ -8490,6 +8668,7 @@ function multiRoundRobinTick() {
         try { osirisSweepCheck(); } catch (e) {}
         try { osirisAutoTune(); } catch (e) {}
         try { osirisAdaptiveLearn(); } catch (e) {}
+        try { osirisRLTick(); } catch (e) {}
         // sub-brein presets-overzicht bijwerken
         try { renderSubBrainPresets(); } catch (e) {}
     });
@@ -11486,6 +11665,14 @@ function _neoNetDraw(now, canvasId, outId) {
             const B = OsirisShadowBacktest.best;
             ctx.textAlign = 'right'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(20,241,149,0.85)';
             ctx.fillText(`SHADOW-BT · tgt ${B.target}% / stop ${B.stop}% · Sharpe ${B.sharpe.toFixed(2)}`, w - 14, h - 8);
+        }
+        // RL-agent advies-badge (linksonder)
+        if (typeof OsirisRL !== 'undefined' && OsirisRL.episodes > 0) {
+            const R = OsirisRL; const d = R.lastDecision;
+            ctx.textAlign = 'left'; ctx.font = "8px 'JetBrains Mono',monospace";
+            ctx.fillStyle = 'rgba(127,216,255,0.85)';
+            const adv = d ? `${R.ACTIONS[d.action]} ${(d.conf * 100 | 0)}%` : '\u2014';
+            ctx.fillText(`RL · ${(R.episodes / 1000).toFixed(0)}k scenario's · advies ${adv}`, 14, h - 8);
         }
         // FEEDBACK-LUS: geanimeerd retourpad van OUTPUT terug naar de INPUTS - de uitkomst
         // voedt continu de gewichten/kalibratie/drempels terug het net in.
