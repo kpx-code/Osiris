@@ -847,6 +847,24 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <div style="margin-top:8px; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px;"><span style="font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#7fd8ff; letter-spacing:1px;">SWEEP-ENTRY &middot; wacht op liquidatie-niveau</span><div id="net-sweep" style="font-family:'JetBrains Mono',monospace; font-size:0.54rem; color:var(--dim); line-height:1.7; margin-top:3px;">geen wachtende sweeps</div></div>
         </div>
       </div>
+      <div class="panel" style="margin-top:14px;"><div class="plabel" style="color:#7fd8ff;">RL EXIT-AGENT &middot; Q-LEARNING &middot; buffer-replay (Web Worker)</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:8px; align-items:start;">
+          <div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--dim); line-height:1.9;">
+              Getrainde scenario's: <b id="rl-episodes" style="color:#eafcff;">0</b><br>
+              Geleerde toestanden: <b id="rl-states" style="color:#eafcff;">0</b> &middot; gem. reward <b id="rl-reward" style="color:#14f195;">&mdash;</b><br>
+              Huidig advies: <b id="rl-action" style="color:#7fd8ff;">kalibreert&hellip;</b> <span id="rl-conf" style="color:var(--dim);"></span>
+            </div>
+            <div id="rl-state" style="font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; margin-top:6px;">state: &mdash;</div>
+          </div>
+          <div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#5c7488; letter-spacing:1px; margin-bottom:4px;">Q-WAARDE PER ACTIE (huidige toestand)</div>
+            <div id="rl-qbars" style="display:flex; flex-direction:column; gap:4px;"></div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#5c7488; letter-spacing:1px; margin:8px 0 4px;">ACTIE-VERDELING (training)</div>
+            <div id="rl-adist" style="font-family:'JetBrains Mono',monospace; font-size:0.54rem; color:var(--dim);">&mdash;</div>
+          </div>
+        </div>
+      </div>
       <div style="margin-top:14px; border:1px dashed rgba(20,241,149,0.55); border-radius:10px; padding:10px 14px; background:rgba(20,241,149,0.04); text-align:center; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#14f195; letter-spacing:0.5px;">&#8635; FEEDBACK-LUS &nbsp;&middot;&nbsp; L1/L2/L3 + auto-tuner + HMM + shadow-backtest &nbsp;&middot;&nbsp; elke trade / elke 5 min<div style="color:var(--dim); font-size:0.54rem; letter-spacing:0; margin-top:4px;">de uitkomst voedt continu de gewichten, kalibratie, drempels, exit-timing en target/stop terug het net in</div></div>
     </section>
 
@@ -911,6 +929,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="grid g-2 mb">
         <div class="panel"><div class="plabel">Exit &middot; bijdrage</div>
           <div class="mono" id="exit-dist" style="font-size:0.62rem; color:#7d99ac; margin-top:8px;">Nog geen gesloten trades.</div>
+        </div>
+        <div class="panel" style="grid-column:1/-1;"><div class="plabel" style="color:#7fd8ff;">&#129504; RL-agent &middot; scenario-samenvatting</div>
+          <div id="wallet-rl" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim); line-height:1.85; margin-top:8px;">RL-agent traint op de achtergrond&hellip;</div>
         </div>
         <div class="panel"><div class="plabel">&#9673; Osiris &middot; equity-verdeling</div>
           <div id="osiris-panel" style="margin-top:8px;"><span style="color:var(--dim); font-size:0.62rem;">Osiris verzamelt data van de sub-breinen...</span></div>
