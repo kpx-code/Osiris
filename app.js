@@ -11673,22 +11673,34 @@ function _neoNetDraw(now, canvasId, outId) {
         });
     } catch (e) {}
     // output-laag: LONG / NEUTRAAL / SHORT uit de laatste beslissing
-    let decisionBias = inp.momentum * 0.4 + inp.cnn * 0.3 + inp.vfm * 0.3;
-    try { if (typeof lastDecision !== 'undefined' && lastDecision && typeof lastDecision.decision === 'string') {
-        if (/bull|long|stijg/i.test(lastDecision.decision)) decisionBias = Math.max(decisionBias, 0.5);
-        else if (/bear|short|crash|daal/i.test(lastDecision.decision)) decisionBias = Math.min(decisionBias, -0.5);
-    } } catch (e) {}
-    // De STERKSTE core (BTC/ETH/SOL) bepaalt de richting - niet alleen BTC's lastDecision.
-    // Zo eindigt het net niet standaard op NEUTRAAL zodra BTC even geen mening heeft.
+    // DATA-TRUE BESLISSING (16-08): de uitkomst weerspiegelt wat de bot ECHT doet -
+    // gewogen naar de open posities (zwaarst) + de core-allocatie (bestSide x conviction),
+    // niet BTC's ruwe momentum. Zo kan het net niet SHORT tonen terwijl hij LONG zit.
+    let decisionBias = 0;
     try {
-        let best = null;
-        for (const sym of ['BTC', 'ETH', 'SOL']) { const m = neoMultiState.markets[sym]; if (m && m.bestSide && m.bestProb != null && (!best || m.bestProb > best.prob)) best = { side: m.bestSide, prob: m.bestProb }; }
-        if (best && best.prob >= 0.5) {
-            const dir = best.side === 'SHORT' ? -1 : 1;
-            const strength = Math.min(1, (best.prob - 0.5) * 3);   // 0.55->0.15, 0.83->1.0
-            if (strength > Math.abs(decisionBias)) decisionBias = dir * strength;
+        let wsum = 0, dsum = 0;
+        for (const p of (typeof openPositions !== 'undefined' ? openPositions : [])) {
+            const dir = p.side === 'SHORT' ? -1 : 1; const w = (p.sizePct || 0.1) * 2.2;
+            dsum += w * dir; wsum += w;
         }
+        for (const sym of ['BTC', 'ETH', 'SOL']) {
+            const m = neoMultiState.markets[sym];
+            if (m && m.bestSide && m.bestProb != null) {
+                const w = ((typeof alloc !== 'undefined' && alloc[sym]) || 0.1) + 0.1;
+                const dir = m.bestSide === 'SHORT' ? -1 : 1; const conv = Math.min(1, Math.max(0, (m.bestProb - 0.5) * 3));
+                dsum += w * dir * conv; wsum += w;
+            }
+        }
+        if (wsum > 0) decisionBias = Math.max(-1, Math.min(1, dsum / wsum));
     } catch (e) {}
+    // val terug op BTC-momentum + lastDecision alleen als de cores/posities niets zeggen
+    if (Math.abs(decisionBias) < 0.02) {
+        decisionBias = inp.momentum * 0.3 + inp.vfm * 0.2;
+        try { if (typeof lastDecision !== 'undefined' && lastDecision && typeof lastDecision.decision === 'string') {
+            if (/bull|long|stijg/i.test(lastDecision.decision)) decisionBias = Math.max(decisionBias, 0.3);
+            else if (/bear|short|crash|daal/i.test(lastDecision.decision)) decisionBias = Math.min(decisionBias, -0.3);
+        } } catch (e) {}
+    }
     layers[4][0].act = Math.max(0, decisionBias);       // LONG
     layers[4][1].act = Math.max(0.05, 1 - Math.abs(decisionBias)); // NEUTRAAL
     layers[4][2].act = Math.max(0, -decisionBias);      // SHORT
@@ -11739,6 +11751,16 @@ function _neoNetDraw(now, canvasId, outId) {
         if (hot) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.9)`; ctx.shadowBlur = (4 + 9 * signal) * (0.4 + 0.6 * flash); }
         ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
         if (hot) ctx.restore();
+        // CONTINUE DATA-FLOW: klein deeltje reist voorwaarts (A -> B) langs ELKE lijn, zodat de
+        // hele stroom van inputs naar uitkomst continu zichtbaar beweegt (kleur = herkomst).
+        {
+            const _ft = ((now / 760) + cn.li * 0.16 + (cn.flow || 0)) % 1;
+            const _fx = A.x + (B.x - A.x) * _ft, _fy = A.y + (B.y - A.y) * _ft;
+            const _fa = 0.16 + 0.6 * signal;
+            ctx.beginPath(); ctx.arc(_fx, _fy, 0.7 + 1.5 * signal, 0, 6.283);
+            ctx.fillStyle = `rgba(${hot ? OSIRIS_NEON : baseCol},${_fa.toFixed(3)})`;
+            ctx.fill();
+        }
         // FEEDBACK-FLITS: groen deeltje reist achterwaarts (B -> A) langs deze bestaande lijn
         // wanneer de feedback-golf door deze laag trekt - de uitkomst die terugvloeit.
         if (_fbActive && _fbPos >= cn.li && _fbPos <= cn.li + 1) {
