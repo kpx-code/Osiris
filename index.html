@@ -71,6 +71,11 @@
   .gauge svg{width:96px;height:96px;}.gauge .gv{font-family:'Orbitron';font-weight:700;font-size:1rem;fill:#eafcff;}
   .gauge .gl{font-size:0.48rem;letter-spacing:2px;color:var(--dim);text-transform:uppercase;}
   .reactor{display:flex;align-items:center;justify-content:center;position:relative;min-height:300px;}
+  .brain-shell{position:relative;display:grid;grid-template-columns:1.35fr 0.65fr;gap:14px;align-items:center;background:radial-gradient(ellipse at 40% 40%,rgba(12,26,42,0.5),rgba(6,10,18,0));border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin-bottom:8px;}
+  .brain-shell #osiris-brain .brain-region{transition:filter .18s ease;}
+  .brain-shell #osiris-brain .br-branches,.brain-shell #osiris-brain .br-halo,.brain-shell #osiris-brain .br-label{transition:opacity .18s ease, r .18s ease;}
+  .brain-info{align-self:center;min-height:120px;background:rgba(0,0,0,0.35);border:1px solid rgba(0,217,255,0.14);border-radius:10px;padding:12px 14px;}
+  @media(max-width:760px){.brain-shell{grid-template-columns:1fr;} }
   .core-label{position:absolute;bottom:12px;text-align:center;}
   .core-label .v{font-family:'Orbitron';font-weight:900;font-size:1.3rem;color:#eafcff;}
   .core-label .l{font-size:0.5rem;letter-spacing:3px;color:var(--cyan);text-transform:uppercase;}
@@ -639,7 +644,14 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     </section>
     <section class="tab" id="tab-overview">
       <div class="eyebrow">Systeemoverzicht</div><h1 class="h">COMMANDOKERN</h1>
-<div class="reactor"><canvas id="brain" style="width:100%;height:280px;"></canvas><div class="core-label"><div class="v">OSIRIS</div><div class="l">mainbrain · levend</div></div></div>
+      <div class="brain-shell">
+        <svg id="osiris-brain" viewBox="0 0 640 400" preserveAspectRatio="xMidYMid meet" style="width:100%; max-width:760px; height:auto; display:block; margin:0 auto;"></svg>
+        <div id="brain-info" class="brain-info">
+          <div class="bi-title" style="font-family:'Orbitron',sans-serif; font-weight:700; letter-spacing:1px; color:#eafcff;">OSIRIS · MAINBRAIN</div>
+          <div class="bi-sub" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7d99ac; letter-spacing:1px; margin:3px 0 8px;">hover over een hersengebied</div>
+          <div class="bi-tools" style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--dim); line-height:1.5;"></div>
+        </div>
+      </div>
 <div id="bot-monitor" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px;">
           <div class="meter"><div class="l">STATUS</div><div class="v" style="font-size:0.9rem; color:var(--teal);" id="bot-status">STANDBY</div></div>
           <div class="meter"><div class="l">LIVE P/L</div><div class="v" style="font-size:0.9rem;" id="bot-pnl">0.00%</div></div>
