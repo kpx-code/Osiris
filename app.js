@@ -5390,7 +5390,8 @@ function downloadAllData() {
             enabled: marginEngineEnabled, leverage: marginLeverage,
             equity: (typeof marginEquity === 'function' ? marginEquity() : marginState.equity),
             realizedPnL: marginState.realizedPnL, wins: marginState.wins, losses: marginState.losses,
-            openPositions: marginState.positions, closed: marginState.closed, tradeLog: marginState.tradeLog.slice(0, 200)
+            openPositions: marginState.positions, closed: marginState.closed, tradeLog: marginState.tradeLog.slice(0, 200),
+            reasoning: marginState.reasoning, adaptation: marginState.adaptation, startEquity: marginState.startEquity, startTime: marginState.startTime
         } : null,
         // SCHEMA: beschrijft de velden in metricsHistory/learningLog voor runtime-reconstructie
         datasetSchema: {
@@ -5624,8 +5625,25 @@ function syncMarginWallet() {
         set('m-adaptation', marginState.adaptation.slice(0, 4).map(r => `<div>\u21bb ${r.txt}</div>`).join(''));
         const orows = document.getElementById('m-open-rows');
         if (orows) {
-            if (!marginState.positions.length) orows.innerHTML = '<tr><td colspan="7" style="color:var(--dim); padding:8px;">Geen open margin-posities.</td></tr>';
-            else orows.innerHTML = marginState.positions.map(p => { const m = neoMultiState.markets[p.sym]; const price = m ? m.lastPrice : p.entryPrice; const raw = p.side === 'SHORT' ? (p.entryPrice - price) / p.entryPrice : (price - p.entryPrice) / p.entryPrice; const lev = raw * p.leverage; const sc = p.side === 'SHORT' ? '#ff8a94' : '#14f195'; const pc = lev >= 0 ? '#14f195' : '#ff8a94'; return `<tr style="border-top:1px solid var(--line);"><td style="padding:6px; color:#c792ea;">${p.sym}</td><td style="text-align:center; color:${sc};">${p.side}</td><td style="text-align:center;">${p.leverage}x</td><td style="text-align:center;">${dp(p.entryPrice)}</td><td style="text-align:center;">\u20ae${p.notional.toFixed(0)}</td><td style="text-align:center; color:${pc};">${(lev * 100).toFixed(2)}%</td><td style="text-align:center; color:${pc};">\u20ae${(p.marginUSD * lev).toFixed(2)}</td></tr>`; }).join('');
+            if (!marginState.positions.length) orows.innerHTML = '<tr><td colspan="10" style="color:var(--dim); padding:8px;">Geen open margin-posities.</td></tr>';
+            else orows.innerHTML = marginState.positions.map((p, i) => {
+                const mm = neoMultiState.markets[p.sym]; const price = mm ? mm.lastPrice : p.entryPrice;
+                const raw = p.side === 'SHORT' ? (p.entryPrice - price) / p.entryPrice : (price - p.entryPrice) / p.entryPrice;
+                const lev = raw * p.leverage; const sc = p.side === 'SHORT' ? '#ff8a94' : '#14f195'; const pc = lev >= 0 ? '#14f195' : '#ff8a94';
+                const tijd = new Date(p.openTime).toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(',', '');
+                return '<tr style="border-top:1px solid var(--line);">'
+                    + '<td style="padding:6px;"><span style="color:#c792ea;">OSIRIS \u00b7 MARGIN</span> <span style="color:#ffb627;">' + p.leverage + 'x</span></td>'
+                    + '<td style="color:#c792ea;">' + p.sym + '</td>'
+                    + '<td style="text-align:center; color:' + sc + '; font-weight:bold;">' + p.side + '</td>'
+                    + '<td style="text-align:center;">$' + dp(p.entryPrice) + '</td>'
+                    + '<td style="text-align:center; color:var(--dim);">' + tijd + '</td>'
+                    + '<td style="text-align:center;">\u20ae' + p.notional.toFixed(2) + '</td>'
+                    + '<td style="text-align:center;">' + (p.sizePct * 100).toFixed(1) + '% <span style="color:var(--dim);">(' + p.leverage + 'x)</span></td>'
+                    + '<td style="text-align:center; color:' + pc + ';">' + (lev * 100).toFixed(2) + '%</td>'
+                    + '<td style="text-align:center; color:' + pc + ';">\u20ae' + (p.marginUSD * lev).toFixed(2) + '</td>'
+                    + '<td style="text-align:center;"><button type="button" onclick="marginCloseManual(' + i + ')" class="btn btn-ghost btn-mini" style="color:#ff8a94; border-color:rgba(255,138,148,0.4); font-size:0.72em;">SLUIT</button></td>'
+                    + '</tr>';
+            }).join('');
         }
         const crows = document.getElementById('m-closed-rows');
         if (crows) {
@@ -8155,10 +8173,12 @@ function marginAllocatedPct() { let a = 0; for (const p of marginState.positions
 let _marginLastEntry = {};
 async function marginTick() {
     try {
-        if (!marginEngineEnabled) return;
+        if (!marginEngineEnabled && marginState.positions.length === 0) return;   // niets te beheren
         const now = Date.now();
-        const MINP = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
-        for (const sym of (typeof MULTI_SYMBOLS !== 'undefined' ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL'])) {
+        // ENTRIES alleen als de engine AAN staat; EXITS draaien altijd (geen orphan-posities)
+        if (marginEngineEnabled) {
+            const MINP = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
+            for (const sym of (typeof MULTI_SYMBOLS !== 'undefined' ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL'])) {
             const m = neoMultiState.markets[sym]; if (!m || m.bestProb == null || !m.bestSide) continue;
             const binSym = MULTI_BINANCE[sym];
             if (marginState.positions.some(p => p.symbol === binSym)) continue;                 // al open
@@ -8182,7 +8202,8 @@ async function marginTick() {
             marginState.lastAction = `ENTRY ${sym} ${m.bestSide} ${marginLeverage}x @ ${entryPrice}`;
             _marginLog('reasoning', `opent ${sym} ${m.bestSide} ${marginLeverage}x (kans ${(m.bestProb * 100 | 0)}%, $${marginUSD.toFixed(0)} margin)`);
         }
-        // exits (mirror spot: stop/target/time-stop op de leveraged pnl)
+        }   // einde entries-gate
+        // exits (mirror spot: stop/target/time-stop op de leveraged pnl) - draaien ALTIJD
         for (const pos of [...marginState.positions]) {
             const m = neoMultiState.markets[pos.sym]; if (!m) continue;
             const price = m.lastPrice;
@@ -8219,6 +8240,16 @@ async function marginClose(pos, price, lev, reason) {
     } catch (e) {}
 }
 window.marginTick = marginTick;
+async function marginCloseManual(idx) {
+    try {
+        const pos = marginState.positions[idx]; if (!pos) return;
+        const m = neoMultiState.markets[pos.sym]; const price = m ? m.lastPrice : pos.entryPrice;
+        const raw = pos.side === 'SHORT' ? (pos.entryPrice - price) / pos.entryPrice : (price - pos.entryPrice) / pos.entryPrice;
+        await marginClose(pos, price, raw * pos.leverage, 'MANUAL');
+        try { syncMarginWallet(); } catch (e) {}
+    } catch (e) {}
+}
+window.marginCloseManual = marginCloseManual;
 
 function setMarginEngine(on) {
     marginEngineEnabled = !!on; window.marginEngineEnabled = marginEngineEnabled;
@@ -11917,7 +11948,7 @@ function _neoNetDraw(now, canvasId, outId) {
         if (_neonet._lastLearn == null) _neonet._lastLearn = _lc;
         if (_lc > _neonet._lastLearn) { _neonet.fbPulse = 0; _neonet._lastLearn = _lc; }   // leer-event -> flits vuurt vers
     } catch (e) {}
-    _neonet.fbPulse = (_neonet.fbPulse || 0) + 0.0175 + 0.0125 * _neonet.actLevel;   // 2.5x sneller dan voorheen
+    _neonet.fbPulse = (_neonet.fbPulse || 0) + 0.0075 + 0.005 * _neonet.actLevel;   // true snelheid (zichtbaar)
     const _fbCycle = _neonet.fbPulse % 1.7;                 // deel actief, deel rust
     const _fbActive = _fbCycle < 1.0;
     const _fbPos = _fbActive ? (1 - _fbCycle) * (layers.length - 1) : -1;   // hoog(output) -> laag(input)
