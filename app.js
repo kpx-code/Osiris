@@ -10,7 +10,7 @@ const CONF_ER_TH = 1.2;
 
 // ONTKOPPELING BOT vs. VIEW (13-07): de bot rekent ALTIJD op 15m spot-data
 // (BOT_INTERVAL); currentInterval is voortaan uitsluitend de CHART-WEERGAVE.
-// Wisselen van view (1m/30m/45m/1h/4h) raakt de handelslogica dus niet meer.
+// Wisselen van view (1m/30m/45m/1h/4h) raakt de handelslogica dus niet meer...
 const BOT_INTERVAL = '15m';
 const BOT_INTERVAL_MS = 15 * 60 * 1000;
 let currentInterval = '15m'; // VIEW-interval van de chart (niet van de bot)
