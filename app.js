@@ -8072,29 +8072,55 @@ function saveMarginKeys() {
 window.saveMarginKeys = saveMarginKeys;
 
 // Gesigneerde REST-call tegen de futures-testnet (HMAC-SHA256, hergebruikt hmacSha256Hex).
-async function marginRest(method, endpoint, params, signed) {
+// --- Futures WebSocket-API (ws-fapi/v1): geen CORS, net als de spot-WS ---
+const MARGIN_WS_URL = 'wss://testnet.binancefuture.com/ws-fapi/v1';
+let _mws = null, _mwsConnecting = null, _mwsId = 0;
+const _mwsPending = new Map();
+function ensureMarginWs() {
+    if (_mws && _mws.readyState === WebSocket.OPEN) return Promise.resolve();
+    if (_mwsConnecting) return _mwsConnecting;
+    _mwsConnecting = new Promise((resolve, reject) => {
+        let settled = false;
+        let sock; try { sock = new WebSocket(MARGIN_WS_URL); } catch (e) { _mwsConnecting = null; reject(e); return; }
+        sock.onopen = () => { settled = true; _mws = sock; _mwsConnecting = null; resolve(); };
+        sock.onmessage = (ev) => {
+            let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+            const pend = msg.id != null ? _mwsPending.get(msg.id) : null; if (!pend) return;
+            _mwsPending.delete(msg.id);
+            if (msg.status === 200) pend.resolve(msg.result);
+            else pend.reject(new Error(`Futures ${msg.status}: ${msg.error && msg.error.msg || 'onbekende fout'} (code ${msg.error && msg.error.code || '?'})`));
+        };
+        sock.onerror = () => { if (!settled) { settled = true; _mwsConnecting = null; reject(new Error('WebSocket-verbinding met testnet.binancefuture.com mislukt')); } };
+        sock.onclose = () => { _mws = null; _mwsConnecting = null; for (const [, p] of _mwsPending) p.reject(new Error('Futures-WS gesloten')); _mwsPending.clear(); };
+    });
+    return _mwsConnecting;
+}
+async function marginWsRequest(method, params, signed) {
+    await ensureMarginWs();
     const k = marginKeys();
-    if (signed && (!k.apiKey || !k.secret)) throw new Error('geen futures-keys');
-    params = params || {};
-    let qs = Object.keys(params).map(p => `${p}=${encodeURIComponent(params[p])}`).join('&');
+    const p = {}; for (const [kk, vv] of Object.entries(params || {})) p[kk] = String(vv);
     if (signed) {
-        const ts = Date.now(); qs += (qs ? '&' : '') + `timestamp=${ts}&recvWindow=5000`;
-        const sig = await hmacSha256Hex(k.secret, qs); qs += `&signature=${sig}`;
+        if (!k.apiKey || !k.secret) throw new Error('geen futures-keys');
+        p.apiKey = k.apiKey; p.timestamp = String(Date.now()); p.recvWindow = '10000';
+        const payload = Object.keys(p).sort().map(x => `${x}=${p[x]}`).join('&');
+        p.signature = await hmacSha256Hex(k.secret, payload);
     }
-    const url = `${MARGIN_BASE}${endpoint}${qs ? '?' + qs : ''}`;
-    const res = await fetch(url, { method, headers: signed ? { 'X-MBX-APIKEY': k.apiKey } : {} });
-    const txt = await res.text(); let j; try { j = JSON.parse(txt); } catch (e) { j = { raw: txt }; }
-    if (!res.ok) throw new Error(`futures ${res.status}: ${j.msg || txt}`);
-    return j;
+    const id = `osiris-m-${_mwsId++}`;
+    return new Promise((resolve, reject) => {
+        _mwsPending.set(id, { resolve, reject });
+        setTimeout(() => { if (_mwsPending.has(id)) { _mwsPending.delete(id); reject(new Error(`timeout (15s) op ${method}`)); } }, 15000);
+        try { _mws.send(JSON.stringify({ id, method, params: p })); } catch (e) { _mwsPending.delete(id); reject(e); }
+    });
 }
-async function marginSetLeverage(symbol, lev) {
-    try { if (marginState._levSet[symbol] === lev) return; await marginRest('POST', '/fapi/v1/leverage', { symbol, leverage: lev }, true); marginState._levSet[symbol] = lev; } catch (e) { _marginLog('reasoning', `leverage ${symbol} ${lev}x mislukt: ${e.message}`); }
-}
+// Leverage wijzigen kan alleen via REST (CORS-geblokkeerd vanuit de browser). Stel de
+// leverage per munt in de futures-testnet-UI in; Osiris gebruikt zijn interne leverage-
+// getal voor sizing/P&L. Deze functie is daarom een no-op-registratie.
+async function marginSetLeverage(symbol, lev) { marginState._levSet[symbol] = lev; }
 async function marginOrder(symbol, side, qty) {
-    return marginRest('POST', '/fapi/v1/order', { symbol, side, type: 'MARKET', quantity: qty }, true);
+    return marginWsRequest('order.place', { symbol, side, type: 'MARKET', quantity: qty }, true);
 }
-async function marginAccount() { return marginRest('GET', '/fapi/v2/account', {}, true); }
-async function marginPositionRisk() { return marginRest('GET', '/fapi/v2/positionRisk', {}, true); }
+async function marginAccount() { return marginWsRequest('account.status', {}, true); }
+async function marginPositionRisk() { return marginWsRequest('account.position', {}, true); }
 
 function _marginLog(kind, txt) {
     try {
