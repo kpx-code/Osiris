@@ -995,6 +995,59 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           </table>
         </div>
       </div>
+
+      <!-- ===================== MARGIN WALLET (futures-testnet) ===================== -->
+      <div style="margin-top:32px; border-top:1px dashed rgba(199,146,234,0.4); padding-top:18px;">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <h1 class="h" style="margin:0; color:#c792ea;">MARGIN WALLET</h1>
+          <span class="mock-title" style="color:#c792ea;">Binance Futures-testnet &middot; USD&#8346;-M</span>
+          <span style="flex:1;"></span>
+          <span class="mono" style="font-size:0.7rem; color:var(--dim);">leverage <b id="m-leverage" style="color:#c792ea;">3x</b></span>
+          <button type="button" id="m-toggle" onclick="setMarginEngine(!marginEngineEnabled); this.textContent = marginEngineEnabled ? 'MARGIN AAN' : 'MARGIN UIT'; this.style.color = marginEngineEnabled ? '#14f195' : '#7d99ac';" class="btn btn-ghost" style="font-size:0.68rem; color:#7d99ac;">MARGIN UIT</button>
+        </div>
+        <div class="mono" style="font-size:0.56rem; color:#7d6a99; margin-top:4px;">Aparte engine, dezelfde 3 markten &amp; brein-signalen &mdash; echte long &eacute;n short met leverage. Vereist futures-testnet-keys.</div>
+
+        <div class="panel" style="margin-top:12px;"><div class="plabel" style="color:#c792ea;">Kern-metrics &middot; margin</div>
+          <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-top:8px;">
+            <div class="meter"><div class="l">P/L</div><div class="v" id="m-pnl" style="color:#c792ea;">&#8366;0.00</div></div>
+            <div class="meter"><div class="l">win rate</div><div class="v" id="m-winrate">&mdash;</div></div>
+            <div class="meter"><div class="l">leverage</div><div class="v" id="m-lev2" style="color:#c792ea;">3x</div></div>
+            <div class="meter"><div class="l">open</div><div class="v" id="m-open">0</div></div>
+            <div class="meter"><div class="l">equity</div><div class="v" id="m-equity">&#8366;1000.00</div></div>
+          </div>
+          <div style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim);">Runtime <span id="m-runtime" style="color:#c792ea;">00:00:00</span> &middot; laatste actie: <span id="m-last-action">&mdash;</span></div>
+        </div>
+
+        <div class="grid g-2 mb" style="margin-top:12px;">
+          <div class="panel"><div class="plabel" style="color:#c792ea;">Live feed &middot; margin</div><div id="m-feed" style="font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--dim); line-height:1.9; margin-top:8px; max-height:150px; overflow:auto;">Margin-engine staat uit.</div></div>
+          <div class="panel"><div class="plabel" style="color:#c792ea;">Live &middot; reasoning &amp; aanpassingen &middot; margin</div><div id="m-reasoning" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--dim); line-height:1.8; margin-top:8px;">&mdash;</div><div id="m-adaptation" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7fd8ff; line-height:1.8; margin-top:6px;"></div></div>
+        </div>
+
+        <div class="panel" style="margin-top:6px;"><div class="plabel" style="color:#c792ea;">Open posities &middot; margin</div>
+          <div style="overflow:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.62rem; margin-top:6px;">
+            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Markt</th><th>Side</th><th>Lev</th><th>Entry</th><th>Notional</th><th>uPnL %</th><th>uPnL</th></tr></thead>
+            <tbody id="m-open-rows"><tr><td colspan="7" style="color:var(--dim); padding:8px;">Geen open margin-posities.</td></tr></tbody>
+          </table></div>
+        </div>
+        <div class="panel" style="margin-top:6px;"><div class="plabel" style="color:#c792ea;">Gesloten posities &middot; margin</div>
+          <div style="overflow:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.62rem; margin-top:6px;">
+            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Tijd</th><th>Markt</th><th>Side</th><th>Lev</th><th>Reden</th><th>P/L</th></tr></thead>
+            <tbody id="m-closed-rows"><tr><td colspan="6" style="color:var(--dim); padding:8px;">Nog geen gesloten margin-trades.</td></tr></tbody>
+          </table></div>
+        </div>
+
+        <div class="panel" style="margin-top:6px; border-color:rgba(199,146,234,0.3);"><div class="plabel" style="color:#c792ea;">Futures-testnet keys</div>
+          <div style="font-size:0.56rem; color:var(--dim); margin:6px 0;">Aparte keys van <b style="color:var(--cyan)">testnet.binancefuture.com</b> (los van je spot-keys). Blijven lokaal in je browser.</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <input id="futures-api-key" placeholder="Futures API key" style="flex:1; min-width:180px; background:#0c141f; border:1px solid var(--line); color:var(--tx); padding:6px 8px; border-radius:6px; font-size:0.6rem;">
+            <input id="futures-api-secret" type="password" placeholder="Futures API secret" style="flex:1; min-width:180px; background:#0c141f; border:1px solid var(--line); color:var(--tx); padding:6px 8px; border-radius:6px; font-size:0.6rem;">
+            <button type="button" onclick="saveMarginKeys()" class="btn btn-ghost" style="font-size:0.62rem;">Opslaan</button>
+            <button type="button" onclick="marginTestConnection()" class="btn btn-ghost" style="font-size:0.62rem; color:var(--teal); border-color:rgba(0,255,204,0.4);">Test verbinding</button>
+            <button type="button" onclick="marginSyncWallet()" class="btn btn-ghost" style="font-size:0.62rem; color:var(--amber); border-color:rgba(255,182,39,0.4);" title="Haalt je vrije USDT-saldo van de futures-testnet en zet het margin-startkapitaal daarop (met bevestiging).">Sync wallet &larr; futures</button>
+          </div>
+          <div id="futures-key-status" style="font-size:0.56rem; color:#7d99ac; margin-top:6px;"></div>
+        </div>
+      </div>
     </section>
 
     <!-- CHARTS -->
