@@ -8077,6 +8077,28 @@ let marginState = {
     startTime: Date.now(), lastAction: null, _levSet: {}
 };
 window.marginState = marginState;
+function marginSave() {
+    try { localStorage.setItem('osirisMarginState', JSON.stringify({
+        equity: marginState.equity, startEquity: marginState.startEquity, realizedPnL: marginState.realizedPnL,
+        wins: marginState.wins, losses: marginState.losses, positions: marginState.positions,
+        closed: marginState.closed.slice(0, 100), tradeLog: marginState.tradeLog.slice(0, 200),
+        reasoning: marginState.reasoning.slice(0, 40), adaptation: marginState.adaptation.slice(0, 40),
+        startTime: marginState.startTime, _levSet: marginState._levSet, ts: Date.now()
+    })); } catch (e) {}
+}
+function marginRestore() {
+    try {
+        const r = localStorage.getItem('osirisMarginState'); if (!r) return;
+        const d = JSON.parse(r); if (!d) return;
+        Object.assign(marginState, {
+            equity: d.equity != null ? d.equity : 1000, startEquity: d.startEquity != null ? d.startEquity : 1000,
+            realizedPnL: d.realizedPnL || 0, wins: d.wins || 0, losses: d.losses || 0,
+            positions: d.positions || [], closed: d.closed || [], tradeLog: d.tradeLog || [],
+            reasoning: d.reasoning || [], adaptation: d.adaptation || [], startTime: d.startTime || Date.now(), _levSet: d._levSet || {}
+        });
+    } catch (e) {}
+}
+window.marginSave = marginSave; window.marginRestore = marginRestore;
 window.marginEngineEnabled = marginEngineEnabled;
 
 function marginKeys() { try { const r = localStorage.getItem('osirisFuturesKeys'); return r ? JSON.parse(r) : { apiKey: '', secret: '' }; } catch (e) { return { apiKey: '', secret: '' }; } }
@@ -8134,6 +8156,22 @@ async function marginWsRequest(method, params, signed) {
 // leverage per munt in de futures-testnet-UI in; Osiris gebruikt zijn interne leverage-
 // getal voor sizing/P&L. Deze functie is daarom een no-op-registratie.
 async function marginSetLeverage(symbol, lev) { marginState._levSet[symbol] = lev; }
+// Futures-precisie per munt (quantityPrecision). -1111 "Precision over maximum" ontstaat
+// door te veel decimalen. We halen de echte waarden via WS exchangeInfo (met fallback).
+const MARGIN_PREC_FALLBACK = { BTCUSDT: 3, ETHUSDT: 2, SOLUSDT: 0, BNBUSDT: 2, XRPUSDT: 1, DOGEUSDT: 0 };
+let _marginPrec = {};
+async function marginLoadPrec() {
+    try {
+        const info = await marginWsRequest('exchangeInfo', {}, false);
+        for (const sm of (info.symbols || [])) { if (sm.quantityPrecision != null) _marginPrec[sm.symbol] = sm.quantityPrecision; }
+    } catch (e) { /* WS exchangeInfo niet beschikbaar -> fallback wordt gebruikt */ }
+}
+function marginRoundQty(symbol, qty) {
+    const prec = (_marginPrec[symbol] != null) ? _marginPrec[symbol] : (MARGIN_PREC_FALLBACK[symbol] != null ? MARGIN_PREC_FALLBACK[symbol] : 3);
+    const f = Math.pow(10, prec);
+    return Math.floor(qty * f) / f;   // altijd naar beneden -> nooit te veel decimalen
+}
+
 async function marginOrder(symbol, side, qty) {
     return marginWsRequest('order.place', { symbol, side, type: 'MARKET', quantity: qty }, true);
 }
@@ -8144,6 +8182,7 @@ function _marginLog(kind, txt) {
     try {
         const arr = kind === 'adaptation' ? marginState.adaptation : marginState.reasoning;
         arr.unshift({ ts: Date.now(), txt }); if (arr.length > 40) arr.pop();
+        try { marginSave(); } catch (e) {}
     } catch (e) {}
 }
 window.marginAdapt = (t) => _marginLog('adaptation', t);
@@ -8175,6 +8214,7 @@ async function marginTick() {
     try {
         if (!marginEngineEnabled && marginState.positions.length === 0) return;   // niets te beheren
         const now = Date.now();
+        if (now - _marginReconcileLast > 60000) { _marginReconcileLast = now; try { marginReconcile(); } catch (e) {} }   // exchange = bron van waarheid
         // ENTRIES alleen als de engine AAN staat; EXITS draaien altijd (geen orphan-posities)
         if (marginEngineEnabled) {
             const MINP = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
@@ -8188,7 +8228,8 @@ async function marginTick() {
             const sizePct = Math.min(0.35, avail); if (sizePct < 0.05) continue;
             const marginUSD = marginEquity() * sizePct;
             const notional = marginUSD * marginLeverage;                                          // leverage!
-            const price = m.lastPrice; const qty = +(notional / price).toFixed(3);
+            const price = m.lastPrice; let qty = marginRoundQty(binSym, notional / price);
+            if (!(qty > 0)) { _marginLog('reasoning', `${sym}: hoeveelheid te klein (${(notional / price).toFixed(4)}) na afronding - overslaan`); continue; }
             _marginLastEntry[sym] = now;
             await marginSetLeverage(binSym, marginLeverage);
             const side = m.bestSide === 'SHORT' ? 'SELL' : 'BUY';
@@ -8236,10 +8277,52 @@ async function marginClose(pos, price, lev, reason) {
         marginState.closed.unshift(rec); if (marginState.closed.length > 100) marginState.closed.pop();
         marginState.tradeLog.unshift({ action: 'EXIT', ts: Date.now(), sym: pos.sym, side: pos.side, price, pnl: lev, reason });
         marginState.lastAction = `EXIT ${pos.sym} ${reason} ${(lev * 100).toFixed(2)}%`;
+        try { marginSave(); } catch (e) {}
         _marginLog('reasoning', `sluit ${pos.sym} · ${reason} · ${(lev * 100).toFixed(2)}% ($${pnlUSD.toFixed(2)})`);
     } catch (e) {}
 }
 window.marginTick = marginTick;
+// RECONCILE: haal de ECHTE open futures-posities van de exchange en maak marginState
+// daaraan gelijk (exchange = bron van waarheid). Voegt ontbrekende posities toe, werkt
+// entry/qty/leverage bij, en verwijdert lokale posities die niet meer op de exchange staan.
+let _marginReconcileLast = 0;
+async function marginReconcile() {
+    try {
+        if (!marginKeys().apiKey) return;
+        const res = await marginPositionRisk();
+        const arr = Array.isArray(res) ? res : (res && res.positions ? res.positions : []);
+        const live = {};
+        for (const pr of arr) {
+            const amt = parseFloat(pr.positionAmt != null ? pr.positionAmt : (pr.positionAmount || 0));
+            if (!amt) continue;
+            const symbol = pr.symbol;
+            const sym = (typeof MULTI_BINANCE !== 'undefined') ? Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === symbol) : null;
+            if (!sym) continue;
+            live[symbol] = true;
+            const side = amt > 0 ? 'LONG' : 'SHORT';
+            const mkt = neoMultiState.markets[sym];
+            const entryPrice = parseFloat(pr.entryPrice || 0) || (mkt ? mkt.lastPrice : 0);
+            const lev = parseInt(pr.leverage, 10) || marginLeverage;
+            const qty = Math.abs(amt); const notional = qty * entryPrice;
+            const ex = marginState.positions.find(p => p.symbol === symbol);
+            if (ex) { ex.entryPrice = entryPrice; ex.qty = qty; ex.notional = notional; ex.side = side; ex.leverage = lev; if (ex.marginUSD == null) ex.marginUSD = notional / lev; }
+            else {
+                const preset = (typeof MARKET_PRESETS !== 'undefined' && MARKET_PRESETS[sym]) ? MARKET_PRESETS[sym] : { stopLossPct: 0.5, microTargetPct: 0.4 };
+                const marginUSD = notional / lev;
+                marginState.positions.push({ symbol, sym, side, entryPrice, qty, notional, marginUSD, sizePct: marginUSD / Math.max(1, marginEquity()), leverage: lev, openTime: Date.now(), uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100, targetPct: (preset.microTargetPct || 0.4) / 100, _reconciled: true });
+                _marginLog('reasoning', `reconcile: ${sym} ${side} ${lev}x van exchange overgenomen (${qty} @ ${entryPrice})`);
+            }
+        }
+        const before = marginState.positions.length;
+        marginState.positions = marginState.positions.filter(p => live[p.symbol]);
+        const removed = before - marginState.positions.length;
+        if (removed > 0) _marginLog('reasoning', `reconcile: ${removed} lokale positie(s) verwijderd (niet meer op de exchange)`);
+        try { marginSave(); } catch (e) {}
+        try { syncMarginWallet(); } catch (e) {}
+    } catch (e) { _marginLog('reasoning', `reconcile mislukt: ${e.message}`); }
+}
+window.marginReconcile = marginReconcile;
+
 async function marginCloseManual(idx) {
     try {
         const pos = marginState.positions[idx]; if (!pos) return;
@@ -8253,6 +8336,7 @@ window.marginCloseManual = marginCloseManual;
 
 function setMarginEngine(on) {
     marginEngineEnabled = !!on; window.marginEngineEnabled = marginEngineEnabled;
+    if (on) { try { marginLoadPrec(); } catch (e) {} try { marginReconcile(); } catch (e) {} }
     try { localStorage.setItem('osirisMarginEnabled', on ? '1' : '0'); } catch (e) {}
     _marginLog('adaptation', on ? 'Margin-engine AAN (futures-testnet)' : 'Margin-engine UIT');
 }
@@ -8267,6 +8351,8 @@ async function marginTestConnection() {
         const u = (acc.assets || []).find(a => a.asset === 'USDT');
         const bal = u ? parseFloat(u.walletBalance || u.marginBalance || 0) : parseFloat(acc.totalWalletBalance || 0);
         set(`Verbonden. Futures-saldo: ${bal.toFixed(2)} USDT. Klaar voor margin-modus.`);
+        try { marginLoadPrec(); } catch (e) {}
+        try { marginReconcile(); } catch (e) {}
         return true;
     } catch (e) { set(`Verbinding mislukt: ${e.message} - check je futures-keys en netwerk.`, true); return false; }
 }
@@ -8292,6 +8378,7 @@ async function marginSyncWallet() {
     } catch (e) { set(`Sync mislukt: ${e.message}`, true); }
 }
 window.marginSyncWallet = marginSyncWallet;
+try { marginRestore(); } catch (e) {}
 try { marginEngineEnabled = localStorage.getItem('osirisMarginEnabled') === '1'; window.marginEngineEnabled = marginEngineEnabled; } catch (e) {}
 try { const lv = parseInt(localStorage.getItem('osirisMarginLeverage'), 10); if (lv >= MARGIN_LEV_MIN && lv <= MARGIN_LEV_MAX) marginLeverage = lv; } catch (e) {}
 try { window.addEventListener('DOMContentLoaded', () => { try { const k = marginKeys(); if (k.apiKey) { const a = document.getElementById('futures-api-key'); if (a) a.value = k.apiKey; } if (k.secret) { const b = document.getElementById('futures-api-secret'); if (b) b.value = k.secret; } const tg = document.getElementById('m-toggle'); if (tg) { tg.textContent = marginEngineEnabled ? 'MARGIN AAN' : 'MARGIN UIT'; tg.style.color = marginEngineEnabled ? '#14f195' : '#7d99ac'; } } catch (e) {} }); } catch (e) {}
