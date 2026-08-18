@@ -5669,8 +5669,8 @@ function syncMarginWallet() {
             if (!marginState.tradeLog.length) feed.innerHTML = marginEngineEnabled ? '<span class="muted">wacht op eerste margin-trade\u2026</span>' : 'Margin-engine staat uit.';
             else feed.innerHTML = marginState.tradeLog.slice(0, 20).map(t => { const tm = new Date(t.ts).toLocaleTimeString(); const col = t.action === 'ENTRY' ? '#7fd8ff' : ((t.pnl || 0) >= 0 ? '#14f195' : '#ff8a94'); const extra = t.action === 'ENTRY' ? `${t.leverage}x` : `${((t.pnl || 0) * 100).toFixed(2)}% ${t.reason || ''}`; return `<div style="color:${col}">${tm} \u00b7 ${t.action} ${t.sym} ${t.side} @ ${dp(t.price)} \u00b7 ${extra}</div>`; }).join('');
         }
-        set('m-reasoning', marginState.reasoning.slice(0, 6).map(r => `<div>${new Date(r.ts).toLocaleTimeString()} \u00b7 ${r.txt}</div>`).join('') || '\u2014');
-        set('m-adaptation', marginState.adaptation.slice(0, 4).map(r => `<div>\u21bb ${r.txt}</div>`).join(''));
+        set('m-reasoning', marginState.reasoning.length ? marginState.reasoning.slice(0, 40).map(r => `<div>${new Date(r.ts).toLocaleTimeString('nl-NL')} \u00b7 ${r.txt}</div>`).join('') : '<span style="color:var(--dim);">Wacht op beredenering\u2026</span>');
+        set('m-adaptation', marginState.adaptation.length ? marginState.adaptation.slice(0, 40).map(r => `<div>\u21bb ${new Date(r.ts).toLocaleTimeString('nl-NL')} \u00b7 ${r.txt}</div>`).join('') : '<span style="color:var(--dim);">Nog geen aanpassingen\u2026</span>');
         const orows = document.getElementById('m-open-rows');
         if (orows) {
             if (!marginState.positions.length) orows.innerHTML = '<tr><td colspan="10" style="color:var(--dim); padding:8px;">Geen open margin-posities.</td></tr>';
@@ -7982,6 +7982,106 @@ function sentimentTilt(side, sym) {
     return 0;
 }
 window.osirisSentiment = osirisSentiment;
+
+// ============================================================
+// OSIRIS DEEPNET - RADIALE WEERGAVE (about-pagina, 18-08)
+// Cirkelvormig, DATA-TRUE: leest de echte input-activaties (neoNetInputs) en de
+// live beslissing (zelfde data-true bias als het hoofd-net). Buitenring = 16 inputs,
+// naar binnen: integratie -> cores -> osiris -> beslissing in het midden.
+// ============================================================
+let _radialRaf = null, _radialT = 0;
+function drawOsirisRadial() {
+    const cv = document.getElementById('about-radial');
+    if (!cv) return;
+    const ctx = cv.getContext('2d'); const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
+    ctx.clearRect(0, 0, W, H);
+    _radialT += 0.016;
+    let inp = {};
+    try { inp = (typeof neoNetInputs === 'function') ? neoNetInputs() : {}; } catch (e) { inp = {}; }
+    const keys = (typeof NEONET_INPUTS !== 'undefined') ? NEONET_INPUTS : [];
+    const N = keys.length || 16;
+    const Rout = Math.min(W, H) * 0.44;           // buitenring (inputs)
+    const rings = [Rout, Rout * 0.72, Rout * 0.48, Rout * 0.26, 0];  // inputs, integratie, cores, osiris, center
+
+    // data-true beslissing (zelfde logica als het hoofd-net)
+    let decisionBias = 0;
+    try {
+        let wsum = 0, dsum = 0;
+        for (const p of (typeof openPositions !== 'undefined' ? openPositions : [])) { const dir = p.side === 'SHORT' ? -1 : 1; const w = (p.sizePct || 0.1) * 2.2; dsum += w * dir; wsum += w; }
+        for (const sym of ['BTC', 'ETH', 'SOL']) { const m = neoMultiState.markets[sym]; if (m && m.bestSide && m.bestProb != null) { const w = 0.2; const dir = m.bestSide === 'SHORT' ? -1 : 1; const conv = Math.min(1, Math.max(0, (m.bestProb - 0.5) * 3)); dsum += w * dir * conv; wsum += w; } }
+        if (wsum > 0) decisionBias = Math.max(-1, Math.min(1, dsum / wsum));
+    } catch (e) {}
+    const decCol = decisionBias > 0.15 ? '#14f195' : decisionBias < -0.15 ? '#ff4f6d' : '#5c7488';
+    const decTxt = decisionBias > 0.15 ? 'LONG' : decisionBias < -0.15 ? 'SHORT' : 'NEUTRAAL';
+
+    // input-posities op de buitenring
+    const pts = [];
+    for (let i = 0; i < N; i++) {
+        const ang = (i / N) * Math.PI * 2 - Math.PI / 2;
+        const k = keys[i] ? keys[i].key : null;
+        const act = k ? Math.min(1, Math.abs(inp[k] || 0)) : 0;
+        const col = keys[i] ? keys[i].c : '#7fd8ff';
+        pts.push({ ang, x: cx + Math.cos(ang) * Rout, y: cy + Math.sin(ang) * Rout, act, col, label: keys[i] ? keys[i].label : '' });
+    }
+
+    // verbindingen van buitenring naar het centrum, met datastroom-deeltje
+    for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        const grd = ctx.createLinearGradient(p.x, p.y, cx, cy);
+        grd.addColorStop(0, _rgba(p.col, 0.05 + 0.35 * p.act)); grd.addColorStop(1, _rgba(decCol, 0.15));
+        ctx.strokeStyle = grd; ctx.lineWidth = 0.6 + 1.6 * p.act;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.quadraticCurveTo(cx + (p.x - cx) * 0.2, cy + (p.y - cy) * 0.2, cx, cy); ctx.stroke();
+        // datastroom naar binnen (true: sneller/feller bij hogere activatie)
+        const ph = (_radialT * (0.4 + p.act) + i * 0.13) % 1;
+        const fx = p.x + (cx - p.x) * ph, fy = p.y + (cy - p.y) * ph;
+        ctx.beginPath(); ctx.arc(fx, fy, 1 + 2 * p.act, 0, 6.283); ctx.fillStyle = _rgba(p.col, 0.3 + 0.6 * p.act); ctx.fill();
+    }
+
+    // concentrische ringen (integratie/cores/osiris) als subtiele hints
+    for (let r = 1; r <= 3; r++) {
+        ctx.beginPath(); ctx.arc(cx, cy, rings[r], 0, 6.283); ctx.strokeStyle = 'rgba(127,216,255,0.08)'; ctx.lineWidth = 1; ctx.stroke();
+    }
+    // cores op ring 2 (BTC/ETH/SOL) - grootte = allocatie/kans
+    const coreCol = { BTC: '#f7931a', ETH: '#8fb8ff', SOL: '#14f195' };
+    ['BTC', 'ETH', 'SOL'].forEach((sym, i) => {
+        const ang = (i / 3) * Math.PI * 2 - Math.PI / 2 + _radialT * 0.1;
+        const m = neoMultiState.markets[sym]; const prob = m && m.bestProb != null ? m.bestProb : 0.5;
+        const x = cx + Math.cos(ang) * rings[2], y = cy + Math.sin(ang) * rings[2];
+        const rad = 5 + 10 * Math.max(0, prob - 0.4);
+        ctx.beginPath(); ctx.arc(x, y, rad, 0, 6.283); ctx.fillStyle = _rgba(coreCol[sym], 0.25 + prob * 0.5); ctx.fill();
+        ctx.strokeStyle = _rgba(coreCol[sym], 0.8); ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = _rgba(coreCol[sym], 0.9); ctx.font = "8px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+        ctx.fillText(sym, x, y - rad - 4);
+    });
+
+    // input-knopen + labels
+    for (const p of pts) {
+        ctx.beginPath(); ctx.arc(p.x, p.y, 3 + 4 * p.act, 0, 6.283);
+        ctx.fillStyle = _rgba(p.col, 0.4 + 0.6 * p.act); ctx.fill();
+        if (p.act > 0.1) { ctx.save(); ctx.shadowColor = p.col; ctx.shadowBlur = 8 * p.act; ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, 6.283); ctx.fillStyle = p.col; ctx.fill(); ctx.restore(); }
+        const lx = cx + Math.cos(p.ang) * (Rout + 20), ly = cy + Math.sin(p.ang) * (Rout + 20);
+        ctx.fillStyle = _rgba(p.col, 0.75); ctx.font = "8px 'JetBrains Mono',monospace";
+        ctx.textAlign = Math.cos(p.ang) > 0.3 ? 'left' : Math.cos(p.ang) < -0.3 ? 'right' : 'center';
+        ctx.fillText(p.label, lx, ly + 3);
+    }
+
+    // centrum: live beslissing (pulserend, data-true kleur)
+    const pulse = 1 + 0.06 * Math.sin(_radialT * 3);
+    ctx.save(); ctx.shadowColor = decCol; ctx.shadowBlur = 22;
+    ctx.beginPath(); ctx.arc(cx, cy, 24 * pulse, 0, 6.283); ctx.fillStyle = _rgba(decCol, 0.18); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, 15 * pulse, 0, 6.283); ctx.fillStyle = _rgba(decCol, 0.9); ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = '#eafcff'; ctx.font = "bold 11px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+    ctx.fillText(decTxt, cx, cy - 34);
+    ctx.fillStyle = _rgba(decCol, 0.9); ctx.font = "9px 'JetBrains Mono',monospace";
+    ctx.fillText(`${Math.round(Math.abs(decisionBias) * 100)}%`, cx, cy + 4);
+
+    _radialRaf = requestAnimationFrame(drawOsirisRadial);
+}
+function _rgba(hex, a) { try { const h = hex.replace('#', ''); const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); return `rgba(${r},${g},${b},${a})`; } catch (e) { return `rgba(127,216,255,${a})`; } }
+function startOsirisRadial() { if (!_radialRaf && document.getElementById('about-radial')) drawOsirisRadial(); }
+window.startOsirisRadial = startOsirisRadial; window.drawOsirisRadial = drawOsirisRadial;
+try { window.addEventListener('DOMContentLoaded', () => setTimeout(startOsirisRadial, 800)); } catch (e) {}
 
 // OSIRIS · RL EXIT/HOLD-AGENT (16-08) - lokaal, geen backend
 // Tabular Q-learning over gediscretiseerde toestand (regime × pnl × momentum ×
