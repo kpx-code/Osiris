@@ -12468,26 +12468,36 @@ function _neoNetDraw(now, canvasId, outId) {
             const adv = d ? `${R.ACTIONS[d.action]} ${(d.conf * 100 | 0)}%` : '\u2014';
             ctx.fillText(`RL · ${(R.episodes / 1000).toFixed(0)}k scenario's · advies ${adv}`, 14, h - 8);
         }
-        // TESLA-LIGHTNING: gekartelde bliksem van de sterkste inputs naar de output-knoop
-        // (flikkerend, data-true - alleen sterke signalen vuren). Puur visueel toegevoegd.
+        // TESLA-LIGHTNING: gekartelde bliksem ALLEEN tussen de laatste lagen
+        // (Osiris -> Decision -> Output), flikkerend en data-true. Puur visueel.
         try {
-            const _outNode = pos[pos.length - 1][0];
-            const _ins = layers[0].map((nd, i) => ({ i, act: Math.min(1, Math.abs(nd.act || 0)), p: pos[0][i], c: (NEONET_INPUTS[i] ? NEONET_INPUTS[i].c : '#7fd8ff') }))
-                .sort((a, b) => b.act - a.act).slice(0, 3);
-            for (const s of _ins) {
-                if (s.act < 0.15 || !s.p) continue;
-                if (Math.sin(now / 90 + s.i * 2.3) < 0.35) continue;   // flikker
-                ctx.save();
-                ctx.beginPath(); ctx.moveTo(s.p.x, s.p.y);
-                const seg = 9;
+            const _bolt = (A, B, col, act, seed) => {
+                if (!A || !B || act < 0.12) return;
+                if (Math.sin(now / 90 + seed * 2.3) < 0.35) return;   // flikker
+                ctx.save(); ctx.beginPath(); ctx.moveTo(A.x, A.y);
+                const seg = 8;
                 for (let k = 1; k <= seg; k++) {
-                    const t = k / seg; const bx = s.p.x + (_outNode.x - s.p.x) * t, by = s.p.y + (_outNode.y - s.p.y) * t;
-                    const jag = Math.sin(Math.PI * t) * 22; const ox = (Math.random() - 0.5) * jag, oy = (Math.random() - 0.5) * jag;
+                    const t = k / seg; const bx = A.x + (B.x - A.x) * t, by = A.y + (B.y - A.y) * t;
+                    const jag = Math.sin(Math.PI * t) * 16; const ox = (Math.random() - 0.5) * jag, oy = (Math.random() - 0.5) * jag;
                     ctx.lineTo(bx + ox, by + oy);
                 }
-                ctx.strokeStyle = _rgba(s.c, 0.4 + 0.45 * s.act); ctx.lineWidth = 1.1;
-                ctx.shadowColor = s.c; ctx.shadowBlur = 8; ctx.stroke();
-                ctx.restore();
+                ctx.strokeStyle = _rgba(col, 0.4 + 0.45 * act); ctx.lineWidth = 1.1;
+                ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.stroke(); ctx.restore();
+            };
+            const _n = pos.length;
+            if (_n >= 3) {
+                const osi = pos[_n - 3], dec = pos[_n - 2], out = pos[_n - 1];
+                const osiA = layers[_n - 3], decA = layers[_n - 2];
+                const _dc = decisionBias > 0.15 ? '#14f195' : decisionBias < -0.15 ? '#ff4f6d' : '#7fd8ff';
+                // Osiris -> Decision
+                for (let a = 0; a < osi.length; a++) for (let b = 0; b < dec.length; b++) {
+                    const act = Math.min(1, ((osiA[a] && osiA[a].act || 0) + (decA[b] && decA[b].act || 0)) / 2);
+                    _bolt(osi[a], dec[b], _dc, act, a * 3 + b);
+                }
+                // Decision -> Output
+                for (let b = 0; b < dec.length; b++) {
+                    _bolt(dec[b], out[0], _dc, Math.min(1, (decA[b] && decA[b].act || 0)), 20 + b);
+                }
             }
         } catch (e) {}
         // FEEDBACK-LUS: de puls flitst nu TERUG langs de bestaande netwerklijnen (zie de
