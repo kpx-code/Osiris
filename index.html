@@ -1023,6 +1023,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <div class="panel"><div class="plabel" style="color:#c792ea;">Live &middot; reasoning &amp; aanpassingen &middot; margin</div><div id="m-reasoning" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--dim); line-height:1.8; margin-top:8px;">&mdash;</div><div id="m-adaptation" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7fd8ff; line-height:1.8; margin-top:6px;"></div></div>
         </div>
 
+        <div class="grid g-2 mb" style="margin-top:6px;">
+          <div class="panel"><div class="plabel" style="color:#c792ea;">Exit &middot; bijdrage &middot; margin</div><div class="mono" id="m-exit-dist" style="font-size:0.62rem; color:#7d99ac; margin-top:8px;">Nog geen gesloten margin-trades.</div></div>
+          <div class="panel"><div class="plabel" style="color:#c792ea;">&#9673; Osiris &middot; equity-verdeling &middot; margin</div><div id="m-osiris-panel" style="margin-top:8px;"><span style="color:var(--dim); font-size:0.62rem;">Nog geen open margin-posities.</span></div></div>
+        </div>
+
         <div class="panel" style="margin-top:6px;"><div class="plabel" style="color:#c792ea;">Open posities &middot; margin</div>
           <div style="overflow:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.62rem; margin-top:6px;">
             <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th style="text-align:left;">Markt</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size</th><th>Alloc</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
@@ -1030,7 +1035,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           </table></div>
         </div>
         <div class="panel" style="margin-top:6px;"><div class="plabel" style="color:#c792ea;">Gesloten posities &middot; margin</div>
-          <div style="overflow:auto;"><table style="width:100%; border-collapse:collapse; font-size:0.62rem; margin-top:6px;">
+          <div style="overflow:auto; max-height:260px;"><table style="width:100%; border-collapse:collapse; font-size:0.62rem; margin-top:6px;">
             <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Tijd</th><th>Markt</th><th>Side</th><th>Lev</th><th>Reden</th><th>P/L</th></tr></thead>
             <tbody id="m-closed-rows"><tr><td colspan="6" style="color:var(--dim); padding:8px;">Nog geen gesloten margin-trades.</td></tr></tbody>
           </table></div>
@@ -1231,6 +1236,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <section class="tab" id="tab-brains">
       <div class="eyebrow">Adaptief leren &middot; per markt</div><h1 class="h">DE CORTEX &amp; HET LEREN</h1>
 <div class="subhead" style="display:flex; justify-content:space-between; align-items:center;"><span>Adaptive Learning Levels &middot; data</span><button onclick="downloadAdaptiveLearning()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; letter-spacing:0.05em; padding:4px 10px; background:rgba(0,217,255,0.08); color:#7fd8ff; border:1px solid rgba(0,217,255,0.4); border-radius:5px; cursor:pointer; text-transform:none;">&#8681; download leerdata</button></div>
+      <div class="panel" style="margin:10px 0; border-color:rgba(199,146,234,0.3);"><div class="plabel" style="color:var(--violet);">&#8635; Autonome bijstellingen &middot; live</div><div id="cortex-autofeed" style="font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--dim); line-height:1.9; margin-top:8px; max-height:130px; overflow:auto;">Osiris registreert hier elke autonome bijstelling van de leer-drempels en gewichten&hellip;</div></div>
                 <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
                     <span>&#9679; Adaptive Learning · Level 1</span>
                     <span id="learning-chevron">&#9662;</span>
