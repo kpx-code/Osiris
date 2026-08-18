@@ -7991,19 +7991,14 @@ window.osirisSentiment = osirisSentiment;
 // ============================================================
 let _radialRaf = null, _radialT = 0;
 function drawOsirisRadial() {
-    const cv = document.getElementById('about-radial');
-    if (!cv) return;
+    const cv = document.getElementById('about-radial'); if (!cv) return;
     const ctx = cv.getContext('2d'); const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
     ctx.clearRect(0, 0, W, H);
     _radialT += 0.016;
-    let inp = {};
-    try { inp = (typeof neoNetInputs === 'function') ? neoNetInputs() : {}; } catch (e) { inp = {}; }
+    let inp = {}; try { inp = (typeof neoNetInputs === 'function') ? neoNetInputs() : {}; } catch (e) { inp = {}; }
     const keys = (typeof NEONET_INPUTS !== 'undefined') ? NEONET_INPUTS : [];
-    const N = keys.length || 16;
-    const Rout = Math.min(W, H) * 0.44;           // buitenring (inputs)
-    const rings = [Rout, Rout * 0.72, Rout * 0.48, Rout * 0.26, 0];  // inputs, integratie, cores, osiris, center
 
-    // data-true beslissing (zelfde logica als het hoofd-net)
+    // DATA-TRUE beslissing (zelfde bias als het hoofd-net)
     let decisionBias = 0;
     try {
         let wsum = 0, dsum = 0;
@@ -8011,70 +8006,96 @@ function drawOsirisRadial() {
         for (const sym of ['BTC', 'ETH', 'SOL']) { const m = neoMultiState.markets[sym]; if (m && m.bestSide && m.bestProb != null) { const w = 0.2; const dir = m.bestSide === 'SHORT' ? -1 : 1; const conv = Math.min(1, Math.max(0, (m.bestProb - 0.5) * 3)); dsum += w * dir * conv; wsum += w; } }
         if (wsum > 0) decisionBias = Math.max(-1, Math.min(1, dsum / wsum));
     } catch (e) {}
-    const decCol = decisionBias > 0.15 ? '#14f195' : decisionBias < -0.15 ? '#ff4f6d' : '#5c7488';
+    const decCol = decisionBias > 0.15 ? '#14f195' : decisionBias < -0.15 ? '#ff4f6d' : '#7fd8ff';
     const decTxt = decisionBias > 0.15 ? 'LONG' : decisionBias < -0.15 ? 'SHORT' : 'NEUTRAAL';
+    const actLevel = Math.min(1, Object.keys(inp).reduce((a, k) => a + Math.min(1, Math.abs(inp[k] || 0)), 0) / 8);
 
-    // input-posities op de buitenring
-    const pts = [];
-    for (let i = 0; i < N; i++) {
-        const ang = (i / N) * Math.PI * 2 - Math.PI / 2;
-        const k = keys[i] ? keys[i].key : null;
-        const act = k ? Math.min(1, Math.abs(inp[k] || 0)) : 0;
-        const col = keys[i] ? keys[i].c : '#7fd8ff';
-        pts.push({ ang, x: cx + Math.cos(ang) * Rout, y: cy + Math.sin(ang) * Rout, act, col, label: keys[i] ? keys[i].label : '' });
+    const Rmax = Math.min(W, H) * 0.42, ZN = 4, SQUASH = 0.60;   // verticale squash -> 3D-trechter
+    const rot = _radialT * 0.28;
+    // VORTEX-lagen: inputs -> integratie -> mid -> cores -> beslissing (kern)
+    const layerDefs = [
+        { count: keys.length || 16, z: 0, kind: 'input' },
+        { count: 9, z: 1, kind: 'mid' },
+        { count: 5, z: 2, kind: 'mid' },
+        { count: 3, z: 3, kind: 'core' },
+        { count: 1, z: 4, kind: 'decision' }
+    ];
+    function nodePos(z, i, count) {
+        const depthT = z / ZN;
+        const R = Rmax * (1 - depthT * 0.9);
+        const twist = z * 1.15 + rot;                    // getwiste ringen -> spiraal
+        const persp = 1 - depthT * 0.30;
+        const ang = (i / count) * Math.PI * 2 + twist;
+        const wob = 1 + 0.06 * Math.sin(_radialT * 2 + i + z);
+        return { x: cx + Math.cos(ang) * R * persp * wob, y: cy + Math.sin(ang) * R * persp * SQUASH * wob - depthT * 26, ang, depthT };
+    }
+    const layers = layerDefs.map(L => { const ns = []; for (let i = 0; i < L.count; i++) { const p = nodePos(L.z, i, L.count); let act = 0.4, col = '#7fd8ff'; if (L.kind === 'input' && keys[i]) { act = Math.min(1, Math.abs(inp[keys[i].key] || 0)); col = keys[i].c; } else if (L.kind === 'core') { const sym = ['BTC', 'ETH', 'SOL'][i]; const m = neoMultiState.markets[sym]; act = m && m.bestProb != null ? m.bestProb : 0.5; col = { BTC: '#f7931a', ETH: '#8fb8ff', SOL: '#14f195' }[sym]; p.sym = sym; } else if (L.kind === 'decision') { act = Math.abs(decisionBias); col = decCol; } p.act = act; p.col = col; p.kind = L.kind; ns.push(p); } return ns; });
+
+    // SPIRAAL-VERBINDINGEN tussen opeenvolgende lagen (getwist -> vortex-armen)
+    for (let li = 0; li < layers.length - 1; li++) {
+        const A = layers[li], B = layers[li + 1];
+        for (let a = 0; a < A.length; a++) {
+            // verbind met de 2 dichtstbijzijnde knopen van de volgende laag (op hoek)
+            const order = B.map((n, bi) => ({ bi, d: Math.abs(Math.atan2(Math.sin(n.ang - A[a].ang), Math.cos(n.ang - A[a].ang))) })).sort((x, y) => x.d - y.d).slice(0, B.length <= 1 ? 1 : 2);
+            for (const o of order) {
+                const nb = B[o.bi]; const sig = (A[a].act + nb.act) / 2;
+                const mx = (A[a].x + nb.x) / 2 + (cy - (A[a].y + nb.y) / 2) * 0.12;
+                const my = (A[a].y + nb.y) / 2 + ((A[a].x + nb.x) / 2 - cx) * 0.12;   // curve -> spiraal
+                ctx.beginPath(); ctx.moveTo(A[a].x, A[a].y); ctx.quadraticCurveTo(mx, my, nb.x, nb.y);
+                ctx.strokeStyle = _rgba(A[a].col, 0.04 + 0.28 * sig); ctx.lineWidth = 0.5 + 1.4 * sig; ctx.stroke();
+                // datastroom-deeltje langs de arm (naar binnen)
+                const ph = (_radialT * (0.5 + sig) + a * 0.11 + li * 0.2) % 1;
+                const t = ph, u = 1 - t;
+                const px = u * u * A[a].x + 2 * u * t * mx + t * t * nb.x, py = u * u * A[a].y + 2 * u * t * my + t * t * nb.y;
+                ctx.beginPath(); ctx.arc(px, py, 0.8 + 1.8 * sig, 0, 6.283); ctx.fillStyle = _rgba(A[a].col, 0.3 + 0.6 * sig); ctx.fill();
+            }
+        }
     }
 
-    // verbindingen van buitenring naar het centrum, met datastroom-deeltje
-    for (let i = 0; i < pts.length; i++) {
-        const p = pts[i];
-        const grd = ctx.createLinearGradient(p.x, p.y, cx, cy);
-        grd.addColorStop(0, _rgba(p.col, 0.05 + 0.35 * p.act)); grd.addColorStop(1, _rgba(decCol, 0.15));
-        ctx.strokeStyle = grd; ctx.lineWidth = 0.6 + 1.6 * p.act;
-        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.quadraticCurveTo(cx + (p.x - cx) * 0.2, cy + (p.y - cy) * 0.2, cx, cy); ctx.stroke();
-        // datastroom naar binnen (true: sneller/feller bij hogere activatie)
-        const ph = (_radialT * (0.4 + p.act) + i * 0.13) % 1;
-        const fx = p.x + (cx - p.x) * ph, fy = p.y + (cy - p.y) * ph;
-        ctx.beginPath(); ctx.arc(fx, fy, 1 + 2 * p.act, 0, 6.283); ctx.fillStyle = _rgba(p.col, 0.3 + 0.6 * p.act); ctx.fill();
+    // TESLA-BOGEN: gekartelde bliksem van de sterkste inputs naar de kern (flikkerend)
+    const core = layers[layers.length - 1][0];
+    const strong = layers[0].slice().sort((a, b) => b.act - a.act).slice(0, 3);
+    for (const sN of strong) {
+        if (sN.act < 0.15) continue;
+        if (Math.sin(_radialT * 9 + sN.ang * 3) < 0.3) continue;   // flikker
+        ctx.beginPath(); ctx.moveTo(sN.x, sN.y);
+        const seg = 7;
+        for (let k = 1; k <= seg; k++) {
+            const t = k / seg; const bx = sN.x + (core.x - sN.x) * t, by = sN.y + (core.y - sN.y) * t;
+            const jag = (1 - t) * 26; const ox = (Math.random() - 0.5) * jag, oy = (Math.random() - 0.5) * jag;
+            ctx.lineTo(bx + ox, by + oy);
+        }
+        ctx.strokeStyle = _rgba(sN.col, 0.5 + 0.4 * sN.act); ctx.lineWidth = 1.1; ctx.shadowColor = sN.col; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0;
     }
 
-    // concentrische ringen (integratie/cores/osiris) als subtiele hints
-    for (let r = 1; r <= 3; r++) {
-        ctx.beginPath(); ctx.arc(cx, cy, rings[r], 0, 6.283); ctx.strokeStyle = 'rgba(127,216,255,0.08)'; ctx.lineWidth = 1; ctx.stroke();
-    }
-    // cores op ring 2 (BTC/ETH/SOL) - grootte = allocatie/kans
-    const coreCol = { BTC: '#f7931a', ETH: '#8fb8ff', SOL: '#14f195' };
-    ['BTC', 'ETH', 'SOL'].forEach((sym, i) => {
-        const ang = (i / 3) * Math.PI * 2 - Math.PI / 2 + _radialT * 0.1;
-        const m = neoMultiState.markets[sym]; const prob = m && m.bestProb != null ? m.bestProb : 0.5;
-        const x = cx + Math.cos(ang) * rings[2], y = cy + Math.sin(ang) * rings[2];
-        const rad = 5 + 10 * Math.max(0, prob - 0.4);
-        ctx.beginPath(); ctx.arc(x, y, rad, 0, 6.283); ctx.fillStyle = _rgba(coreCol[sym], 0.25 + prob * 0.5); ctx.fill();
-        ctx.strokeStyle = _rgba(coreCol[sym], 0.8); ctx.lineWidth = 1; ctx.stroke();
-        ctx.fillStyle = _rgba(coreCol[sym], 0.9); ctx.font = "8px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
-        ctx.fillText(sym, x, y - rad - 4);
-    });
-
-    // input-knopen + labels
-    for (const p of pts) {
-        ctx.beginPath(); ctx.arc(p.x, p.y, 3 + 4 * p.act, 0, 6.283);
-        ctx.fillStyle = _rgba(p.col, 0.4 + 0.6 * p.act); ctx.fill();
-        if (p.act > 0.1) { ctx.save(); ctx.shadowColor = p.col; ctx.shadowBlur = 8 * p.act; ctx.beginPath(); ctx.arc(p.x, p.y, 2, 0, 6.283); ctx.fillStyle = p.col; ctx.fill(); ctx.restore(); }
-        const lx = cx + Math.cos(p.ang) * (Rout + 20), ly = cy + Math.sin(p.ang) * (Rout + 20);
-        ctx.fillStyle = _rgba(p.col, 0.75); ctx.font = "8px 'JetBrains Mono',monospace";
-        ctx.textAlign = Math.cos(p.ang) > 0.3 ? 'left' : Math.cos(p.ang) < -0.3 ? 'right' : 'center';
-        ctx.fillText(p.label, lx, ly + 3);
+    // KNOPEN tekenen (van buiten naar binnen), inputs met labels
+    for (let li = 0; li < layers.length; li++) {
+        for (const nd of layers[li]) {
+            const r = (nd.kind === 'decision') ? 0 : (nd.kind === 'core') ? (5 + 9 * Math.max(0, nd.act - 0.4)) : (2.5 + 4 * nd.act);
+            if (r > 0) {
+                ctx.beginPath(); ctx.arc(nd.x, nd.y, r, 0, 6.283); ctx.fillStyle = _rgba(nd.col, 0.35 + 0.55 * nd.act); ctx.fill();
+                if (nd.act > 0.12) { ctx.save(); ctx.shadowColor = nd.col; ctx.shadowBlur = 9 * nd.act; ctx.beginPath(); ctx.arc(nd.x, nd.y, Math.max(1.5, r * 0.5), 0, 6.283); ctx.fillStyle = nd.col; ctx.fill(); ctx.restore(); }
+            }
+            if (nd.kind === 'core') { ctx.fillStyle = _rgba(nd.col, 0.9); ctx.font = "8px 'JetBrains Mono',monospace"; ctx.textAlign = 'center'; ctx.fillText(nd.sym, nd.x, nd.y - r - 4); }
+            if (nd.kind === 'input' && keys[li === 0 ? layers[0].indexOf(nd) : 0]) {
+                const idx = layers[0].indexOf(nd); const lbl = keys[idx] ? keys[idx].label : '';
+                const lr = Rmax + 16; const lx = cx + Math.cos(nd.ang) * lr, ly = cy + Math.sin(nd.ang) * lr * SQUASH;
+                ctx.fillStyle = _rgba(nd.col, 0.7); ctx.font = "7.5px 'JetBrains Mono',monospace";
+                ctx.textAlign = Math.cos(nd.ang) > 0.3 ? 'left' : Math.cos(nd.ang) < -0.3 ? 'right' : 'center';
+                ctx.fillText(lbl, lx, ly + 3);
+            }
+        }
     }
 
-    // centrum: live beslissing (pulserend, data-true kleur)
-    const pulse = 1 + 0.06 * Math.sin(_radialT * 3);
-    ctx.save(); ctx.shadowColor = decCol; ctx.shadowBlur = 22;
-    ctx.beginPath(); ctx.arc(cx, cy, 24 * pulse, 0, 6.283); ctx.fillStyle = _rgba(decCol, 0.18); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx, cy, 15 * pulse, 0, 6.283); ctx.fillStyle = _rgba(decCol, 0.9); ctx.fill();
-    ctx.restore();
+    // VORTEX-KERN: pulserende beslissing (data-true kleur), met roterende gloed-ringen
+    const pulse = 1 + 0.08 * Math.sin(_radialT * 3);
+    for (let g = 3; g >= 1; g--) { ctx.beginPath(); ctx.arc(core.x, core.y, (10 + g * 9) * pulse, 0, 6.283); ctx.fillStyle = _rgba(decCol, 0.05 * g * (0.4 + actLevel)); ctx.fill(); }
+    ctx.save(); ctx.shadowColor = decCol; ctx.shadowBlur = 24;
+    ctx.beginPath(); ctx.arc(core.x, core.y, 14 * pulse, 0, 6.283); ctx.fillStyle = _rgba(decCol, 0.95); ctx.fill(); ctx.restore();
     ctx.fillStyle = '#eafcff'; ctx.font = "bold 11px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
-    ctx.fillText(decTxt, cx, cy - 34);
+    ctx.fillText(decTxt, core.x, core.y - 30);
     ctx.fillStyle = _rgba(decCol, 0.9); ctx.font = "9px 'JetBrains Mono',monospace";
-    ctx.fillText(`${Math.round(Math.abs(decisionBias) * 100)}%`, cx, cy + 4);
+    ctx.fillText(`${Math.round(Math.abs(decisionBias) * 100)}%`, core.x, core.y + 4);
 
     _radialRaf = requestAnimationFrame(drawOsirisRadial);
 }
