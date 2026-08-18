@@ -10,7 +10,7 @@ const CONF_ER_TH = 1.2;
 
 // ONTKOPPELING BOT vs. VIEW (13-07): de bot rekent ALTIJD op 15m spot-data
 // (BOT_INTERVAL); currentInterval is voortaan uitsluitend de CHART-WEERGAVE.
-// Wisselen van view (1m/30m/45m/1h/4h) raakt de handelslogica dus niet meer...
+// Wisselen van view (1m/30m/45m/1h/4h) raakt de handelslogica dus niet meer.
 const BOT_INTERVAL = '15m';
 const BOT_INTERVAL_MS = 15 * 60 * 1000;
 let currentInterval = '15m'; // VIEW-interval van de chart (niet van de bot)
@@ -486,7 +486,27 @@ let lastOsirisDecision = null;
 // ============================================================
 let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 2.0, nodeconf: 2.0 };
 let learningLog = []; // { timestampMs, side, factors: {confluence, nodeInfluence, momentumInfluence, fibConfluenceInfluence, probabilityPct}, outcome: 'win'|'loss', pnlPct }
-let lastReallocationAt = 0; // timestamp (ms) van de laatste reallocatie - voor de cooldown-poort in tryReallocateForBetterOpportunity
+
+// NETWERK-FOUTEN LOG (18-08): legt elk moment vast waarop een netwerk/verbinding faalt
+// (bv. geen internet). Gemarkeerd met online/offline-status uit navigator.onLine.
+let osirisNetworkErrors = [];
+function logNetworkError(context, msg) {
+    try {
+        const online = (typeof navigator !== 'undefined') ? navigator.onLine : true;
+        const rec = { ts: Date.now(), context, msg: String(msg || '').slice(0, 220), online };
+        osirisNetworkErrors.unshift(rec); if (osirisNetworkErrors.length > 300) osirisNetworkErrors.pop();
+        try { localStorage.setItem('osirisNetworkErrors', JSON.stringify(osirisNetworkErrors.slice(0, 150))); } catch (e) {}
+        console.warn(`[NETWERK] ${context}: ${rec.msg}${online ? '' : ' (OFFLINE)'}`);
+        try { if (typeof logBotAction === 'function') logBotAction('NET-ERROR', 0, '-', 0, 0, `${context}: ${rec.msg}${online ? '' : ' - GEEN INTERNET'}`); } catch (e) {}
+        try { if (typeof marginState !== 'undefined') { marginState.reasoning.unshift({ ts: Date.now(), txt: `\u26a0 netwerk: ${context}${online ? '' : ' - GEEN INTERNET'}` }); if (marginState.reasoning.length > 40) marginState.reasoning.pop(); } } catch (e) {}
+    } catch (e) {}
+}
+window.logNetworkError = logNetworkError; window.osirisNetworkErrors = osirisNetworkErrors;
+try { osirisNetworkErrors = JSON.parse(localStorage.getItem('osirisNetworkErrors') || '[]'); } catch (e) {}
+try {
+    window.addEventListener('offline', () => logNetworkError('verbinding', 'internetverbinding verbroken (offline)'));
+    window.addEventListener('online', () => logNetworkError('verbinding', 'internetverbinding hersteld (online)'));
+} catch (e) {}let lastReallocationAt = 0; // timestamp (ms) van de laatste reallocatie - voor de cooldown-poort in tryReallocateForBetterOpportunity
 // FIX (crash 12-07): sessionLog stond gedeclareerd op ~regel 1200, terwijl
 // loadPersistentState() - dat sessionLog herstelt - al op ~regel 978 draait.
 // `let` kent een temporal dead zone: de variabele bestaat vóór zijn declaratie-
@@ -505,7 +525,34 @@ let sessionLog = [];
 // Declaratie hoort hier, bij de rest van de persistente state.
 let _calibMap = null; // gesorteerde [rawMid, observedWinratePct]-punten
 let _calibProvisional = false; // true zodra de curve op een kleine steekproef leunt
-const MIN_SAMPLE_SIZE = 20; // minimaal aantal trades per groep voordat een gewicht wordt aangepast
+let MIN_SAMPLE_SIZE = 10; // minimaal aantal trades per groep (autonoom bijstelbaar door Osiris)
+let adaptiveWeightsMeta = {}; // per markt: { lastUpdate, trades, nextIn, adjusted }
+try { window.adaptiveWeightsMeta = adaptiveWeightsMeta; } catch (e) {}
+let osirisLearningFeed = [];
+function logLearningEvent(txt) {
+    try {
+        osirisLearningFeed.unshift({ ts: Date.now(), txt }); if (osirisLearningFeed.length > 60) osirisLearningFeed.pop();
+        try { localStorage.setItem('osirisLearningFeed', JSON.stringify(osirisLearningFeed.slice(0, 40))); } catch (e) {}
+        const el = document.getElementById('cortex-autofeed');
+        if (el) el.innerHTML = osirisLearningFeed.slice(0, 30).map(r => `<div>${new Date(r.ts).toLocaleTimeString('nl-NL')} \u00b7 ${r.txt}</div>`).join('');
+    } catch (e) {}
+}
+window.logLearningEvent = logLearningEvent;
+try { osirisLearningFeed = JSON.parse(localStorage.getItem('osirisLearningFeed') || '[]'); } catch (e) {}
+// Autonome drempel: bij veel data verlaagt Osiris de drempel (sneller leren), bij weinig/
+// ruizige data verhoogt hij 'm (voorzichtiger). Blijft tussen 8 en 25.
+let _lastThreshTune = 0;
+function osirisTuneLearningThreshold() {
+    try {
+        const now = Date.now(); if (now - _lastThreshTune < 10 * 60000) return; _lastThreshTune = now;
+        const clean = learningLog.filter(l => !l.manual && l.factors && l.outcome).length;
+        const old = MIN_SAMPLE_SIZE; let nv = old;
+        if (clean >= 120 && MIN_SAMPLE_SIZE < 25) nv = Math.min(25, MIN_SAMPLE_SIZE + 2);
+        else if (clean < 40 && MIN_SAMPLE_SIZE > 8) nv = Math.max(8, MIN_SAMPLE_SIZE - 1);
+        if (nv !== old) { MIN_SAMPLE_SIZE = nv; logLearningEvent(`Osiris stelt L1-drempel bij: ${old} \u2192 ${nv} trades (${clean} schone trades beschikbaar)`); try { recalibrateAdaptiveWeights(); } catch (e) {} }
+    } catch (e) {}
+}
+window.osirisTuneLearningThreshold = osirisTuneLearningThreshold;
 let lastCalibrationSummary = null; // voor het transparantie-paneel
 
 let lastOsirisMetrics = null;
@@ -1978,7 +2025,15 @@ function renderLearningPanel() {
     const totalTrades = brainTrades.length;
     const sumW = Object.keys(labels).reduce((a, fk) => a + ((weightsSrc[weightKeys[fk]] != null) ? weightsSrc[weightKeys[fk]] : 1.0), 0);
     const osirisNote = brain === 'OSIRIS' ? ' Osiris toont het gemiddelde over de drie sub-breinen.' : '';
-    let html = `<div style="font-size:0.72em; color:var(--text-dim); margin-bottom:10px;"><span style="color:${brainColor}; font-weight:700;">${brainName}</span> &middot; gebaseerd op ${totalTrades} trade(s). Elk percentage = het aandeel van die factor in de opbouw van de beslissing (contrafeitelijk geleerd).${osirisNote} Minimaal ${MIN_SAMPLE_SIZE} trades nodig voor bijstelling.</div>`;
+    let html = `<div style="font-size:0.72em; color:var(--text-dim); margin-bottom:10px;"><span style="color:${brainColor}; font-weight:700;">${brainName}</span> &middot; gebaseerd op ${totalTrades} trade(s). Elk percentage = het aandeel van die factor in de opbouw van de beslissing (contrafeitelijk geleerd).${osirisNote} ${(() => {
+        try {
+            const meta = (typeof adaptiveWeightsMeta !== 'undefined') ? adaptiveWeightsMeta[brain === 'OSIRIS' ? 'BTC' : brain] : null;
+            const upd = meta && meta.lastUpdate ? new Date(meta.lastUpdate).toLocaleTimeString('nl-NL') : 'nog niet';
+            const need = Math.max(0, MIN_SAMPLE_SIZE - totalTrades);
+            const nextTxt = need > 0 ? `<b style="color:var(--amber)">nog ${need} trade(s)</b> tot de eerste bijstelling` : `<b style="color:#14f195">bijstelling actief</b> (drempel ${MIN_SAMPLE_SIZE})`;
+            return `<br><span style="color:var(--dim);">Laatst bijgewerkt: <b>${upd}</b> &middot; ${nextTxt} &middot; drempel ${MIN_SAMPLE_SIZE} trades.</span>`;
+        } catch (e) { return `Minimaal ${MIN_SAMPLE_SIZE} trades nodig voor bijstelling.`; }
+    })()}</div>`;
     try { html += deepNetLearningHtml(); } catch (e) {}
     html += `<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px;">`;
 
@@ -2519,7 +2574,7 @@ function updateWalletUI() {
                     <td>${formatChartPrice(p.entryPrice)}</td>
                     <td style="font-size:0.9em; color:#aaa;">${entryTijd}</td>
                     <td>${formatMoney(p.notional)}</td>
-                    <td style="white-space:nowrap;">${allocPct.toFixed(1)}%${convTxt}</td>
+                    <td style="white-space:nowrap;">${Math.min(100, allocPct).toFixed(1)}%${convTxt}</td>
                     <td style="color:${color};" title="netto na ${roundTripCostPct().toFixed(2)}% round-trip kosten (bruto ${(grossPct * 100).toFixed(2)}%)">${(pnlPct * 100).toFixed(2)}%</td>
                     <td style="color:${color};">${formatMoney(p.notional * pnlPct)}</td>
                     <td style="padding:2px 4px;"><button type="button" class="btn btn-ghost btn-mini" style="color:#ff5f7e; border-color:rgba(255,95,126,0.5); padding:2px 7px; font-size:0.7em;" onclick="closePositionManually('${p.id}')" title="Sluit deze positie nu">Sluit</button></td>
@@ -4710,70 +4765,62 @@ function autonomousEngineAdapt(reason = 'start') {
 }
 window.autonomousEngineAdapt = autonomousEngineAdapt;
 
+// Uniforme factor-lezer: leest een gewicht-factor uit BEIDE formaten in de learningLog
+// (oude BTC influence-keys EN de korte ETH/SOL/margin-keys), zodat alle trades meetellen.
+function _factorVal(factors, wKey) {
+    if (!factors) return null;
+    const map = { confluence: ['confluence'], nodeInfluence: ['nodeInfluence'], momentumInfluence: ['momentumInfluence', 'vfm'], fibConfluence: ['fibConfluenceInfluence'], pattern: ['patternInfluence'], rsi: ['rsiInfluence', 'rsi'], ema: ['emaInfluence', 'ema'], cnn: ['cnnInfluence'], nn: ['nnInfluence', 'nn'], nodeconf: ['nodeconfInfluence'], fundamentals: ['fundamentals'] };
+    for (const k of (map[wKey] || [wKey])) { if (factors[k] != null && isFinite(factors[k])) return factors[k]; }
+    return null;
+}
+// Herijkt de gewichten van EEN markt op basis van zijn eigen schone trades (contrafeitelijk,
+// mediaan-split). Retourneert het aantal bijgestelde factoren.
+function _recalibMarket(trades, weights, homeFor) {
+    const wKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluence', 'pattern', 'rsi', 'ema', 'cnn', 'nn', 'nodeconf', 'fundamentals'];
+    let adjusted = 0;
+    for (const wKey of wKeys) {
+        if (weights[wKey] == null) continue;
+        const home = homeFor(wKey), isNode = (wKey === 'nn' || wKey === 'nodeconf');
+        const vals = trades.map(l => ({ v: Math.abs(_factorVal(l.factors, wKey) ?? NaN), win: l.outcome === 'win' })).filter(x => isFinite(x.v));
+        if (vals.length < MIN_SAMPLE_SIZE) continue;
+        const sorted = vals.map(x => x.v).sort((a, b) => a - b);
+        const med = sorted[Math.floor(sorted.length / 2)];
+        let high = vals.filter(x => x.v > med), low = vals.filter(x => x.v <= med);
+        if (high.length < 4 || low.length < 4) { const mean = sorted.reduce((a, b) => a + b, 0) / sorted.length; high = vals.filter(x => x.v > mean); low = vals.filter(x => x.v <= mean); }
+        if (high.length < 4 || low.length < 4) continue;
+        const wHigh = high.filter(x => x.win).length / high.length, wLow = low.filter(x => x.win).length / low.length;
+        const edge = wHigh - wLow, conf = Math.min(1, vals.length / 50);
+        const target = home + edge * 2.0 * conf; const lr = 0.15, shrink = 0.03;
+        let cur = weights[wKey]; cur = cur + (target - cur) * lr + (home - cur) * shrink;
+        const loW = 0.5, hiW = isNode ? 3.0 : 1.6;
+        weights[wKey] = Math.max(loW, Math.min(hiW, cur)); adjusted++;
+    }
+    return adjusted;
+}
+
 function recalibrateAdaptiveWeights() {
     computeCalibrationMap();
     for (const k of ['rsi', 'ema', 'cnn']) if (adaptiveWeights[k] == null) adaptiveWeights[k] = 1.0;
     if (adaptiveWeights.nn == null) adaptiveWeights.nn = 2.0;
     if (adaptiveWeights.nodeconf == null) adaptiveWeights.nodeconf = 2.0;
-    const factorKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluenceInfluence', 'patternInfluence', 'rsiInfluence', 'emaInfluence', 'cnnInfluence', 'nnInfluence', 'nodeconfInfluence'];
-    const weightKeys = { confluence: 'confluence', nodeInfluence: 'nodeInfluence', momentumInfluence: 'momentumInfluence', fibConfluenceInfluence: 'fibConfluence', patternInfluence: 'pattern', rsiInfluence: 'rsi', emaInfluence: 'ema', cnnInfluence: 'cnn', nnInfluence: 'nn', nodeconfInfluence: 'nodeconf' };
-    const summary = {};
-    // BTC-ZUIVERHEID (01-08): Neo BTC's adaptieve gewichten leren UITSLUITEND van
-    // BTC-trades. Osiris ETH/SOL-trades (market !== 'BTC') worden uitgesloten zodat
-    // het BTC-brein niet meebeweegt met de uitkomsten van andere munten. Entries zonder
-    // market-veld zijn van vóór multi-crypto en gelden dus als BTC.
-    const botLog = learningLog.filter(l => !l.manual && l.factors && l.outcome && (l.market == null || l.market === 'BTC'));
-
-    factorKeys.forEach(fk => {
-        const wKey = weightKeys[fk];
-        const isNode = (wKey === 'nn' || wKey === 'nodeconf');
-        const home = isNode ? 2.0 : NEUTRAL_W;                  // "thuis"-waarde (neutraal, of 2x voor nodes)
-        // CONTRAFEITELIJK: neem elke trade met een geldige factor-waarde. Splits op
-        // MEDIAAN van de waarde (hoog vs. laag) i.p.v. een vaste >1-drempel. Zo meet
-        // je of hogere waarden van deze factor met winst samengingen - ook als de
-        // factor de trade niet dreef.
-        const vals = botLog.map(l => ({ v: Math.abs(l.factors[fk] ?? 0), win: l.outcome === 'win' }))
-                           .filter(x => isFinite(x.v));
-        summary[fk] = { n: vals.length, adjusted: false };
-        if (vals.length < MIN_SAMPLE_SIZE) { summary[fk].newWeight = adaptiveWeights[wKey]; return; }
-
-        const sorted = vals.map(x => x.v).sort((a, b) => a - b);
-        const med = sorted[Math.floor(sorted.length / 2)];
-        // split op de mediaan; als de mediaan samenvalt met veel gelijke waarden
-        // (bimodaal, bv. factor is 0 of sterk), splits dan op het gemiddelde als terugval
-        let high = vals.filter(x => x.v > med), low = vals.filter(x => x.v <= med);
-        if (high.length < 5 || low.length < 5) {
-            const mean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
-            high = vals.filter(x => x.v > mean); low = vals.filter(x => x.v <= mean);
-        }
-        if (high.length < 5 || low.length < 5) { summary[fk].newWeight = adaptiveWeights[wKey]; return; }
-
-        const wHigh = high.filter(x => x.win).length / high.length;
-        const wLow = low.filter(x => x.win).length / low.length;
-        const edge = wHigh - wLow;                             // >0: hoge waarde van factor = meer winst
-        summary[fk].winRatePresent = wHigh; summary[fk].winRateAbsent = wLow; summary[fk].nPresent = high.length; summary[fk].nAbsent = low.length;
-
-        // REM 3 - vertrouwen schaalt met samples (shrink het signaal bij weinig data)
-        const confidence = Math.min(1, vals.length / 60);
-        // REM 1 - leersnelheid: kleine doelverschuiving op basis van de edge
-        const target = home + edge * 2.0 * confidence;         // edge van +0.1 => +0.2 richting
-        // REM 2 - krimp naar thuis: beweeg maar een deel richting het doel, met een
-        // lichte terugtrekkracht naar 'home' zodat ruis vanzelf uitdempt.
-        const lr = 0.15;                                       // leersnelheid per herijking
-        const shrink = 0.03;                                   // krimp naar thuis
-        let cur = adaptiveWeights[wKey];
-        cur = cur + (target - cur) * lr + (home - cur) * shrink;
-        const loW = isNode ? 0.5 : 0.5, hiW = isNode ? 3.0 : 1.6;
-        adaptiveWeights[wKey] = Math.max(loW, Math.min(hiW, cur));
-        summary[fk].adjusted = true;
-        summary[fk].edge = edge;
-        summary[fk].newWeight = adaptiveWeights[wKey];
-    });
-
-    lastCalibrationSummary = { timestamp: formatFullDateTime(), summary };
-    recalibrateRegimeWeights();
-    recalibrateExitPolicy();
-    renderLearningPanel();
+    const homeFor = (wKey) => (wKey === 'nn' || wKey === 'nodeconf') ? 2.0 : NEUTRAL_W;
+    const clean = learningLog.filter(l => !l.manual && l.factors && l.outcome);
+    const ts = Date.now();
+    // BTC -> globale weights
+    const btc = clean.filter(l => l.market == null || l.market === 'BTC');
+    const nB = _recalibMarket(btc, adaptiveWeights, homeFor);
+    adaptiveWeightsMeta.BTC = { lastUpdate: ts, trades: btc.length, nextIn: Math.max(0, MIN_SAMPLE_SIZE - btc.length), adjusted: nB };
+    // ETH/SOL -> eigen sub-brein weights
+    for (const mkt of ['ETH', 'SOL']) {
+        const b = neoMultiState.markets[mkt] && neoMultiState.markets[mkt].brain;
+        if (!b || !b.weights) continue;
+        const tr = clean.filter(l => l.market === mkt);
+        const nA = _recalibMarket(tr, b.weights, homeFor);
+        adaptiveWeightsMeta[mkt] = { lastUpdate: ts, trades: tr.length, nextIn: Math.max(0, MIN_SAMPLE_SIZE - tr.length), adjusted: nA };
+    }
+    lastCalibrationSummary = { timestamp: formatFullDateTime(), summary: {} };
+    try { const tot = (nB || 0) + Object.keys(adaptiveWeightsMeta).reduce((a, k) => a + (k !== 'BTC' && adaptiveWeightsMeta[k].adjusted || 0), 0); if (tot > 0) logLearningEvent(`L1 herijkt \u00b7 ${nB} BTC + ETH/SOL factoren bijgesteld (drempel ${MIN_SAMPLE_SIZE})`); } catch (e) {}
+    try { renderLearningPanel(); } catch (e) {}
 }
 
 // ============================================================
@@ -5393,6 +5440,7 @@ function downloadAllData() {
             openPositions: marginState.positions, closed: marginState.closed, tradeLog: marginState.tradeLog.slice(0, 200),
             reasoning: marginState.reasoning, adaptation: marginState.adaptation, startEquity: marginState.startEquity, startTime: marginState.startTime
         } : null,
+        networkErrors: (typeof osirisNetworkErrors !== 'undefined') ? osirisNetworkErrors.slice(0, 150) : [],
         // SCHEMA: beschrijft de velden in metricsHistory/learningLog voor runtime-reconstructie
         datasetSchema: {
             metricsHistory: 'timestamp, symbol, botVersion, executionSource, price, vfm, er, db, chaos, liveVol, volRate, rsi, emaFast, emaSlow, volumeShiftPct, nodeInfluence, lastNodeType, nextNodeType, minutesSinceLastNode, minutesUntilNextNode, probabilityPct, isBullish',
@@ -5638,7 +5686,7 @@ function syncMarginWallet() {
                     + '<td style="text-align:center;">$' + dp(p.entryPrice) + '</td>'
                     + '<td style="text-align:center; color:var(--dim);">' + tijd + '</td>'
                     + '<td style="text-align:center;">\u20ae' + p.notional.toFixed(2) + '</td>'
-                    + '<td style="text-align:center;">' + (p.sizePct * 100).toFixed(1) + '% <span style="color:var(--dim);">(' + p.leverage + 'x)</span></td>'
+                    + '<td style="text-align:center;">' + Math.min(100, p.sizePct * 100).toFixed(1) + '% <span style="color:var(--dim);">(' + p.leverage + 'x)</span></td>'
                     + '<td style="text-align:center; color:' + pc + ';">' + (lev * 100).toFixed(2) + '%</td>'
                     + '<td style="text-align:center; color:' + pc + ';">\u20ae' + (p.marginUSD * lev).toFixed(2) + '</td>'
                     + '<td style="text-align:center;"><button type="button" onclick="marginCloseManual(' + i + ')" class="btn btn-ghost btn-mini" style="color:#ff8a94; border-color:rgba(255,138,148,0.4); font-size:0.72em;">SLUIT</button></td>'
@@ -5651,6 +5699,28 @@ function syncMarginWallet() {
             else crows.innerHTML = marginState.closed.slice(0, 30).map(t => { const pc = (t.pnl || 0) >= 0 ? '#14f195' : '#ff8a94'; return `<tr style="border-top:1px solid var(--line);"><td style="padding:6px;">${new Date(t.ts).toLocaleTimeString()}</td><td style="text-align:center; color:#c792ea;">${t.sym}</td><td style="text-align:center;">${t.side}</td><td style="text-align:center;">${t.leverage}x</td><td style="text-align:center; color:var(--dim);">${t.reason}</td><td style="text-align:center; color:${pc};">${(t.pnl * 100).toFixed(2)}% (\u20ae${(t.pnlUSD || 0).toFixed(2)})</td></tr>`; }).join('');
         }
         const tg = document.getElementById('m-toggle'); if (tg) { tg.textContent = marginEngineEnabled ? 'MARGIN AAN' : 'MARGIN UIT'; tg.style.color = marginEngineEnabled ? '#14f195' : '#7d99ac'; }
+        // Exit-bijdrage · margin (verdeling van exit-redenen over gesloten trades)
+        const exEl = document.getElementById('m-exit-dist');
+        if (exEl) {
+            if (!marginState.closed.length) exEl.innerHTML = 'Nog geen gesloten margin-trades.';
+            else {
+                const agg = {}; for (const t of marginState.closed) { const r = t.reason || '?'; if (!agg[r]) agg[r] = { n: 0, pnl: 0 }; agg[r].n++; agg[r].pnl += (t.pnl || 0) * 100; }
+                exEl.innerHTML = Object.keys(agg).sort((a, b) => agg[b].n - agg[a].n).map(r => { const c = agg[r].pnl >= 0 ? '#14f195' : '#ff8a94'; return `<div>${r}: <b>${agg[r].n}\\u00d7</b> \\u00b7 <span style="color:${c}">${agg[r].pnl >= 0 ? '+' : ''}${agg[r].pnl.toFixed(2)}%</span></div>`; }).join('');
+            }
+        }
+        // Equity-verdeling · margin
+        const opEl = document.getElementById('m-osiris-panel');
+        if (opEl) {
+            if (!marginState.positions.length) opEl.innerHTML = '<span style="color:var(--dim); font-size:0.62rem;">Nog geen open margin-posities.</span>';
+            else {
+                const totEq = marginEquity() || 1;
+                opEl.innerHTML = marginState.positions.map(p => {
+                    const share = Math.min(100, (p.marginUSD / totEq) * 100);
+                    const sc = p.side === 'SHORT' ? '#ff8a94' : '#14f195';
+                    return `<div style="margin-bottom:6px;"><div style="display:flex; justify-content:space-between; font-size:0.6rem;"><span style="color:${sc};">${p.sym} ${p.side} <span style="color:var(--dim);">${p.leverage}x</span></span><span style="color:var(--dim);">${share.toFixed(0)}% equity</span></div><div style="height:5px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden; margin-top:2px;"><span style="display:block; height:100%; width:${share}%; background:${sc};"></span></div></div>`;
+                }).join('');
+            }
+        }
     } catch (e) {}
 }
 window.syncMarginWallet = syncMarginWallet;
@@ -6079,7 +6149,7 @@ async function l2BuildAndTrain() {
     // 2) echte schone trades zwaarder laten meewegen (dupliceren) - dezelfde
     //    config, geen handmatige, met factoren.
     const cfg = currentConfigVersion();
-    const schoon = learningLog.filter(l => !l.manual && l.factors && l.configVersion === cfg && l.outcome);
+    const schoon = learningLog.filter(l => !l.manual && l.factors && l.outcome);   // alle schone trades (niet alleen huidige config-versie) zodat L2 met de data meebeweegt
     schoon.forEach(l => {
         const f = l.factors;
         const x = [
@@ -7880,7 +7950,7 @@ function fetchFearGreed() {
                 osirisSentiment = { value: parseInt(j.data[0].value, 10) || 50, label: j.data[0].value_classification || 'Neutral', ts: Date.now() };
                 try { const e = document.getElementById('flow-sent'); if (e) e.textContent = `${osirisSentiment.value} ${osirisSentiment.label}`; } catch (x) {}
             }
-        }).catch(() => {});
+        }).catch((e) => { try { logNetworkError('fear&greed', e && e.message || 'fetch mislukt'); } catch (x) {} });
     } catch (e) {}
 }
 try { fetchFearGreed(); setInterval(fetchFearGreed, 30 * 60000); } catch (e) {}
@@ -8083,7 +8153,7 @@ function marginSave() {
         wins: marginState.wins, losses: marginState.losses, positions: marginState.positions,
         closed: marginState.closed.slice(0, 100), tradeLog: marginState.tradeLog.slice(0, 200),
         reasoning: marginState.reasoning.slice(0, 40), adaptation: marginState.adaptation.slice(0, 40),
-        startTime: marginState.startTime, _levSet: marginState._levSet, ts: Date.now()
+        startTime: marginState.startTime, lastAction: marginState.lastAction, _levSet: marginState._levSet, ts: Date.now()
     })); } catch (e) {}
 }
 function marginRestore() {
@@ -8094,7 +8164,7 @@ function marginRestore() {
             equity: d.equity != null ? d.equity : 1000, startEquity: d.startEquity != null ? d.startEquity : 1000,
             realizedPnL: d.realizedPnL || 0, wins: d.wins || 0, losses: d.losses || 0,
             positions: d.positions || [], closed: d.closed || [], tradeLog: d.tradeLog || [],
-            reasoning: d.reasoning || [], adaptation: d.adaptation || [], startTime: d.startTime || Date.now(), _levSet: d._levSet || {}
+            reasoning: d.reasoning || [], adaptation: d.adaptation || [], startTime: d.startTime || Date.now(), lastAction: d.lastAction || null, _levSet: d._levSet || {}
         });
     } catch (e) {}
 }
@@ -8130,8 +8200,8 @@ function ensureMarginWs() {
             if (msg.status === 200) pend.resolve(msg.result);
             else pend.reject(new Error(`Futures ${msg.status}: ${msg.error && msg.error.msg || 'onbekende fout'} (code ${msg.error && msg.error.code || '?'})`));
         };
-        sock.onerror = () => { if (!settled) { settled = true; _mwsConnecting = null; reject(new Error('WebSocket-verbinding met testnet.binancefuture.com mislukt')); } };
-        sock.onclose = () => { _mws = null; _mwsConnecting = null; for (const [, p] of _mwsPending) p.reject(new Error('Futures-WS gesloten')); _mwsPending.clear(); };
+        sock.onerror = () => { try { logNetworkError('futures-WS', 'verbinding met testnet.binancefuture.com mislukt'); } catch (e) {} if (!settled) { settled = true; _mwsConnecting = null; reject(new Error('WebSocket-verbinding met testnet.binancefuture.com mislukt')); } };
+        sock.onclose = () => { try { if (typeof navigator !== 'undefined' && !navigator.onLine) logNetworkError('futures-WS', 'WS gesloten terwijl offline'); } catch (e) {} _mws = null; _mwsConnecting = null; for (const [, pp] of _mwsPending) pp.reject(new Error('Futures-WS gesloten')); _mwsPending.clear(); };
     });
     return _mwsConnecting;
 }
@@ -8237,7 +8307,8 @@ async function marginTick() {
             try { const r = await marginOrder(binSym, side, qty); if (r && r.avgPrice) entryPrice = parseFloat(r.avgPrice) || price; }
             catch (e) { _marginLog('reasoning', `${sym} ${m.bestSide} order mislukt: ${e.message}`); continue; }
             const preset = (typeof MARKET_PRESETS !== 'undefined' && MARKET_PRESETS[sym]) ? MARKET_PRESETS[sym] : { stopLossPct: 0.5, microTargetPct: 0.4 };
-            const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, qty, notional, marginUSD, sizePct, leverage: marginLeverage, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100, targetPct: (preset.microTargetPct || 0.4) / 100 };
+            const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, qty, notional, marginUSD, sizePct, leverage: marginLeverage, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100, targetPct: (preset.microTargetPct || 0.4) / 100, entryProb: (m.bestProb * 100), regimeAtEntry: ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null),
+                factorsAtEntry: (() => { try { return { vfm: m.vfm || 0, rsi: (m.rsi != null ? (m.rsi - 50) / 10 : 0), ema: (m.ema != null && m.emaSlow) ? ((m.ema - m.emaSlow) / m.emaSlow * 100) : 0, nn: 0, fundamentals: (m.fund && m.fund.fundingRate != null ? -Math.tanh(m.fund.fundingRate * 2000) * 3 : 0), chaos: m.chaos || 0 }; } catch (e) { return null; } })() };
             marginState.positions.push(pos);
             marginState.tradeLog.unshift({ action: 'ENTRY', ts: now, sym, side: m.bestSide, price: entryPrice, notional, leverage: marginLeverage });
             marginState.lastAction = `ENTRY ${sym} ${m.bestSide} ${marginLeverage}x @ ${entryPrice}`;
@@ -8273,6 +8344,26 @@ async function marginClose(pos, price, lev, reason) {
         marginState.equity += pnlUSD; marginState.realizedPnL += pnlUSD;
         if (pnlUSD > 0) marginState.wins++; else marginState.losses++;
         marginState.positions = marginState.positions.filter(p => p !== pos);
+        const rawPnl = lev / (pos.leverage || 1);   // unleveraged rendement (vergelijkbaar met spot)
+        try {
+            if (typeof learningLog !== 'undefined' && learningLog) {
+                learningLog.push({
+                    timestampMs: Date.now(), side: pos.side, market: pos.sym,
+                    factors: (pos.factorsAtEntry || null),
+                    outcome: rawPnl > 0 ? 'win' : 'loss', pnlPct: rawPnl,
+                    exitReason: reason, holdMinutes: +(((Date.now() - (pos.openTime || 0)) / 60000).toFixed(1)),
+                    entryProbabilityPct: (pos.entryProb != null ? pos.entryProb : null),
+                    manual: reason === 'MANUAL', botWouldEnter: null,
+                    configVersion: (typeof currentConfigVersion === 'function' ? currentConfigVersion() : null),
+                    entryHourUTC: new Date(pos.openTime || Date.now()).getUTCHours(),
+                    isOsiris: true, isMargin: true, leverage: pos.leverage, regime: (pos.regimeAtEntry || null),
+                    mfePct: pos.mfe != null ? +(pos.mfe * 100).toFixed(3) : null, maePct: pos.mae != null ? +(pos.mae * 100).toFixed(3) : null
+                });
+                if (learningLog.length > 5000) learningLog.shift();
+                try { localStorage.setItem('osirisLearningLog', JSON.stringify(learningLog)); } catch (e) {}
+                try { if (typeof recalibrateAdaptiveWeights === 'function') recalibrateAdaptiveWeights(); } catch (e) {}
+            }
+        } catch (e) {}
         const rec = { ts: Date.now(), sym: pos.sym, side: pos.side, price, pnl: lev, pnlUSD, reason, leverage: pos.leverage, mfe: pos.mfe, mae: pos.mae };
         marginState.closed.unshift(rec); if (marginState.closed.length > 100) marginState.closed.pop();
         marginState.tradeLog.unshift({ action: 'EXIT', ts: Date.now(), sym: pos.sym, side: pos.side, price, pnl: lev, reason });
@@ -8380,6 +8471,7 @@ async function marginSyncWallet() {
 window.marginSyncWallet = marginSyncWallet;
 try { marginRestore(); } catch (e) {}
 try { marginEngineEnabled = localStorage.getItem('osirisMarginEnabled') === '1'; window.marginEngineEnabled = marginEngineEnabled; } catch (e) {}
+try { if (marginEngineEnabled) { const rt = marginState.startTime ? Math.round((Date.now() - marginState.startTime) / 60000) : 0; marginState.reasoning.unshift({ ts: Date.now(), txt: `Margin-engine HERVAT na refresh/deploy (was al aan) - ${marginState.positions.length} positie(s), runtime ~${rt}min behouden` }); } } catch (e) {}
 try { const lv = parseInt(localStorage.getItem('osirisMarginLeverage'), 10); if (lv >= MARGIN_LEV_MIN && lv <= MARGIN_LEV_MAX) marginLeverage = lv; } catch (e) {}
 try { window.addEventListener('DOMContentLoaded', () => { try { const k = marginKeys(); if (k.apiKey) { const a = document.getElementById('futures-api-key'); if (a) a.value = k.apiKey; } if (k.secret) { const b = document.getElementById('futures-api-secret'); if (b) b.value = k.secret; } const tg = document.getElementById('m-toggle'); if (tg) { tg.textContent = marginEngineEnabled ? 'MARGIN AAN' : 'MARGIN UIT'; tg.style.color = marginEngineEnabled ? '#14f195' : '#7d99ac'; } } catch (e) {} }); } catch (e) {}
 
@@ -9192,6 +9284,7 @@ function multiRoundRobinTick() {
         try { osirisAutoTune(); } catch (e) {}
         try { osirisAdaptiveLearn(); } catch (e) {}
         try { osirisRLTick(); } catch (e) {}
+        try { osirisTuneLearningThreshold(); } catch (e) {}
         // sub-brein presets-overzicht bijwerken
         try { renderSubBrainPresets(); } catch (e) {}
     });
