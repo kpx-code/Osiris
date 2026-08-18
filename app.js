@@ -12468,6 +12468,28 @@ function _neoNetDraw(now, canvasId, outId) {
             const adv = d ? `${R.ACTIONS[d.action]} ${(d.conf * 100 | 0)}%` : '\u2014';
             ctx.fillText(`RL · ${(R.episodes / 1000).toFixed(0)}k scenario's · advies ${adv}`, 14, h - 8);
         }
+        // TESLA-LIGHTNING: gekartelde bliksem van de sterkste inputs naar de output-knoop
+        // (flikkerend, data-true - alleen sterke signalen vuren). Puur visueel toegevoegd.
+        try {
+            const _outNode = pos[pos.length - 1][0];
+            const _ins = layers[0].map((nd, i) => ({ i, act: Math.min(1, Math.abs(nd.act || 0)), p: pos[0][i], c: (NEONET_INPUTS[i] ? NEONET_INPUTS[i].c : '#7fd8ff') }))
+                .sort((a, b) => b.act - a.act).slice(0, 3);
+            for (const s of _ins) {
+                if (s.act < 0.15 || !s.p) continue;
+                if (Math.sin(now / 90 + s.i * 2.3) < 0.35) continue;   // flikker
+                ctx.save();
+                ctx.beginPath(); ctx.moveTo(s.p.x, s.p.y);
+                const seg = 9;
+                for (let k = 1; k <= seg; k++) {
+                    const t = k / seg; const bx = s.p.x + (_outNode.x - s.p.x) * t, by = s.p.y + (_outNode.y - s.p.y) * t;
+                    const jag = Math.sin(Math.PI * t) * 22; const ox = (Math.random() - 0.5) * jag, oy = (Math.random() - 0.5) * jag;
+                    ctx.lineTo(bx + ox, by + oy);
+                }
+                ctx.strokeStyle = _rgba(s.c, 0.4 + 0.45 * s.act); ctx.lineWidth = 1.1;
+                ctx.shadowColor = s.c; ctx.shadowBlur = 8; ctx.stroke();
+                ctx.restore();
+            }
+        } catch (e) {}
         // FEEDBACK-LUS: de puls flitst nu TERUG langs de bestaande netwerklijnen (zie de
         // groene deeltjes in de verbindingen hierboven). Alleen nog een label onderaan.
         try {
