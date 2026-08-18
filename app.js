@@ -12488,15 +12488,20 @@ function _neoNetDraw(now, canvasId, outId) {
             if (_n >= 3) {
                 const osi = pos[_n - 3], dec = pos[_n - 2], out = pos[_n - 1];
                 const osiA = layers[_n - 3], decA = layers[_n - 2];
-                const _dc = decisionBias > 0.15 ? '#14f195' : decisionBias < -0.15 ? '#ff4f6d' : '#7fd8ff';
-                // Osiris -> Decision
+                // De Osiris-laag = de parameters zelf: 0=BTC, 1=ETH, 2=SOL, 3=OSIRIS-mainbrain.
+                // Kleur elke boog naar zijn BRON-knoop, zodat de kleuren data-true zijn.
+                const _coreCol = ['#f7931a', '#8fb8ff', '#14f195', '#7fd8ff'];
+                // dominante parameter (sterkste osiris-knoop) bepaalt de kleur van het laatste stuk
+                let _di = 0, _dv = -1; for (let a = 0; a < osiA.length; a++) { const v = (osiA[a] && osiA[a].act) || 0; if (v > _dv) { _dv = v; _di = a; } }
+                const _domCol = _coreCol[_di] || '#7fd8ff';
+                // Osiris -> Decision (kleur = bron-parameter)
                 for (let a = 0; a < osi.length; a++) for (let b = 0; b < dec.length; b++) {
                     const act = Math.min(1, ((osiA[a] && osiA[a].act || 0) + (decA[b] && decA[b].act || 0)) / 2);
-                    _bolt(osi[a], dec[b], _dc, act, a * 3 + b);
+                    _bolt(osi[a], dec[b], _coreCol[a] || '#7fd8ff', act, a * 3 + b);
                 }
-                // Decision -> Output
+                // Decision -> Output (kleur = dominante parameter)
                 for (let b = 0; b < dec.length; b++) {
-                    _bolt(dec[b], out[0], _dc, Math.min(1, (decA[b] && decA[b].act || 0)), 20 + b);
+                    _bolt(dec[b], out[0], _domCol, Math.min(1, (decA[b] && decA[b].act || 0)), 20 + b);
                 }
             }
         } catch (e) {}
