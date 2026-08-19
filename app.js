@@ -8104,6 +8104,173 @@ function startOsirisRadial() { if (!_radialRaf && document.getElementById('about
 window.startOsirisRadial = startOsirisRadial; window.drawOsirisRadial = drawOsirisRadial;
 try { window.addEventListener('DOMContentLoaded', () => setTimeout(startOsirisRadial, 800)); } catch (e) {}
 
+// ============================================================
+// OSIRIS · FINANCIAL STRESS OSCILLATOR (FSO) - UOTAM-framework (19-08)
+// Meet systeem-stress over de cryptomarkt op DRIE tijdschalen (micro/meso/macro) +
+// een volledige-historie chart. Per tijdschaal: N genormeerde oscillatoren S_i(t) in
+// [0,1] (per munt: realized vol, drawdown, volume-shock, range, RSI-extremiteit; cross-
+// market: correlatie-breuk + return-dispersie). Global Stress = gemiddelde (S̄), System
+// Variance = variantie tussen de oscillatoren (chaos/asynchronie, early-warning).
+// FASE 1: puur meten + visualiseren. Verandert NIETS aan de trading. Data-true (Binance).
+// ============================================================
+const FSO_SYMS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+const FSO_SCALES = {
+    micro: { interval: '1m', limit: 360, win: 20, label: 'MICRO · 1m (~6u)' },
+    meso: { interval: '1h', limit: 336, win: 24, label: 'MESO · 1h (~2wk)' },
+    macro: { interval: '1d', limit: 1000, win: 20, label: 'MACRO · 1d (~3jr)' },
+    full: { interval: '1d', limit: 1000, win: 20, label: 'VOLLEDIG · 1d (sinds notering)', paged: 3 }
+};
+const OsirisFSO = {
+    scales: {},              // per schaal: { times, stress, variance, osc:[[...]], names, regime }
+    _last: {}, _busy: false,
+    BANDS: [{ to: 0.15, c: 'rgba(20,241,149,0.05)', name: 'RUST' }, { to: 0.30, c: 'rgba(255,182,39,0.06)', name: 'SPANNING' }, { to: 1, c: 'rgba(255,79,109,0.07)', name: 'CRISIS' }],
+
+    async _klines(sym, interval, limit, endTime) {
+        let url = `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`;
+        if (endTime) url += `&endTime=${endTime}`;
+        const r = await bFetch(url); const j = await r.json();
+        if (!Array.isArray(j)) throw new Error('geen klines');
+        return j.map(k => ({ t: k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[5] }));
+    },
+    async _fetchScale(key) {
+        const cfg = FSO_SCALES[key];
+        const byMkt = {};
+        for (const sym of FSO_SYMS) {
+            try {
+                let all = [];
+                if (cfg.paged) {
+                    let end = undefined;
+                    for (let p = 0; p < cfg.paged; p++) {
+                        const chunk = await this._klines(sym, cfg.interval, cfg.limit, end);
+                        if (!chunk.length) break;
+                        all = chunk.concat(all); end = chunk[0].t - 1;
+                        if (chunk.length < cfg.limit) break;
+                    }
+                } else { all = await this._klines(sym, cfg.interval, cfg.limit); }
+                byMkt[sym] = all;
+            } catch (e) { byMkt[sym] = []; try { if (typeof logNetworkError === 'function') logNetworkError('FSO-klines', `${sym} ${cfg.interval}: ${e.message}`); } catch (x) {} }
+        }
+        return byMkt;
+    },
+    // oscillatoren + global stress + variance uit uitgelijnde OHLCV per munt
+    _compute(byMkt, win) {
+        // lijn uit op de kortste reeks (op index, recent-gealigneerd)
+        const series = FSO_SYMS.map(s => byMkt[s] || []).filter(a => a.length > win + 5);
+        if (series.length === 0) return null;
+        const L = Math.min(...series.map(a => a.length));
+        const marketsUsed = series.length;
+        const aligned = series.map(a => a.slice(a.length - L));
+        const names = [], oscArrays = [];
+        const clamp01 = x => Math.max(0, Math.min(1, x));
+        // per munt: 5 oscillatoren
+        const perMktFns = [
+            { n: 'vol', f: (c, i) => { let s = 0, m = 0, k = 0; for (let j = Math.max(1, i - win); j <= i; j++) { const r = Math.log(c[j].c / c[j - 1].c); m += r; k++; } m /= k || 1; for (let j = Math.max(1, i - win); j <= i; j++) { const r = Math.log(c[j].c / c[j - 1].c); s += (r - m) ** 2; } return clamp01(Math.sqrt(s / (k || 1)) * 14); } },
+            { n: 'ddown', f: (c, i) => { let pk = -Infinity; for (let j = Math.max(0, i - win); j <= i; j++) pk = Math.max(pk, c[j].h); return clamp01((pk - c[i].c) / (pk || 1) * 4); } },
+            { n: 'volz', f: (c, i) => { let m = 0, k = 0; for (let j = Math.max(0, i - win); j <= i; j++) { m += c[j].v; k++; } m /= k || 1; let sd = 0; for (let j = Math.max(0, i - win); j <= i; j++) sd += (c[j].v - m) ** 2; sd = Math.sqrt(sd / (k || 1)) || 1; return clamp01(Math.abs(c[i].v - m) / sd / 3); } },
+            { n: 'range', f: (c, i) => clamp01((c[i].h - c[i].l) / (c[i].c || 1) * 10) },
+            { n: 'rsi', f: (c, i) => { let up = 0, dn = 0; for (let j = Math.max(1, i - 14); j <= i; j++) { const d = c[j].c - c[j - 1].c; if (d > 0) up += d; else dn -= d; } const rs = dn === 0 ? 100 : up / dn; const rsi = 100 - 100 / (1 + rs); return clamp01(Math.abs(rsi - 50) / 50); } }
+        ];
+        const symShort = FSO_SYMS.map(s => s.replace('USDT', ''));
+        for (let mi = 0; mi < aligned.length; mi++) {
+            for (const fn of perMktFns) {
+                names.push(`${symShort[mi]}·${fn.n}`);
+                const arr = new Array(L).fill(0);
+                for (let i = 0; i < L; i++) arr[i] = fn.f(aligned[mi], i);
+                oscArrays.push(arr);
+            }
+        }
+        // cross-market: correlatie-breuk + dispersie (alleen als >1 munt)
+        if (marketsUsed > 1) {
+            const rets = aligned.map(c => { const r = new Array(L).fill(0); for (let i = 1; i < L; i++) r[i] = Math.log(c[i].c / c[i - 1].c); return r; });
+            const corrBreak = new Array(L).fill(0), disp = new Array(L).fill(0);
+            for (let i = 0; i < L; i++) {
+                let cs = 0, cc = 0;
+                for (let a = 0; a < rets.length; a++) for (let b = a + 1; b < rets.length; b++) {
+                    let ma = 0, mb = 0, k = 0; for (let j = Math.max(1, i - win); j <= i; j++) { ma += rets[a][j]; mb += rets[b][j]; k++; } ma /= k || 1; mb /= k || 1;
+                    let cov = 0, va = 0, vb = 0; for (let j = Math.max(1, i - win); j <= i; j++) { cov += (rets[a][j] - ma) * (rets[b][j] - mb); va += (rets[a][j] - ma) ** 2; vb += (rets[b][j] - mb) ** 2; }
+                    const corr = (va && vb) ? cov / Math.sqrt(va * vb) : 0; cs += corr; cc++;
+                }
+                corrBreak[i] = clamp01((1 - (cc ? cs / cc : 1)) / 2);
+                const vals = rets.map(r => r[i]); const mm = vals.reduce((a, b) => a + b, 0) / vals.length; disp[i] = clamp01(Math.sqrt(vals.reduce((a, b) => a + (b - mm) ** 2, 0) / vals.length) * 20);
+            }
+            names.push('X·corr-break'); oscArrays.push(corrBreak);
+            names.push('X·dispersie'); oscArrays.push(disp);
+        }
+        // Global Stress (S̄) + System Variance (σ²) per tijdstip
+        const N = oscArrays.length, stress = new Array(L).fill(0), variance = new Array(L).fill(0);
+        for (let i = 0; i < L; i++) {
+            let m = 0; for (let o = 0; o < N; o++) m += oscArrays[o][i]; m /= N; stress[i] = m;
+            let v = 0; for (let o = 0; o < N; o++) v += (oscArrays[o][i] - m) ** 2; variance[i] = v / N;
+        }
+        const times = aligned[0].map(c => c.t);
+        const cur = stress[L - 1] || 0;
+        const regime = cur > 0.30 ? 'CRISIS' : cur > 0.15 ? 'SPANNING' : 'RUST';
+        return { times, stress, variance, osc: oscArrays, names, regime, current: cur, curVar: variance[L - 1] || 0, marketsUsed };
+    },
+    async update(key) {
+        try {
+            const byMkt = await this._fetchScale(key);
+            const res = this._compute(byMkt, FSO_SCALES[key].win);
+            if (res) { this.scales[key] = res; this._last[key] = Date.now(); try { drawFSOChart('fso-' + key, key); } catch (e) {} }
+        } catch (e) { try { if (typeof logNetworkError === 'function') logNetworkError('FSO-update', `${key}: ${e.message}`); } catch (x) {} }
+    },
+    async refreshAll() {
+        if (this._busy) return; this._busy = true;
+        try { for (const k of ['micro', 'meso', 'macro', 'full']) { await this.update(k); } } finally { this._busy = false; }
+    }
+};
+window.OsirisFSO = OsirisFSO;
+
+// ---- CANVAS-RENDERER: pastel-oscillatoren + dikke Global-Stress-lijn + variance (2e as) ----
+const _FSO_PASTEL = ['#f7931a', '#ffb27a', '#ffd19a', '#8fb8ff', '#a5c8ff', '#14f195', '#7af0b8', '#c792ea', '#e0a3f0', '#7fd8ff', '#a3e4ff', '#ff8a94', '#ffb0b6', '#f0d97a', '#b8e986', '#9ad0c2', '#d0a3ff'];
+function drawFSOChart(canvasId, key) {
+    const cv = document.getElementById(canvasId); if (!cv) return;
+    const S = OsirisFSO.scales[key]; const ctx = cv.getContext('2d');
+    const W = cv.width, H = cv.height, padL = 34, padR = 40, padT = 10, padB = 16;
+    ctx.clearRect(0, 0, W, H);
+    if (!S) { ctx.fillStyle = '#5c7488'; ctx.font = "10px 'JetBrains Mono',monospace"; ctx.textAlign = 'center'; ctx.fillText('FSO laadt marktdata\u2026', W / 2, H / 2); return; }
+    const L = S.stress.length; if (L < 2) return;
+    const x = i => padL + (i / (L - 1)) * (W - padL - padR);
+    const yS = v => padT + (1 - Math.max(0, Math.min(1, v / 0.6))) * (H - padT - padB);   // stress-as 0..0.6
+    const vmax = Math.max(0.01, ...S.variance) * 1.1; const yV = v => padT + (1 - v / vmax) * (H - padT - padB);
+    // regime-banden
+    let prev = 0; for (const b of OsirisFSO.BANDS) { const y1 = yS(Math.min(0.6, b.to)), y0 = yS(prev); ctx.fillStyle = b.c; ctx.fillRect(padL, y1, W - padL - padR, y0 - y1); prev = b.to; }
+    // dunne pastel-oscillatoren
+    for (let o = 0; o < S.osc.length; o++) {
+        ctx.strokeStyle = _FSO_PASTEL[o % _FSO_PASTEL.length] + '3a'; ctx.lineWidth = 0.6; ctx.beginPath();
+        for (let i = 0; i < L; i++) { const px = x(i), py = yS(S.osc[o][i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke();
+    }
+    // System Variance (blauw, 2e as)
+    ctx.strokeStyle = 'rgba(127,180,255,0.85)'; ctx.lineWidth = 1.2; ctx.beginPath();
+    for (let i = 0; i < L; i++) { const px = x(i), py = yV(S.variance[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke();
+    // Global Stress (dik, rood/wit)
+    ctx.strokeStyle = '#ff5f7e'; ctx.lineWidth = 2; ctx.shadowColor = '#ff5f7e'; ctx.shadowBlur = 4; ctx.beginPath();
+    for (let i = 0; i < L; i++) { const px = x(i), py = yS(S.stress[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); ctx.shadowBlur = 0;
+    // assen-labels + regime-badge
+    ctx.fillStyle = '#5c7488'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.textAlign = 'right';
+    [0, 0.15, 0.3, 0.45, 0.6].forEach(v => ctx.fillText(v.toFixed(2), padL - 3, yS(v) + 3));
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(127,180,255,0.8)'; ctx.fillText('σ²', W - padR + 4, padT + 8);
+    const rc = S.regime === 'CRISIS' ? '#ff4f6d' : S.regime === 'SPANNING' ? '#ffb627' : '#14f195';
+    ctx.fillStyle = rc; ctx.font = "bold 9px 'JetBrains Mono',monospace"; ctx.textAlign = 'left';
+    ctx.fillText(`${S.regime} · stress ${S.current.toFixed(3)} · σ² ${S.curVar.toFixed(4)}${S.marketsUsed < 3 ? ' · ' + S.marketsUsed + ' munten' : ''}`, padL + 2, H - 4);
+}
+window.drawFSOChart = drawFSOChart;
+
+let _fsoInterval = null;
+function startOsirisFSO() {
+    try {
+        if (typeof OsirisFSO === 'undefined') return;
+        OsirisFSO.refreshAll();
+        if (!_fsoInterval) _fsoInterval = setInterval(() => {
+            OsirisFSO.update('micro');                                   // micro elke minuut
+            if (Date.now() % (15 * 60000) < 60000) OsirisFSO.update('meso');
+            if (Date.now() % (6 * 3600000) < 60000) { OsirisFSO.update('macro'); OsirisFSO.update('full'); }
+        }, 60000);
+    } catch (e) {}
+}
+window.startOsirisFSO = startOsirisFSO;
+try { window.addEventListener('DOMContentLoaded', () => setTimeout(startOsirisFSO, 2500)); } catch (e) {}
+
 // OSIRIS · RL EXIT/HOLD-AGENT (16-08) - lokaal, geen backend
 // Tabular Q-learning over gediscretiseerde toestand (regime × pnl × momentum ×
 // leeftijd). Acties: HOLD · SLUIT · TRAIL · SCHAAL. De zware buffer-replay
