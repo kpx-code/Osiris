@@ -8420,26 +8420,61 @@ const OsirisRL = {
     lastDecision: null, history: [], _worker: null, _training: false, lastTrain: 0,
     ENABLED: true, INFLUENCE: true,   // INFLUENCE=of de agent de live exit mag sturen
 
+    RL_VERSION: 2,   // bump wanneer de toestand-codering wijzigt -> oude, verkeerd-geschaalde Q-tabel wordt weggegooid
+    // deterministische regime-proxy uit een candle-venster (vol + richtingskracht).
+    // 0=compressie 1=kalm 2=trending 3=volatiel — zelfde semantiek als de HMM-mapping,
+    // maar IDENTIEK bruikbaar in de training-worker, zodat de regime-as niet langer RUIS is
+    // (voorheen: reg = Math.random()*4 tijdens training).
+    _regimeFromCloses(cl, i, win) {
+        try {
+            i = (i == null) ? cl.length - 1 : i;
+            let w = Math.min(win || 20, i);
+            if (w < 5) return 1;
+            let m = 0, k = 0;
+            for (let j = i - w + 1; j <= i; j++) { m += Math.log(cl[j] / cl[j - 1]); k++; }
+            m /= (k || 1);
+            let s = 0; for (let j = i - w + 1; j <= i; j++) { const r = Math.log(cl[j] / cl[j - 1]); s += (r - m) * (r - m); }
+            const volPct = Math.sqrt(s / (k || 1)) * 100;
+            let up = 0; for (let j = i - w + 1; j <= i; j++) if (cl[j] >= cl[j - 1]) up++;
+            const persist = up / (k || 1);
+            const netMovePct = Math.abs((cl[i] - cl[i - w]) / cl[i - w]) * 100;
+            if (volPct < 0.5 && netMovePct < 0.8) return 0;                       // compressie
+            if (netMovePct >= 1.5 || persist > 0.62 || persist < 0.38) return 2;  // trending (beide kanten)
+            if (volPct >= 1.4) return 3;                                          // volatiel
+            return 1;                                                             // kalm
+        } catch (e) { return 1; }
+    },
     _regimeIdx() {
         try { const m = { compressie: 0, kalm: 1, trending: 2, volatiel: 3 }; return (typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? (m[OsirisRegimeHMM.label] != null ? m[OsirisRegimeHMM.label] : 1) : 1; } catch (e) { return 1; }
     },
-    _state(reg, pnlPct, mom, ageMin) {
+    _momDirPct(cl, i, side) {
+        try { i = (i == null) ? cl.length - 1 : i; if (i < 2) return 0; return side * (cl[i] - cl[i - 2]) / cl[i - 2] * 100; } catch (e) { return 0; }
+    },
+    // GEDEELDE toestand-codering (BYTE-VOOR-BYTE identiek aan de worker). pnlPct is een FRACTIE
+    // (0.008 = 0.8%); momDirPct is een PERCENTAGE in de trade-richting. Cruciaal: exact dezelfde
+    // schalen en grenzen in training én live - anders vraag je live toestanden op die in de
+    // training nooit gevuld zijn (dat was de kern-bug: worker gebruikte fracties + ruwe dollar-
+    // momentum, live gebruikte percenten + vfm -> vrijwel geen enkele sleutel matchte).
+    _state(reg, pnlPct, momDirPct, ageMin) {
         const p = pnlPct * 100;
         const pz = p < -0.4 ? 0 : p < 0 ? 1 : p < 0.2 ? 2 : p < 0.5 ? 3 : 4;
-        const mz = mom < -0.5 ? 0 : mom < 0.5 ? 1 : 2;
+        const mz = momDirPct < -0.15 ? 0 : momDirPct < 0.15 ? 1 : 2;
         const az = ageMin < 10 ? 0 : ageMin < 40 ? 1 : 2;
         return `${reg}|${pz}|${mz}|${az}`;
     },
     // live-beslissing (greedy) voor een open positie
     decide(pos, mkt, pnlPct, ageMin) {
         try {
-            const reg = this._regimeIdx();
-            const mom = mkt ? (mkt.vfm || 0) : 0;
+            const side = (pos && pos.side === 'SHORT') ? -1 : 1;
+            let reg, mom;
+            const cl = (mkt && mkt.klines && mkt.klines.length > 25) ? mkt.klines.map(d => parseFloat(d[4])) : null;
+            if (cl) { reg = this._regimeFromCloses(cl, cl.length - 1, 20); mom = this._momDirPct(cl, cl.length - 1, side); }
+            else { reg = this._regimeIdx(); mom = side * (mkt ? (mkt.vfm || 0) : 0) * 0.3; }   // fallback: benader %-momentum uit vfm
             const sk = this._state(reg, pnlPct, mom, ageMin);
             const q = this.Q[sk];
             let act = 0, conf = 0;
             if (q) {
-                let bi = 0, bv = q[0], sum = 0, mx = -Infinity;
+                let bi = 0, bv = q[0], mx = -Infinity;
                 for (let i = 0; i < 4; i++) { if (q[i] > bv) { bv = q[i]; bi = i; } if (q[i] > mx) mx = q[i]; }
                 // softmax-achtige zekerheid
                 let z = 0; const e = q.map(v => { const x = Math.exp((v - mx)); z += x; return x; });
@@ -8454,43 +8489,67 @@ const OsirisRL = {
     _ensureWorker() {
         if (this._worker) return true;
         try {
+            // ECHTE simulator (19-08): OHLC per markt, entries zoals de bot ze neemt (signaal-
+            // gated, beide richtingen), intrabar harde stop/target, realistische kosten, en een
+            // ECHTE schaal-actie (verhoogt exposure + risico i.p.v. de oude nep 1.5x-close).
+            // st() is byte-voor-byte gelijk aan OsirisRL._state (schalen matchen live).
             const code = `
             let Q = {};
-            const A = 4, GAMMA = 0.95, ALPHA = 0.12;
-            function st(reg,p,mom,age){const pz=p<-0.4?0:p<0?1:p<0.2?2:p<0.5?3:4;const mz=mom<-0.5?0:mom<0.5?1:2;const az=age<10?0:age<40?1:2;return reg+'|'+pz+'|'+mz+'|'+az;}
+            const A = 4, GAMMA = 0.95, ALPHA = 0.12, EXPO_MAX = 2.5;
+            function st(reg,pnlFrac,momDirPct,age){var p=pnlFrac*100;var pz=p<-0.4?0:p<0?1:p<0.2?2:p<0.5?3:4;var mz=momDirPct<-0.15?0:momDirPct<0.15?1:2;var az=age<10?0:age<40?1:2;return reg+'|'+pz+'|'+mz+'|'+az;}
             function q(s){ if(!Q[s]) Q[s]=[0,0,0,0]; return Q[s]; }
+            function regimeOf(cl,i,w){try{if(i<w+1)w=Math.max(2,i-1);var m=0,k=0,j;for(j=i-w+1;j<=i;j++){m+=Math.log(cl[j]/cl[j-1]);k++;}m/=(k||1);var s=0;for(j=i-w+1;j<=i;j++){var r=Math.log(cl[j]/cl[j-1]);s+=(r-m)*(r-m);}var volPct=Math.sqrt(s/(k||1))*100;var up=0;for(j=i-w+1;j<=i;j++)if(cl[j]>=cl[j-1])up++;var persist=up/(k||1);var net=Math.abs((cl[i]-cl[i-w])/cl[i-w])*100;if(volPct<0.5&&net<0.8)return 0;if(net>=1.5||persist>0.62||persist<0.38)return 2;if(volPct>=1.4)return 3;return 1;}catch(e){return 1;}}
+            function ema(arr,p){var kk=2/(p+1);var out=new Array(arr.length);out[0]=arr[0];for(var i=1;i<arr.length;i++)out[i]=arr[i]*kk+out[i-1]*(1-kk);return out;}
+            function rsiArr(cl,p){var out=new Array(cl.length);out[0]=50;var g=0,l=0;for(var i=1;i<cl.length;i++){var dd=cl[i]-cl[i-1];var u=dd>0?dd:0,dn=dd<0?-dd:0;if(i<=p){g+=u;l+=dn;out[i]=50;if(i===p){g/=p;l/=p;out[i]=100-100/(1+(l===0?100:g/l));}}else{g=(g*(p-1)+u)/p;l=(l*(p-1)+dn)/p;out[i]=100-100/(1+(l===0?100:g/l));}}return out;}
             onmessage=function(ev){
-              const d=ev.data; if(d.Q) Q=d.Q;
-              const C=d.candles||[]; const N=C.length; if(N<80){postMessage({Q,episodes:0,avgReward:0,states:Object.keys(Q).length,actionDist:[0,0,0,0]});return;}
-              const cost=0.05; let totR=0, ep=0; const adist=[0,0,0,0]; let eps=d.eps!=null?d.eps:0.15;
-              const EP=d.episodes||3000;
-              for(let e=0;e<EP;e++){
-                const i0=3+Math.floor(Math.random()*(N-40));
-                const entry=C[i0].c; const mom0=C[i0].c-C[i0-3].c; const side=mom0>=0?1:-1;
-                const reg=Math.floor(Math.random()*4);
-                let held=true, j=i0+1, epR=0, trailStop=null;
-                while(held && j<Math.min(i0+22,N)){
-                  const price=C[j].c; const pnl=side>0?(price-entry)/entry:(entry-price)/entry;
-                  const mom=C[j].c-C[j-2].c; const age=(j-i0)*15;
-                  const s=st(reg,pnl,side*mom,age);
-                  const qq=q(s);
-                  let a; if(Math.random()<eps){a=Math.floor(Math.random()*A);} else {a=0;let bv=qq[0];for(let k=1;k<A;k++)if(qq[k]>bv){bv=qq[k];a=k;}}
+              var d=ev.data; if(d.Q) Q=d.Q;
+              var MK=d.markets||[]; var EP=d.episodes||3000; var eps=d.eps!=null?d.eps:0.15;
+              var cost=d.cost!=null?d.cost:0.24; var funding=d.funding||0; var lev=d.lev||1;
+              var ENTER=0.22, HORIZON=22, TRAILGIVE=0.003;
+              var books=[];
+              for(var mi=0;mi<MK.length;mi++){
+                var Cm=MK[mi]; var Nm=Cm.c.length; if(Nm<80) continue;
+                var emaF=ema(Cm.c,12), emaS=ema(Cm.c,26), rsi=rsiArr(Cm.c,14);
+                var rng=0,rk=0; for(var ri=Math.max(1,Nm-200);ri<Nm;ri++){rng+=Math.abs(Cm.c[ri]-Cm.c[ri-1])/Cm.c[ri-1];rk++;} rng=(rk?rng/rk:0.004);
+                var STOP=Math.max(0.003,Math.min(0.03,rng*3)); var TARGET=STOP*1.2;
+                books.push({c:Cm.c,h:Cm.h,l:Cm.l,N:Nm,emaF:emaF,emaS:emaS,rsi:rsi,STOP:STOP,TARGET:TARGET});
+              }
+              if(!books.length){postMessage({Q:Q,episodes:0,avgReward:0,states:Object.keys(Q).length,actionDist:[0,0,0,0]});return;}
+              function sig(b,i){var cross=(b.emaF[i]-b.emaS[i])/b.emaS[i]*100;var mom=(b.c[i]-b.c[i-3])/b.c[i-3]*100;var rt=(b.rsi[i]-50)/50;return Math.tanh(cross*0.8+mom*0.3+rt*0.5);}
+              var totR=0, ep=0; var adist=[0,0,0,0];
+              for(var e=0;e<EP;e++){
+                var b=books[Math.floor(Math.random()*books.length)]; var N=b.N;
+                var i0=-1;
+                for(var tr=0;tr<8;tr++){var cand=30+Math.floor(Math.random()*(N-HORIZON-31));if(cand>3&&Math.abs(sig(b,cand))>=ENTER){i0=cand;break;}}
+                if(i0<0) continue;
+                var s0=sig(b,i0); var side=s0>0?1:-1; var entry=b.c[i0]; var reg=regimeOf(b.c,i0,20);
+                var expo=1, trailStop=null, j=i0+1, epR=0, held=true; var lim=Math.min(i0+HORIZON,N);
+                while(held && j<lim){
+                  var hi=b.h[j], lo=b.l[j], px=b.c[j];
+                  var worst=side>0?lo:hi;
+                  var pnlWorst=side>0?(worst-entry)/entry:(entry-worst)/entry;
+                  if(pnlWorst<=-b.STOP){ var rS=(-b.STOP*100-cost)*expo*lev; var qh=q(st(reg,-b.STOP,0,(j-i0)*15)); qh[0]=qh[0]+ALPHA*(rS-qh[0]); epR+=rS; held=false; break; }
+                  var best=side>0?hi:lo;
+                  var pnl=side>0?(px-entry)/entry:(entry-px)/entry;
+                  var mom=side*(b.c[j]-b.c[j-2])/b.c[j-2]*100;
+                  var age=(j-i0)*15; var s=st(reg,pnl,mom,age); var qq=q(s);
+                  var a; if(Math.random()<eps){a=Math.floor(Math.random()*A);}else{a=0;var bv=qq[0];for(var k2=1;k2<A;k2++)if(qq[k2]>bv){bv=qq[k2];a=k2;}}
                   adist[a]++;
-                  let r=0, done=false, nextS=s;
-                  if(a===1){ r=(pnl*100)-cost; done=true; }
-                  else if(a===0){ r=-0.005; }
-                  else if(a===2){ trailStop=Math.max(trailStop==null?-Infinity:trailStop, pnl-0.003); if(pnl<=trailStop){ r=(trailStop*100)-cost; done=true;} else r=-0.003; }
-                  else if(a===3){ r=(pnl*100)*1.5-cost*1.5; done=true; }
-                  const jn=j+1;
-                  if(!done && jn<Math.min(i0+22,N)){ const pn=C[jn].c; const pnl2=side>0?(pn-entry)/entry:(entry-pn)/entry; const m2=C[jn].c-C[jn-2].c; nextS=st(reg,pnl2,side*m2,(jn-i0)*15); }
-                  const qn=q(nextS); const maxn=Math.max(qn[0],qn[1],qn[2],qn[3]);
+                  var r=0, done=false;
+                  if(a===1){ r=(pnl*100-cost)*expo*lev; done=true; }
+                  else if(a===0){ r=-0.01-funding*expo; var pb=side>0?(best-entry)/entry:(entry-best)/entry; if(pb>=b.TARGET){ r=(b.TARGET*100-cost)*expo*lev; done=true; } }
+                  else if(a===2){ trailStop=Math.max(trailStop==null?-Infinity:trailStop, pnl-TRAILGIVE); if(pnl<=trailStop){ r=(trailStop*100-cost)*expo*lev; done=true; } else { r=-0.005-funding*expo; } }
+                  else { if(expo<EXPO_MAX && pnl>0){ expo=Math.min(EXPO_MAX,expo+0.5); r=-cost*0.5; } else { r=-0.02; } }
+                  var jn=j+1, nextS=s;
+                  if(!done && jn<lim){ var pn=b.c[jn]; var pnl2=side>0?(pn-entry)/entry:(entry-pn)/entry; var m2=side*(b.c[jn]-b.c[jn-2])/b.c[jn-2]*100; nextS=st(reg,pnl2,m2,(jn-i0)*15); }
+                  var qn=q(nextS); var maxn=Math.max(qn[0],qn[1],qn[2],qn[3]);
                   qq[a]=qq[a]+ALPHA*(r+(done?0:GAMMA*maxn)-qq[a]);
                   epR+=r; if(done)held=false; j++;
                 }
-                if(held){ const price=C[Math.min(i0+21,N-1)].c; const pnl=side>0?(price-entry)/entry:(entry-price)/entry; const s=st(reg,pnl,0,315); const qq=q(s); qq[1]=qq[1]+ALPHA*((pnl*100-cost)-qq[1]); }
+                if(held){ var pe=b.c[Math.min(i0+HORIZON-1,N-1)]; var pf=side>0?(pe-entry)/entry:(entry-pe)/entry; var qf=q(st(reg,pf,0,HORIZON*15)); var rf=(pf*100-cost)*expo*lev; qf[1]=qf[1]+ALPHA*(rf-qf[1]); epR+=rf; }
                 totR+=epR; ep++;
               }
-              postMessage({Q,episodes:ep,avgReward:ep?totR/ep:0,states:Object.keys(Q).length,actionDist:adist});
+              postMessage({Q:Q,episodes:ep,avgReward:ep?totR/ep:0,states:Object.keys(Q).length,actionDist:adist});
             };`;
             const blob = new Blob([code], { type: 'application/javascript' });
             this._worker = new Worker(URL.createObjectURL(blob));
@@ -8513,14 +8572,18 @@ const OsirisRL = {
     _save() {
         // bewaar de getrainde Q-tabel + stats zodat scenario's behouden blijven bij
         // refresh / herstart / wallet-reset (RL-model is opgebouwde kennis, geen sessie-data).
-        try { localStorage.setItem('osirisRLModel', JSON.stringify({ Q: this.Q, episodes: this.episodes, avgReward: this.avgReward, statesLearned: this.statesLearned, actionDist: this.actionDist, ts: Date.now() })); } catch (e) {}
+        try { localStorage.setItem('osirisRLModel', JSON.stringify({ v: this.RL_VERSION, Q: this.Q, episodes: this.episodes, avgReward: this.avgReward, statesLearned: this.statesLearned, actionDist: this.actionDist, ts: Date.now() })); } catch (e) {}
     },
     _restore() {
         try {
             const raw = localStorage.getItem('osirisRLModel');
             if (raw) {
                 const d = JSON.parse(raw);
-                if (d && d.Q) { this.Q = d.Q; this.episodes = d.episodes || 0; this.avgReward = d.avgReward || 0; this.statesLearned = d.statesLearned || Object.keys(this.Q).length; this.actionDist = d.actionDist || [0, 0, 0, 0]; }
+                // Alleen herstellen als de codering-versie matcht. Een Q-tabel uit de oude
+                // (verkeerd-geschaalde) codering zou live nooit matchen en de nieuwe training
+                // vervuilen - die gooien we weg zodat de agent schoon opnieuw leert.
+                if (d && d.Q && d.v === this.RL_VERSION) { this.Q = d.Q; this.episodes = d.episodes || 0; this.avgReward = d.avgReward || 0; this.statesLearned = d.statesLearned || Object.keys(this.Q).length; this.actionDist = d.actionDist || [0, 0, 0, 0]; }
+                else if (d && d.v !== this.RL_VERSION) { try { localStorage.removeItem('osirisRLModel'); } catch (e) {} }
             }
         } catch (e) {}
     },
@@ -8528,11 +8591,26 @@ const OsirisRL = {
         try {
             if (!this.ENABLED || this._training) return;
             if (!this._ensureWorker()) return;
-            const src = (typeof rawData !== 'undefined' && rawData && rawData.length > 80) ? rawData.slice(-400) : null;
-            if (!src) return;
-            const candles = src.map(d => ({ c: parseFloat(d[4]) }));
+            // ECHTE simulator: OHLC van alle 3 de markten (elk 672×15m), niet alleen 400 BTC-closes.
+            const markets = [];
+            try {
+                for (const sym of (typeof MULTI_SYMBOLS !== 'undefined' ? MULTI_SYMBOLS : ['BTC'])) {
+                    const mk = (typeof neoMultiState !== 'undefined') ? neoMultiState.markets[sym] : null;
+                    const kl = (mk && mk.klines && mk.klines.length > 80) ? mk.klines : null;
+                    if (kl) markets.push({ sym, o: kl.map(d => +d[1]), h: kl.map(d => +d[2]), l: kl.map(d => +d[3]), c: kl.map(d => +d[4]) });
+                }
+            } catch (e) {}
+            // fallback: hoofd-BTC rawData als de multi-markten nog niet geladen zijn
+            if (!markets.length && typeof rawData !== 'undefined' && rawData && rawData.length > 80) {
+                const s = rawData.slice(-672);
+                markets.push({ sym: 'BTC', o: s.map(d => +d[1]), h: s.map(d => +d[2]), l: s.map(d => +d[3]), c: s.map(d => +d[4]) });
+            }
+            if (!markets.length) return;
+            const fee = (typeof botSettings !== 'undefined' && botSettings.feePct != null) ? botSettings.feePct : 0.1;
+            const slip = (typeof botSettings !== 'undefined' && botSettings.slippagePct != null) ? botSettings.slippagePct : 0.02;
+            const cost = (fee + slip) * 2;   // round-trip in %
             this._training = true; this.lastTrain = Date.now();
-            this._worker.postMessage({ Q: this.Q, candles, episodes: 3000, eps: 0.15 });
+            this._worker.postMessage({ Q: this.Q, markets, episodes: 3000, eps: 0.15, cost });
         } catch (e) { this._training = false; }
     }
 };
