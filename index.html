@@ -855,6 +855,16 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="net-out"><div class="l">Osiris decision</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
       </div>
 
+      <div class="panel" style="margin-top:14px;"><div class="plabel" style="color:#ff5f7e;">FINANCIAL STRESS OSCILLATOR &middot; UOTAM &mdash; systeem-stress &amp; asynchronie over de cryptomarkt</div>
+        <div style="font-size:0.56rem; color:var(--dim); margin:6px 0 10px;"><span style="color:#ff5f7e;">Global Stress</span> = gemiddelde van alle oscillatoren (S&#772;) &middot; <span style="color:#7fb4ff;">System Variance</span> = variantie/asynchronie (&sigma;&sup2;, early-warning) &middot; banden: <span style="color:#14f195;">rust</span> / <span style="color:#ffb627;">spanning</span> / <span style="color:#ff4f6d;">crisis</span>. Data-true (Binance BTC/ETH/SOL).</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div><div style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7fd8ff; letter-spacing:1px; margin-bottom:3px;">MICRO &middot; 1m (~6u) &mdash; acute schokken</div><canvas id="fso-micro" width="620" height="200" style="width:100%; height:200px; display:block; background:rgba(0,0,0,0.25); border-radius:6px;"></canvas></div>
+          <div><div style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7fd8ff; letter-spacing:1px; margin-bottom:3px;">MESO &middot; 1h (~2wk) &mdash; swing-regime</div><canvas id="fso-meso" width="620" height="200" style="width:100%; height:200px; display:block; background:rgba(0,0,0,0.25); border-radius:6px;"></canvas></div>
+          <div><div style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7fd8ff; letter-spacing:1px; margin-bottom:3px;">MACRO &middot; 1d (~3jr) &mdash; cyclus</div><canvas id="fso-macro" width="620" height="200" style="width:100%; height:200px; display:block; background:rgba(0,0,0,0.25); border-radius:6px;"></canvas></div>
+          <div><div style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#c792ea; letter-spacing:1px; margin-bottom:3px;">VOLLEDIG &middot; 1d sinds notering &mdash; hele crypto-tijdlijn</div><canvas id="fso-full" width="620" height="200" style="width:100%; height:200px; display:block; background:rgba(0,0,0,0.25); border-radius:6px;"></canvas></div>
+        </div>
+      </div>
+
       <div class="grid g-3 mb">
         <div class="core-card">
           <div class="cc-head"><span class="cc-name" style="color:var(--btc)">NEO &middot; BTC</span><span class="cc-side" id="cc-side-btc">&mdash;</span></div>
