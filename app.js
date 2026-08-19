@@ -4113,7 +4113,13 @@ function openPositionFromOrder(order, entryTag = '') {
     // budget is om tegen deze positie in te hedgen als het misgaat. Heeft de andere
     // kant al een positie (de hedge bestaat al), dan is die reservering niet nodig.
     const oppositeSide = order.side === 'LONG' ? 'SHORT' : 'LONG';
-    const oppositeHasPosition = openPositions.some(p => p.side === oppositeSide);
+    // FIX (19-08, alloc-bug): dit is de BTC-hoofd-engine, dus "de andere kant heeft al een
+    // positie" mag alleen tellen voor een ANDERE BTC-positie - niet voor een Osiris ETH/SOL-
+    // positie die toevallig de tegenovergestelde 'side' heeft. Voorheen telde bv. een Osiris
+    // ETH LONG als hedge voor een BTC SHORT, waardoor de hedge-reserve (15%) wegviel en er
+    // structureel te veel werd toegewezen aan de BTC-shorts (zie ook de her-check in
+    // commitPositionEntry, die de 150%-overallocatie hiervan mede veroorzaakte).
+    const oppositeHasPosition = openPositions.some(p => p.side === oppositeSide && !p.isOsiris);
     const hedgeReserve = oppositeHasPosition ? 0 : botSettings.minHedgeReservePct;
 
     const availablePct = Math.max(0, 1 - getAllocatedPct() - hedgeReserve);
@@ -4299,6 +4305,32 @@ function commitPositionEntry(position, reasonText) {
         if (dupMkt && openPositions.some(p => (p.symbol || p.market) === dupMkt && p.side === position.side)) {
             try { logBotAction('CANCELLED', 'duplicaat vermeden - zelfde markt+richting al open (continuation)'); } catch (e) {}
             return;
+        }
+    } catch (e) {}
+    // FIX (19-08, alloc-bug 150%): her-valideer de allocatie vlak vóór commit, dit is het
+    // ENE punt waar alle entry-paden doorheen lopen (hoofd-engine, ICT, range-scalp, Osiris
+    // shadow-tick, sweep-resolutie). Een positie kan tot ~35s eerder gesized zijn (sweep-
+    // wachtvenster) of via een async TESTNET-fill vertraagd zijn, terwijl een ANDERE engine
+    // ondertussen al ruimte heeft opgesoupeerd. Zonder deze her-check kan de som van alle
+    // sizePct% boven 100% van de wallet uitkomen - concreet gezien: 4x BTC-short (80.8%) +
+    // een Osiris ETH-sweep die met een 35s-oude 70%-allocatie alsnog committede => 150.8%.
+    try {
+        if (position.sizePct != null && position.sizePct > 0) {
+            const oppSide = position.side === 'LONG' ? 'SHORT' : 'LONG';
+            const oppHasPos = openPositions.some(p => p.side === oppSide && (p.isOsiris === position.isOsiris));
+            const hedgeReserveNow = oppHasPos ? 0 : (botSettings.minHedgeReservePct || 0);
+            const freshAvailablePct = Math.max(0, 1 - getAllocatedPct() - hedgeReserveNow);
+            if (position.sizePct > freshAvailablePct + 0.0005) {
+                if (freshAvailablePct <= 0.001) {
+                    logBotAction('CANCELLED', position.entryPrice, position.side, 0, 0, `her-check: geen vrije allocatie meer (gepland ${(position.sizePct * 100).toFixed(1)}%) - entry geannuleerd`);
+                    return;
+                }
+                const shrink = freshAvailablePct / position.sizePct;
+                logBotAction('SKIPPED', position.entryPrice, position.side, 0, 0, `her-check: allocatie verkleind van ${(position.sizePct * 100).toFixed(1)}% naar ${(freshAvailablePct * 100).toFixed(1)}% (andere engine had ondertussen ruimte gebruikt)`);
+                position.sizePct = freshAvailablePct;
+                if (position.notional) position.notional *= shrink;
+                if (position.amount) position.amount = parseFloat((position.amount * shrink).toFixed(6));
+            }
         }
     } catch (e) {}
     // 31-07: leg het marktregime vast waarin deze positie wordt geopend, zodat de
@@ -8533,9 +8565,15 @@ let marginEngineEnabled = false;
 let marginLeverage = 3;                 // Osiris stelt dit autonoom bij tussen MIN..MAX
 const MARGIN_LEV_MIN = 3, MARGIN_LEV_MAX = 5;
 // KALIBRATIE (19-08): margin is leveraged -> strengere entry, strakker target, FSO-pauze.
-let MARGIN_MIN_PROB = 0.58;                 // aparte, hogere entry-drempel dan spot
-let MARGIN_TARGET_MULT = 0.75;              // dichter target (winst vaker vastklikken)
-let MARGIN_FSO_PAUSE = true;                // geen margin-entries bij hoge systeem-stress
+// AANPASSING (19-08, op verzoek): margin moet VAKER traden dan spot. De oude drempel
+// (0.58) lag BOVEN spot's live minProbabilityPct (0.55) en de FSO-pauze sloeg al dicht
+// zodra de MESO-schaal in SPANNING zat met variance > 0.02 - in de praktijk zat de
+// variance daar zo goed als altijd boven (geobserveerd 0.043-0.058), dus margin stond
+// vrijwel continu stil terwijl spot gewoon doorhandelde. Let op: dit vergroot het
+// leverage-risico (3-5x) bewust - zie de toelichting in het rapport.
+let MARGIN_MIN_PROB = 0.50;                 // was 0.58 - nu ONDER spot's drempel i.p.v. erboven
+let MARGIN_TARGET_MULT = 0.75;              // dichter target (winst vaker vastklikken -> sneller weer vrij voor een nieuwe trade)
+let MARGIN_FSO_PAUSE = true;                // blijft aan, maar triggert nu alleen nog bij ECHTE CRISIS (zie marginTick)
 let marginState = {
     equity: 1000, startEquity: 1000, realizedPnL: 0, wins: 0, losses: 0,
     positions: [], tradeLog: [], closed: [], reasoning: [], adaptation: [],
@@ -8676,7 +8714,16 @@ function marginAllocatedPct() { let a = 0; for (const p of marginState.positions
 // Entry: gebruikt DEZELFDE osiris-picks (neoMultiState bestSide/bestProb) maar opent een
 // futures-positie met leverage. Long en short beide mogelijk.
 let _marginLastEntry = {};
+// FIX (19-08, alloc-race): marginTick doet echte netwerk-calls (await marginOrder, ...)
+// vóórdat de positie in marginState.positions.push()'t. Zonder deze vlag kan de volgende
+// setInterval-tick (elke 10s, zie multiRoundRobinTick) een NIEUWE marginTick() starten
+// terwijl de vorige nog op een fill wacht - dan telt marginAllocatedPct() de net geplaatste
+// (nog niet gepushte) order niet mee en kan er dubbel worden toegewezen. Zelfde klasse bug
+// als de 150%-overallocatie die op de spot-kant is gevonden.
+let _marginTickBusy = false;
 async function marginTick() {
+    if (_marginTickBusy) return;
+    _marginTickBusy = true;
     try {
         if (!marginEngineEnabled && marginState.positions.length === 0) return;   // niets te beheren
         const now = Date.now();
@@ -8685,14 +8732,17 @@ async function marginTick() {
         if (marginEngineEnabled) {
             const _tuneP = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
             const MINP = Math.max(MARGIN_MIN_PROB, _tuneP);   // margin nooit onder zijn eigen drempel
-            // FSO-PAUZE: geen nieuwe margin-entries bij systeem-stress (leverage + chaos = gevaar)
-            const _fsoStop = MARGIN_FSO_PAUSE && (typeof osirisStress !== 'undefined') && osirisStress.ts && (Date.now() - osirisStress.ts < 30 * 60000) && (osirisStress.regime === 'CRISIS' || (osirisStress.regime === 'SPANNING' && osirisStress.variance > 0.02));
+            // FSO-PAUZE (19-08, versoepeld op verzoek): alleen nog een harde stop bij ECHTE
+            // CRISIS. De oude SPANNING+variance>0.02-clausule sloot margin bijna permanent af
+            // (variance zat doorgaans al boven 0.02 in SPANNING) - spot heeft sowieso geen
+            // vergelijkbare harde stop, dus dit hield margin structureel achter op spot.
+            const _fsoStop = MARGIN_FSO_PAUSE && (typeof osirisStress !== 'undefined') && osirisStress.ts && (Date.now() - osirisStress.ts < 30 * 60000) && (osirisStress.regime === 'CRISIS');
             if (_fsoStop) { marginState.lastAction = `entries gepauzeerd (FSO ${osirisStress.regime})`; }
             for (const sym of (_fsoStop ? [] : (typeof MULTI_SYMBOLS !== 'undefined' ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL']))) {
             const m = neoMultiState.markets[sym]; if (!m || m.bestProb == null || !m.bestSide) continue;
             const binSym = MULTI_BINANCE[sym];
             if (marginState.positions.some(p => p.symbol === binSym)) continue;                 // al open
-            if (_marginLastEntry[sym] && (now - _marginLastEntry[sym]) < 60000) continue;        // cooldown
+            if (_marginLastEntry[sym] && (now - _marginLastEntry[sym]) < 30000) continue;        // cooldown verkort 60s -> 30s (vaker traden dan spot)
             if (m.bestProb < MINP) continue;
             const avail = Math.max(0, 1 - marginAllocatedPct() - 0.1);
             const sizePct = Math.min(0.35, avail); if (sizePct < 0.05) continue;
@@ -8740,7 +8790,8 @@ async function marginTick() {
             }
             if (reason) { await marginClose(pos, price, lev, reason); }
         }
-    } catch (e) {}
+    } catch (e) {
+    } finally { _marginTickBusy = false; }
 }
 async function marginClose(pos, price, lev, reason) {
     try {
