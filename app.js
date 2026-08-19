@@ -3532,7 +3532,7 @@ function evaluateEntryOpportunity(side, decision, metrics, currentPrice) {
     probabilityPct = smoothProb(side, probabilityPct);
     try { probabilityPct = Math.max(0, Math.min(100, probabilityPct + sentimentTilt(side, 'BTC'))); } catch (e) {}   // Fear & Greed SENT-tilt
     const regime = evaluateMarketRegime();
-    const eligible = probabilityPct >= botSettings.minProbabilityPct &&
+    const eligible = probabilityPct >= (botSettings.minProbabilityPct + fsoRiskAdjust()) &&   // FSO: strenger bij stress
                       projectedProfitPct > (botSettings.minProjectedProfitPct + roundTripCostPct()) &&
                       !regime.dead;
 
@@ -8211,7 +8211,7 @@ const OsirisFSO = {
         try {
             const byMkt = await this._fetchScale(key);
             const res = this._compute(byMkt, FSO_SCALES[key].win);
-            if (res) { this.scales[key] = res; this._last[key] = Date.now(); try { drawFSOChart('fso-' + key, key); } catch (e) {} }
+            if (res) { res._raw = byMkt; this.scales[key] = res; this._last[key] = Date.now(); try { drawFSOChart('fso-' + key, key); } catch (e) {} }
         } catch (e) { try { if (typeof logNetworkError === 'function') logNetworkError('FSO-update', `${key}: ${e.message}`); } catch (x) {} }
     },
     async refreshAll() {
@@ -8226,46 +8226,119 @@ const _FSO_PASTEL = ['#f7931a', '#ffb27a', '#ffd19a', '#8fb8ff', '#a5c8ff', '#14
 function drawFSOChart(canvasId, key) {
     const cv = document.getElementById(canvasId); if (!cv) return;
     const S = OsirisFSO.scales[key]; const ctx = cv.getContext('2d');
-    const W = cv.width, H = cv.height, padL = 34, padR = 40, padT = 10, padB = 16;
+    const W = cv.width, H = cv.height, padL = 36, padR = 44, padT = 12, padB = 18;
     ctx.clearRect(0, 0, W, H);
     if (!S) { ctx.fillStyle = '#5c7488'; ctx.font = "10px 'JetBrains Mono',monospace"; ctx.textAlign = 'center'; ctx.fillText('FSO laadt marktdata\u2026', W / 2, H / 2); return; }
     const L = S.stress.length; if (L < 2) return;
+    const now = Date.now() / 1000;
     const x = i => padL + (i / (L - 1)) * (W - padL - padR);
-    const yS = v => padT + (1 - Math.max(0, Math.min(1, v / 0.6))) * (H - padT - padB);   // stress-as 0..0.6
-    const vmax = Math.max(0.01, ...S.variance) * 1.1; const yV = v => padT + (1 - v / vmax) * (H - padT - padB);
-    // regime-banden
-    let prev = 0; for (const b of OsirisFSO.BANDS) { const y1 = yS(Math.min(0.6, b.to)), y0 = yS(prev); ctx.fillStyle = b.c; ctx.fillRect(padL, y1, W - padL - padR, y0 - y1); prev = b.to; }
-    // dunne pastel-oscillatoren
-    for (let o = 0; o < S.osc.length; o++) {
-        ctx.strokeStyle = _FSO_PASTEL[o % _FSO_PASTEL.length] + '3a'; ctx.lineWidth = 0.6; ctx.beginPath();
-        for (let i = 0; i < L; i++) { const px = x(i), py = yS(S.osc[o][i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke();
-    }
-    // System Variance (blauw, 2e as)
-    ctx.strokeStyle = 'rgba(127,180,255,0.85)'; ctx.lineWidth = 1.2; ctx.beginPath();
+    const yS = v => padT + (1 - Math.max(0, Math.min(1, v / 0.6))) * (H - padT - padB);
+    const vmax = Math.max(0.01, Math.max.apply(null, S.variance)) * 1.15; const yV = v => padT + (1 - v / vmax) * (H - padT - padB);
+
+    // regime-banden (subtiel)
+    let prev = 0; for (const bnd of OsirisFSO.BANDS) { const y1 = yS(Math.min(0.6, bnd.to)), y0 = yS(prev); ctx.fillStyle = bnd.c; ctx.fillRect(padL, y1, W - padL - padR, y0 - y1); prev = bnd.to; }
+    // horizontale gridlijnen op de regime-grenzen
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+    [0.15, 0.30, 0.45].forEach(v => { ctx.beginPath(); ctx.moveTo(padL, yS(v)); ctx.lineTo(W - padR, yS(v)); ctx.stroke(); }); ctx.setLineDash([]);
+
+    // i.p.v. 17 losse lijnen: een LICHTE min-max ENVELOPPE (de spreiding = asynchronie,
+    // visueel veel rustiger en leesbaarder). Boven- en ondergrens van alle oscillatoren.
+    const mn = new Array(L), mx = new Array(L);
+    for (let i = 0; i < L; i++) { let a2 = 1, b2 = 0; for (let o = 0; o < S.osc.length; o++) { const v = S.osc[o][i]; if (v < a2) a2 = v; if (v > b2) b2 = v; } mn[i] = a2; mx[i] = b2; }
+    ctx.beginPath(); for (let i = 0; i < L; i++) { const px = x(i), py = yS(mx[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+    for (let i = L - 1; i >= 0; i--) ctx.lineTo(x(i), yS(mn[i])); ctx.closePath();
+    ctx.fillStyle = 'rgba(127,180,255,0.08)'; ctx.fill();
+
+    // System Variance (blauw, 2e as) - duidelijke lijn met eigen gebied
+    ctx.beginPath(); for (let i = 0; i < L; i++) { const px = x(i), py = yV(S.variance[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+    ctx.lineTo(x(L - 1), H - padB); ctx.lineTo(x(0), H - padB); ctx.closePath();
+    ctx.fillStyle = 'rgba(127,180,255,0.06)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(127,180,255,0.9)'; ctx.lineWidth = 1.4; ctx.beginPath();
     for (let i = 0; i < L; i++) { const px = x(i), py = yV(S.variance[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke();
-    // Global Stress (dik, rood/wit)
-    ctx.strokeStyle = '#ff5f7e'; ctx.lineWidth = 2; ctx.shadowColor = '#ff5f7e'; ctx.shadowBlur = 4; ctx.beginPath();
+
+    // Global Stress: gevuld gebied + dikke lijn (het hoofdsignaal, maximaal leesbaar)
+    const grd = ctx.createLinearGradient(0, padT, 0, H - padB);
+    grd.addColorStop(0, 'rgba(255,95,126,0.28)'); grd.addColorStop(1, 'rgba(255,95,126,0.02)');
+    ctx.beginPath(); for (let i = 0; i < L; i++) { const px = x(i), py = yS(S.stress[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+    ctx.lineTo(x(L - 1), H - padB); ctx.lineTo(x(0), H - padB); ctx.closePath(); ctx.fillStyle = grd; ctx.fill();
+    ctx.strokeStyle = '#ff5f7e'; ctx.lineWidth = 2.4; ctx.shadowColor = '#ff5f7e'; ctx.shadowBlur = 5; ctx.beginPath();
     for (let i = 0; i < L; i++) { const px = x(i), py = yS(S.stress[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); ctx.shadowBlur = 0;
-    // assen-labels + regime-badge
-    ctx.fillStyle = '#5c7488'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.textAlign = 'right';
-    [0, 0.15, 0.3, 0.45, 0.6].forEach(v => ctx.fillText(v.toFixed(2), padL - 3, yS(v) + 3));
-    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(127,180,255,0.8)'; ctx.fillText('σ²', W - padR + 4, padT + 8);
+
+    // TIKKENDE huidige-waarde marker (pulseert per seconde) rechts
+    const cx = x(L - 1), cyv = yS(S.stress[L - 1]);
+    const pulse = 3 + 1.6 * Math.sin(now * 3);
+    ctx.beginPath(); ctx.arc(cx, cyv, pulse + 3, 0, 6.283); ctx.fillStyle = 'rgba(255,95,126,0.2)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cyv, 3.2, 0, 6.283); ctx.fillStyle = '#ffd0d8'; ctx.fill();
+
+    // as-labels
+    ctx.fillStyle = '#7d99ac'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.textAlign = 'right';
+    [0, 0.15, 0.3, 0.45, 0.6].forEach(v => ctx.fillText(v.toFixed(2), padL - 4, yS(v) + 3));
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(127,180,255,0.85)'; ctx.fillText('\u03c3\u00b2', W - padR + 5, padT + 8);
+    // regime-badge onderin
     const rc = S.regime === 'CRISIS' ? '#ff4f6d' : S.regime === 'SPANNING' ? '#ffb627' : '#14f195';
-    ctx.fillStyle = rc; ctx.font = "bold 9px 'JetBrains Mono',monospace"; ctx.textAlign = 'left';
-    ctx.fillText(`${S.regime} · stress ${S.current.toFixed(3)} · σ² ${S.curVar.toFixed(4)}${S.marketsUsed < 3 ? ' · ' + S.marketsUsed + ' munten' : ''}`, padL + 2, H - 4);
+    ctx.textAlign = 'left'; ctx.fillStyle = rc; ctx.font = "bold 10px 'JetBrains Mono',monospace";
+    ctx.fillText(`\u25cf ${S.regime}`, padL + 2, H - 5);
+    ctx.fillStyle = '#9fb2c4'; ctx.font = "9px 'JetBrains Mono',monospace";
+    ctx.fillText(`stress ${S.current.toFixed(3)} \u00b7 \u03c3\u00b2 ${S.curVar.toFixed(4)}${S.marketsUsed < 3 ? ' \u00b7 ' + S.marketsUsed + ' munten' : ''}`, padL + 74, H - 5);
 }
 window.drawFSOChart = drawFSOChart;
 
-let _fsoInterval = null;
+let _fsoInterval = null, _fsoTick = null;
+// globale stress-signalen die Osiris in Fase 2 gebruikt (uit de MESO-schaal = swing-regime)
+let osirisStress = { level: 0, variance: 0, regime: 'RUST', ts: 0 };
+window.osirisStress = osirisStress;
+// FASE 2: Osiris gebruikt de FSO. Retourneert een voorzichtigheids-opslag (0..10%) op de
+// entry-drempel bij hoge systeem-stress/asynchronie. 0 als er geen verse FSO-data is.
+function fsoRiskAdjust() {
+    try {
+        if (!osirisStress.ts || Date.now() - osirisStress.ts > 30 * 60000) return 0;
+        let bump = 0;
+        if (osirisStress.level > 0.30) bump += 6; else if (osirisStress.level > 0.20) bump += 3;
+        if (osirisStress.variance > 0.02) bump += 3;      // hoge asynchronie = early warning
+        return Math.min(10, bump);
+    } catch (e) { return 0; }
+}
+window.fsoRiskAdjust = fsoRiskAdjust;
+function _fsoUpdateGlobal() {
+    try {
+        const m = OsirisFSO.scales.meso || OsirisFSO.scales.micro;
+        if (m) { osirisStress.level = m.current; osirisStress.variance = m.curVar; osirisStress.regime = m.regime; osirisStress.ts = Date.now(); }
+    } catch (e) {}
+}
+// LIVE TICK (per seconde): werk het laatste micro-punt bij met de live prijzen en herteken,
+// zodat de charts echt per seconde bewegen (klines zijn 1m, dit interpoleert de laatste bar).
+function fsoLiveTick() {
+    try {
+        const S = OsirisFSO.scales.micro;
+        if (S && S.stress && S.stress.length > 5 && S._raw) {
+            // gebruik live lastPrice per munt om de laatste bar-close te verversen
+            let changed = false;
+            for (let mi = 0; mi < FSO_SYMS.length; mi++) {
+                const sym = FSO_SYMS[mi].replace('USDT', '');
+                const mk = neoMultiState.markets[sym];
+                if (mk && mk.lastPrice && S._raw[FSO_SYMS[mi]] && S._raw[FSO_SYMS[mi]].length) {
+                    const arr = S._raw[FSO_SYMS[mi]]; const last = arr[arr.length - 1];
+                    last.c = mk.lastPrice; last.h = Math.max(last.h, mk.lastPrice); last.l = Math.min(last.l, mk.lastPrice); changed = true;
+                }
+            }
+            if (changed) { const res = OsirisFSO._compute(S._raw, FSO_SCALES.micro.win); if (res) { res._raw = S._raw; OsirisFSO.scales.micro = res; } }
+        }
+        drawFSOChart('fso-micro', 'micro'); drawFSOChart('fso-meso', 'meso'); drawFSOChart('fso-macro', 'macro'); drawFSOChart('fso-full', 'full');
+        _fsoUpdateGlobal();
+    } catch (e) {}
+}
+window.fsoLiveTick = fsoLiveTick;
 function startOsirisFSO() {
     try {
         if (typeof OsirisFSO === 'undefined') return;
         OsirisFSO.refreshAll();
         if (!_fsoInterval) _fsoInterval = setInterval(() => {
-            OsirisFSO.update('micro');                                   // micro elke minuut
+            OsirisFSO.update('micro');
             if (Date.now() % (15 * 60000) < 60000) OsirisFSO.update('meso');
             if (Date.now() % (6 * 3600000) < 60000) { OsirisFSO.update('macro'); OsirisFSO.update('full'); }
+            _fsoUpdateGlobal();
         }, 60000);
+        if (!_fsoTick) _fsoTick = setInterval(fsoLiveTick, 1000);   // per-seconde herteken
     } catch (e) {}
 }
 window.startOsirisFSO = startOsirisFSO;
@@ -8553,10 +8626,11 @@ function marginAutoLeverage() {
         const ex = marginState.closed.slice(-10);
         const wr = ex.length >= 5 ? ex.filter(t => (t.pnl || 0) > 0).length / ex.length : null;
         const reg = (typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null;
+        const stressed = (typeof osirisStress !== 'undefined' && osirisStress.ts && (Date.now() - osirisStress.ts < 30 * 60000) && (osirisStress.regime === 'CRISIS' || osirisStress.variance > 0.02));
         let nv = marginLeverage;
-        if ((wr != null && wr < 0.4) || reg === 'volatiel') nv = MARGIN_LEV_MIN;
-        else if (wr != null && wr >= 0.6 && (reg === 'trending' || reg === 'kalm')) nv = MARGIN_LEV_MAX;
-        if (nv !== marginLeverage) { marginLeverage = nv; marginState._levSet = {}; _marginLog('adaptation', `Osiris zet leverage -> ${nv}x (${reg || 'regime ?'}${wr != null ? `, winrate ${(wr * 100 | 0)}%` : ''})`); }
+        if ((wr != null && wr < 0.4) || reg === 'volatiel' || stressed) nv = MARGIN_LEV_MIN;
+        else if (wr != null && wr >= 0.6 && (reg === 'trending' || reg === 'kalm') && (typeof osirisStress === 'undefined' || osirisStress.regime === 'RUST')) nv = MARGIN_LEV_MAX;
+        if (nv !== marginLeverage) { marginLeverage = nv; marginState._levSet = {}; _marginLog('adaptation', `Osiris zet leverage -> ${nv}x (${reg || 'regime ?'}${wr != null ? `, winrate ${(wr * 100 | 0)}%` : ''}${stressed ? ', FSO-stress' : ''})`); }
     } catch (e) {}
 }
 window.marginAutoLeverage = marginAutoLeverage;
@@ -8976,7 +9050,8 @@ function osirisAdaptiveLearn() {
                 const ad = OsirisRL.actionDist, tot = ad.reduce((a, x) => a + x, 0) || 1;
                 const holdShare = (ad[0] + ad[2]) / tot;   // HOLD + TRAIL
                 const closeShare = ad[1] / tot;            // SLUIT
-                const cur = botSettings.maxPositionAgeMinutes || 90;
+                let cur = botSettings.maxPositionAgeMinutes || 90;
+                try { if (osirisStress.ts && (Date.now() - osirisStress.ts < 30 * 60000) && (osirisStress.regime === 'CRISIS' || osirisStress.variance > 0.02) && cur > 40) { const c0 = cur; botSettings.maxPositionAgeMinutes = Math.max(40, cur - 15); cur = botSettings.maxPositionAgeMinutes; logAdaptation('FSO verkort time-stop', `systeem-stress (${osirisStress.regime}, σ² ${osirisStress.variance.toFixed(4)}) - vasthoudtijd ${c0}min → ${cur}min`); } } catch (e) {}
                 let nv = cur, why = '';
                 if (holdShare > 0.6 && cur < 120) { nv = Math.min(120, cur + 10); why = `RL verkiest vasthouden (${(holdShare * 100 | 0)}% HOLD/TRAIL)`; }
                 else if (closeShare > 0.45 && cur > 35) { nv = Math.max(35, cur - 10); why = `RL verkiest sluiten (${(closeShare * 100 | 0)}% SLUIT)`; }
@@ -12635,6 +12710,23 @@ function _neoNetDraw(now, canvasId, outId) {
             const adv = d ? `${R.ACTIONS[d.action]} ${(d.conf * 100 | 0)}%` : '\u2014';
             ctx.fillText(`RL · ${(R.episodes / 1000).toFixed(0)}k scenario's · advies ${adv}`, 14, h - 8);
         }
+        // FSO SYSTEEM-STRESS: badge (regime + niveau) rechtsboven + subtiele stress-aura.
+        try {
+            if (typeof osirisStress !== 'undefined' && osirisStress.ts && (Date.now() - osirisStress.ts < 60 * 60000)) {
+                const lvl = osirisStress.level || 0;
+                const rc = osirisStress.regime === 'CRISIS' ? '#ff4f6d' : osirisStress.regime === 'SPANNING' ? '#ffb627' : '#14f195';
+                // aura: hoe hoger de stress, hoe roder de rand-gloed van het net
+                if (lvl > 0.15) {
+                    const ag = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.25, w / 2, h / 2, Math.max(w, h) * 0.62);
+                    ag.addColorStop(0, 'rgba(0,0,0,0)'); ag.addColorStop(1, `rgba(255,79,109,${Math.min(0.16, (lvl - 0.15) * 0.5)})`);
+                    ctx.fillStyle = ag; ctx.fillRect(0, 0, w, h);
+                }
+                ctx.textAlign = 'right'; ctx.font = "bold 9px 'JetBrains Mono',monospace"; ctx.fillStyle = rc;
+                ctx.fillText(`◉ FSO ${osirisStress.regime} · stress ${lvl.toFixed(3)}`, w - 14, 16);
+                ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(127,180,255,0.85)';
+                ctx.fillText(`σ² ${(osirisStress.variance || 0).toFixed(4)} · asynchronie`, w - 14, 28);
+            }
+        } catch (e) {}
         // TESLA-LIGHTNING: gekartelde bliksem ALLEEN tussen de laatste lagen
         // (Osiris -> Decision -> Output), flikkerend en data-true. Puur visueel.
         try {
