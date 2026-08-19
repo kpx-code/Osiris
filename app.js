@@ -5434,13 +5434,19 @@ function downloadAllData() {
         osirisTune: (typeof osirisTune !== 'undefined') ? osirisTune : null,
         pendingSweeps: (typeof _osirisSweep !== 'undefined') ? _osirisSweep : null,
         margin: (typeof marginState !== 'undefined') ? {
-            enabled: marginEngineEnabled, leverage: marginLeverage,
+            enabled: marginEngineEnabled, leverage: marginLeverage, minProb: MARGIN_MIN_PROB, targetMult: MARGIN_TARGET_MULT, fsoPause: MARGIN_FSO_PAUSE,
             equity: (typeof marginEquity === 'function' ? marginEquity() : marginState.equity),
             realizedPnL: marginState.realizedPnL, wins: marginState.wins, losses: marginState.losses,
             openPositions: marginState.positions, closed: marginState.closed, tradeLog: marginState.tradeLog.slice(0, 200),
             reasoning: marginState.reasoning, adaptation: marginState.adaptation, startEquity: marginState.startEquity, startTime: marginState.startTime
         } : null,
         networkErrors: (typeof osirisNetworkErrors !== 'undefined') ? osirisNetworkErrors.slice(0, 150) : [],
+        fso: (typeof OsirisFSO !== 'undefined') ? {
+            current: (typeof osirisStress !== 'undefined') ? osirisStress : null,
+            scales: Object.fromEntries(['micro', 'meso', 'macro', 'full'].map(k => { const S = OsirisFSO.scales[k]; return [k, S ? { regime: S.regime, stress: +S.current.toFixed(4), variance: +S.curVar.toFixed(5), marketsUsed: S.marketsUsed, points: S.stress.length, oscillators: S.names, lastTime: S.times ? S.times[S.times.length - 1] : null } : null]; })),
+            history: (typeof osirisFSOLog !== 'undefined') ? osirisFSOLog.slice(0, 300) : [],
+            oscillatorsUsed: 'per munt: realized-vol, drawdown, volume-Z, range, RSI-extremiteit; cross-market: correlatie-breuk, return-dispersie (OHLCV-afgeleid, Binance BTC/ETH/SOL)'
+        } : null,
         // SCHEMA: beschrijft de velden in metricsHistory/learningLog voor runtime-reconstructie
         datasetSchema: {
             metricsHistory: 'timestamp, symbol, botVersion, executionSource, price, vfm, er, db, chaos, liveVol, volRate, rsi, emaFast, emaSlow, volumeShiftPct, nodeInfluence, lastNodeType, nextNodeType, minutesSinceLastNode, minutesUntilNextNode, probabilityPct, isBullish',
@@ -8270,16 +8276,30 @@ function drawFSOChart(canvasId, key) {
     ctx.beginPath(); ctx.arc(cx, cyv, pulse + 3, 0, 6.283); ctx.fillStyle = 'rgba(255,95,126,0.2)'; ctx.fill();
     ctx.beginPath(); ctx.arc(cx, cyv, 3.2, 0, 6.283); ctx.fillStyle = '#ffd0d8'; ctx.fill();
 
-    // as-labels
+    // as-labels (y)
     ctx.fillStyle = '#7d99ac'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.textAlign = 'right';
     [0, 0.15, 0.3, 0.45, 0.6].forEach(v => ctx.fillText(v.toFixed(2), padL - 4, yS(v) + 3));
+    // TIJDAS (x): labels afgeleid uit S.times, geformatteerd per schaal
+    try {
+        if (S.times && S.times.length === L) {
+            const fmt = (ms) => { const dt = new Date(ms); const p = n => String(n).padStart(2, '0'); if (key === 'micro') return `${p(dt.getHours())}:${p(dt.getMinutes())}`; if (key === 'meso') return `${p(dt.getDate())}/${p(dt.getMonth() + 1)} ${p(dt.getHours())}h`; return `${p(dt.getMonth() + 1)}/${String(dt.getFullYear()).slice(2)}`; };
+            ctx.fillStyle = '#6d8296'; ctx.font = "7.5px 'JetBrains Mono',monospace";
+            const steps = 5;
+            for (let s2 = 0; s2 <= steps; s2++) {
+                const i = Math.round((s2 / steps) * (L - 1)); const px = x(i);
+                ctx.textAlign = s2 === 0 ? 'left' : s2 === steps ? 'right' : 'center';
+                ctx.fillText(fmt(S.times[i]), px, H - 4);
+                ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, H - padB); ctx.stroke();
+            }
+        }
+    } catch (e) {}
     ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(127,180,255,0.85)'; ctx.fillText('\u03c3\u00b2', W - padR + 5, padT + 8);
-    // regime-badge onderin
+    // regime-badge bovenin (verplaatst zodat de tijdas onderaan vrij is)
     const rc = S.regime === 'CRISIS' ? '#ff4f6d' : S.regime === 'SPANNING' ? '#ffb627' : '#14f195';
     ctx.textAlign = 'left'; ctx.fillStyle = rc; ctx.font = "bold 10px 'JetBrains Mono',monospace";
-    ctx.fillText(`\u25cf ${S.regime}`, padL + 2, H - 5);
+    ctx.fillText(`\u25cf ${S.regime}`, padL + 2, padT + 9);
     ctx.fillStyle = '#9fb2c4'; ctx.font = "9px 'JetBrains Mono',monospace";
-    ctx.fillText(`stress ${S.current.toFixed(3)} \u00b7 \u03c3\u00b2 ${S.curVar.toFixed(4)}${S.marketsUsed < 3 ? ' \u00b7 ' + S.marketsUsed + ' munten' : ''}`, padL + 74, H - 5);
+    ctx.fillText(`stress ${S.current.toFixed(3)} \u00b7 \u03c3\u00b2 ${S.curVar.toFixed(4)}${S.marketsUsed < 3 ? ' \u00b7 ' + S.marketsUsed + ' munten' : ''}`, padL + 74, padT + 9);
 }
 window.drawFSOChart = drawFSOChart;
 
@@ -8287,6 +8307,9 @@ let _fsoInterval = null, _fsoTick = null;
 // globale stress-signalen die Osiris in Fase 2 gebruikt (uit de MESO-schaal = swing-regime)
 let osirisStress = { level: 0, variance: 0, regime: 'RUST', ts: 0 };
 window.osirisStress = osirisStress;
+let osirisFSOLog = [];
+try { osirisFSOLog = JSON.parse(localStorage.getItem('osirisFSOLog') || '[]'); } catch (e) { osirisFSOLog = []; }
+window.osirisFSOLog = osirisFSOLog;
 // FASE 2: Osiris gebruikt de FSO. Retourneert een voorzichtigheids-opslag (0..10%) op de
 // entry-drempel bij hoge systeem-stress/asynchronie. 0 als er geen verse FSO-data is.
 function fsoRiskAdjust() {
@@ -8303,6 +8326,13 @@ function _fsoUpdateGlobal() {
     try {
         const m = OsirisFSO.scales.meso || OsirisFSO.scales.micro;
         if (m) { osirisStress.level = m.current; osirisStress.variance = m.curVar; osirisStress.regime = m.regime; osirisStress.ts = Date.now(); }
+        // rolling FSO-log (per minuut): stress/variance/regime per schaal - voor de export
+        const snap = { ts: Date.now() };
+        for (const k of ['micro', 'meso', 'macro', 'full']) { const S = OsirisFSO.scales[k]; if (S) snap[k] = { s: +S.current.toFixed(4), v: +S.curVar.toFixed(5), r: S.regime }; }
+        if (osirisFSOLog.length === 0 || Date.now() - osirisFSOLog[0].ts > 55000) {
+            osirisFSOLog.unshift(snap); if (osirisFSOLog.length > 500) osirisFSOLog.pop();
+            try { localStorage.setItem('osirisFSOLog', JSON.stringify(osirisFSOLog.slice(0, 300))); } catch (e) {}
+        }
     } catch (e) {}
 }
 // LIVE TICK (per seconde): werk het laatste micro-punt bij met de live prijzen en herteken,
@@ -8502,6 +8532,10 @@ const MARGIN_BASE = 'https://testnet.binancefuture.com';
 let marginEngineEnabled = false;
 let marginLeverage = 3;                 // Osiris stelt dit autonoom bij tussen MIN..MAX
 const MARGIN_LEV_MIN = 3, MARGIN_LEV_MAX = 5;
+// KALIBRATIE (19-08): margin is leveraged -> strengere entry, strakker target, FSO-pauze.
+let MARGIN_MIN_PROB = 0.58;                 // aparte, hogere entry-drempel dan spot
+let MARGIN_TARGET_MULT = 0.75;              // dichter target (winst vaker vastklikken)
+let MARGIN_FSO_PAUSE = true;                // geen margin-entries bij hoge systeem-stress
 let marginState = {
     equity: 1000, startEquity: 1000, realizedPnL: 0, wins: 0, losses: 0,
     positions: [], tradeLog: [], closed: [], reasoning: [], adaptation: [],
@@ -8649,8 +8683,12 @@ async function marginTick() {
         if (now - _marginReconcileLast > 60000) { _marginReconcileLast = now; try { marginReconcile(); } catch (e) {} }   // exchange = bron van waarheid
         // ENTRIES alleen als de engine AAN staat; EXITS draaien altijd (geen orphan-posities)
         if (marginEngineEnabled) {
-            const MINP = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
-            for (const sym of (typeof MULTI_SYMBOLS !== 'undefined' ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL'])) {
+            const _tuneP = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
+            const MINP = Math.max(MARGIN_MIN_PROB, _tuneP);   // margin nooit onder zijn eigen drempel
+            // FSO-PAUZE: geen nieuwe margin-entries bij systeem-stress (leverage + chaos = gevaar)
+            const _fsoStop = MARGIN_FSO_PAUSE && (typeof osirisStress !== 'undefined') && osirisStress.ts && (Date.now() - osirisStress.ts < 30 * 60000) && (osirisStress.regime === 'CRISIS' || (osirisStress.regime === 'SPANNING' && osirisStress.variance > 0.02));
+            if (_fsoStop) { marginState.lastAction = `entries gepauzeerd (FSO ${osirisStress.regime})`; }
+            for (const sym of (_fsoStop ? [] : (typeof MULTI_SYMBOLS !== 'undefined' ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL']))) {
             const m = neoMultiState.markets[sym]; if (!m || m.bestProb == null || !m.bestSide) continue;
             const binSym = MULTI_BINANCE[sym];
             if (marginState.positions.some(p => p.symbol === binSym)) continue;                 // al open
@@ -8669,7 +8707,7 @@ async function marginTick() {
             try { const r = await marginOrder(binSym, side, qty); if (r && r.avgPrice) entryPrice = parseFloat(r.avgPrice) || price; }
             catch (e) { _marginLog('reasoning', `${sym} ${m.bestSide} order mislukt: ${e.message}`); continue; }
             const preset = (typeof MARKET_PRESETS !== 'undefined' && MARKET_PRESETS[sym]) ? MARKET_PRESETS[sym] : { stopLossPct: 0.5, microTargetPct: 0.4 };
-            const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, qty, notional, marginUSD, sizePct, leverage: marginLeverage, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100, targetPct: (preset.microTargetPct || 0.4) / 100, entryProb: (m.bestProb * 100), regimeAtEntry: ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null),
+            const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, qty, notional, marginUSD, sizePct, leverage: marginLeverage, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100, targetPct: (preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT, entryProb: (m.bestProb * 100), regimeAtEntry: ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null),
                 factorsAtEntry: (() => { try { return { vfm: m.vfm || 0, rsi: (m.rsi != null ? (m.rsi - 50) / 10 : 0), ema: (m.ema != null && m.emaSlow) ? ((m.ema - m.emaSlow) / m.emaSlow * 100) : 0, nn: 0, fundamentals: (m.fund && m.fund.fundingRate != null ? -Math.tanh(m.fund.fundingRate * 2000) * 3 : 0), chaos: m.chaos || 0 }; } catch (e) { return null; } })() };
             marginState.positions.push(pos);
             marginState.tradeLog.unshift({ action: 'ENTRY', ts: now, sym, side: m.bestSide, price: entryPrice, notional, leverage: marginLeverage });
@@ -8693,7 +8731,13 @@ async function marginTick() {
             if (raw <= -pos.stopPct) reason = 'STOP_LOSS';                         // harde stop blijft altijd
             else if (raw >= pos.targetPct && !rlHold) reason = 'TARGET';           // RL mag de winnaar laten lopen
             else if (rlClose && lev > 0.0005) reason = 'RL_EXIT';                  // RL zegt sluiten (in winst)
-            else if (ageMin > (botSettings.maxPositionAgeMinutes || 90) && Math.abs(lev) < 0.02 && !rlHold) reason = 'TIME_STOP';
+            else if (ageMin > (botSettings.maxPositionAgeMinutes || 90) && Math.abs(lev) < 0.02 && !rlHold) {
+                // sterk aanhoudend signaal dezelfde kant? geef de trade meer tijd (max 1x) i.p.v.
+                // sluiten+heropenen. Anders: sneller oogsten (breekt de TIME_STOP-churn).
+                const _sm = neoMultiState.markets[pos.sym];
+                if (_sm && _sm.bestSide === pos.side && (_sm.bestProb || 0) >= 0.66 && (pos._mTsExt || 0) < 1) { pos._mTsExt = 1; pos.openTime += (botSettings.maxPositionAgeMinutes || 90) * 0.5 * 60000; _marginLog('reasoning', `${pos.sym}: sterk signaal (${((_sm.bestProb||0)*100|0)}%) - time-stop uitgesteld i.p.v. sluiten`); }
+                else reason = 'TIME_STOP';
+            }
             if (reason) { await marginClose(pos, price, lev, reason); }
         }
     } catch (e) {}
