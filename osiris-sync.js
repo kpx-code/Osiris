@@ -26,6 +26,7 @@ const OSIRIS_STATE_KEYS = [
     'osirisL2', 'osirisL3',
     'osirisDeepNet_BTC', 'osirisDeepNet_ETH', 'osirisDeepNet_SOL',
     'osirisDeepNetTsAB', 'osirisDeepNetDynOff', 'osirisDeepNetLive',
+    'osirisFSOLog', 'osirisKineticLog', 'osirisRLModel', 'osirisMarginState',
     'osirisLiveEnabled', 'multiEngineRunning',
     'botIsRunning', 'botStartTime'
     // BEWUST NIET gesynct: 'osirisTestnetKeys' - API-keys horen niet in de cloud-DB.
