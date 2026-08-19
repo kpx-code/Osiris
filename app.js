@@ -5479,6 +5479,9 @@ function downloadAllData() {
             history: (typeof osirisFSOLog !== 'undefined') ? osirisFSOLog.slice(0, 300) : [],
             oscillatorsUsed: 'per munt: realized-vol, drawdown, volume-Z, range, RSI-extremiteit; cross-market: correlatie-breuk, return-dispersie (OHLCV-afgeleid, Binance BTC/ETH/SOL)'
         } : null,
+        // KINETISCHE BREAKPOINT-ENGINE: per-munt PE/KE/Loading/Shock + synchronie, de
+        // afgevuurde breakpoint-voorspellingen, hun scoring en de kalibratie/metrieken.
+        kinetic: (typeof OsirisKinetic !== 'undefined') ? OsirisKinetic.exportBundle() : null,
         // SCHEMA: beschrijft de velden in metricsHistory/learningLog voor runtime-reconstructie
         datasetSchema: {
             metricsHistory: 'timestamp, symbol, botVersion, executionSource, price, vfm, er, db, chaos, liveVol, volRate, rsi, emaFast, emaSlow, volumeShiftPct, nodeInfluence, lastNodeType, nextNodeType, minutesSinceLastNode, minutesUntilNextNode, probabilityPct, isBullish',
@@ -8406,6 +8409,220 @@ function startOsirisFSO() {
 window.startOsirisFSO = startOsirisFSO;
 try { window.addEventListener('DOMContentLoaded', () => setTimeout(startOsirisFSO, 2500)); } catch (e) {}
 
+// ============================================================
+// OSIRIS · KINETIC BREAKPOINT-ENGINE (19-08) - UOTAM "kinetische energie"
+// ------------------------------------------------------------
+// Vertaalt het UOTAM-frame (2-maart case study) naar de crypto-markt en voorspelt
+// per munt (BTC/ETH/SOL) het DICHTSTBIJZIJNDE breakpoint (niveau + richting + ETA):
+//
+//   POTENTIELE ENERGIE (opgeslagen veer)  PE = wA·asynchronie(σ²) + wC·compressie
+//     - asynchronie σ²_m = variantie van de 5 eigen oscillatoren van de munt
+//       (vol, drawdown, volume-Z, range, RSI) -> de UOTAM-voorbode.
+//     - compressie = 1 - percentiel(realized-vol) -> hoog bij een samengedrukt bandje.
+//   KINETISCHE ENERGIE (de beweging)       KE = ½·massa·snelheid²
+//     - snelheid v = EWMA %/bar (met richting); massa μ = 1 + volume-Z⁺ (deelname).
+//   LOADING (nabij breakpoint)             L  = PE·(1 - KE_norm)   (veer gespannen, nog niet los)
+//   SCHOK-SUBINDEX (ontsteking)            Shock = release-gewogen snel venster
+//     (|rendement|-z, volume-Z⁺, range, drawdown-versnelling) - BEWUST zonder RSI/corr,
+//     de termen die de brede FSO tegen de prijs in lieten lopen.
+//   SYNCHRONIE (besmetting)                Sync hoog = alle 3 munten ontsteken tegelijk
+//     -> de "synchrone stress-explosie" (fasetransitie) uit de case study.
+//
+// Breakpoint = dichtstbijzijnde barrière (Donchian/compressie-band) in de richting van
+// v, die binnen het energie-bereik Ř valt. ETA ≈ afstand/|v|. p_break = gekalibreerd.
+// ALLES wordt gelogd (per update + elke voorspelling + de uitkomst-scoring) en is
+// downloadbaar (in de volledige export én los via downloadKineticData()).
+// Puur additief en volledig gewrapt: raakt de bestaande engines niet.
+// ============================================================
+const OsirisKinetic = {
+    SYMS: ['BTC', 'ETH', 'SOL'],
+    P: { wA: 0.6, wC: 0.4, eta: 0.8, win: 14, donch: 20, shockWin: 4, velBars: 3, barMin: 15,
+         fireP: 0.5, maxEtaMin: 240, k1: 3.0, k2: 8.0, a0: -2.2, aL: 2.4, aShk: 1.8, aSync: 1.2, aReach: 1.0 },
+    state: {},           // per sym: laatste berekende grootheden
+    log: [],             // rollende snapshots (per update, cap 600)
+    predictions: [],     // open voorspellingen (nog niet afgelopen)
+    resolved: [],        // afgeronde voorspellingen + hit/miss (cap 800)
+    calib: {},           // kalibratie-bins: decile -> {n, hits, pSum}
+    _norm: {},           // per sym rollende schaal voor KE/Shock-normalisatie
+    _lastUpd: 0,
+
+    _clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; },
+    _std(a) { const n = a.length; if (!n) return 0; const m = a.reduce((x, y) => x + y, 0) / n; return Math.sqrt(a.reduce((x, y) => x + (y - m) * (y - m), 0) / n); },
+    _pctRank(arr, v) { let c = 0; for (let i = 0; i < arr.length; i++) if (arr[i] <= v) c++; return arr.length ? c / arr.length : 0.5; },
+
+    // de 5 per-munt oscillatoren op bar i (zelfde definities als de FSO), plus ruwe volume-z
+    _osc(K, i, win) {
+        const c = j => parseFloat(K[j][4]), h = j => parseFloat(K[j][2]), l = j => parseFloat(K[j][3]), v = j => parseFloat(K[j][5]);
+        const cl01 = this._clamp01;
+        let m = 0, k = 0; for (let j = Math.max(1, i - win); j <= i; j++) { m += Math.log(c(j) / c(j - 1)); k++; } m /= (k || 1);
+        let s = 0; for (let j = Math.max(1, i - win); j <= i; j++) { const r = Math.log(c(j) / c(j - 1)); s += (r - m) * (r - m); }
+        const vol = cl01(Math.sqrt(s / (k || 1)) * 14);
+        let pk = -Infinity; for (let j = Math.max(0, i - win); j <= i; j++) pk = Math.max(pk, h(j)); const ddown = cl01((pk - c(i)) / (pk || 1) * 4);
+        let mv = 0, kk = 0; for (let j = Math.max(0, i - win); j <= i; j++) { mv += v(j); kk++; } mv /= (kk || 1);
+        let sd = 0; for (let j = Math.max(0, i - win); j <= i; j++) sd += (v(j) - mv) * (v(j) - mv); sd = Math.sqrt(sd / (kk || 1)) || 1;
+        const volzRaw = (v(i) - mv) / sd; const volz = cl01(Math.abs(volzRaw) / 3);
+        const range = cl01((h(i) - l(i)) / (c(i) || 1) * 10);
+        let up = 0, dn = 0; for (let j = Math.max(1, i - 14); j <= i; j++) { const d = c(j) - c(j - 1); if (d > 0) up += d; else dn -= d; } const rs = dn === 0 ? 100 : up / dn; const rsiOsc = cl01(Math.abs((100 - 100 / (1 + rs)) - 50) / 50);
+        return { vol, ddown, volz, range, rsi: rsiOsc, volzRaw, ret: Math.log(c(i) / c(i - 1)) };
+    },
+
+    _market(sym) {
+        try {
+            const m = (typeof neoMultiState !== 'undefined') ? neoMultiState.markets[sym] : null;
+            const K = m && m.klines && m.klines.length > 40 ? m.klines : null;
+            if (!K) return null;
+            const N = K.length, i = N - 1, win = this.P.win, cl01 = this._clamp01;
+            const c = j => parseFloat(K[j][4]), h = j => parseFloat(K[j][2]), l = j => parseFloat(K[j][3]);
+            const o = this._osc(K, i, win), oPrev = this._osc(K, i - 1, win);
+            const oscVec = [o.vol, o.ddown, o.volz, o.range, o.rsi];
+            const S_local = oscVec.reduce((a, b) => a + b, 0) / 5;
+            let vv = 0; for (const x of oscVec) vv += (x - S_local) * (x - S_local); const sigma2 = vv / 5;         // asynchronie (UOTAM-voorbode)
+            const sigma2n = cl01(sigma2 / 0.25);                                                                   // -> 0..1
+            // compressie: realized-vol percentiel over ~200 bars (laag = samengedrukt)
+            const rvHist = []; for (let j = Math.max(win + 1, N - 200); j <= i; j++) { const oo = this._osc(K, j, win); rvHist.push(oo.vol); }
+            const compression = 1 - this._pctRank(rvHist, o.vol);
+            const PE = cl01(this.P.wA * sigma2n + this.P.wC * compression);
+            // snelheid (EWMA %/bar, richting) + massa
+            let ew = 0, a = 0.5; for (let j = i - this.P.velBars + 1; j <= i; j++) { const r = Math.log(c(j) / c(j - 1)) * 100; ew = a * r + (1 - a) * ew; }
+            const vel = ew;                                                                                        // %/bar
+            const mass = Math.max(0.2, 1 + Math.max(0, o.volzRaw));
+            const KE = 0.5 * mass * vel * vel;
+            // schok-subindex (release-gewogen, snel venster)
+            let retAbsAvg = 0, ck = 0; for (let j = Math.max(1, i - this.P.shockWin * 3); j <= i; j++) { retAbsAvg += Math.abs(Math.log(c(j) / c(j - 1))); ck++; } retAbsAvg = (retAbsAvg / (ck || 1)) || 1e-9;
+            const retShock = cl01(Math.abs(o.ret) / retAbsAvg / 3);
+            const volShock = cl01(Math.max(0, o.volzRaw) / 3);
+            const ddownAccel = cl01(Math.max(0, o.ddown - oPrev.ddown) * 8);
+            const Shock = (retShock + volShock + o.range + ddownAccel) / 4;
+            // normalisatie-schaal (EWMA van magnitudes) voor KE
+            const nrm = this._norm[sym] || { ke: KE || 1e-6, shock: Shock || 1e-6 };
+            nrm.ke = 0.98 * nrm.ke + 0.02 * Math.max(KE, 1e-6); nrm.shock = 0.98 * nrm.shock + 0.02 * Math.max(Shock, 1e-6); this._norm[sym] = nrm;
+            const KEnorm = cl01(KE / (nrm.ke * 3));
+            const Loading = PE * (1 - KEnorm);
+            // barrières: Donchian(donch) + compressie-band (Bollinger 20,2)
+            let hi = -Infinity, lo = Infinity; for (let j = Math.max(0, i - this.P.donch); j <= i; j++) { hi = Math.max(hi, h(j)); lo = Math.min(lo, l(j)); }
+            const price = c(i);
+            const dir = Math.abs(vel) > 0.02 ? (vel > 0 ? 1 : -1) : ((m.bestSide === 'SHORT') ? -1 : (m.bestSide === 'LONG') ? 1 : (vel >= 0 ? 1 : -1));
+            const barrierPrice = dir > 0 ? hi : lo;
+            const dist = Math.abs(barrierPrice - price) / price * 100;                                             // % tot barrière
+            const reach = this.P.k1 * Math.abs(vel) + this.P.k2 * Math.sqrt(Math.max(0, this.P.eta * PE * Shock));  // % bereik
+            const reachable = dist <= reach;
+            const etaBars = dist / Math.max(Math.abs(vel), 1e-3);
+            const etaMin = Math.min(this.P.maxEtaMin, etaBars * this.P.barMin);
+            // gekalibreerde breakpoint-kans
+            const reachMargin = (reach - dist) / Math.max(dist, 1e-3);
+            const z = this.P.a0 + this.P.aL * Loading + this.P.aShk * Shock + this.P.aReach * cl01(reachMargin);
+            let pBreak = 1 / (1 + Math.exp(-z));
+            pBreak = this._calibrate(pBreak);
+            return {
+                sym, price, ts: Date.now(),
+                sigma2: +sigma2.toFixed(5), asynchrony: +sigma2n.toFixed(4), compression: +compression.toFixed(4),
+                PE: +PE.toFixed(4), KE: +KE.toFixed(5), KEnorm: +KEnorm.toFixed(4), velocity: +vel.toFixed(4), mass: +mass.toFixed(3),
+                Loading: +Loading.toFixed(4), Shock: +Shock.toFixed(4), localStress: +S_local.toFixed(4),
+                dir, barrierPrice: +barrierPrice.toFixed(price < 10 ? 4 : 2), distPct: +dist.toFixed(3), reachPct: +reach.toFixed(3),
+                reachable, etaMin: +etaMin.toFixed(1), pBreak: +pBreak.toFixed(4)
+            };
+        } catch (e) { return null; }
+    },
+
+    _calibrate(p) {
+        try { const b = Math.max(0, Math.min(9, Math.floor(p * 10))); const c = this.calib[b]; if (c && c.n >= 12) { return 0.5 * p + 0.5 * (c.hits / c.n); } } catch (e) {}
+        return p;
+    },
+
+    update() {
+        try {
+            const now = Date.now();
+            if (now - this._lastUpd < 9000) return; this._lastUpd = now;
+            const snap = { ts: now, markets: {}, system: null };
+            const shocks = [], loads = [];
+            for (const sym of this.SYMS) {
+                const r = this._market(sym); if (!r) continue;
+                this.state[sym] = r; snap.markets[sym] = r; shocks.push(r.Shock); loads.push(r.Loading);
+                this._maybeFire(r, now);
+            }
+            // systeem: synchronie/besmetting
+            if (shocks.length >= 2) {
+                const meanShock = shocks.reduce((a, b) => a + b, 0) / shocks.length;
+                const disp = this._std(shocks);
+                const sync = this._clamp01(meanShock * 2) * (1 - this._clamp01(disp / (meanShock + 0.05)));
+                const contagion = meanShock > 0.35 && sync > 0.5 && (loads.reduce((a, b) => a + b, 0) / loads.length) > 0.2;
+                snap.system = { meanShock: +meanShock.toFixed(4), shockDispersion: +disp.toFixed(4), sync: +sync.toFixed(4), contagion };
+                this.system = snap.system;
+            }
+            this._resolve(now);
+            this.log.unshift(snap); if (this.log.length > 600) this.log.pop();
+            if (now % 60000 < 10000) this._save();
+        } catch (e) {}
+    },
+
+    // vuur een voorspelling af zodra p_break de drempel haalt en er nog geen open voorspelling
+    // voor deze munt loopt. Legt alles vast wat nodig is om 'm later te scoren.
+    _maybeFire(r, now) {
+        try {
+            if (r.pBreak < this.P.fireP || !r.reachable) return;
+            if (this.predictions.some(p => p.sym === r.sym)) return;   // al een open voorspelling
+            this.predictions.push({
+                id: r.sym + '-' + now, sym: r.sym, tsFired: now, entryPrice: r.price, dir: r.dir,
+                barrierPrice: r.barrierPrice, distPct: r.distPct, etaMin: r.etaMin, deadline: now + r.etaMin * 60000,
+                pBreak: r.pBreak, features: { PE: r.PE, KE: r.KE, Loading: r.Loading, Shock: r.Shock, asynchrony: r.asynchrony, compression: r.compression, reachPct: r.reachPct },
+                extremeReached: r.price, hit: null
+            });
+        } catch (e) {}
+    },
+
+    // scoor open voorspellingen: barrière in de richting geraakt vóór de deadline = hit
+    _resolve(now) {
+        try {
+            const still = [];
+            for (const p of this.predictions) {
+                const m = (typeof neoMultiState !== 'undefined') ? neoMultiState.markets[p.sym] : null;
+                const px = m && m.lastPrice != null ? m.lastPrice : null;
+                if (px != null) p.extremeReached = p.dir > 0 ? Math.max(p.extremeReached, px) : Math.min(p.extremeReached, px);
+                const hit = px != null && (p.dir > 0 ? px >= p.barrierPrice : px <= p.barrierPrice);
+                if (hit) { p.hit = 1; p.resolvedTs = now; p.timeToHitMin = +((now - p.tsFired) / 60000).toFixed(1); this._score(p); this.resolved.unshift(p); }
+                else if (now > p.deadline) { p.hit = 0; p.resolvedTs = now; p.timeToHitMin = null; this._score(p); this.resolved.unshift(p); }
+                else still.push(p);
+            }
+            this.predictions = still;
+            if (this.resolved.length > 800) this.resolved.length = 800;
+        } catch (e) {}
+    },
+    _score(p) {
+        try { const b = Math.max(0, Math.min(9, Math.floor(p.pBreak * 10))); const c = this.calib[b] || { n: 0, hits: 0, pSum: 0 }; c.n++; c.hits += p.hit; c.pSum += p.pBreak; this.calib[b] = c; } catch (e) {}
+    },
+
+    // samenvattende validatie-metrieken (hit-rate, Brier, kalibratietabel)
+    metrics() {
+        try {
+            const R = this.resolved; const n = R.length;
+            if (!n) return { n: 0 };
+            const hits = R.reduce((a, p) => a + (p.hit || 0), 0);
+            const brier = R.reduce((a, p) => a + (p.pBreak - p.hit) * (p.pBreak - p.hit), 0) / n;
+            const calib = Object.keys(this.calib).sort().map(b => { const c = this.calib[b]; return { bin: +b / 10, n: c.n, voorspeld: +(c.pSum / c.n).toFixed(3), werkelijk: +(c.hits / c.n).toFixed(3) }; });
+            const byMkt = {}; for (const s of this.SYMS) { const g = R.filter(p => p.sym === s); if (g.length) byMkt[s] = { n: g.length, hitRate: +(g.reduce((a, p) => a + p.hit, 0) / g.length).toFixed(3) }; }
+            return { n, hitRate: +(hits / n).toFixed(3), brier: +brier.toFixed(4), perMarkt: byMkt, kalibratie: calib };
+        } catch (e) { return { n: 0 }; }
+    },
+
+    exportBundle() {
+        return {
+            exportedAt: new Date().toISOString(), params: this.P,
+            huidig: this.state, systeem: this.system || null,
+            openVoorspellingen: this.predictions, afgerondeVoorspellingen: this.resolved.slice(0, 400),
+            kalibratie: this.calib, metrieken: this.metrics(), log: this.log.slice(0, 400),
+            uitleg: 'PE=potentiele energie (asynchronie σ² + compressie); KE=½·massa·snelheid²; Loading=PE·(1-KEnorm); Shock=release-gewogen schok-subindex; Sync=synchronie/besmetting; pBreak=gekalibreerde kans dat de dichtstbijzijnde barrière binnen ETA in de richting van v geraakt wordt.'
+        };
+    },
+
+    _save() { try { localStorage.setItem('osirisKineticLog', JSON.stringify({ log: this.log.slice(0, 400), predictions: this.predictions, resolved: this.resolved.slice(0, 400), calib: this.calib, norm: this._norm, ts: Date.now() })); } catch (e) {} },
+    _restore() { try { const raw = localStorage.getItem('osirisKineticLog'); if (!raw) return; const d = JSON.parse(raw); if (!d) return; this.log = d.log || []; this.predictions = d.predictions || []; this.resolved = d.resolved || []; this.calib = d.calib || {}; this._norm = d.norm || {}; } catch (e) {} }
+};
+window.OsirisKinetic = OsirisKinetic;
+try { OsirisKinetic._restore(); } catch (e) {}
+// losse download van de volledige kinetische dataset (voorspellingen + scoring + log)
+function downloadKineticData() { try { _downloadJSON(OsirisKinetic.exportBundle(), `osiris_kinetic_${Date.now()}.json`); } catch (e) { try { alert('Kinetic-export mislukt: ' + e.message); } catch (x) {} } }
+window.downloadKineticData = downloadKineticData;
+
 // OSIRIS · RL EXIT/HOLD-AGENT (16-08) - lokaal, geen backend
 // Tabular Q-learning over gediscretiseerde toestand (regime × pnl × momentum ×
 // leeftijd). Acties: HOLD · SLUIT · TRAIL · SCHAAL. De zware buffer-replay
@@ -9820,6 +10037,7 @@ function multiRoundRobinTick() {
         try { osirisAutoTune(); } catch (e) {}
         try { osirisAdaptiveLearn(); } catch (e) {}
         try { osirisRLTick(); } catch (e) {}
+        try { if (typeof OsirisKinetic !== 'undefined') OsirisKinetic.update(); } catch (e) {}   // kinetische breakpoint-engine + validatie
         try { osirisTuneLearningThreshold(); } catch (e) {}
         // sub-brein presets-overzicht bijwerken
         try { renderSubBrainPresets(); } catch (e) {}
