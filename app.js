@@ -5468,7 +5468,8 @@ function downloadAllData() {
         margin: (typeof marginState !== 'undefined') ? {
             enabled: marginEngineEnabled, leverage: marginLeverage, minProb: MARGIN_MIN_PROB, targetMult: MARGIN_TARGET_MULT, fsoPause: MARGIN_FSO_PAUSE,
             equity: (typeof marginEquity === 'function' ? marginEquity() : marginState.equity),
-            equitySource: marginState.equitySource || 'sim', walletBalance: marginState.walletBalance != null ? marginState.walletBalance : null, equitySyncedAt: marginState.equitySyncedAt || null, hasFuturesKeys: (typeof marginKeys === 'function' ? !!marginKeys().apiKey : null),
+            equitySource: marginState.equitySource || 'sim', walletBalance: marginState.walletBalance != null ? marginState.walletBalance : null, exchangeStart: marginState.exchangeStart != null ? marginState.exchangeStart : null, equitySyncedAt: marginState.equitySyncedAt || null, hasFuturesKeys: (typeof marginKeys === 'function' ? !!marginKeys().apiKey : null),
+            wsState: marginState.wsState || null, wsReconnects: marginState.wsReconnects || 0, wsLastError: marginState.wsLastError || null,
             realizedPnL: marginState.realizedPnL, wins: marginState.wins, losses: marginState.losses,
             openPositions: marginState.positions, closed: marginState.closed, tradeLog: marginState.tradeLog.slice(0, 200),
             reasoning: marginState.reasoning, adaptation: marginState.adaptation, startEquity: marginState.startEquity, startTime: marginState.startTime
@@ -5695,7 +5696,11 @@ function syncMarginWallet() {
     try {
         const set = (id, v, col) => { const e = document.getElementById(id); if (e) { e.innerHTML = v; if (col) e.style.color = col; } };
         const eq = marginEquity();
-        const pnl = eq - marginState.startEquity;
+        // P/L t.o.v. de juiste baseline: in exchange-modus het echte futures-startsaldo
+        // (exchangeStart), anders het lokale startEquity. Voorkomt onzin-P/L wanneer de
+        // equity uit een groot testnet-futures-saldo komt.
+        const baseline = (marginState.equitySource === 'exchange' && marginState.exchangeStart != null) ? marginState.exchangeStart : marginState.startEquity;
+        const pnl = eq - baseline;
         set('m-leverage', marginLeverage + 'x'); set('m-lev2', marginLeverage + 'x');
         set('m-pnl', `\u20ae${pnl.toFixed(2)}`, pnl >= 0 ? '#14f195' : '#ff8a94');
         const totC = marginState.wins + marginState.losses;
@@ -5705,11 +5710,22 @@ function syncMarginWallet() {
         const rt = Math.max(0, Date.now() - marginState.startTime); const hh = String(Math.floor(rt / 3600000)).padStart(2, '0'), mm = String(Math.floor(rt / 60000) % 60).padStart(2, '0'), ss = String(Math.floor(rt / 1000) % 60).padStart(2, '0');
         set('m-runtime', `${hh}:${mm}:${ss}`);
         set('m-last-action', marginState.lastAction || '\u2014');
+        // WS-verbindingsstatus (futures-testnet) - toont of de echte-fill-verbinding leeft
+        const keyedNow = (() => { try { return !!marginKeys().apiKey; } catch (e) { return false; } })();
+        const wsSt = marginState.wsState || (keyedNow ? 'disconnected' : 'geen keys');
+        const wsCol = wsSt === 'connected' ? '#14f195' : wsSt === 'connecting' ? '#ffb627' : '#ff8a94';
+        const wsTxt = !keyedNow ? '<span style="color:#7d99ac;">\u25cc geen futures-keys (sim)</span>'
+            : `<span style="color:${wsCol};">${wsSt === 'connected' ? '\u25cf' : wsSt === 'connecting' ? '\u25d0' : '\u25cb'} futures-WS ${wsSt}</span>${marginState.wsReconnects ? ` <span style="color:var(--dim);">\u00b7 ${marginState.wsReconnects} reconnects</span>` : ''}`;
+        set('m-ws', wsTxt);
+        // badge: echte testnet-fill (groen) vs. simulatie (amber)
+        const fillBadge = (real) => real
+            ? '<span title="Echte order-fill van het Binance futures-testnet-account" style="color:#14f195; font-size:0.9em;">\u2713 testnet</span>'
+            : '<span title="Gesimuleerd op de live prijsfeed - geen echte futures-order" style="color:#ffb627; font-size:0.9em;">~ sim</span>';
         const dp = (v) => (v != null && v < 10) ? v.toFixed(3) : (v != null ? v.toFixed(2) : '\u2014');
         const feed = document.getElementById('m-feed');
         if (feed) {
             if (!marginState.tradeLog.length) feed.innerHTML = marginEngineEnabled ? '<span class="muted">wacht op eerste margin-trade\u2026</span>' : 'Margin-engine staat uit.';
-            else feed.innerHTML = marginState.tradeLog.slice(0, 20).map(t => { const tm = new Date(t.ts).toLocaleTimeString(); const col = t.action === 'ENTRY' ? '#7fd8ff' : ((t.pnl || 0) >= 0 ? '#14f195' : '#ff8a94'); const extra = t.action === 'ENTRY' ? `${t.leverage}x` : `${((t.pnl || 0) * 100).toFixed(2)}% ${t.reason || ''}`; return `<div style="color:${col}">${tm} \u00b7 ${t.action} ${t.sym} ${t.side} @ ${dp(t.price)} \u00b7 ${extra}</div>`; }).join('');
+            else feed.innerHTML = marginState.tradeLog.slice(0, 20).map(t => { const tm = new Date(t.ts).toLocaleTimeString(); const col = t.action === 'ENTRY' ? '#7fd8ff' : ((t.pnl || 0) >= 0 ? '#14f195' : '#ff8a94'); const extra = t.action === 'ENTRY' ? `${t.leverage}x` : `${((t.pnl || 0) * 100).toFixed(2)}% ${t.reason || ''}`; return `<div style="color:${col}">${tm} \u00b7 ${t.action} ${t.sym} ${t.side} @ ${dp(t.price)} \u00b7 ${extra} \u00b7 ${fillBadge(t.filled === true)}</div>`; }).join('');
         }
         set('m-reasoning', marginState.reasoning.length ? marginState.reasoning.slice(0, 40).map(r => `<div>${new Date(r.ts).toLocaleTimeString('nl-NL')} \u00b7 ${r.txt}</div>`).join('') : '<span style="color:var(--dim);">Wacht op beredenering\u2026</span>');
         set('m-adaptation', marginState.adaptation.length ? marginState.adaptation.slice(0, 40).map(r => `<div>\u21bb ${new Date(r.ts).toLocaleTimeString('nl-NL')} \u00b7 ${r.txt}</div>`).join('') : '<span style="color:var(--dim);">Nog geen aanpassingen\u2026</span>');
@@ -5722,7 +5738,7 @@ function syncMarginWallet() {
                 const lev = raw * p.leverage; const sc = p.side === 'SHORT' ? '#ff8a94' : '#14f195'; const pc = lev >= 0 ? '#14f195' : '#ff8a94';
                 const tijd = new Date(p.openTime).toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(',', '');
                 return '<tr style="border-top:1px solid var(--line);">'
-                    + '<td style="padding:6px;"><span style="color:#c792ea;">OSIRIS \u00b7 MARGIN</span> <span style="color:#ffb627;">' + p.leverage + 'x</span></td>'
+                    + '<td style="padding:6px;"><span style="color:#c792ea;">OSIRIS \u00b7 MARGIN</span> <span style="color:#ffb627;">' + p.leverage + 'x</span> ' + fillBadge(p.entryFilled === true) + '</td>'
                     + '<td style="color:#c792ea;">' + p.sym + '</td>'
                     + '<td style="text-align:center; color:' + sc + '; font-weight:bold;">' + p.side + '</td>'
                     + '<td style="text-align:center;">$' + dp(p.entryPrice) + '</td>'
@@ -5738,7 +5754,7 @@ function syncMarginWallet() {
         const crows = document.getElementById('m-closed-rows');
         if (crows) {
             if (!marginState.closed.length) crows.innerHTML = '<tr><td colspan="6" style="color:var(--dim); padding:8px;">Nog geen gesloten margin-trades.</td></tr>';
-            else crows.innerHTML = marginState.closed.slice(0, 30).map(t => { const pc = (t.pnl || 0) >= 0 ? '#14f195' : '#ff8a94'; return `<tr style="border-top:1px solid var(--line);"><td style="padding:6px;">${new Date(t.ts).toLocaleTimeString()}</td><td style="text-align:center; color:#c792ea;">${t.sym}</td><td style="text-align:center;">${t.side}</td><td style="text-align:center;">${t.leverage}x</td><td style="text-align:center; color:var(--dim);">${t.reason}</td><td style="text-align:center; color:${pc};">${(t.pnl * 100).toFixed(2)}% (\u20ae${(t.pnlUSD || 0).toFixed(2)})</td></tr>`; }).join('');
+            else crows.innerHTML = marginState.closed.slice(0, 30).map(t => { const pc = (t.pnl || 0) >= 0 ? '#14f195' : '#ff8a94'; return `<tr style="border-top:1px solid var(--line);"><td style="padding:6px;">${new Date(t.ts).toLocaleTimeString()}</td><td style="text-align:center; color:#c792ea;">${t.sym}</td><td style="text-align:center;">${t.side}</td><td style="text-align:center;">${t.leverage}x</td><td style="text-align:center; color:var(--dim);">${t.reason} \u00b7 ${fillBadge(t.filled === true)}</td><td style="text-align:center; color:${pc};">${(t.pnl * 100).toFixed(2)}% (\u20ae${(t.pnlUSD || 0).toFixed(2)})</td></tr>`; }).join('');
         }
         const tg = document.getElementById('m-toggle'); if (tg) { tg.textContent = marginEngineEnabled ? 'MARGIN AAN' : 'MARGIN UIT'; tg.style.color = marginEngineEnabled ? '#14f195' : '#7d99ac'; }
         // Exit-bijdrage · margin (verdeling van exit-redenen over gesloten trades)
@@ -8913,15 +8929,22 @@ window.saveMarginKeys = saveMarginKeys;
 // Gesigneerde REST-call tegen de futures-testnet (HMAC-SHA256, hergebruikt hmacSha256Hex).
 // --- Futures WebSocket-API (ws-fapi/v1): geen CORS, net als de spot-WS ---
 const MARGIN_WS_URL = 'wss://testnet.binancefuture.com/ws-fapi/v1';
-let _mws = null, _mwsConnecting = null, _mwsId = 0;
+let _mws = null, _mwsConnecting = null, _mwsId = 0, _mwsKeepalive = null;
 const _mwsPending = new Map();
+// WS-toestand voor de UI/export (connected / connecting / disconnected + tellers).
+function _mwsSetState(s, err) { try { marginState.wsState = s; if (err) marginState.wsLastError = err; if (s === 'connected') marginState.wsConnectedAt = Date.now(); } catch (e) {} }
+// verbind (of hergebruik) de futures-WS. Met een harde connect-timeout zodat _mwsConnecting
+// nooit eeuwig blijft hangen als 'open' nooit komt (dat blokkeerde anders alle latere calls).
 function ensureMarginWs() {
     if (_mws && _mws.readyState === WebSocket.OPEN) return Promise.resolve();
     if (_mwsConnecting) return _mwsConnecting;
+    _mwsSetState('connecting');
     _mwsConnecting = new Promise((resolve, reject) => {
         let settled = false;
-        let sock; try { sock = new WebSocket(MARGIN_WS_URL); } catch (e) { _mwsConnecting = null; reject(e); return; }
-        sock.onopen = () => { settled = true; _mws = sock; _mwsConnecting = null; resolve(); };
+        const finish = (ok, err) => { if (settled) return; settled = true; _mwsConnecting = null; if (ok) resolve(); else reject(err); };
+        let sock; try { sock = new WebSocket(MARGIN_WS_URL); } catch (e) { _mwsSetState('disconnected', e.message); finish(false, e); return; }
+        const to = setTimeout(() => { if (!settled) { try { sock.close(); } catch (e) {} _mwsSetState('disconnected', 'connect-timeout'); finish(false, new Error('WS connect-timeout (8s)')); } }, 8000);
+        sock.onopen = () => { clearTimeout(to); _mws = sock; _mwsSetState('connected'); finish(true); };
         sock.onmessage = (ev) => {
             let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
             const pend = msg.id != null ? _mwsPending.get(msg.id) : null; if (!pend) return;
@@ -8929,28 +8952,62 @@ function ensureMarginWs() {
             if (msg.status === 200) pend.resolve(msg.result);
             else pend.reject(new Error(`Futures ${msg.status}: ${msg.error && msg.error.msg || 'onbekende fout'} (code ${msg.error && msg.error.code || '?'})`));
         };
-        sock.onerror = () => { try { logNetworkError('futures-WS', 'verbinding met testnet.binancefuture.com mislukt'); } catch (e) {} if (!settled) { settled = true; _mwsConnecting = null; reject(new Error('WebSocket-verbinding met testnet.binancefuture.com mislukt')); } };
-        sock.onclose = () => { try { if (typeof navigator !== 'undefined' && !navigator.onLine) logNetworkError('futures-WS', 'WS gesloten terwijl offline'); } catch (e) {} _mws = null; _mwsConnecting = null; for (const [, pp] of _mwsPending) pp.reject(new Error('Futures-WS gesloten')); _mwsPending.clear(); };
+        sock.onerror = () => { try { logNetworkError('futures-WS', 'verbinding met testnet.binancefuture.com mislukt'); } catch (e) {} clearTimeout(to); _mwsSetState('disconnected', 'verbinding mislukt'); finish(false, new Error('WebSocket-verbinding met testnet.binancefuture.com mislukt')); };
+        sock.onclose = () => { clearTimeout(to); try { if (typeof navigator !== 'undefined' && !navigator.onLine) logNetworkError('futures-WS', 'WS gesloten terwijl offline'); } catch (e) {} if (_mws === sock) _mws = null; _mwsConnecting = null; _mwsSetState('disconnected', 'gesloten'); for (const [, pp] of _mwsPending) pp.reject(new Error('Futures-WS gesloten')); _mwsPending.clear(); finish(false, new Error('Futures-WS gesloten tijdens verbinden')); };
     });
     return _mwsConnecting;
 }
+// AUTO-RECONNECT: bij een verbindingsfout (val weg / gesloten / timeout) forceren we een
+// nieuwe socket en proberen we de call opnieuw, met oplopende backoff. Echte API-fouten
+// (bv. -2019 onvoldoende marge) worden NIET herhaald - die gooien meteen door.
 async function marginWsRequest(method, params, signed) {
-    await ensureMarginWs();
-    const k = marginKeys();
-    const p = {}; for (const [kk, vv] of Object.entries(params || {})) p[kk] = String(vv);
-    if (signed) {
-        if (!k.apiKey || !k.secret) throw new Error('geen futures-keys');
-        p.apiKey = k.apiKey; p.timestamp = String(Date.now()); p.recvWindow = '10000';
-        const payload = Object.keys(p).sort().map(x => `${x}=${p[x]}`).join('&');
-        p.signature = await hmacSha256Hex(k.secret, payload);
+    let lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            await ensureMarginWs();
+            const k = marginKeys();
+            const p = {}; for (const [kk, vv] of Object.entries(params || {})) p[kk] = String(vv);
+            if (signed) {
+                if (!k.apiKey || !k.secret) throw new Error('geen futures-keys');
+                p.apiKey = k.apiKey; p.timestamp = String(Date.now()); p.recvWindow = '10000';
+                const payload = Object.keys(p).sort().map(x => `${x}=${p[x]}`).join('&');
+                p.signature = await hmacSha256Hex(k.secret, payload);
+            }
+            const id = `osiris-m-${_mwsId++}`;
+            return await new Promise((resolve, reject) => {
+                _mwsPending.set(id, { resolve, reject });
+                setTimeout(() => { if (_mwsPending.has(id)) { _mwsPending.delete(id); reject(new Error(`timeout (15s) op ${method}`)); } }, 15000);
+                try { _mws.send(JSON.stringify({ id, method, params: p })); } catch (e) { _mwsPending.delete(id); reject(e); }
+            });
+        } catch (e) {
+            lastErr = e; const msg = String((e && e.message) || e || '');
+            const connIssue = /gesloten|mislukt|timeout|connect|offline|geen futures-keys/i.test(msg) && !/geen futures-keys/i.test(msg);
+            if (connIssue && attempt < 2) {
+                try { if (_mws) _mws.close(); } catch (x) {} _mws = null; _mwsConnecting = null;
+                try { marginState.wsReconnects = (marginState.wsReconnects || 0) + 1; } catch (x) {}
+                await new Promise(r => setTimeout(r, [400, 1500][attempt] || 1500));   // backoff
+                continue;
+            }
+            throw e;
+        }
     }
-    const id = `osiris-m-${_mwsId++}`;
-    return new Promise((resolve, reject) => {
-        _mwsPending.set(id, { resolve, reject });
-        setTimeout(() => { if (_mwsPending.has(id)) { _mwsPending.delete(id); reject(new Error(`timeout (15s) op ${method}`)); } }, 15000);
-        try { _mws.send(JSON.stringify({ id, method, params: p })); } catch (e) { _mwsPending.delete(id); reject(e); }
-    });
+    throw lastErr;
 }
+// KEEPALIVE: check elke 30s of de socket nog leeft; is-ie dicht en zijn er keys + een
+// draaiende engine (of open posities), dan meteen opnieuw verbinden - zodat een korte
+// netwerkonderbreking automatisch herstelt zonder dat je iets hoeft te doen.
+function startMarginWsKeepalive() {
+    if (_mwsKeepalive) return;
+    _mwsKeepalive = setInterval(() => {
+        try {
+            if (!marginKeys().apiKey) return;
+            if (!marginEngineEnabled && (!marginState.positions || marginState.positions.length === 0)) return;
+            if (!_mws || _mws.readyState !== WebSocket.OPEN) { ensureMarginWs().catch(() => {}); }
+        } catch (e) {}
+    }, 30000);
+}
+window.startMarginWsKeepalive = startMarginWsKeepalive;
+try { window.addEventListener('DOMContentLoaded', () => setTimeout(startMarginWsKeepalive, 4000)); } catch (e) {}
 // Leverage wijzigen kan alleen via REST (CORS-geblokkeerd vanuit de browser). Stel de
 // leverage per munt in de futures-testnet-UI in; Osiris gebruikt zijn interne leverage-
 // getal voor sizing/P&L. Deze functie is daarom een no-op-registratie.
@@ -9007,7 +9064,12 @@ async function marginSyncEquityFromExchange() {
         if (acc && Array.isArray(acc.assets)) { const u = acc.assets.find(a => a.asset === 'USDT'); if (u) bal = parseFloat(u.walletBalance != null ? u.walletBalance : (u.marginBalance || 0)); }
         if (bal == null && acc && acc.totalWalletBalance != null) bal = parseFloat(acc.totalWalletBalance);
         if (bal != null && isFinite(bal) && bal > 0) {
+            // FIX (20-08): meet P/L t.o.v. het ECHTE startsaldo van het futures-account (dat
+            // begint doorgaans op ~15000 USDT, niet op de lokale 1000). Zonder deze baseline
+            // toonde P/L = saldo - 1000 een onzin-winst. exchangeStart wordt één keer vastgelegd.
+            if (marginState.exchangeStart == null) { marginState.exchangeStart = bal; }
             marginState.walletBalance = bal; marginState.equity = bal; marginState.equitySource = 'exchange'; marginState.equitySyncedAt = Date.now();
+            marginState.realizedPnL = bal - marginState.exchangeStart;   // gerealiseerd = echt saldoverschil
             try { marginSave(); } catch (e) {}
             return true;
         }
@@ -9081,7 +9143,13 @@ async function marginTick() {
             if (m.bestProb < MINP) continue;
             const avail = Math.max(0, 1 - marginAllocatedPct() - 0.1);
             const sizePct = Math.min(0.35, avail); if (sizePct < 0.05) continue;
-            const marginUSD = marginEquity() * sizePct;
+            // FIX (20-08, runaway-P/L): size op de GEREALISEERDE equity (marginState.equity),
+            // niet op marginEquity() (die de open unrealized meetelt). Anders pyramideer je
+            // positiegrootte bovenop nog-niet-gerealiseerde winst - exact wat de spot-engine
+            // bewust vermijdt (sizing tegen Balance). In combinatie met de oude fill-loop liep
+            // de equity zo op tot onrealistische waarden.
+            const sizingBase = (marginState.equity != null && marginState.equity > 0) ? marginState.equity : marginEquity();
+            const marginUSD = sizingBase * sizePct;
             const notional = marginUSD * marginLeverage;                                          // leverage!
             const price = m.lastPrice; let qty = marginRoundQty(binSym, notional / price);
             if (!(qty > 0)) { _marginLog('reasoning', `${sym}: hoeveelheid te klein (${(notional / price).toFixed(4)}) na afronding - overslaan`); continue; }
@@ -9285,7 +9353,7 @@ window.resetMarginWallet = resetMarginWallet;
 
 function setMarginEngine(on) {
     marginEngineEnabled = !!on; window.marginEngineEnabled = marginEngineEnabled;
-    if (on) { try { marginLoadPrec(); } catch (e) {} try { marginReconcile(); } catch (e) {} }
+    if (on) { try { startMarginWsKeepalive(); } catch (e) {} try { ensureMarginWs().catch(() => {}); } catch (e) {} try { marginLoadPrec(); } catch (e) {} try { marginReconcile(); } catch (e) {} }
     try { localStorage.setItem('osirisMarginEnabled', on ? '1' : '0'); } catch (e) {}
     _marginLog('adaptation', on ? 'Margin-engine AAN (futures-testnet)' : 'Margin-engine UIT');
 }
