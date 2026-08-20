@@ -5699,7 +5699,7 @@ function syncMarginWallet() {
         set('m-leverage', marginLeverage + 'x'); set('m-lev2', marginLeverage + 'x');
         set('m-pnl', `\u20ae${pnl.toFixed(2)}`, pnl >= 0 ? '#14f195' : '#ff8a94');
         const totC = marginState.wins + marginState.losses;
-        set('m-winrate', totC ? `${(marginState.wins / totC * 100 | 0)}%` : '\u2014');
+        set('m-winrate', totC ? `${(marginState.wins / totC * 100 | 0)}% <span style="font-size:0.62em; color:var(--dim);">(${marginState.wins}W / ${marginState.losses}L \u00b7 ${totC})</span>` : '\u2014');
         set('m-open', marginState.positions.length);
         set('m-equity', `\u20ae${eq.toFixed(2)}`);
         const rt = Math.max(0, Date.now() - marginState.startTime); const hh = String(Math.floor(rt / 3600000)).padStart(2, '0'), mm = String(Math.floor(rt / 60000) % 60).padStart(2, '0'), ss = String(Math.floor(rt / 1000) % 60).padStart(2, '0');
@@ -5728,7 +5728,7 @@ function syncMarginWallet() {
                     + '<td style="text-align:center;">$' + dp(p.entryPrice) + '</td>'
                     + '<td style="text-align:center; color:var(--dim);">' + tijd + '</td>'
                     + '<td style="text-align:center;">\u20ae' + p.notional.toFixed(2) + '</td>'
-                    + '<td style="text-align:center;">' + Math.min(100, p.sizePct * 100).toFixed(1) + '% <span style="color:var(--dim);">(' + p.leverage + 'x)</span></td>'
+                    + '<td style="text-align:center;">' + Math.min(100, (p.marginUSD / (marginEquity() || 1)) * 100).toFixed(1) + '% <span style="color:var(--dim);">(' + p.leverage + 'x)</span></td>'
                     + '<td style="text-align:center; color:' + pc + ';">' + (lev * 100).toFixed(2) + '%</td>'
                     + '<td style="text-align:center; color:' + pc + ';">\u20ae' + (p.marginUSD * lev).toFixed(2) + '</td>'
                     + '<td style="text-align:center;"><button type="button" onclick="marginCloseManual(' + i + ')" class="btn btn-ghost btn-mini" style="color:#ff8a94; border-color:rgba(255,138,148,0.4); font-size:0.72em;">SLUIT</button></td>'
@@ -8976,17 +8976,23 @@ async function marginOrder(symbol, side, qty) {
     // zodat we posities en P/L op de werkelijke futures-testnet-fill baseren i.p.v. op de lokale prijs.
     return marginWsRequest('order.place', { symbol, side, type: 'MARKET', quantity: qty, newOrderRespType: 'RESULT' }, true);
 }
-// parse een futures order.place-RESULT naar een echte fill; filled=false als er niets is gevuld.
+// parse een futures order.place-RESULT naar een echte fill.
+//   executed = de exchange HEEFT de order uitgevoerd (status FILLED/PARTIALLY of executedQty>0)
+//   filled   = executed EN we hebben een bruikbare avgPrice
+// Cruciaal: op de testnet is avgPrice bij een FILLED order soms 0. We mogen zo'n order dan
+// NIET eindeloos 'niet bevestigd - retry' geven (dat was de bug: posities bleven eeuwig open
+// en schoten voorbij hun stop). executed==true telt als afgehandeld; ontbreekt avgPrice, dan
+// valt de aanroeper terug op de lokale prijs voor de boekhouding.
 function _marginFill(r) {
     try {
         if (!r) return null;
-        const executedQty = parseFloat(r.executedQty != null ? r.executedQty : (r.origQty || 0));
-        let avg = parseFloat(r.avgPrice || 0);
-        const cumQuote = parseFloat(r.cumQuote != null ? r.cumQuote : (r.cumQ!= null ? r.cumQ : 0));
-        if ((!avg || avg === 0) && cumQuote && executedQty) avg = cumQuote / executedQty;
         const status = r.status || null;
-        if (!(executedQty > 0) || !(avg > 0)) return { filled: false, status, executedQty, avgPrice: avg || 0 };
-        return { filled: true, status, executedQty, avgPrice: avg, cumQuote: cumQuote || avg * executedQty };
+        const executedQty = parseFloat(r.executedQty != null ? r.executedQty : (r.origQty || 0)) || 0;
+        let avg = parseFloat(r.avgPrice || 0) || 0;
+        const cumQuote = parseFloat(r.cumQuote != null ? r.cumQuote : 0) || 0;
+        if (!avg && cumQuote && executedQty) avg = cumQuote / executedQty;
+        const executed = (status === 'FILLED' || status === 'PARTIALLY_FILLED') || executedQty > 0;
+        return { filled: executed && avg > 0, executed, status, executedQty, avgPrice: avg, cumQuote: cumQuote || (avg * executedQty) };
     } catch (e) { return null; }
 }
 async function marginAccount() { return marginWsRequest('account.status', {}, true); }
@@ -9088,9 +9094,10 @@ async function marginTick() {
                 const r = await marginOrder(binSym, side, qty);
                 const fill = _marginFill(r);
                 if (keyed) {
-                    // ECHTE futures-modus: alleen een positie aanmaken bij een bevestigde fill.
-                    if (!fill || !fill.filled) { _marginLog('reasoning', `${sym} ${m.bestSide} order NIET gevuld door exchange (${fill ? (fill.status || 'geen fill') : 'geen respons'}) - overslaan`); continue; }
-                    entryPrice = fill.avgPrice; filledQty = fill.executedQty; entryFilled = true;
+                    // ECHTE futures-modus: positie aanmaken zodra de exchange de order UITVOERT.
+                    // (avgPrice mag op de testnet 0 zijn -> val terug op de lokale prijs.)
+                    if (!fill || !fill.executed) { _marginLog('reasoning', `${sym} ${m.bestSide} order NIET uitgevoerd door exchange (${fill ? (fill.status || 'geen fill') : 'geen respons'}) - overslaan`); continue; }
+                    entryPrice = fill.avgPrice > 0 ? fill.avgPrice : price; filledQty = fill.executedQty > 0 ? fill.executedQty : qty; entryFilled = true;
                 } else if (fill && fill.filled) { entryPrice = fill.avgPrice; filledQty = fill.executedQty; entryFilled = true; }
                 else if (r && r.avgPrice) { entryPrice = parseFloat(r.avgPrice) || price; }
             }
@@ -9143,19 +9150,21 @@ async function marginClose(pos, price, lev, reason) {
         let exitFill = null;
         try { const r = await marginOrder(pos.symbol, closeSide, pos.qty); exitFill = _marginFill(r); }
         catch (e) { _marginLog('reasoning', `sluiten ${pos.sym} mislukt: ${e.message}`); }
-        // ECHTE futures-modus: sluit alleen af als de exchange de close-fill bevestigt. Anders
-        // NIETS boeken en de positie behouden - reconcile/volgende tick pakt het op (voorkomt
-        // fantoom-P/L wanneer de order niet echt op de testnet is uitgevoerd).
-        if (keyed && !(exitFill && exitFill.filled)) {
-            _marginLog('reasoning', `${pos.sym}: close niet bevestigd door exchange (${exitFill ? (exitFill.status || 'geen fill') : 'geen respons'}) - positie behouden, retry`);
+        // ECHTE futures-modus: alleen behouden+retry als de exchange de order NIET uitvoerde.
+        // Is de order wél uitgevoerd (FILLED, ook als avgPrice 0), dan sluiten we af - anders
+        // bleef de positie eeuwig 'niet bevestigd - retry' hangen en schoot ze voorbij haar stop.
+        if (keyed && !(exitFill && exitFill.executed)) {
+            _marginLog('reasoning', `${pos.sym}: close NIET uitgevoerd door exchange (${exitFill ? (exitFill.status || 'geen fill') : 'geen respons'}) - positie behouden, retry`);
             return;
         }
         let exitPrice = price, pnlUSD, exitFilled = false;
-        if (exitFill && exitFill.filled) {
-            exitPrice = exitFill.avgPrice; exitFilled = true;
+        if (exitFill && exitFill.executed) {
+            exitFilled = true;
+            exitPrice = exitFill.avgPrice > 0 ? exitFill.avgPrice : price;               // fallback naar lokale prijs als avgPrice ontbreekt
             const sign = pos.side === 'SHORT' ? -1 : 1;
             const entryPx = (pos.entryFillPrice != null ? pos.entryFillPrice : pos.entryPrice);
-            pnlUSD = (exitPrice - entryPx) * (exitFill.executedQty || pos.qty) * sign;   // ECHT gerealiseerd uit de fills
+            const qtyClosed = exitFill.executedQty > 0 ? exitFill.executedQty : pos.qty;
+            pnlUSD = (exitPrice - entryPx) * qtyClosed * sign;                            // ECHT gerealiseerd uit de fills
         } else {
             pnlUSD = pos.marginUSD * lev;                                                 // sim-fallback (geen keys)
         }
@@ -9247,6 +9256,32 @@ async function marginCloseManual(idx) {
     } catch (e) {}
 }
 window.marginCloseManual = marginCloseManual;
+
+// RESET margin-wallet (spiegel van resetWallet voor spot). Wist equity/P&L/telling/logs en
+// zet de starttijd opnieuw. Laat de learningLog met opzet staan (kalibratie-/leerhistorie).
+// Een optioneel invoerveld 'margin-start-equity' bepaalt het startkapitaal (default 1000).
+function resetMarginWallet() {
+    try {
+        if (marginEngineEnabled && marginState.positions.length) {
+            if (!confirm('De margin-engine staat AAN met ' + marginState.positions.length + ' open positie(s). Reset wist de lokale wallet-boekhouding (niet je futures-testnet-saldo). Doorgaan?')) return;
+        } else if (!confirm('Weet je zeker dat je de margin-wallet wilt resetten? Alle lokale margin-posities, gesloten trades en logs worden gewist.')) return;
+    } catch (e) { return; }
+    const inp = (typeof document !== 'undefined') ? document.getElementById('margin-start-equity') : null;
+    let start = inp ? parseFloat(inp.value) : NaN; if (!(start > 0)) start = 1000;
+    marginState = {
+        equity: start, startEquity: start, realizedPnL: 0, wins: 0, losses: 0,
+        positions: [], tradeLog: [], closed: [], reasoning: [], adaptation: [],
+        startTime: Date.now(), lastAction: null, _levSet: {}
+    };
+    window.marginState = marginState;
+    try { localStorage.removeItem('osirisMarginState'); } catch (e) {}
+    _marginLog('adaptation', `Margin-wallet gereset naar ₮${start.toFixed(2)}`);
+    try { marginSave(); } catch (e) {}
+    try { syncMarginWallet(); } catch (e) {}
+    // ook direct de kern-metrics verversen
+    try { const set = (id, v) => { const e = document.getElementById(id); if (e) e.innerHTML = v; }; set('m-pnl', '₮0.00'); set('m-equity', `₮${start.toFixed(2)}`); set('m-winrate', '—'); set('m-open', '0'); } catch (e) {}
+}
+window.resetMarginWallet = resetMarginWallet;
 
 function setMarginEngine(on) {
     marginEngineEnabled = !!on; window.marginEngineEnabled = marginEngineEnabled;
