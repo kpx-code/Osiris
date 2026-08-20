@@ -5468,6 +5468,7 @@ function downloadAllData() {
         margin: (typeof marginState !== 'undefined') ? {
             enabled: marginEngineEnabled, leverage: marginLeverage, minProb: MARGIN_MIN_PROB, targetMult: MARGIN_TARGET_MULT, fsoPause: MARGIN_FSO_PAUSE,
             equity: (typeof marginEquity === 'function' ? marginEquity() : marginState.equity),
+            equitySource: marginState.equitySource || 'sim', walletBalance: marginState.walletBalance != null ? marginState.walletBalance : null, equitySyncedAt: marginState.equitySyncedAt || null, hasFuturesKeys: (typeof marginKeys === 'function' ? !!marginKeys().apiKey : null),
             realizedPnL: marginState.realizedPnL, wins: marginState.wins, losses: marginState.losses,
             openPositions: marginState.positions, closed: marginState.closed, tradeLog: marginState.tradeLog.slice(0, 200),
             reasoning: marginState.reasoning, adaptation: marginState.adaptation, startEquity: marginState.startEquity, startTime: marginState.startTime
@@ -8971,10 +8972,43 @@ function marginRoundQty(symbol, qty) {
 }
 
 async function marginOrder(symbol, side, qty) {
-    return marginWsRequest('order.place', { symbol, side, type: 'MARKET', quantity: qty }, true);
+    // newOrderRespType RESULT -> de respons draagt de ECHTE fill (avgPrice/executedQty/cumQuote),
+    // zodat we posities en P/L op de werkelijke futures-testnet-fill baseren i.p.v. op de lokale prijs.
+    return marginWsRequest('order.place', { symbol, side, type: 'MARKET', quantity: qty, newOrderRespType: 'RESULT' }, true);
+}
+// parse een futures order.place-RESULT naar een echte fill; filled=false als er niets is gevuld.
+function _marginFill(r) {
+    try {
+        if (!r) return null;
+        const executedQty = parseFloat(r.executedQty != null ? r.executedQty : (r.origQty || 0));
+        let avg = parseFloat(r.avgPrice || 0);
+        const cumQuote = parseFloat(r.cumQuote != null ? r.cumQuote : (r.cumQ!= null ? r.cumQ : 0));
+        if ((!avg || avg === 0) && cumQuote && executedQty) avg = cumQuote / executedQty;
+        const status = r.status || null;
+        if (!(executedQty > 0) || !(avg > 0)) return { filled: false, status, executedQty, avgPrice: avg || 0 };
+        return { filled: true, status, executedQty, avgPrice: avg, cumQuote: cumQuote || avg * executedQty };
+    } catch (e) { return null; }
 }
 async function marginAccount() { return marginWsRequest('account.status', {}, true); }
 async function marginPositionRisk() { return marginWsRequest('account.position', {}, true); }
+
+// haal het ECHTE futures-testnet-saldo op en zet marginState.equity daarop (exchange = waarheid).
+async function marginSyncEquityFromExchange() {
+    try {
+        if (!marginKeys().apiKey) return false;
+        const acc = await marginAccount();
+        let bal = null;
+        if (acc && Array.isArray(acc.assets)) { const u = acc.assets.find(a => a.asset === 'USDT'); if (u) bal = parseFloat(u.walletBalance != null ? u.walletBalance : (u.marginBalance || 0)); }
+        if (bal == null && acc && acc.totalWalletBalance != null) bal = parseFloat(acc.totalWalletBalance);
+        if (bal != null && isFinite(bal) && bal > 0) {
+            marginState.walletBalance = bal; marginState.equity = bal; marginState.equitySource = 'exchange'; marginState.equitySyncedAt = Date.now();
+            try { marginSave(); } catch (e) {}
+            return true;
+        }
+    } catch (e) { /* stil - WS kan even weg zijn */ }
+    return false;
+}
+window.marginSyncEquityFromExchange = marginSyncEquityFromExchange;
 
 function _marginLog(kind, txt) {
     try {
@@ -9048,16 +9082,30 @@ async function marginTick() {
             _marginLastEntry[sym] = now;
             await marginSetLeverage(binSym, marginLeverage);
             const side = m.bestSide === 'SHORT' ? 'SELL' : 'BUY';
-            let entryPrice = price;
-            try { const r = await marginOrder(binSym, side, qty); if (r && r.avgPrice) entryPrice = parseFloat(r.avgPrice) || price; }
+            const keyed = !!marginKeys().apiKey;   // echte futures-modus alleen met keys
+            let entryPrice = price, filledQty = qty, entryFilled = false;
+            try {
+                const r = await marginOrder(binSym, side, qty);
+                const fill = _marginFill(r);
+                if (keyed) {
+                    // ECHTE futures-modus: alleen een positie aanmaken bij een bevestigde fill.
+                    if (!fill || !fill.filled) { _marginLog('reasoning', `${sym} ${m.bestSide} order NIET gevuld door exchange (${fill ? (fill.status || 'geen fill') : 'geen respons'}) - overslaan`); continue; }
+                    entryPrice = fill.avgPrice; filledQty = fill.executedQty; entryFilled = true;
+                } else if (fill && fill.filled) { entryPrice = fill.avgPrice; filledQty = fill.executedQty; entryFilled = true; }
+                else if (r && r.avgPrice) { entryPrice = parseFloat(r.avgPrice) || price; }
+            }
             catch (e) { _marginLog('reasoning', `${sym} ${m.bestSide} order mislukt: ${e.message}`); continue; }
+            qty = filledQty;                                        // ECHTE gevulde hoeveelheid
+            const notionalReal = entryPrice * qty;                  // notional op de echte fill
+            const marginReal = notionalReal / marginLeverage;
             const preset = (typeof MARKET_PRESETS !== 'undefined' && MARKET_PRESETS[sym]) ? MARKET_PRESETS[sym] : { stopLossPct: 0.5, microTargetPct: 0.4 };
-            const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, qty, notional, marginUSD, sizePct, leverage: marginLeverage, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100, targetPct: (preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT, entryProb: (m.bestProb * 100), regimeAtEntry: ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null),
+            const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, entryFillPrice: entryPrice, entryFilled, qty, notional: notionalReal, marginUSD: marginReal, sizePct, leverage: marginLeverage, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100, targetPct: (preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT, entryProb: (m.bestProb * 100), regimeAtEntry: ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null),
                 factorsAtEntry: (() => { try { return { vfm: m.vfm || 0, rsi: (m.rsi != null ? (m.rsi - 50) / 10 : 0), ema: (m.ema != null && m.emaSlow) ? ((m.ema - m.emaSlow) / m.emaSlow * 100) : 0, nn: 0, fundamentals: (m.fund && m.fund.fundingRate != null ? -Math.tanh(m.fund.fundingRate * 2000) * 3 : 0), chaos: m.chaos || 0 }; } catch (e) { return null; } })() };
             marginState.positions.push(pos);
-            marginState.tradeLog.unshift({ action: 'ENTRY', ts: now, sym, side: m.bestSide, price: entryPrice, notional, leverage: marginLeverage });
-            marginState.lastAction = `ENTRY ${sym} ${m.bestSide} ${marginLeverage}x @ ${entryPrice}`;
-            _marginLog('reasoning', `opent ${sym} ${m.bestSide} ${marginLeverage}x (kans ${(m.bestProb * 100 | 0)}%, $${marginUSD.toFixed(0)} margin)`);
+            marginState.tradeLog.unshift({ action: 'ENTRY', ts: now, sym, side: m.bestSide, price: entryPrice, notional: notionalReal, leverage: marginLeverage, filled: entryFilled });
+            marginState.lastAction = `ENTRY ${sym} ${m.bestSide} ${marginLeverage}x @ ${entryPrice}${entryFilled ? ' [fill]' : ' [sim]'}`;
+            _marginLog('reasoning', `opent ${sym} ${m.bestSide} ${marginLeverage}x (kans ${(m.bestProb * 100 | 0)}%, $${marginReal.toFixed(0)} margin${entryFilled ? ', echte fill @ ' + entryPrice : ', sim'})`);
+            if (entryFilled && keyed) { try { await marginSyncEquityFromExchange(); } catch (e) {} }
         }
         }   // einde entries-gate
         // exits (mirror spot: stop/target/time-stop op de leveraged pnl) - draaien ALTIJD
@@ -9091,11 +9139,31 @@ async function marginTick() {
 async function marginClose(pos, price, lev, reason) {
     try {
         const closeSide = pos.side === 'SHORT' ? 'BUY' : 'SELL';
-        try { await marginOrder(pos.symbol, closeSide, pos.qty); } catch (e) { _marginLog('reasoning', `sluiten ${pos.sym} mislukt: ${e.message}`); }
-        const pnlUSD = pos.marginUSD * lev;
+        const keyed = !!marginKeys().apiKey;
+        let exitFill = null;
+        try { const r = await marginOrder(pos.symbol, closeSide, pos.qty); exitFill = _marginFill(r); }
+        catch (e) { _marginLog('reasoning', `sluiten ${pos.sym} mislukt: ${e.message}`); }
+        // ECHTE futures-modus: sluit alleen af als de exchange de close-fill bevestigt. Anders
+        // NIETS boeken en de positie behouden - reconcile/volgende tick pakt het op (voorkomt
+        // fantoom-P/L wanneer de order niet echt op de testnet is uitgevoerd).
+        if (keyed && !(exitFill && exitFill.filled)) {
+            _marginLog('reasoning', `${pos.sym}: close niet bevestigd door exchange (${exitFill ? (exitFill.status || 'geen fill') : 'geen respons'}) - positie behouden, retry`);
+            return;
+        }
+        let exitPrice = price, pnlUSD, exitFilled = false;
+        if (exitFill && exitFill.filled) {
+            exitPrice = exitFill.avgPrice; exitFilled = true;
+            const sign = pos.side === 'SHORT' ? -1 : 1;
+            const entryPx = (pos.entryFillPrice != null ? pos.entryFillPrice : pos.entryPrice);
+            pnlUSD = (exitPrice - entryPx) * (exitFill.executedQty || pos.qty) * sign;   // ECHT gerealiseerd uit de fills
+        } else {
+            pnlUSD = pos.marginUSD * lev;                                                 // sim-fallback (geen keys)
+        }
+        const realizedLevPct = (pos.marginUSD > 0) ? (pnlUSD / pos.marginUSD) : lev;      // geleveraged rendement op de margin
         marginState.equity += pnlUSD; marginState.realizedPnL += pnlUSD;
         if (pnlUSD > 0) marginState.wins++; else marginState.losses++;
         marginState.positions = marginState.positions.filter(p => p !== pos);
+        lev = realizedLevPct;   // vanaf hier: het ECHTE geleveraged rendement gebruiken voor log/leren
         const rawPnl = lev / (pos.leverage || 1);   // unleveraged rendement (vergelijkbaar met spot)
         try {
             if (typeof learningLog !== 'undefined' && learningLog) {
@@ -9116,12 +9184,13 @@ async function marginClose(pos, price, lev, reason) {
                 try { if (typeof recalibrateAdaptiveWeights === 'function') recalibrateAdaptiveWeights(); } catch (e) {}
             }
         } catch (e) {}
-        const rec = { ts: Date.now(), sym: pos.sym, side: pos.side, price, pnl: lev, pnlUSD, reason, leverage: pos.leverage, mfe: pos.mfe, mae: pos.mae };
+        const rec = { ts: Date.now(), sym: pos.sym, side: pos.side, price: exitPrice, entryPrice: (pos.entryFillPrice != null ? pos.entryFillPrice : pos.entryPrice), qty: pos.qty, pnl: lev, pnlUSD, reason, leverage: pos.leverage, filled: exitFilled, mfe: pos.mfe, mae: pos.mae };
         marginState.closed.unshift(rec); if (marginState.closed.length > 100) marginState.closed.pop();
-        marginState.tradeLog.unshift({ action: 'EXIT', ts: Date.now(), sym: pos.sym, side: pos.side, price, pnl: lev, reason });
-        marginState.lastAction = `EXIT ${pos.sym} ${reason} ${(lev * 100).toFixed(2)}%`;
+        marginState.tradeLog.unshift({ action: 'EXIT', ts: Date.now(), sym: pos.sym, side: pos.side, price: exitPrice, pnl: lev, pnlUSD, reason, filled: exitFilled });
+        marginState.lastAction = `EXIT ${pos.sym} ${reason} ${(lev * 100).toFixed(2)}%${exitFilled ? ' [fill]' : ' [sim]'}`;
         try { marginSave(); } catch (e) {}
-        _marginLog('reasoning', `sluit ${pos.sym} · ${reason} · ${(lev * 100).toFixed(2)}% ($${pnlUSD.toFixed(2)})`);
+        _marginLog('reasoning', `sluit ${pos.sym} · ${reason} · ${(lev * 100).toFixed(2)}% ($${pnlUSD.toFixed(2)})${exitFilled ? ' [echte fill @ ' + exitPrice + ']' : ' [sim]'}`);
+        if (exitFilled && keyed) { try { await marginSyncEquityFromExchange(); } catch (e) {} }   // equity opnieuw uit exchange (waarheid)
     } catch (e) {}
 }
 window.marginTick = marginTick;
@@ -9147,8 +9216,9 @@ async function marginReconcile() {
             const entryPrice = parseFloat(pr.entryPrice || 0) || (mkt ? mkt.lastPrice : 0);
             const lev = parseInt(pr.leverage, 10) || marginLeverage;
             const qty = Math.abs(amt); const notional = qty * entryPrice;
+            const uPnlEx = parseFloat(pr.unRealizedProfit != null ? pr.unRealizedProfit : (pr.unrealizedProfit != null ? pr.unrealizedProfit : NaN));
             const ex = marginState.positions.find(p => p.symbol === symbol);
-            if (ex) { ex.entryPrice = entryPrice; ex.qty = qty; ex.notional = notional; ex.side = side; ex.leverage = lev; if (ex.marginUSD == null) ex.marginUSD = notional / lev; }
+            if (ex) { ex.entryPrice = entryPrice; ex.entryFillPrice = entryPrice; ex.entryFilled = true; ex.qty = qty; ex.notional = notional; ex.side = side; ex.leverage = lev; if (ex.marginUSD == null) ex.marginUSD = notional / lev; if (isFinite(uPnlEx)) ex.uPnl = uPnlEx; }
             else {
                 const preset = (typeof MARKET_PRESETS !== 'undefined' && MARKET_PRESETS[sym]) ? MARKET_PRESETS[sym] : { stopLossPct: 0.5, microTargetPct: 0.4 };
                 const marginUSD = notional / lev;
@@ -9160,6 +9230,7 @@ async function marginReconcile() {
         marginState.positions = marginState.positions.filter(p => live[p.symbol]);
         const removed = before - marginState.positions.length;
         if (removed > 0) _marginLog('reasoning', `reconcile: ${removed} lokale positie(s) verwijderd (niet meer op de exchange)`);
+        try { await marginSyncEquityFromExchange(); } catch (e) {}   // equity = echt futures-saldo
         try { marginSave(); } catch (e) {}
         try { syncMarginWallet(); } catch (e) {}
     } catch (e) { _marginLog('reasoning', `reconcile mislukt: ${e.message}`); }
