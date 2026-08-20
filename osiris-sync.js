@@ -101,6 +101,37 @@ async function osirisSyncPush() {
             await _sb.from('osiris_trades').upsert(exits.slice(i, i + 500), { onConflict: 'user_id,trade_id' });
         }
 
+        // 2b) MARGIN-WALLET (19-08): de margin-staat wordt al mee-gespiegeld via de
+        // OSIRIS_STATE_KEYS ('osirisMarginState'), zodat wallet/equity/open posities op
+        // een tweede apparaat teruggezet kunnen worden. Hier pushen we bovendien de
+        // GESLOTEN margin-trades als aparte rijen in dezelfde osiris_trades-tabel, zodat
+        // je margin- en spot-trades in één dataset kunt analyseren. Getagd met is_margin
+        // in 'raw' (leverage + mfe/mae), trade_id met 'margin-'-prefix zodat ze niet met
+        // de spot-trades botsen. Geen schema-wijziging nodig.
+        try {
+            const ms = (typeof marginState !== 'undefined' && marginState) ? marginState : (typeof window !== 'undefined' ? window.marginState : null);
+            const mclosed = (ms && Array.isArray(ms.closed)) ? ms.closed : [];
+            const _mById = new Map();
+            mclosed.forEach((t, idx) => {
+                const tid = 'margin-' + String(t.ts || idx) + '-' + (t.sym || 'BTC') + '-' + (t.side || '');
+                _mById.set(tid, {
+                    user_id: _sbUser.id, trade_id: tid,
+                    market: t.sym || 'BTC', side: t.side || null,
+                    is_osiris: true, is_scalp: false, is_ict: false, is_manual: t.reason === 'MANUAL',
+                    exit_price: t.price ?? null,
+                    pnl: (t.pnlUSD ?? null),                 // gerealiseerd bedrag (USD, geleveraged)
+                    pnl_pct: (t.pnl ?? null),                // geleveraged rendement (fractie)
+                    reason: t.reason || null,
+                    closed_at: t.ts ? new Date(t.ts).toISOString() : null,
+                    raw: Object.assign({ isMargin: true, leverage: t.leverage ?? null, mfe: t.mfe ?? null, mae: t.mae ?? null }, t)
+                });
+            });
+            const mexits = [..._mById.values()];
+            for (let i = 0; i < mexits.length; i += 500) {
+                await _sb.from('osiris_trades').upsert(mexits.slice(i, i + 500), { onConflict: 'user_id,trade_id' });
+            }
+        } catch (e) { console.warn('[osiris-sync] margin-trades push-fout', e); }
+
         // 3) afstandsbediening lezen -> lokaal toepassen
         const { data: ctrl } = await _sb.from('osiris_control').select('desired_running').eq('user_id', _sbUser.id).maybeSingle();
         if (ctrl) _osirisApplyDesiredRunning(ctrl.desired_running);
