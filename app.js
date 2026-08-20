@@ -422,15 +422,17 @@ async function syncWalletToTestnetBalance() {
         // gebruiker met zijn oude 1.000-kapitaal gewend was. Nu vraagt de sync
         // hoeveel van het saldo de bot mag gebruiken - de rest blijft onaangeroerd
         // op het testnet staan (de bot sized altijd vanuit zijn eigen interne balance).
+        const usdtFloor = Math.floor(usdt * 100) / 100;   // NOOIT naar boven afronden (anders > saldo)
         const input = prompt(
             `Vrij testnet-saldo: ${usdt.toFixed(2)} USDT (en ${(bal.BTC || 0).toFixed(5)} BTC voor shorts).\n\n` +
             `Hoeveel USDT mag de bot als startkapitaal gebruiken?`,
-            usdt.toFixed(2)
+            usdtFloor.toFixed(2)
         );
         if (input === null) { setTestnetStatus('Sync geannuleerd.'); return; }
-        const capital = parseFloat(input);
+        // komma-decimaal en spaties toestaan (NL-toetsenbord), en nooit meer dan het saldo
+        let capital = parseFloat(String(input).replace(/\s/g, '').replace(',', '.'));
         if (isNaN(capital) || capital <= 0) { setTestnetStatus('Ongeldig bedrag - sync geannuleerd.', true); return; }
-        if (capital > usdt) { setTestnetStatus(`Bedrag (${capital.toFixed(2)}) is hoger dan je vrije saldo (${usdt.toFixed(2)}) - sync geannuleerd.`, true); return; }
+        if (capital > usdt) capital = usdtFloor;   // klem op het vrije saldo i.p.v. annuleren
         const capitalInput = document.getElementById('start-capital');
         const currencyInput = document.getElementById('wallet-currency-select');
         if (capitalInput) capitalInput.value = capital.toFixed(2);
@@ -9384,11 +9386,14 @@ async function marginSyncWallet() {
         const u = (acc.assets || []).find(a => a.asset === 'USDT');
         const bal = u ? parseFloat(u.availableBalance || u.walletBalance || 0) : parseFloat(acc.availableBalance || acc.totalWalletBalance || 0);
         if (!(bal > 0)) { set('Geen vrij USDT-saldo op de futures-testnet.', true); return; }
-        const input = prompt(`Vrij futures-saldo: ${bal.toFixed(2)} USDT.\n\nHoeveel mag de margin-engine als startkapitaal gebruiken?`, bal.toFixed(2));
+        const balFloor = Math.floor(bal * 100) / 100;   // NOOIT naar boven afronden (anders > saldo)
+        const input = prompt(`Vrij futures-saldo: ${bal.toFixed(2)} USDT.\n\nHoeveel mag de margin-engine als startkapitaal gebruiken?`, balFloor.toFixed(2));
         if (input === null) { set('Sync geannuleerd.'); return; }
-        const cap = parseFloat(input);
-        if (isNaN(cap) || cap <= 0 || cap > bal) { set('Ongeldig bedrag - sync geannuleerd.', true); return; }
-        marginState.equity = cap; marginState.startEquity = cap; marginState.realizedPnL = 0; marginState.wins = 0; marginState.losses = 0;
+        // komma-decimaal en spaties toestaan (NL-toetsenbord), en nooit meer dan het saldo
+        let cap = parseFloat(String(input).replace(/\s/g, '').replace(',', '.'));
+        if (isNaN(cap) || cap <= 0) { set('Ongeldig bedrag - sync geannuleerd.', true); return; }
+        if (cap > bal) cap = balFloor;   // klem op het vrije saldo i.p.v. annuleren
+        marginState.equity = cap; marginState.startEquity = cap; marginState.exchangeStart = null; marginState.equitySource = 'sim'; marginState.realizedPnL = 0; marginState.wins = 0; marginState.losses = 0;
         marginState.positions = []; marginState.closed = []; marginState.tradeLog = []; marginState.startTime = Date.now();
         set(`Margin-startkapitaal: ${cap.toFixed(2)} van ${bal.toFixed(2)} USDT.`);
         try { syncMarginWallet(); } catch (e) {}
