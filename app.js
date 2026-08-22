@@ -5854,10 +5854,16 @@ function syncMarginWallet() {
         // Exit-bijdrage · margin (verdeling van exit-redenen over gesloten trades)
         const exEl = document.getElementById('m-exit-dist');
         if (exEl) {
-            if (!marginState.closed.length) exEl.innerHTML = 'Nog geen gesloten margin-trades.';
+            // (22-08) PERSISTENT: bouw de exit-bijdrage uit de learningLog (isMargin) i.p.v. uit
+            // marginState.closed — die laatste wordt bij een wallet-reset gewist, de learningLog NIET.
+            // Zo behoudt Osiris de volledige exit-historie om autonoom op te blijven kalibreren.
+            let src = [];
+            try { src = (typeof learningLog !== 'undefined' ? learningLog : []).filter(l => l.isMargin && l.exitReason && l.pnlPct != null).map(l => ({ reason: l.exitReason, pnl: l.pnlPct })); } catch (e) {}
+            if (!src.length) src = (marginState.closed || []).map(t => ({ reason: t.reason, pnl: t.pnl }));   // fallback (verse sessie)
+            if (!src.length) exEl.innerHTML = 'Nog geen gesloten margin-trades.';
             else {
-                const agg = {}; for (const t of marginState.closed) { const r = t.reason || '?'; if (!agg[r]) agg[r] = { n: 0, pnl: 0 }; agg[r].n++; agg[r].pnl += (t.pnl || 0) * 100; }
-                exEl.innerHTML = Object.keys(agg).sort((a, b) => agg[b].n - agg[a].n).map(r => { const c = agg[r].pnl >= 0 ? '#14f195' : '#ff8a94'; return `<div>${r}: <b>${agg[r].n}\\u00d7</b> \\u00b7 <span style="color:${c}">${agg[r].pnl >= 0 ? '+' : ''}${agg[r].pnl.toFixed(2)}%</span></div>`; }).join('');
+                const agg = {}; for (const t of src) { const r = t.reason || '?'; if (!agg[r]) agg[r] = { n: 0, pnl: 0 }; agg[r].n++; agg[r].pnl += (t.pnl || 0) * 100; }
+                exEl.innerHTML = `<div style="color:var(--text-dimmer); font-size:0.9em; margin-bottom:2px;">cumulatief (blijft na wallet-reset)</div>` + Object.keys(agg).sort((a, b) => agg[b].n - agg[a].n).map(r => { const c = agg[r].pnl >= 0 ? '#14f195' : '#ff8a94'; return `<div>${r}: <b>${agg[r].n}×</b> · <span style="color:${c}">${agg[r].pnl >= 0 ? '+' : ''}${agg[r].pnl.toFixed(2)}%</span></div>`; }).join('');
             }
         }
         // Equity-verdeling · margin
@@ -9585,7 +9591,27 @@ function osirisMasterBundle() {
         regimeHMM: g(() => (typeof OsirisRegimeHMM !== 'undefined' ? { label: OsirisRegimeHMM.label, prob: OsirisRegimeHMM.prob, stable: OsirisRegimeHMM.stable, means: OsirisRegimeHMM.means, trans: OsirisRegimeHMM.trans } : null)),
         shadowBacktest: g(() => (typeof OsirisShadowBacktest !== 'undefined' ? OsirisShadowBacktest.best : null)),
         systemLog: g(() => (typeof osirisSystemLog !== 'undefined' ? osirisSystemLog.slice(0, 300) : null)),
-        metricsHistory: g(() => (typeof metricsHistory !== 'undefined' ? metricsHistory : null))
+        sessionLog: g(() => (typeof sessionLog !== 'undefined' ? sessionLog : null)),   // START/STOP/SETTINGS_UPDATED — segmenteer de tradelog per configuratie
+        metricsHistory: g(() => (typeof metricsHistory !== 'undefined' ? metricsHistory : null)),
+        // Live snapshot van alle kernindicatoren op het exportmoment (BTC-hoofdmarkt)
+        liveSnapshot: g(() => {
+            const nc = (typeof getNodeContext === 'function') ? getNodeContext() : null;
+            return {
+                timestamp: new Date().toISOString(),
+                livePrice: (typeof livePrice !== 'undefined' ? livePrice : null),
+                liveVol: (typeof liveVol !== 'undefined' ? liveVol : null),
+                vfm: (typeof vfm !== 'undefined' ? vfm : null), er: (typeof er !== 'undefined' ? er : null), db: (typeof db !== 'undefined' ? db : null),
+                chaos: (typeof chaos !== 'undefined' ? chaos : null), isBullish: (typeof isBullish !== 'undefined' ? isBullish : null),
+                nodeContext: nc,
+                nodeInfluence: (typeof calculateNodeInfluence === 'function' ? calculateNodeInfluence(nc) : null),
+                momentumContext: (typeof getMomentumContext === 'function' ? getMomentumContext() : null),
+                volumeShiftPct: (typeof calculateVolumeShift === 'function' ? calculateVolumeShift(6) : null),
+                rsi14: (typeof getCurrentRSIValue === 'function' ? getCurrentRSIValue() : null),
+                maValues: (typeof getCurrentMAValues === 'function' ? getCurrentMAValues() : null),
+                linearPrediction: (typeof computeLinearPrediction === 'function' && typeof predictionHorizonMinutes !== 'undefined' ? computeLinearPrediction(predictionHorizonMinutes) : null),
+                fibConfluenceInfluence: (typeof calculateFibConfluenceInfluence === 'function' && typeof livePrice !== 'undefined' ? calculateFibConfluenceInfluence(livePrice) : null)
+            };
+        })
     };
 
     // 2) WALLETS (spot + margin)
@@ -9627,6 +9653,19 @@ function osirisMasterBundle() {
         fso: g(() => (typeof osirisStress !== 'undefined' ? { huidig: osirisStress, historie: (typeof osirisFSOLog !== 'undefined' ? osirisFSOLog.slice(0, 300) : null) } : null))
     };
 
+    // 4b) NN + NODE DATA (Osiris neuraal net + UOTAM node-grid/timing) — expliciet reviewbaar
+    C.nn_en_nodes = {
+        node_grid: g(() => (typeof allNodes !== 'undefined' ? allNodes : null)),                              // UOTAM temporele nodes (het grid dat de Fib/node-lijnen voedt)
+        node_context: g(() => (typeof getNodeContext === 'function' ? getNodeContext() : null)),              // laatste/volgende node, tijd sinds/tot, type
+        node_influence: g(() => (typeof calculateNodeInfluence === 'function' && typeof getNodeContext === 'function' ? calculateNodeInfluence(getNodeContext()) : null)),
+        fib_levels: g(() => (typeof currentFibLevels !== 'undefined' ? currentFibLevels : null)),             // MIC/MES/MAC fib-confluentie
+        nn_inputs_live: g(() => (typeof neoNetInputs === 'function' ? neoNetInputs() : null)),                // live NN-inputvector (vfm/mom/rsi/ema/cnn/node/funding…)
+        nn_per_markt: g(() => (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? Object.fromEntries(mkts.map(k => { const m = neoMultiState.markets[k]; return [k, m ? { subBrainLabel: m.subBrainLabel, nnRitmeMin: m.nnRitmeMin, nnCaps: m.nnCaps, nodeInfluence: m.nodeInfluence, bestSide: m.bestSide, bestProb: m.bestProb, brainWeights: (m.brain ? m.brain.weights : null) } : null]; })) : null),
+        deepnet_nn_output_live: g(() => (typeof OsirisDeepNet !== 'undefined' ? OsirisDeepNet.last : null)),   // live NN-uitkomst per markt (side/calProb/meta/proven/inverted)
+        neuralnet_decision: g(() => { const el = (typeof document !== 'undefined') ? document.getElementById('neo-net-out') : null; return el ? el.textContent : null; }),
+        uitleg: 'Osiris NN (Neo-net + DeepNet) inputs/outputs én de UOTAM node-grid/timing. De L1-gewichten nn/nodeconf/nodeInfluence staan onder learnings; de DeepNet-modellen onder learnings.deepnet_modellen.'
+    };
+
     // 5) LEARNINGS L1/L2/L3 + MODELLEN
     C.learnings = {
         L1_adaptiveWeights: g(() => (typeof adaptiveWeights !== 'undefined' ? adaptiveWeights : null)),
@@ -9634,7 +9673,7 @@ function osirisMasterBundle() {
         L2: g(() => (typeof _l2 !== 'undefined' && _l2 ? { trained: _l2.trained, trainedOn: _l2.trainedOn, lastTrainMs: _l2.lastTrainMs, model: _l2.model || null } : null)),
         L3: g(() => (typeof _l3 !== 'undefined' && _l3 ? { trained: _l3.trained, valAcc: _l3.valAcc, trainedOn: _l3.trainedOn, weightCap: (typeof l3WeightCap === 'function' ? l3WeightCap() : null), model: _l3.model || null } : null)),
         deepnet_modellen: g(() => dn ? Object.fromEntries(mkts.map(k => [k, dn.markets[k] ? { model: dn.markets[k].model, platt: dn.markets[k].platt, wf: dn.markets[k].wf, trainedMs: dn.markets[k].trainedMs } : null])) : null),
-        RL_model: g(() => (typeof OsirisRL !== 'undefined' ? { episodes: OsirisRL.episodes, avgReward: OsirisRL.avgReward, statesLearned: OsirisRL.statesLearned, Q: OsirisRL.Q } : null)),
+        RL_model: g(() => (typeof OsirisRL !== 'undefined' ? { episodes: OsirisRL.episodes, avgReward: OsirisRL.avgReward, statesLearned: OsirisRL.statesLearned, actionDist: OsirisRL.actionDist, lastDecision: OsirisRL.lastDecision, history: Array.isArray(OsirisRL.history) ? OsirisRL.history.slice(-200) : null, Q: OsirisRL.Q } : null)),
         selfReview: g(() => (typeof OsirisSelfReview !== 'undefined' ? OsirisSelfReview.bundle() : null)),
         learningLog: g(() => (typeof learningLog !== 'undefined' ? learningLog : null))
     };
@@ -9650,6 +9689,46 @@ function osirisMasterBundle() {
         guard_breaker: g(() => (typeof OsirisGuard !== 'undefined' ? { pausedMarkets: OsirisGuard.pausedMarkets, lastExpectancy: OsirisGuard.lastExpectancy } : null))
     };
 
+    // 6b) REASONINGS (waarom-log: spot-adaptaties + margin-redeneringen + sessie-events)
+    C.reasonings = {
+        spot_adaptaties: g(() => (typeof _adaptationLog !== 'undefined' ? _adaptationLog : null)),      // logAdaptation(): wat/waarom bij elke engine-herziening
+        margin_reasoning: g(() => (typeof marginState !== 'undefined' ? marginState.reasoning : null)),  // per-tick margin beslis-redenering
+        margin_adaptation: g(() => (typeof marginState !== 'undefined' ? marginState.adaptation : null)),// margin gewicht-/kalibratie-aanpassingen
+        margin_lastAction: g(() => (typeof marginState !== 'undefined' ? marginState.lastAction : null)),// laatste margin-actie + reden (incl. DeepNet soft-gate blokkades)
+        sessie_events: g(() => (typeof sessionLog !== 'undefined' ? sessionLog : null)),
+        self_review: g(() => (typeof OsirisSelfReview !== 'undefined' ? OsirisSelfReview.bundle() : null)),
+        uitleg: 'Alle "waarom"-verklaringen bij elkaar: waarom Osiris de engine bijstelde, waarom margin een positie wel/niet nam (incl. DeepNet-band soft-gate), en de sessie-events die de config-segmenten markeren.'
+    };
+
+    // 6c) EXIT-BIJDRAGE + EQUITY-VERDELING (persistent — berekend uit learningLog, blijft na wallet-reset)
+    const _exitDist = (isMargin) => {
+        const rows = (typeof learningLog !== 'undefined' ? learningLog : []).filter(l => l.exitReason && l.pnlPct != null && (isMargin ? l.isMargin === true : !l.isMargin));
+        if (!rows.length) return { n: 0, perReden: {} };
+        const som = {}, cnt = {};
+        rows.forEach(l => { const k = String(l.exitReason).replace('_EXIT', '').replace('PROFIT_', '').replace('SMALL_', ''); som[k] = (som[k] || 0) + l.pnlPct * 100; cnt[k] = (cnt[k] || 0) + 1; });
+        const perReden = {};
+        Object.keys(som).forEach(k => { perReden[k] = { cumulatiefPct: +som[k].toFixed(2), aantal: cnt[k], gemPct: +(som[k] / cnt[k]).toFixed(3) }; });
+        return { n: rows.length, perReden };
+    };
+    C.exit_bijdrage_en_equity = {
+        exit_bijdrage_spot: g(() => _exitDist(false)),      // cumulatieve P/L per exit-reden (spot) — overleeft wallet-reset
+        exit_bijdrage_margin: g(() => _exitDist(true)),     // idem voor margin
+        equity_verdeling_spot: g(() => {
+            const eq = (typeof getEquity === 'function') ? getEquity() : null;
+            const pos = (typeof openPositions !== 'undefined' ? openPositions : []).map(p => ({
+                id: p.id, markt: (p.isOsiris && p.symbol && typeof MULTI_BINANCE !== 'undefined') ? (Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === p.symbol) || 'BTC') : 'BTC',
+                side: p.side, type: p.isManual ? 'MANUAL' : (p.isOsiris ? 'OSIRIS' : (p.isScalp ? 'SCALP' : 'TREND')),
+                allocPct: (typeof positionAllocPct === 'function' ? positionAllocPct(p) : (typeof positionAllocPct === 'undefined' && typeof getAllocatedPct === 'function' ? null : null))
+            }));
+            return { equity: eq, geAllokeerdPct: (typeof getAllocatedPct === 'function' ? getAllocatedPct() : null), posities: pos };
+        }),
+        equity_verdeling_margin: g(() => (typeof marginState !== 'undefined' ? {
+            equity: (typeof marginEquity === 'function' ? marginEquity() : marginState.equity),
+            posities: (marginState.positions || []).map(p => ({ markt: p.market || p.symbol, side: p.side, leverage: p.leverage, notional: p.notional, margin: p.margin, allocPct: p.allocPct != null ? p.allocPct : null }))
+        } : null)),
+        uitleg: 'Exit-bijdrage wordt berekend uit learningLog (persistent) i.p.v. de wallet-buffers, zodat de cumulatieve bijdrage per exit-reden blijft bestaan na een wallet-reset en Osiris hierop kan blijven kalibreren. Equity-verdeling toont de huidige allocatie over markten/posities (spot + margin).'
+    };
+
     // 7) OVERIGE / REST
     C.rest = {
         tradeLog: g(() => (typeof botTradeLog !== 'undefined' ? botTradeLog : null)),
@@ -9657,7 +9736,7 @@ function osirisMasterBundle() {
         datasetSchema: {
             learningLog: 'timestampMs, side, market, outcome, pnlPct, exitReason, entryProbabilityPct, regimeAtEntry',
             tradeLog: 'action, price, side, pnlPct, amount, reason, notional, market, timestamp',
-            uitleg: 'Categorieën: engine, wallets(spot+margin), kalibratie_logs, market_charts_en_historie, learnings(L1/L2/L3+modellen), overige_tools, rest.'
+            uitleg: 'Categorieën: engine (incl. liveSnapshot + sessionLog), wallets(spot+margin), kalibratie_logs, market_charts_en_historie, nn_en_nodes, learnings(L1/L2/L3+modellen+RL), overige_tools, reasonings, exit_bijdrage_en_equity, rest.'
         }
     };
     return B;
@@ -10244,6 +10323,20 @@ async function marginTick() {
             try { if (typeof osirisPredictGate === 'function') { const _g = osirisPredictGate(sym, m.bestSide); if (!_g.allow) { marginState.lastAction = `${sym} overgeslagen: ${_g.reason}`; continue; } } } catch (e) {}
             // trend-alignment veto: geen counter-trend margin-entry bij een sterke trend
             try { if (typeof osirisTrendVeto === 'function') { const _tv = osirisTrendVeto(sym, m.bestSide); if (_tv.veto) { marginState.lastAction = `${sym} overgeslagen: ${_tv.reason}`; continue; } } } catch (e) {}
+            // (22-08) DEEPNET-POORT OOK VOOR MARGIN — identiek aan spot: blokkeer alleen als de DeepNet
+            // MET open meta-poort STERK de andere kant op wijst (conf ≥ 55%). "meta dicht" = geen sterk
+            // oordeel → NIET blokkeren (anders ligt bijna alles stil). Zo krijgt margin dezelfde
+            // DeepNet-band mee als spot i.p.v. 'm te negeren, en zie je waaróm een entry doorging.
+            try {
+                if (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.GATE_ENTRIES && OsirisDeepNet.markets[sym] && OsirisDeepNet.markets[sym].model) {
+                    const dnp = OsirisDeepNet.last[sym] || OsirisDeepNet.predict(sym);
+                    if (dnp && dnp.meta && dnp.side !== m.bestSide && (dnp.conf || 0) >= 0.55) {
+                        marginState.lastAction = `${sym} overgeslagen: DeepNet-band STERK tegengesteld (${dnp.side}, conf ${((dnp.conf || 0) * 100 | 0)}%)`;
+                        try { _marginLog('reasoning', `${sym} ${m.bestSide} overgeslagen — DeepNet-band wijst sterk ${dnp.side} (conf ${((dnp.conf || 0) * 100 | 0)}%, meta open)`); } catch (e) {}
+                        continue;
+                    }
+                }
+            } catch (e) {}
             // FIX (20-08, runaway-P/L): size op de GEREALISEERDE equity (marginState.equity).
             const sizingBase = (marginState.equity != null && marginState.equity > 0) ? marginState.equity : marginEquity();
             // FIX (22-08, alloc-bug): begrens de totale NOTIONAL-EXPOSURE, niet de marge-fractie.
@@ -15084,9 +15177,14 @@ const OsirisDeepNet = {
     _updateRealizedWinrate() {
         try {
             const ex = (typeof botTradeLog !== 'undefined' ? botTradeLog : []).filter(t => t.action === 'EXIT');
+            // (22-08) neem OOK de gesloten MARGIN-trades mee, zodat de DeepNet-meta-drempel per markt
+            // óók op margin-resultaten kalibreert (margin 'leert mee' i.p.v. genegeerd te worden).
+            const mc = (typeof marginState !== 'undefined' && marginState.closed) ? marginState.closed : [];
             for (const key of ['BTC', 'ETH', 'SOL']) {
-                const rows = ex.filter(t => (t.market || 'BTC') === key).slice(-40);
-                if (rows.length >= 10) this._realizedWinrate[key] = rows.filter(t => (t.pnl || 0) > 0).length / rows.length;
+                const rowsSpot = ex.filter(t => (t.market || 'BTC') === key).map(t => (t.pnl || 0) > 0 ? 1 : 0);
+                const rowsMarg = mc.filter(t => (t.sym || 'BTC') === key).map(t => (t.pnl || 0) > 0 ? 1 : 0);
+                const rows = rowsSpot.concat(rowsMarg).slice(-60);
+                if (rows.length >= 10) this._realizedWinrate[key] = rows.reduce((a, b) => a + b, 0) / rows.length;
             }
         } catch (e) {}
     },
