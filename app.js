@@ -1954,7 +1954,7 @@ function startAutonomousBot(isAutoRestart = false) {
     window._l2Retrain = setInterval(() => { l2BuildAndTrain(); }, 30 * 60 * 1000);
     // OSIRIS DEEPNET draait als achtergrond-service (idempotent; niets aanzetten nodig)
     try { OsirisDeepNet.startService(); } catch (e) {}
-    document.getElementById('bot-status').innerText = "ACTIEF";
+    { const _bs = document.getElementById('bot-status'); if (_bs) _bs.innerText = "ACTIEF"; }   // (overzicht-tab verwijderd: null-safe)
 
     const startBtn = document.getElementById('btn-start-bot');
     const stopBtn = document.getElementById('btn-stop-bot');
@@ -2201,13 +2201,13 @@ function stopAutonomousBot() {
     localStorage.setItem('botIsRunning', 'false');
     localStorage.removeItem('botStartTime');
     
-    // 4. Update de UI
-    document.getElementById('bot-status').innerText = "STANDBY";
-    document.getElementById('btn-start-bot').style.display = 'inline-block';
-    document.getElementById('btn-stop-bot').style.display = 'none';
-    
+    // 4. Update de UI (null-safe: bot-status zat in de verwijderde overzicht-tab)
+    { const _bs = document.getElementById('bot-status'); if (_bs) _bs.innerText = "STANDBY"; }
+    { const _sb = document.getElementById('btn-start-bot'); if (_sb) _sb.style.display = 'inline-block'; }
+    { const _tb = document.getElementById('btn-stop-bot'); if (_tb) _tb.style.display = 'none'; }
+
     // Optioneel: Reset runtime naar 0
-    document.getElementById('bot-runtime').innerText = "Runtime: 00:00:00";
+    { const _rt = document.getElementById('bot-runtime'); if (_rt) _rt.innerText = "Runtime: 00:00:00"; }
     renderActiveSettingsPanel();
 }
 
@@ -9162,9 +9162,17 @@ window.osirisConsensus = osirisConsensus;
 
 const OsirisLLM = {
     SYMS: ['BTC', 'ETH', 'SOL'],
-    cfg: { enabled: true, provider: 'auto-free', endpoint: 'https://text.pollinations.ai/openai', model: 'openai', apiKey: '', everyMin: 2 },
+    // Standaard: OFFLINE vertaler — 100% gratis, altijd aan, geen externe call/kosten.
+    // 'openai-compatible' is optioneel: gebruiker plakt zelf een (gratis-tier) endpoint + sleutel.
+    cfg: { enabled: true, provider: 'offline', endpoint: '', model: 'gpt-4o-mini', apiKey: '', everyMin: 2 },
     last: null, feed: [], _busy: false, _lastRun: 0, _lastError: null,
-    _load() { try { const d = JSON.parse(localStorage.getItem('osirisLLMcfg') || 'null'); if (d) Object.assign(this.cfg, d); } catch (e) {} try { const f = JSON.parse(localStorage.getItem('osirisLLMfeed') || 'null'); if (f) { this.feed = f.feed || []; this.last = f.last || null; } } catch (e) {} },
+    _load() {
+        try { const d = JSON.parse(localStorage.getItem('osirisLLMcfg') || 'null'); if (d) Object.assign(this.cfg, d); } catch (e) {}
+        // MIGRATIE: de oude gratis keyless endpoint (pollinations) rekent nu geld (402). Zet zulke
+        // opstellingen terug op de gratis offline vertaler, zodat er geen betaalde/foute calls meer gaan.
+        try { if (this.cfg.provider === 'auto-free' || (this.cfg.endpoint && /pollinations/i.test(this.cfg.endpoint))) { this.cfg.provider = 'offline'; this.cfg.endpoint = ''; } } catch (e) {}
+        try { const f = JSON.parse(localStorage.getItem('osirisLLMfeed') || 'null'); if (f) { this.feed = f.feed || []; this.last = f.last || null; } } catch (e) {}
+    },
     _save() { try { localStorage.setItem('osirisLLMcfg', JSON.stringify(this.cfg)); } catch (e) {} try { localStorage.setItem('osirisLLMfeed', JSON.stringify({ feed: this.feed.slice(0, 120), last: this.last })); } catch (e) {} },
     setCfg(patch) { Object.assign(this.cfg, patch || {}); this._save(); try { renderLLMSettings(); } catch (e) {} },
     // compacte, machine-leesbare context van HEEL Osiris (data-true)
@@ -9198,7 +9206,9 @@ const OsirisLLM = {
         const ctx = this.buildContext();
         let out = null, source = 'offline';
         try {
-            if (this.cfg.enabled && this.cfg.provider !== 'off' && this.cfg.endpoint) {
+            // Externe LLM ALLEEN als de gebruiker 'openai-compatible' kiest én een endpoint invult.
+            // Standaard staat provider op 'offline' → gratis, altijd-aan vertaler, geen externe call.
+            if (this.cfg.enabled && this.cfg.provider === 'openai-compatible' && this.cfg.endpoint) {
                 out = await this._callLLM(ctx); if (out) source = 'llm';
             }
         } catch (e) { this._lastError = (e && e.message) ? e.message : String(e); }
@@ -9411,16 +9421,21 @@ function renderLLMSettings() {
     try {
         const el = document.getElementById('llm-settings'); if (!el) return;
         const c = OsirisLLM.cfg;
-        const st = OsirisLLM.last ? (OsirisLLM.last.source === 'llm' ? '<span style="color:#14f195;">● LLM actief</span>' : '<span style="color:#ffb627;">● vertaler (offline)</span>') : '<span style="color:var(--dim);">● wacht…</span>';
-        const err = OsirisLLM._lastError ? ` <span style="color:#ff6b6b;" title="${OsirisLLM._lastError}">· endpoint-fout, valt terug op vertaler</span>` : '';
+        const st = OsirisLLM.last ? (OsirisLLM.last.source === 'llm' ? '<span style="color:#14f195;">● externe LLM actief</span>' : '<span style="color:#14f195;">● gratis vertaler actief</span>') : '<span style="color:var(--dim);">● wacht…</span>';
+        const err = OsirisLLM._lastError ? ` <span style="color:#ff6b6b;" title="${OsirisLLM._lastError}">· endpoint-fout → gratis vertaler</span>` : '';
+        const isExt = c.provider === 'openai-compatible';
         el.innerHTML = `<div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:0.58rem;">
-            <label style="display:flex; gap:4px; align-items:center;"><input type="checkbox" id="llm-enabled" ${c.enabled ? 'checked' : ''} onchange="OsirisLLM.setCfg({enabled:this.checked})"> LLM aan</label>
-            <input id="llm-endpoint" value="${(c.endpoint || '').replace(/"/g, '&quot;')}" placeholder="OpenAI-compatibel endpoint" style="flex:1; min-width:220px; background:#02131c; border:1px solid rgba(120,160,190,0.3); color:#cfe3f0; padding:3px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:0.56rem;" onchange="OsirisLLM.setCfg({endpoint:this.value})">
-            <input id="llm-model" value="${(c.model || '').replace(/"/g, '&quot;')}" placeholder="model" style="width:110px; background:#02131c; border:1px solid rgba(120,160,190,0.3); color:#cfe3f0; padding:3px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:0.56rem;" onchange="OsirisLLM.setCfg({model:this.value})">
-            <input id="llm-key" type="password" value="${(c.apiKey || '').replace(/"/g, '&quot;')}" placeholder="API-sleutel (optioneel, blijft lokaal)" style="width:180px; background:#02131c; border:1px solid rgba(120,160,190,0.3); color:#cfe3f0; padding:3px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:0.56rem;" onchange="OsirisLLM.setCfg({apiKey:this.value})">
+            <label style="display:flex; gap:4px; align-items:center;"><input type="checkbox" id="llm-enabled" ${c.enabled ? 'checked' : ''} onchange="OsirisLLM.setCfg({enabled:this.checked})"> aan</label>
+            <select id="llm-provider" onchange="OsirisLLM.setCfg({provider:this.value})" style="background:#02131c; border:1px solid rgba(120,160,190,0.3); color:#cfe3f0; padding:3px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:0.56rem;">
+                <option value="offline" ${!isExt ? 'selected' : ''}>Gratis vertaler (offline, geen sleutel)</option>
+                <option value="openai-compatible" ${isExt ? 'selected' : ''}>Eigen LLM (OpenAI-compatibel)</option>
+            </select>
+            ${isExt ? `<input id="llm-endpoint" value="${(c.endpoint || '').replace(/"/g, '&quot;')}" placeholder="https://…/v1/chat/completions" style="flex:1; min-width:200px; background:#02131c; border:1px solid rgba(120,160,190,0.3); color:#cfe3f0; padding:3px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:0.56rem;" onchange="OsirisLLM.setCfg({endpoint:this.value})">
+            <input id="llm-model" value="${(c.model || '').replace(/"/g, '&quot;')}" placeholder="model" style="width:120px; background:#02131c; border:1px solid rgba(120,160,190,0.3); color:#cfe3f0; padding:3px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:0.56rem;" onchange="OsirisLLM.setCfg({model:this.value})">
+            <input id="llm-key" type="password" value="${(c.apiKey || '').replace(/"/g, '&quot;')}" placeholder="API-sleutel (blijft lokaal)" style="width:170px; background:#02131c; border:1px solid rgba(120,160,190,0.3); color:#cfe3f0; padding:3px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:0.56rem;" onchange="OsirisLLM.setCfg({apiKey:this.value})">` : ''}
             <span>${st}${err}</span>
         </div>
-        <div style="font-size:0.52rem; color:var(--dim); margin-top:4px;">Gratis & keyless standaard-endpoint; werkt zolang Osiris draait, met altijd-aan offline vertaler als terugval. Sleutel (indien ingevuld) blijft in je eigen browser (localStorage) en komt niet in de GitHub-code.</div>`;
+        <div style="font-size:0.52rem; color:var(--dim); margin-top:4px;">Standaard draait de <b>gratis offline vertaler</b> — 100% gratis, geen sleutel, geen kosten, werkt zolang Osiris draait. Wil je een échte LLM: kies "Eigen LLM" en plak een OpenAI-compatibel endpoint + sleutel (bv. een gratis-tier van OpenRouter <code>:free</code>-modellen, Groq of Google Gemini). De sleutel blijft in je eigen browser (localStorage) en wordt nooit naar GitHub of de cloud gesynct.</div>`;
     } catch (e) {}
 }
 window.renderLLMSettings = renderLLMSettings;
