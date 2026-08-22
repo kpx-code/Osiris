@@ -27,9 +27,11 @@ const OSIRIS_STATE_KEYS = [
     'osirisDeepNet_BTC', 'osirisDeepNet_ETH', 'osirisDeepNet_SOL',
     'osirisDeepNetTsAB', 'osirisDeepNetDynOff', 'osirisDeepNetLive',
     'osirisFSOLog', 'osirisKineticLog', 'osirisRLModel', 'osirisMarginState', 'osirisMetaState', 'osirisSelfReview',
+    'osirisDeepNetDir', 'osirisPredictInv',        // inversie-autopiloot staat (DeepNet + Predict)
+    'osirisJournal', 'osirisLLMfeed',              // G: journaal + LLM/vertaler-feed (leesbare neerslag)
     'osirisLiveEnabled', 'multiEngineRunning',
     'botIsRunning', 'botStartTime'
-    // BEWUST NIET gesynct: 'osirisTestnetKeys' - API-keys horen niet in de cloud-DB.
+    // BEWUST NIET gesynct: 'osirisTestnetKeys' EN 'osirisLLMcfg' - API-keys (futures + LLM) horen niet in de cloud-DB.
 ];
 
 // Deze run-vlaggen worden wel gespiegeld (voor backup/Fase 2) maar NIET teruggezet bij
