@@ -522,6 +522,13 @@ footer{padding:60px 0; text-align:center; font-family:'JetBrains Mono',monospace
         .ecard .corner { position:absolute; width:9px; height:9px; opacity:0.7; }
         .ecard .corner-tl { top:-1px; left:-1px; border-top:1px solid var(--cyan); border-left:1px solid var(--cyan); }
         .ecard .corner-br { bottom:-1px; right:-1px; border-bottom:1px solid var(--cyan); border-right:1px solid var(--cyan); }
+        /* AUTONOME TOOL-KAARTEN: bewust andere, actievere stijl dan de .ecard-eigenschappen */
+        .toolgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px,1fr)); gap:12px; margin-top:18px; }
+        .toolcard { position:relative; background:linear-gradient(160deg, rgba(20,241,149,0.09), rgba(6,16,20,0.85)); border:1px solid rgba(20,241,149,0.28); border-left:3px solid #14f195; border-radius:10px; padding:16px 16px 14px; transition:border-color .2s, transform .2s, box-shadow .2s; }
+        .toolcard:hover { border-color:rgba(20,241,149,0.6); transform:translateY(-3px); box-shadow:0 8px 26px rgba(20,241,149,0.10); }
+        .toolcard h4 { font-family:'Orbitron','JetBrains Mono',monospace; font-size:0.82rem; letter-spacing:0.04em; color:#eafff6; margin:6px 0 7px; }
+        .toolcard p { font-size:0.72rem; line-height:1.55; color:#9fc7b6; margin:0; }
+        .toolcard .tc-badge { position:absolute; top:10px; right:10px; font-family:'JetBrains Mono',monospace; font-size:0.5rem; letter-spacing:0.12em; color:#052; background:#14f195; padding:2px 6px; border-radius:4px; font-weight:700; }
         .hub-eye-head { display:flex; justify-content:center; align-items:center; gap:14px; flex-wrap:wrap; margin:10px 0 4px; }
         .hub-eye-head .eye-title { font-family:'JetBrains Mono',monospace; font-size:0.66rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--cyan2,#4fc3f7); }
         .hub-eye-head .livep { font-family:'JetBrains Mono',monospace; font-size:0.86rem; color:var(--tx,#e3f6ff); }
@@ -642,6 +649,36 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#5c7488;letter-spacing:0.14em;text-transform:uppercase;margin-top:10px;text-align:center;">Reads price, volume &amp; volatility &middot; tests every prediction</div>
         </div>
       </div>
+      <!-- AUTONOME TOOLS: eigen, herkenbare stijl (Osiris stuurt deze zélf bij) -->
+      <div class="eyebrow" style="margin-top:34px; color:#14f195;">&mdash; Autonome tools &middot; Osiris stelt deze zelf bij</div>
+      <h1 class="h" style="margin-top:6px;">De gereedschapskist</h1>
+      <p class="hero-lead" style="max-width:none;">Elk van deze onderdelen is een <b style="color:#14f195;">actief bijgestuurde tool</b>: Osiris meet hun resultaat out-of-sample en past hun invloed, drempels of allocatie autonoom aan. Ze dragen een AUTONOOM-label omdat ze zichzelf corrigeren.</p>
+      <div class="toolgrid">
+        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Predict</h4><p>Gekalibreerde richting-voorspeller per munt. Elke voorspelling wordt out-of-sample gescoord; de Governor bepaalt hoeveel stem hij krijgt.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Governor</h4><p>Zelf-governance: geeft elke tool een trust-gewicht dat meebeweegt met hit-rate en Brier-score. Zwak = afgeschaald, sterk = opgeschaald.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Kinetic breakpoint</h4><p>Kinetische energie (PE/KE/Loading/Shock) voorspelt het dichtstbijzijnde breakpoint, richting en ETA per markt.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>FSO-opportunity</h4><p>Onderscheidt per munt de échte bliksem-kans; verdeelt de wallet-equity autonoom naar de markt waar een grote beweging op komst is.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Guardian</h4><p>Data-integriteit: betrapt bevroren feeds en prijs-divergentie en pauzeert entries voordat Osiris op dode data handelt.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Risk-breaker</h4><p>Portfolio-breed: drawdown-, dagverlies- en exposure-limieten die entries automatisch pauzeren.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Margin-engine</h4><p>Futures met echte testnet-fills, autonome leverage (3&ndash;5&times;) en een notional exposure-cap die bij drawdown terugschaalt.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>DeepNet-poort</h4><p>Entry-poort en live exit-sturing die Osiris zelf aan/uit zet op walk-forward-precisie &mdash; met stall-bescherming zodat trades niet stilvallen.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>RL exit-agent</h4><p>Q-learning over duizenden scenario&rsquo;s (HOLD/SLUIT/TRAIL/SCHAAL) stuurt de discretionaire exit-timing en herijkt de time-stop.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Zelf-review</h4><p>Elke 5 gesloten trades weegt Osiris de recente data af en stelt exposure en drempels bij &mdash; met de redenering opgeslagen en naleesbaar.</p></div>
+      </div>
+
+      <!-- KERNPRINCIPES / OPTIES: aparte, rustiger stijl (eigenschappen, geen zelfsturende tools) -->
+      <div class="eyebrow" style="margin-top:34px; color:var(--cyan);">&mdash; Kernprincipes &amp; opties</div>
+      <h1 class="h" style="margin-top:6px;">Waar Osiris op rust</h1>
+      <p class="hero-lead" style="max-width:none;">Dit zijn eigenschappen en instellingen van de engine &mdash; het fundament, geen zelfsturende tools. Daarom een bewust andere, rustiger stijl.</p>
+      <div class="engine-cards">
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Calibrated</h4><p>Ruwe score &rarr; gemeten win rate, continu bijgewerkt.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Protected</h4><p>Profit-lock, time-stop, harvest &mdash; geen these blijft hangen.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Cost-aware</h4><p>Fees en slippage zijn ingeprijsd in elke entry en exit.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Regime-gated</h4><p>Pauzeert entries wanneer de markt stil of dood wordt.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Quantum Market Tracking</h4><p>UOTAM node-timing + vier eigen meters, live elke cyclus.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Self-learning (L1)</h4><p>Adaptieve gewichten schuiven mee met de laatste 20+ trades.</p></div>
+      </div>
+
       <div class="eyebrow" style="margin-top:34px;">&mdash; The living network</div>
       <h1 class="h" style="margin-top:6px;">OSIRIS DEEPNET &middot; Tesla vortex</h1>
       <p class="hero-lead" style="max-width:none;">The same network that drives every decision, rendered as a spinning vortex. Sixteen live inputs sit on the outer ring and spiral inward through twisted layers &mdash; integration, the three cores, the Osiris mainbrain &mdash; down to a glowing decision core. Tesla-style arcs crackle from the strongest signals to the centre, and every node reads its real activation right now, so what you see is what the bot is thinking.</p>
@@ -741,22 +778,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
                 </div>
               </div>
             </div>
-            <div class="neo-quad" style="height:auto; min-height:150px; margin-top:10px; padding:10px 12px; display:block;">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
-                <span style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px;">OSIRIS &middot; DEEPNET &mdash; per-markt voorspelling</span>
-                <div style="display:flex; gap:12px; align-items:center;">
-                <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#eaffff; cursor:pointer; display:flex; gap:5px; align-items:center;">
-                  <input type="checkbox" id="deepnet-gate-toggle" onchange="deepNetGate(this.checked)" checked> poort entries
-                </label>
-                <label style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#eaffff; cursor:pointer; display:flex; gap:5px; align-items:center;">
-                  <input type="checkbox" id="deepnet-live-toggle" onchange="deepNetToggle(this.checked)"> live (stuurt exits)
-                </label>
-                </div>
-              </div>
-              <canvas id="deepnet-canvas" style="width:100%; height:130px; display:block;"></canvas>
-              <div id="deepnet-status" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7d99ac; margin-top:6px;">DeepNet initialiseert...</div>
-              <div style="font-family:'JetBrains Mono',monospace; font-size:0.5rem; color:#5c7488; margin-top:4px;">Shadow: voorspelt en visualiseert, raakt geen live trades tot 'live' aan staat. Zet pas live na het bekijken van de walk-forward-precisie (wf-prec) per markt.</div>
-            </div>
             <div class="hub-statusbar" style="margin-top:10px;">
               <div class="eye-foot">
                 <span class="live-dot" style="flex:none;"></span>
@@ -832,9 +853,24 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
       <div class="hudframe mb" style="margin-top:18px;">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-        <canvas id="neo-net-canvas-big" style="width:100%; height:520px; display:block; position:relative; z-index:1;"></canvas>
+        <canvas id="neo-net-canvas-big" style="width:100%; height:580px; display:block; position:relative; z-index:1;"></canvas>
         <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">16 inputs &rarr; integration &rarr; cores &rarr; osiris &rarr; 1 output</div></div>
         <div class="net-out"><div class="l">Osiris decision</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
+      </div>
+
+      <div class="panel" style="margin-top:14px;"><div class="plabel" style="color:#14f195;">OSIRIS &middot; VOORSPELLING &amp; ZELF-GOVERNANCE <span style="color:var(--dim); font-weight:normal;">&mdash; gekalibreerde richting per munt, breakpoint/ETA, en trust-gewicht dat autonoom meebeweegt met out-of-sample validatie</span></div>
+        <div style="font-size:0.56rem; color:var(--dim); margin:6px 0 10px;">De <b style="color:#14f195;">Kans</b> is de governor-gewogen voorspelling (getrokken naar 50% zolang de tool zich nog niet bewezen heeft); <b>Ruw</b> is de ongewogen modelkans waarop out-of-sample gescoord wordt. <b style="color:#ffb627;">p(break)</b> komt uit de kinetische breakpoint-engine. Guardian &amp; Risk pauzeren automatisch nieuwe entries bij dode data of te veel risico.</div>
+        <div id="osiris-predict-panel"><span style="color:var(--dim); font-size:0.62rem;">Meta-laag initialiseert&hellip;</span></div>
+      </div>
+
+      <div class="panel" style="margin-top:14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#7fd8ff; letter-spacing:2px;">OSIRIS &middot; DEEPNET &mdash; per-markt voorspelling</span>
+          <span id="deepnet-auto-status" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--dim);">autonoom &middot; initialiseert&hellip;</span>
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; margin-bottom:6px;">Osiris beheert de entry-poort en exit-sturing nu <b style="color:#14f195;">autonoom</b> op basis van de walk-forward-precisie per markt &mdash; met een stall-bescherming zodat trades niet nodeloos stilvallen. Geen handmatige schakelaars meer nodig.</div>
+        <canvas id="deepnet-canvas" style="width:100%; height:150px; display:block;"></canvas>
+        <div id="deepnet-status" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7d99ac; margin-top:6px;">DeepNet initialiseert...</div>
       </div>
 
       <div class="panel" style="margin-top:14px;"><div class="plabel" style="color:#ff5f7e;">FINANCIAL STRESS OSCILLATOR &middot; UOTAM &mdash; systeem-stress &amp; asynchronie over de cryptomarkt</div>
@@ -990,7 +1026,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="panel mb"><div class="plabel">Gesloten posities &middot; huidige sessie</div>
         <div class="table-wrap scrollable" style="max-height:240px; overflow-y:auto; margin-top:6px;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th></tr></thead>
+            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th><th style="text-align:left;">Reden</th></tr></thead>
             <tbody id="history-body"></tbody>
           </table>
         </div>
@@ -1011,12 +1047,15 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="mono" style="font-size:0.56rem; color:#7d6a99; margin-top:4px;">Aparte engine, dezelfde 3 markten &amp; brein-signalen &mdash; echte long &eacute;n short met leverage. Vereist futures-testnet-keys.</div>
 
         <div class="panel" style="margin-top:12px;"><div class="plabel" style="color:#c792ea;">Kern-metrics &middot; margin</div>
-          <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-top:8px;">
+          <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:8px;">
             <div class="meter"><div class="l">P/L</div><div class="v" id="m-pnl" style="color:#c792ea;">&#8366;0.00</div></div>
             <div class="meter"><div class="l">win rate</div><div class="v" id="m-winrate">&mdash;</div></div>
+            <div class="meter"><div class="l">break-even</div><div class="v" id="m-breakeven" style="font-size:0.82rem;">&mdash;</div></div>
+            <div class="meter"><div class="l">equity</div><div class="v" id="m-equity">&#8366;1000.00</div></div>
             <div class="meter"><div class="l">leverage</div><div class="v" id="m-lev2" style="color:#c792ea;">3x</div></div>
             <div class="meter"><div class="l">open</div><div class="v" id="m-open">0</div></div>
-            <div class="meter"><div class="l">equity</div><div class="v" id="m-equity">&#8366;1000.00</div></div>
+            <div class="meter"><div class="l">exposure</div><div class="v" id="m-exposure" style="font-size:0.82rem;">&mdash;</div></div>
+            <div class="meter"><div class="l">&nbsp;</div><div class="v" style="font-size:0.7rem; color:var(--dim);">&nbsp;</div></div>
           </div>
           <div style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim);">Runtime <span id="m-runtime" style="color:#c792ea;">00:00:00</span> &middot; laatste actie: <span id="m-last-action">&mdash;</span></div>
         </div>
@@ -1044,7 +1083,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         </div>
         <div class="panel" style="margin-top:6px;"><div class="plabel" style="color:#c792ea;">Gesloten posities &middot; margin</div>
           <div style="overflow:auto; max-height:260px;"><table style="width:100%; border-collapse:collapse; font-size:0.62rem; margin-top:6px;">
-            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Tijd</th><th>Markt</th><th>Side</th><th>Lev</th><th>Reden</th><th>P/L</th></tr></thead>
+            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Markt</th><th>Side</th><th>Lev</th><th>Reden</th><th>P/L</th></tr></thead>
             <tbody id="m-closed-rows"><tr><td colspan="6" style="color:var(--dim); padding:8px;">Nog geen gesloten margin-trades.</td></tr></tbody>
           </table></div>
         </div>
@@ -1317,31 +1356,48 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <!-- FEED -->
     <section class="tab" id="tab-feed">
       <div class="eyebrow">Transparantie</div><h1 class="h">LIVE FEED</h1>
-<div class="subhead">Live reasoning feed</div>
-            <div id="bot-reasoning-wrap">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start;">
-                  <div>
-                    <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()">
-                        <span>&#9679; Beredenering (live) — elke berekeningsstap</span>
-                        <span id="reasoning-chevron" class="open">&#9662;</span>
-                    </div>
-                    <div id="reasoning-body" class="open">
-                        <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
-                    </div>
-                  </div>
-                  <div>
-                    <div class="rlabel" style="display:flex; justify-content:space-between; align-items:center; color:#ffb627;">
-                        <span>&#9679; Autonomous Adaptation — wat Neo zelf aanpast</span>
-                    </div>
-                    <div id="adaptation-body" class="open" style="max-height:320px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.6); border:1px solid rgba(255,182,39,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.66rem; color:#ffd98a; line-height:1.9;">
-                        <div id="bot-adaptation"><span style="color:var(--text-dim); font-size:0.85em;">Neo evalueert de engine-instellingen bij start en past ze autonoom aan voor betere winstkansen...</span></div>
-                    </div>
-                  </div>
-                </div>
-            </div>
-        
+      <div class="subhead">Beredenering per engine &middot; autonome aanpassingen per tool</div>
 
+      <!-- BEREDENERING: spot en margin gescheiden -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; margin-top:8px;">
+        <div>
+          <div class="rlabel" id="reasoning-header" onclick="toggleReasoningPanel()" style="color:#4287f5;">
+            <span>&#9679; SPOT &mdash; beredenering (live), elke berekeningsstap</span>
+            <span id="reasoning-chevron" class="open">&#9662;</span>
+          </div>
+          <div id="reasoning-body" class="open" style="max-height:340px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.55); border:1px solid rgba(66,135,245,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.8;">
+            <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="rlabel" style="display:flex; justify-content:space-between; align-items:center; color:#c792ea;">
+            <span>&#9679; MARGIN &mdash; beredenering (live), per stap</span>
+          </div>
+          <div class="open" style="max-height:340px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.55); border:1px solid rgba(199,146,234,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.8; color:#d8c7ec;">
+            <div id="feed-margin-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">wacht op margin-beredenering&hellip;</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AUTONOME TOOL-AANPASSINGEN: elke tool zijn eigen feed -->
+      <div class="rlabel" style="color:#ffb627; margin-top:22px;"><span>&#9679; Autonome tool-aanpassingen &mdash; elke tool die Osiris zelf bijstelt heeft zijn eigen feed</span></div>
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:10px;">
+        <div class="panel"><div class="plabel" style="color:#ffb627;">Engine &middot; drempel / stop / target / time-stop</div><div id="feed-tool-engine" class="tool-feed">&mdash;</div></div>
+        <div class="panel"><div class="plabel" style="color:#00d9ff;">Osiris &middot; tune / sub-breinen / abstain</div><div id="feed-tool-osiris" class="tool-feed">&mdash;</div></div>
+        <div class="panel"><div class="plabel" style="color:#c792ea;">Margin &middot; leverage / exposure-cap</div><div id="feed-tool-margin" class="tool-feed">&mdash;</div></div>
+        <div class="panel"><div class="plabel" style="color:#7fd8ff;">DeepNet &middot; poort / live exit-sturing</div><div id="feed-tool-deepnet" class="tool-feed">&mdash;</div></div>
+        <div class="panel"><div class="plabel" style="color:#14f195;">Governor &middot; trust-gewichten (out-of-sample)</div><div id="feed-tool-governor" class="tool-feed">&mdash;</div></div>
+        <div class="panel"><div class="plabel" style="color:#ff5f7e;">Guardian &amp; Risk &middot; data-integriteit / breakers</div><div id="feed-tool-guard" class="tool-feed">&mdash;</div></div>
+        <div class="panel"><div class="plabel" style="color:#ffd166;">Zelf-review &middot; elke 5 trades herbeoordeeld</div><div id="feed-tool-selfreview" class="tool-feed">&mdash;</div></div>
+      </div>
+
+      <!-- volledige adaptatie-log (alles bij elkaar), behouden -->
+      <div class="rlabel" style="color:#ffb627; margin-top:20px;"><span>&#9679; Alle aanpassingen (samengevoegd)</span></div>
+      <div id="adaptation-body" class="open" style="max-height:240px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.6); border:1px solid rgba(255,182,39,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.64rem; color:#ffd98a; line-height:1.9;">
+        <div id="bot-adaptation"><span style="color:var(--text-dim); font-size:0.85em;">Neo evalueert de engine-instellingen bij start en past ze autonoom aan voor betere winstkansen...</span></div>
+      </div>
     </section>
+    <style>.tool-feed{max-height:220px; overflow-y:auto; margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.56rem; line-height:1.7; color:#ffd98a;}</style>
 
     <!-- ENGINE -->
     <section class="tab" id="tab-engine">
@@ -1691,7 +1747,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="panel">
         <div class="plabel">Alles in &eacute;&eacute;n</div>
         <div class="flex gap wrap center"><button class="btn go" type="button" onclick="downloadAllData()">&#8681; Download ALL data</button><span class="muted">bundelt wallet, trades, learningLog, DeepNet-modellen, kalibratie, instellingen en de volledige backup in &eacute;&eacute;n export.</span></div>
-        <div class="note">Alle exports zijn lokaal &middot; bevatten nooit je testnet-keys.</div>
+        <div class="flex gap wrap center" style="margin-top:10px;">
+          <button class="btn btn-ghost btn-mini" type="button" onclick="downloadKineticData()" style="color:#14f195; border-color:rgba(20,241,149,0.4);">&#8681; Kinetic-dataset</button>
+          <button class="btn btn-ghost btn-mini" type="button" onclick="downloadMetaData()" style="color:#7fd8ff; border-color:rgba(127,216,255,0.4);">&#8681; Meta-laag (predict + governor + guardian + risk)</button>
+          <button class="btn btn-ghost btn-mini" type="button" onclick="if(typeof OsirisKinetic!=='undefined'){OsirisKinetic._save&&OsirisKinetic._save();} if(typeof _osirisMetaSave==='function'){_osirisMetaSave();} alert('Meta/kinetic-state opgeslagen in localStorage.');" style="color:var(--dim);">&#8635; Snapshot naar localStorage</button>
+        </div>
+        <div class="note">Alle exports zijn lokaal &middot; bevatten nooit je testnet-keys. De meta-laag (voorspellingen, out-of-sample scoring, trust-gewichten, guardian &amp; risk) zit ook in de volledige export onder <b>meta</b>.</div>
       </div>
     </section>
 
