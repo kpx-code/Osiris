@@ -8612,8 +8612,17 @@ const OsirisKinetic = {
             const dist = Math.abs(barrierPrice - price) / price * 100;                                             // % tot barrière
             const reach = this.P.k1 * Math.abs(vel) + this.P.k2 * Math.sqrt(Math.max(0, this.P.eta * PE * Shock));  // % bereik
             const reachable = dist <= reach;
-            const etaBars = dist / Math.max(Math.abs(vel), 1e-3);
-            const etaMin = Math.min(this.P.maxEtaMin, etaBars * this.P.barMin);
+            // ROBUUSTE ETA (22-08): niet delen door de grillige moment-snelheid (die sprong van
+            // 80min → 4u → 2u), maar door de TYPISCHE snelheid = gemiddelde |1-bar %-beweging|
+            // over ~20 bars (stabiel, ATR-achtig). Daarna een EWMA per munt zodat de ETA niet
+            // frame-tot-frame verspringt en Osiris' beslissingen er niet door heen en weer geslingerd worden.
+            let spd = 0, sc = 0; for (let j = Math.max(1, i - 20); j <= i; j++) { spd += Math.abs((c(j) - c(j - 1)) / c(j - 1) * 100); sc++; } spd = (spd / (sc || 1)) || 1e-3;
+            const etaBars = dist / Math.max(spd, 1e-3);
+            let etaMin = Math.min(this.P.maxEtaMin, etaBars * this.P.barMin);
+            this._etaEwma = this._etaEwma || {};
+            const _eprev = (this._etaEwma[sym] != null) ? this._etaEwma[sym] : etaMin;
+            etaMin = 0.7 * _eprev + 0.3 * etaMin;                     // demping: 70% geheugen
+            this._etaEwma[sym] = etaMin;
             // gekalibreerde breakpoint-kans
             const reachMargin = (reach - dist) / Math.max(dist, 1e-3);
             const z = this.P.a0 + this.P.aL * Loading + this.P.aShk * Shock + this.P.aReach * cl01(reachMargin);
@@ -15122,11 +15131,11 @@ function _deepnetOverlayBig() {
         if (p && p.meta && p.conf > best) { best = p.conf; choice = p; }
         if (p && p.conf > lb) { lb = p.conf; lean = p; }
     }
-    const outEl = document.getElementById('neo-net-out-big');
-    if (outEl) {
-        outEl.textContent = choice ? `${choice.key} ${choice.side} ${(choice.calProb * 100).toFixed(0)}%`
-            : (lean ? `wacht \u00b7 ${lean.key} ${lean.side} ${(lean.calProb * 100).toFixed(0)}%` : 'wacht');
-    }
+    // (22-08) NIET meer de .net-out (OSIRIS DECISION) overschrijven met de losse DeepNet-pick:
+    // dat gaf twee verschillende getallen onder dezelfde titel (wallet-tab toonde de ensemble-
+    // beslissing SHORT 82%, neural-net-tab de DeepNet-pick 'wacht \u00b7 SOL LONG 66%'). Beide tabs
+    // tonen nu dezelfde ensemble-beslissing (uit _neoNetDraw); de per-markt DeepNet-pick staat
+    // in de 'DeepNet band \u00b7 live' hieronder, waar hij thuishoort.
     const band = document.getElementById('net-deepnet-band');
     if (band) {
         const col = (typeof _DN_COL !== 'undefined') ? _DN_COL : { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
