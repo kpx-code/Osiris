@@ -1310,6 +1310,26 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div id="adaptation-body" class="open" style="max-height:240px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.6); border:1px solid rgba(255,182,39,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.64rem; color:#ffd98a; line-height:1.9;">
         <div id="bot-adaptation"><span style="color:var(--text-dim); font-size:0.85em;">Neo evalueert de engine-instellingen bij start en past ze autonoom aan voor betere winstkansen...</span></div>
       </div>
+
+      <!-- ============ F + G: LLM-CONTEXT, VERIFICATIE, JOURNAAL, NEXT-STEPS ============ -->
+      <div class="rlabel" style="color:#7fd8ff; margin-top:26px;"><span>&#9679; LLM-context &amp; verificatie &mdash; rijkere waarneming, geverifieerd tegen Osiris' eigen tools</span></div>
+      <div id="llm-settings" style="margin-top:8px; background:rgba(0,0,0,0.5); border:1px solid rgba(127,216,255,0.22); border-radius:8px; padding:10px 12px;"></div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; margin-top:10px;">
+        <div>
+          <div class="rlabel" style="color:#7fd8ff; display:flex; justify-content:space-between; align-items:center;"><span>Context-perceptie (LLM / vertaler)</span><button type="button" onclick="downloadLLMData()" class="btn btn-ghost btn-mini" style="color:#7fd8ff; border-color:rgba(127,216,255,0.4); font-size:0.6rem;">download</button></div>
+          <div id="feed-llm-context" style="max-height:300px; overflow-y:auto; margin-top:8px; background:rgba(0,0,0,0.55); border:1px solid rgba(127,216,255,0.2); padding:10px 12px; font-family:'JetBrains Mono',monospace; font-size:0.58rem; line-height:1.6;"><span style="color:var(--text-dim);">wacht op eerste perceptie&hellip;</span></div>
+        </div>
+        <div>
+          <div class="rlabel" style="color:#14f195;"><span>Verificatie &mdash; LLM-claim vs. kwantitatieve consensus</span></div>
+          <div id="feed-llm-verify" style="max-height:300px; overflow-y:auto; margin-top:8px; background:rgba(0,0,0,0.55); border:1px solid rgba(20,241,149,0.2); padding:10px 12px; font-family:'JetBrains Mono',monospace; font-size:0.58rem; line-height:1.6;"><span style="color:var(--text-dim);">nog geen verificatie&hellip;</span></div>
+        </div>
+      </div>
+
+      <div class="rlabel" style="color:#c792ea; margin-top:22px; display:flex; justify-content:space-between; align-items:center;"><span>&#9679; Journaal &mdash; alles vertaald naar leesbare taal (chronologisch)</span><span><button type="button" onclick="downloadJournalText()" class="btn btn-ghost btn-mini" style="color:#c792ea; border-color:rgba(199,146,234,0.4); font-size:0.6rem;">download .txt</button> <button type="button" onclick="downloadJournalData()" class="btn btn-ghost btn-mini" style="color:#c792ea; border-color:rgba(199,146,234,0.4); font-size:0.6rem;">download .json</button></span></div>
+      <div id="feed-journal" style="max-height:280px; overflow-y:auto; margin-top:8px; background:rgba(0,0,0,0.55); border:1px solid rgba(199,146,234,0.22); padding:10px 12px; font-family:'JetBrains Mono',monospace; font-size:0.58rem; line-height:1.7;"><span style="color:var(--text-dim);">journaal is nog leeg&hellip;</span></div>
+
+      <div class="rlabel" style="color:#ffb627; margin-top:22px; display:flex; justify-content:space-between; align-items:center;"><span>&#9679; Vervolgstap &mdash; waar/op welke data wacht Osiris voor kalibratie/verificatie</span><button type="button" onclick="downloadNextStepsData()" class="btn btn-ghost btn-mini" style="color:#ffb627; border-color:rgba(255,182,39,0.4); font-size:0.6rem;">download</button></div>
+      <div id="feed-nextsteps" style="max-height:280px; overflow-y:auto; margin-top:8px; background:rgba(0,0,0,0.55); border:1px solid rgba(255,182,39,0.22); padding:10px 12px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; line-height:1.7;"><span style="color:var(--text-dim);">&mdash;</span></div>
     </section>
     <style>.tool-feed{max-height:220px; overflow-y:auto; margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.56rem; line-height:1.7; color:#ffd98a;}</style>
 
