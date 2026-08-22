@@ -26,7 +26,7 @@ const OSIRIS_STATE_KEYS = [
     'osirisL2', 'osirisL3',
     'osirisDeepNet_BTC', 'osirisDeepNet_ETH', 'osirisDeepNet_SOL',
     'osirisDeepNetTsAB', 'osirisDeepNetDynOff', 'osirisDeepNetLive',
-    'osirisFSOLog', 'osirisKineticLog', 'osirisRLModel', 'osirisMarginState',
+    'osirisFSOLog', 'osirisKineticLog', 'osirisRLModel', 'osirisMarginState', 'osirisMetaState', 'osirisSelfReview',
     'osirisLiveEnabled', 'multiEngineRunning',
     'botIsRunning', 'botStartTime'
     // BEWUST NIET gesynct: 'osirisTestnetKeys' - API-keys horen niet in de cloud-DB.
@@ -66,12 +66,45 @@ async function osirisSignIn(email, pw) {
 }
 async function osirisSignOut() { if (_sb) await _sb.auth.signOut(); }
 
+/* Draait op DIT apparaat de engine? Alleen dat apparaat is de 'bron van waarheid' en mag
+ * de cloud-staat mirroren. Een puur kijk-apparaat (mobiel dat alleen meekijkt) mag NIET
+ * pushen - anders overschrijft zijn verouderde staat (incl. een oude botStartTime) de
+ * echte sessie in de cloud, waardoor de runtime op mobiel bv. 400u toont i.p.v. de echte 64u. */
+function _osirisEngineActive() {
+    try { if (typeof botIsRunning !== 'undefined' && botIsRunning) return true; } catch (e) {}
+    try { if (typeof isBotRunning !== 'undefined' && isBotRunning) return true; } catch (e) {}
+    try { if (localStorage.getItem('botIsRunning') === 'true') return true; } catch (e) {}
+    try { if (typeof multiEngineRunning !== 'undefined' && multiEngineRunning) return true; } catch (e) {}
+    try { if (localStorage.getItem('multiEngineRunning') === 'true') return true; } catch (e) {}
+    try { if (typeof marginEngineEnabled !== 'undefined' && marginEngineEnabled) return true; } catch (e) {}
+    try { if (localStorage.getItem('osirisMarginEnabled') === '1') return true; } catch (e) {}
+    return false;
+}
+window._osirisEngineActive = _osirisEngineActive;
+
 /* ---- PUSH: spiegel de staat + nieuwe trades naar de cloud, lees de afstandsbediening ---- */
 async function osirisSyncPush() {
     if (!_sb || !_sbUser) return;
     _osirisSyncDot('busy');
+    const _engine = _osirisEngineActive();
     try {
-        // 1) staat-sleutels upserten (mirror)
+        // KIJK-APPARAAT (engine draait hier NIET): niet pushen (anders klobber je de echte
+        // sessie), maar de authoritatieve runtime-starttijden ophalen voor de weergave.
+        if (!_engine) {
+            try {
+                const { data: st } = await _sb.from('osiris_state').select('key,value').eq('user_id', _sbUser.id).in('key', ['botStartTime', 'osirisMarginState']);
+                if (st) for (const r of st) {
+                    if (r.key === 'botStartTime') { const v = (typeof r.value === 'number') ? r.value : parseInt(r.value); if (v > 0) window._osirisAuthSpotStart = v; }
+                    if (r.key === 'osirisMarginState' && r.value && r.value.startTime) window._osirisAuthMarginStart = r.value.startTime;
+                }
+            } catch (e) {}
+            // afstandsbediening lezen blijft wel
+            try { const { data: ctrl } = await _sb.from('osiris_control').select('desired_running').eq('user_id', _sbUser.id).maybeSingle(); if (ctrl) _osirisApplyDesiredRunning(ctrl.desired_running); } catch (e) {}
+            try { localStorage.setItem('osirisSyncLastConnected', new Date().toISOString()); } catch (e) {}
+            _osirisSyncStamp('kijk-modus · gesynct ' + new Date().toLocaleTimeString('nl-NL'), 'ok');
+            return;
+        }
+        // 1) staat-sleutels upserten (mirror) - alleen het engine-apparaat
         const rows = [];
         for (const k of OSIRIS_STATE_KEYS) {
             const v = localStorage.getItem(k);
