@@ -4101,6 +4101,8 @@ function openPositionFromOrder(order, entryTag = '') {
     try { if (typeof osirisSafetyHalt === 'function' && osirisSafetyHalt()) { logBotAction('SKIPPED', livePrice, order.side, 0, 0, 'veiligheids-halt actief: ' + (typeof osirisSafetyReason === 'function' ? osirisSafetyReason() : 'guard/risk')); return; } } catch (e) {}
     // adaptieve predict-poort (schaalt met bewezen out-of-sample trust)
     try { if (typeof osirisPredictGate === 'function') { const g = osirisPredictGate('BTC', order.side); if (!g.allow) { logBotAction('SKIPPED', livePrice, order.side, 0, 0, g.reason); return; } } } catch (e) {}
+    // trend-alignment veto: geen counter-trend entry bij een sterke trend
+    try { if (typeof osirisTrendVeto === 'function') { const tv = osirisTrendVeto('BTC', order.side); if (tv.veto) { logBotAction('SKIPPED', livePrice, order.side, 0, 0, tv.reason); return; } } } catch (e) {}
     const price = livePrice;
     const confluence = lastOsirisDecision ? lastOsirisDecision.confluence : 0;
     const maxConfluence = 9; // zie getOrisisDecisionData: vfm(2)+db(1)+chaos(1)+er(1)+volumeScore(1)+MA(1)+crossover(1)+voorspelling(1)
@@ -8694,8 +8696,8 @@ const OsirisKinetic = {
                 const px = m && m.lastPrice != null ? m.lastPrice : null;
                 if (px != null) p.extremeReached = p.dir > 0 ? Math.max(p.extremeReached, px) : Math.min(p.extremeReached, px);
                 const hit = px != null && (p.dir > 0 ? px >= p.barrierPrice : px <= p.barrierPrice);
-                if (hit) { p.hit = 1; p.resolvedTs = now; p.timeToHitMin = +((now - p.tsFired) / 60000).toFixed(1); this._score(p); this.resolved.unshift(p); }
-                else if (now > p.deadline) { p.hit = 0; p.resolvedTs = now; p.timeToHitMin = null; this._score(p); this.resolved.unshift(p); }
+                if (hit) { p.hit = 1; p.resolvedTs = now; p.timeToHitMin = +((now - p.tsFired) / 60000).toFixed(1); this._score(p); this._recordEta(p); this.resolved.unshift(p); }
+                else if (now > p.deadline) { p.hit = 0; p.resolvedTs = now; p.timeToHitMin = null; this._score(p); this._recordEta(p); this.resolved.unshift(p); }
                 else still.push(p);
             }
             this.predictions = still;
@@ -8704,6 +8706,12 @@ const OsirisKinetic = {
     },
     _score(p) {
         try { const b = Math.max(0, Math.min(9, Math.floor(p.pBreak * 10))); const c = this.calib[b] || { n: 0, hits: 0, pSum: 0 }; c.n++; c.hits += p.hit; c.pSum += p.pBreak; this.calib[b] = c; } catch (e) {}
+    },
+    // (22-08) ETA-BETROUWBAARHEID -> Governor: telt de ETA als "geraakt binnen het venster" (hit vóór deadline).
+    // De Governor leert hieruit autonoom een 'eta'-gewicht [0..1]; predictFor gebruikt dat gewicht om te bepalen
+    // hoe ver vooruit een ETA nog mee mag tellen in beslissingen. Zo kalibreert Osiris de ETA zelf, doorlopend.
+    _recordEta(p) {
+        try { if (typeof OsirisGovernor !== 'undefined' && OsirisGovernor.record) OsirisGovernor.record('eta', (p.pBreak != null ? p.pBreak : 0.5), p.hit); } catch (e) {}
     },
 
     // samenvattende validatie-metrieken (hit-rate, Brier, kalibratietabel)
@@ -8840,7 +8848,26 @@ const OsirisPredict = {
             // (in CRISIS verwacht Osiris dus een GROTERE beweging i.p.v. te dempen).
             let expectedMovePct = reachPct != null ? reachPct : null;
             if (expectedMovePct != null) expectedMovePct = +(expectedMovePct * (1 + 1.2 * fsoOpp)).toFixed(3);
-            return { sym, ts: Date.now(), price, dir, rawUp: +rawUp.toFixed(4), pDir: +pDir.toFixed(4), pShown: +pShown.toFixed(4), sig: +sig.toFixed(4), govWeight: +gw.toFixed(3), breakpoint, etaMin, reachPct, pBreak, expectedMovePct, fsoRegime, fsoLevel: fsoLevel != null ? +fsoLevel.toFixed(4) : null, fsoConf: +fsoConf.toFixed(3), fsoOpp: +fsoOpp.toFixed(3), fsoRising: +fsoRising.toFixed(4) };
+            // (22-08) ETA-ACTIONABLE: de ETA telt ALLEEN mee bij beslissingen als het signaal echt sterk is
+            // én de breakpoint dichtbij ligt. Het venster schaalt met de door de Governor geleerde
+            // ETA-betrouwbaarheid (etaWeight [0..1]): vertrouwt Osiris de ETA weinig, dan telt alleen een
+            // zeer nabije ETA mee; leert hij dat ETA's kloppen, dan mag hij verder vooruit handelen.
+            // etaStable dempt bovendien bij sterk wisselende ETA's (de "80min→4u→2u"-sprongen).
+            let etaWeight = 0.5, etaStable = 1, etaActionable = false;
+            try {
+                etaWeight = (typeof OsirisGovernor !== 'undefined') ? OsirisGovernor.weight('eta') : 0.5;
+                const ks2 = (typeof OsirisKinetic !== 'undefined') ? OsirisKinetic.state[sym] : null;
+                const ew = (ks2 && ks2.etaEwma != null) ? ks2.etaEwma : (OsirisKinetic && OsirisKinetic._etaEwma ? OsirisKinetic._etaEwma[sym] : null);
+                if (etaMin != null && ew != null && ew > 0) {
+                    const rel = Math.abs(etaMin - ew) / ew;                    // relatieve ETA-afwijking t.o.v. EWMA
+                    etaStable = Math.max(0, Math.min(1, 1 - rel));            // 1 = zeer stabiel, 0 = wild wisselend
+                }
+                const etaWindow = 20 + 40 * etaWeight;                        // minuten; groeit met geleerd vertrouwen
+                etaActionable = (pBreak != null && etaMin != null &&
+                    pBreak >= 0.60 && fsoOpp >= 0.50 && etaStable >= 0.55 &&
+                    etaMin <= etaWindow);
+            } catch (e) {}
+            return { sym, ts: Date.now(), price, dir, rawUp: +rawUp.toFixed(4), pDir: +pDir.toFixed(4), pShown: +pShown.toFixed(4), sig: +sig.toFixed(4), govWeight: +gw.toFixed(3), breakpoint, etaMin, reachPct, pBreak, expectedMovePct, etaActionable, etaWeight: +etaWeight.toFixed(3), etaStable: +etaStable.toFixed(3), fsoRegime, fsoLevel: fsoLevel != null ? +fsoLevel.toFixed(4) : null, fsoConf: +fsoConf.toFixed(3), fsoOpp: +fsoOpp.toFixed(3), fsoRising: +fsoRising.toFixed(4) };
         } catch (e) { return null; }
     },
     update() {
@@ -8952,7 +8979,18 @@ function osirisMarketOpportunity(sym) {
     try {
         const k = (typeof OsirisKinetic !== 'undefined') ? OsirisKinetic.state[sym] : null;
         if (!k) return 0;
-        const v = (k.PE || 0) * 0.35 + (k.Shock || 0) * 0.35 + (k.asynchrony || 0) * 0.35 + (k.pBreak || 0) * 0.25;
+        // (22-08) ETA-PROXIMITEIT: de p(break)-bijdrage telt VOL mee als de breakpoint dichtbij
+        // is, en wordt gedempt naarmate de ETA verder weg ligt — zodat Osiris niet handelt op een
+        // barrière die pas over uren geraakt wordt ("te ver vooruit"). Het venster schaalt met het
+        // door de Governor geleerde ETA-vertrouwen: leert Osiris dat verre ETA's toch kloppen, dan
+        // groeit het venster autonoom. PE/Shock/asynchronie (het NÚ-signaal) blijven vol meetellen.
+        let etaFactor = 1;
+        try {
+            const etaW = (typeof OsirisGovernor !== 'undefined') ? OsirisGovernor.weight('eta') : 0.5;
+            const win = 30 + 90 * etaW;                                  // minuten; 30..120 al naar gelang vertrouwen
+            if (k.etaMin != null && k.etaMin > win) etaFactor = Math.max(0.25, win / k.etaMin);
+        } catch (e) {}
+        const v = (k.PE || 0) * 0.35 + (k.Shock || 0) * 0.35 + (k.asynchrony || 0) * 0.35 + (k.pBreak || 0) * 0.25 * etaFactor;
         return Math.max(0, Math.min(1, v));
     } catch (e) { return 0; }
 }
@@ -8978,6 +9016,33 @@ function osirisPredictGate(sym, side) {
     } catch (e) { return { allow: true }; }
 }
 window.osirisPredictGate = osirisPredictGate;
+
+// TREND-ALIGNMENT VETO (22-08): blokkeer een entry die tégen een STERKE prijstrend ingaat.
+// Dit is de kern-fix voor het gevonden probleem: de core stond hardnekkig SHORT terwijl de
+// markt opliep (SOL +2.5%, ETH stijgend), de DeepNet zag LONG maar werd genegeerd -> onnodige
+// verliezen + gemiste long. Osiris neemt nu geen counter-trend trade bij een duidelijke trend.
+// Alleen actief bij een STERKE, bevestigde trend (raakt chop/zijwaarts niet), en niet tijdens
+// een stall-relax (trades mogen niet stilvallen). Extra bevestiging als de DeepNet meebeweegt.
+function osirisTrendVeto(sym, side) {
+    try {
+        if (typeof _osirisStallRelax !== 'undefined' && _osirisStallRelax) return { veto: false };
+        const m = (typeof neoMultiState !== 'undefined') ? neoMultiState.markets[sym] : null;
+        const K = (m && m.klines && m.klines.length > 40) ? m.klines : null; if (!K) return { veto: false };
+        const cl = K.map(d => parseFloat(d[4])); const n = cl.length;
+        const ema = (p) => { const k = 2 / (p + 1); let e = cl[n - 40]; for (let i = n - 39; i < n; i++) e = cl[i] * k + e * (1 - k); return e; };
+        const emaF = ema(12), emaS = ema(26);
+        const net = (cl[n - 1] - cl[n - 20]) / cl[n - 20] * 100;      // %-beweging over ~20 bars
+        let up = 0; for (let i = n - 20; i < n; i++) if (cl[i] >= cl[i - 1]) up++; const persist = up / 20;
+        const strongUp = (emaF > emaS && net >= 1.0) || (emaF > emaS && persist >= 0.62);
+        const strongDown = (emaF < emaS && net <= -1.0) || (emaF < emaS && persist <= 0.38);
+        let dnNote = '';
+        try { const dnp = OsirisDeepNet.last[sym]; if (dnp) { if (strongUp && dnp.side === 'LONG') dnNote = ', DeepNet LONG bevestigt'; if (strongDown && dnp.side === 'SHORT') dnNote = ', DeepNet SHORT bevestigt'; } } catch (e) {}
+        if (side === 'SHORT' && strongUp) return { veto: true, reason: `anti-trend: SHORT tegen sterke uptrend (net ${net.toFixed(2)}%${dnNote})` };
+        if (side === 'LONG' && strongDown) return { veto: true, reason: `anti-trend: LONG tegen sterke downtrend (net ${net.toFixed(2)}%${dnNote})` };
+        return { veto: false };
+    } catch (e) { return { veto: false }; }
+}
+window.osirisTrendVeto = osirisTrendVeto;
 
 // centrale veiligheids-halt: waar (spot/osiris/margin) leest deze vlag vóór een entry.
 function osirisSafetyHalt() {
@@ -9102,13 +9167,18 @@ function renderOsirisPredictPanel() {
             const p = OsirisPredict.state[s]; if (!p) return `<tr><td style="padding:6px;color:var(--dim);">${s}</td><td colspan="6" style="color:var(--dim);">wacht op data…</td></tr>`;
             const bp = p.breakpoint != null ? (p.price < 10 ? p.breakpoint.toFixed(3) : p.breakpoint.toFixed(2)) : '—';
             const eta = p.etaMin != null ? (p.etaMin < 90 ? p.etaMin.toFixed(0) + 'm' : (p.etaMin / 60).toFixed(1) + 'u') : '—';
+            // ETA telt alleen mee bij beslissingen als etaActionable (sterk signaal + nabij + stabiel).
+            // Anders is de ETA louter informatief (grijs). Zo handelt Osiris niet te ver vooruit.
+            const etaAct = !!p.etaActionable;
+            const etaTitle = `ETA-vertrouwen ${p.etaWeight != null ? (p.etaWeight*100).toFixed(0) : '—'}% · stabiliteit ${p.etaStable != null ? (p.etaStable*100).toFixed(0) : '—'}% · ${etaAct ? 'telt mee in beslissing' : 'alleen informatief'}`;
+            const etaCell = `<span title="${etaTitle}" style="color:${etaAct ? '#14f195' : 'var(--dim)'}; font-weight:${etaAct ? 'bold' : 'normal'};">${eta}${etaAct ? ' ⚡' : ''}</span>`;
             return `<tr style="border-top:1px solid var(--line);">
                 <td style="padding:6px; color:#7fd8ff;">${s}</td>
                 <td style="text-align:center;">${dirTxt(p.dir)}</td>
                 <td style="text-align:center; font-weight:bold;">${(p.pShown * 100).toFixed(0)}%</td>
                 <td style="text-align:center; color:var(--dim);">${(p.rawUp * 100).toFixed(0)}%</td>
                 <td style="text-align:center;">${bp}</td>
-                <td style="text-align:center;">${eta}</td>
+                <td style="text-align:center;">${etaCell}</td>
                 <td style="text-align:center; color:${(p.expectedMovePct || 0) > 1.5 ? '#ffb627' : 'var(--dim)'};">${p.expectedMovePct != null ? '±' + p.expectedMovePct.toFixed(2) + '%' : '—'}</td>
                 <td style="text-align:center; color:${(p.pBreak || 0) > 0.5 ? '#ffb627' : 'var(--dim)'};">${p.pBreak != null ? (p.pBreak * 100).toFixed(0) + '%' : '—'}</td>
             </tr>`;
@@ -9648,6 +9718,8 @@ async function marginTick() {
             if (m.bestProb < MINP) continue;
             // adaptieve predict-poort: blokkeert tegengestelde trades zodra de voorspeller vertrouwd is
             try { if (typeof osirisPredictGate === 'function') { const _g = osirisPredictGate(sym, m.bestSide); if (!_g.allow) { marginState.lastAction = `${sym} overgeslagen: ${_g.reason}`; continue; } } } catch (e) {}
+            // trend-alignment veto: geen counter-trend margin-entry bij een sterke trend
+            try { if (typeof osirisTrendVeto === 'function') { const _tv = osirisTrendVeto(sym, m.bestSide); if (_tv.veto) { marginState.lastAction = `${sym} overgeslagen: ${_tv.reason}`; continue; } } } catch (e) {}
             // FIX (20-08, runaway-P/L): size op de GEREALISEERDE equity (marginState.equity).
             const sizingBase = (marginState.equity != null && marginState.equity > 0) ? marginState.equity : marginEquity();
             // FIX (22-08, alloc-bug): begrens de totale NOTIONAL-EXPOSURE, niet de marge-fractie.
@@ -10406,6 +10478,7 @@ function osirisShadowTick() {
             // cooldown: max 1 nieuwe entry per munt per 60s
             if (_osirisLastEntry[sym] && (now - _osirisLastEntry[sym]) < 60000) { osirisState.skip[sym] = '60s cooldown'; continue; }
             try { if (typeof osirisPredictGate === 'function') { const _pg = osirisPredictGate(sym, p.side); if (!_pg.allow) { osirisState.skip[sym] = _pg.reason; continue; } } } catch (e) {}
+            try { if (typeof osirisTrendVeto === 'function') { const _tv = osirisTrendVeto(sym, p.side); if (_tv.veto) { osirisState.skip[sym] = _tv.reason; continue; } } } catch (e) {}
             const m = neoMultiState.markets[sym];
             if (!m || m.lastPrice == null) { osirisState.skip[sym] = 'geen verse prijs (multi-engine?)'; continue; }
             // INGREEP 1 - DeepNet-poort: alleen instappen als de per-markt DeepNet het eens
@@ -12337,6 +12410,11 @@ function downloadAdaptiveLearning() {
                     trainedAt: m.trainedMs ? new Date(m.trainedMs).toISOString() : null,
                     liveCalibratedPct: last ? +(last.calProb * 100).toFixed(1) : null,
                     liveSide: last ? last.side : null,
+                    rawSide: last ? last.rawSide : null,
+                    inverted: last ? !!last.inverted : false,
+                    proven: last ? !!last.proven : false,
+                    dirHitRate: (dn && dn._dirRes && dn._dirRes[b] && dn._dirRes[b].length) ? +(dn._dirRes[b].reduce((a, x) => a + x, 0) / dn._dirRes[b].length).toFixed(3) : null,
+                    dirN: (dn && dn._dirRes && dn._dirRes[b]) ? dn._dirRes[b].length : 0,
                     metaPoortOpen: last ? last.meta : null,
                     reliabilityCurve: (rel && rel.map) ? rel.map.map(p => ({ predictedPct: +p[0].toFixed(1), measuredPct: +p[1].toFixed(1) })) : null,
                     kalibratieOordeel: _calibInsight(rel)
@@ -13701,12 +13779,13 @@ function _neoNetDraw(now, canvasId, outId) {
         // De LIJN zelf flasht: de verbinding tussen de parameters licht op, helderheid
         // pulseert (data bepaalt de basis + hoe fel). Geen los reizend deeltje meer.
         const flash = 0.5 + 0.5 * Math.sin(now / 340 * (0.7 + cn.sp) + cn.flow * 6.28);
-        const a = 0.05 + 0.30 * signal + (0.10 + 0.34 * signal) * flash;
+        // (22-08b) standaard-verbindingslijnen iets duidelijker: hogere basis-helderheid + -dikte,
+        // zodat de vaste netwerkstructuur beter leesbaar is; actieve edges blijven feller pulseren.
+        const a = 0.13 + 0.30 * signal + (0.10 + 0.34 * signal) * flash;
         ctx.strokeStyle = `rgba(${col},${a.toFixed(3)})`;
-        ctx.lineWidth = 0.35 + 0.8 * signal;   // (22-08) veel dunner
-        if (hot) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.45)`; ctx.shadowBlur = (1 + 2 * signal) * (0.4 + 0.6 * flash); }   // (22-08) veel subtieler
+        ctx.lineWidth = 0.6 + 0.8 * signal;
+        // (22-08) lightning/gloed VERWIJDERD op verzoek: schone lijnen, geen shadowBlur-crackle.
         ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
-        if (hot) ctx.restore();
         // CONTINUE DATA-FLOW: klein deeltje reist voorwaarts (A -> B) langs ELKE lijn, zodat de
         // hele stroom van inputs naar uitkomst continu zichtbaar beweegt (kleur = herkomst).
         {
@@ -13722,10 +13801,10 @@ function _neoNetDraw(now, canvasId, outId) {
         if (_fbActive && _fbPos >= cn.li && _fbPos <= cn.li + 1) {
             const _t = _fbPos - cn.li;
             const _px = A.x + (B.x - A.x) * _t, _py = A.y + (B.y - A.y) * _t;
-            ctx.strokeStyle = `rgba(20,241,149,${(0.16 * (1 - Math.abs(_t - 0.5))).toFixed(3)})`;
-            ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();   // (22-08) dunner
-            ctx.save(); ctx.shadowColor = '#14f195'; ctx.shadowBlur = 2.5;                                    // (22-08) veel kleiner deeltje
-            ctx.beginPath(); ctx.arc(_px, _py, 0.7, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.8)'; ctx.fill(); ctx.restore();
+            ctx.strokeStyle = `rgba(20,241,149,${(0.14 * (1 - Math.abs(_t - 0.5))).toFixed(3)})`;
+            ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+            // (22-08b) geen gloed meer + terugflits-deeltje HEEL klein op verzoek
+            ctx.beginPath(); ctx.arc(_px, _py, 0.35, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.65)'; ctx.fill();
         }
     }
 
@@ -14500,6 +14579,68 @@ const OsirisDeepNet = {
     _lastTick: 0, _lastTrainKick: 0, _serviceStarted: false,
     _trainingBusy: false,
     _lastRefresh: 0,
+    // ---------- INVERSIE-AUTOPILOOT (22-08, voorstel 1) ----------
+    // Osiris meet doorlopend de ECHTE out-of-sample richting-hitrate van het RAUWE model per markt
+    // (schaduw-voorspellingen die na HORIZON-candles tegen de werkelijke prijs gescoord worden).
+    // Is een markt structureel fout (hitRate laag bij n>=25) of toont de walk-forward-curve INVERSIE,
+    // dan keert Osiris de richting van díe markt automatisch om i.p.v. 'm te negeren. Herstelt het
+    // model, dan schakelt de inversie weer uit (hysterese). Een consistent-foute voorspeller is bruikbaar.
+    _dirOpen: [], _dirRes: {}, _dirLastFire: {}, _invert: {},
+    DIR_FIRE_MIN: 15,            // minuten tussen schaduw-metingen per markt (onafhankelijke samples)
+    DIR_MIN_N: 25,               // minimaal aantal metingen voor een inversie-besluit
+    _fireDir(key, rawSide, price, now) {
+        try {
+            if (price == null || !rawSide) return;
+            if (this._dirLastFire[key] && (now - this._dirLastFire[key]) < this.DIR_FIRE_MIN * 60000) return;
+            this._dirLastFire[key] = now;
+            this._dirOpen.push({ key, side: rawSide, entry: price, deadline: now + this.HORIZON * 15 * 60000 });
+            if (this._dirOpen.length > 400) this._dirOpen.shift();
+        } catch (e) {}
+    },
+    _resolveDir(now) {
+        try {
+            const still = [];
+            for (const o of this._dirOpen) {
+                if (now < o.deadline) { still.push(o); continue; }
+                const m = (typeof neoMultiState !== 'undefined') ? neoMultiState.markets[o.key] : null;
+                const px = m ? m.lastPrice : null;
+                if (px == null) { still.push(o); continue; }
+                const up = px >= o.entry;
+                const hit = ((o.side === 'LONG') === up) ? 1 : 0;
+                const arr = this._dirRes[o.key] || []; arr.push(hit); if (arr.length > 60) arr.shift(); this._dirRes[o.key] = arr;
+            }
+            this._dirOpen = still;
+        } catch (e) {}
+    },
+    _evalInvert(key) {
+        try {
+            const arr = this._dirRes[key] || []; const n = arr.length;
+            if (n < this.DIR_MIN_N) return;
+            const hr = arr.reduce((a, b) => a + b, 0) / n;
+            let wfInv = false;
+            try { const m = this.markets[key]; if (m && m.wf && m.wf.n >= this.DIR_MIN_N) wfInv = /^INVERSIE/.test(_calibInsight(this.calibrationCurve(key)) || ''); } catch (e) {}
+            const doInvert = (hr <= 0.33) || (wfInv && hr <= 0.45);
+            if (!this._invert[key] && doInvert) {
+                this._invert[key] = true;
+                try { logAdaptation(`DeepNet-inversie AAN (${key})`, `out-of-sample hitRate ${(hr * 100) | 0}% over ${n}${wfInv ? ' + wf-curve omgekeerd' : ''} — Osiris keert de richting van deze markt autonoom om`); } catch (e) {}
+            } else if (this._invert[key] && hr >= 0.55) {
+                this._invert[key] = false;
+                try { logAdaptation(`DeepNet-inversie UIT (${key})`, `hitRate hersteld naar ${(hr * 100) | 0}% over ${n} — normale richting`); } catch (e) {}
+            }
+        } catch (e) {}
+    },
+    // een markt is "bewezen gekalibreerd" als de walk-forward genoeg samples + precisie heeft
+    // én de kalibratie-curve als 'goed gekalibreerd' beoordeeld wordt. Zo'n DeepNet mag de core
+    // overrulen bij directe tegenspraak (voorstel 2), ook bij lagere conviction.
+    _provenCalibrated(key) {
+        try {
+            const m = this.markets[key];
+            if (!m || !m.wf || m.wf.n < 40 || (m.wf.precision || 0) < 0.55) return false;
+            if (this._invert[key]) return false;                         // omgekeerde markt telt niet als 'bewezen'
+            const ins = _calibInsight(this.calibrationCurve(key)) || '';
+            return /goed gekalibreerd/.test(ins);
+        } catch (e) { return false; }
+    },
 
     // ---------- helpers ----------
     async _fetchKl(sym, interval, limit) {
@@ -14660,7 +14801,11 @@ const OsirisDeepNet = {
         const x = this._featAt(m.kl, i, m.btcRet);
         if (!x) return null;
         const raw = this._fwd(m.model, x);
-        const cal = this._applyPlatt(m.platt, raw);
+        const calBase = this._applyPlatt(m.platt, raw);
+        const rawSide = calBase >= 0.5 ? 'LONG' : 'SHORT';              // richting van het RAUWE model (voor scoring)
+        // INVERSIE-AUTOPILOOT: is deze markt structureel fout, dan keert Osiris de kans/richting om.
+        const inverted = !!this._invert[key];
+        const cal = inverted ? (1 - calBase) : calBase;
         const side = cal >= 0.5 ? 'LONG' : 'SHORT';
         const conf = Math.abs(cal - 0.5) * 2;
         const trade = cal >= this.ABSTAIN_MARGIN || cal <= 1 - this.ABSTAIN_MARGIN;
@@ -14675,8 +14820,12 @@ const OsirisDeepNet = {
         // niet permanent dicht blijft. agree !== false blijft (geen tegenspraak sub-brein).
         if (Date.now() - (this._lastWrUpdate || 0) > 30000) { this._updateRealizedWinrate(); this._lastWrUpdate = Date.now(); }
         const wfOk = m.wf ? (m.wf.precision >= this._metaThreshold(key)) : false;
-        const meta = trade && wfOk && (agree !== false || conf >= 0.34);   // sterke DeepNet mag door ondanks core-onenigheid
-        const out = { key, raw, calProb: cal, side, conf, trade, agree, meta, features: x, ts: Date.now() };
+        // VOORSTEL 2: een bewezen-gekalibreerde DeepNet mag de core overrulen bij directe tegenspraak,
+        // ook bij lagere conviction (de SOL-case: DeepNet LONG, core SHORT, conf 0.24 haalde de oude 0.34 niet).
+        const proven = this._provenCalibrated(key);
+        const overrideBar = proven ? 0.15 : 0.34;
+        const meta = trade && wfOk && (agree !== false || conf >= overrideBar);   // sterke/bewezen DeepNet mag door ondanks core-onenigheid
+        const out = { key, raw, calProb: cal, calBase: +calBase.toFixed(4), rawSide, inverted, proven, side, conf, trade, agree, meta, features: x, ts: Date.now() };
         this.last[key] = out;
         return out;
     },
@@ -14756,15 +14905,21 @@ const OsirisDeepNet = {
             this.trainAll();
         }
         this._refreshLatest();
+        // INVERSIE-AUTOPILOOT: eerst gerijpte schaduw-metingen scoren, dan per markt evalueren
+        this._resolveDir(now);
         const parts = [];
         for (const key of ['BTC', 'ETH', 'SOL']) {
             const p = this.predict(key);
             if (p) {
-                this.log.push({ key, calProb: +p.calProb.toFixed(3), side: p.side, trade: p.trade, meta: p.meta, agree: p.agree, ts: p.ts });
-                parts.push(`${key} ${(p.calProb * 100).toFixed(0)}% ${p.meta ? p.side + '\u2713' : (p.trade ? p.side : 'abst')}`);
+                // scoor het RAUWE model out-of-sample (onafhankelijk van of we nu omkeren)
+                try { const mm = neoMultiState.markets[key]; this._fireDir(key, p.rawSide, mm ? mm.lastPrice : null, now); } catch (e) {}
+                this._evalInvert(key);
+                this.log.push({ key, calProb: +p.calProb.toFixed(3), side: p.side, trade: p.trade, meta: p.meta, agree: p.agree, inverted: p.inverted, ts: p.ts });
+                parts.push(`${key} ${(p.calProb * 100).toFixed(0)}% ${p.meta ? p.side + '\u2713' : (p.trade ? p.side : 'abst')}${p.inverted ? '\u21c4' : ''}`);
             }
         }
         if (this.log.length > 3000) this.log = this.log.slice(-3000);
+        try { localStorage.setItem('osirisDeepNetDir', JSON.stringify({ res: this._dirRes, inv: this._invert })); } catch (e) {}
         // samenvatting voor de live reasoning-feed (mainbrain-keuze)
         let choice = null, best = -1;
         for (const key of ['BTC', 'ETH', 'SOL']) { const p = this.last[key]; if (p && p.meta && p.conf > best) { best = p.conf; choice = p; } }
@@ -14790,6 +14945,7 @@ const OsirisDeepNet = {
         try { const ab = localStorage.getItem('osirisDeepNetTsAB'); if (ab) this.tsAB = JSON.parse(ab); } catch (e) {}
         try { this.dynTimeStopDisabled = localStorage.getItem('osirisDeepNetDynOff') === 'true'; } catch (e) {}
         try { const g = localStorage.getItem('osirisDeepNetGate'); if (g != null) this.GATE_ENTRIES = (g === 'true'); } catch (e) {}
+        try { const d = localStorage.getItem('osirisDeepNetDir'); if (d) { const o = JSON.parse(d); if (o) { this._dirRes = o.res || {}; this._invert = o.inv || {}; } } } catch (e) {}
     },
     // ---------- A/B: dynamische vs vaste time-stop (Osiris leert wat beter werkt) ----------
     assignTsMode() {
@@ -15058,8 +15214,14 @@ function updateDeepNetPanel() {
         const wf = m && m.wf, prec = wf ? wf.precision : 0;
         const precCol = prec >= 0.58 ? '#14f195' : (prec >= 0.52 ? '#ffb627' : '#ff6b6b');
         const cal = p ? p.calProb : null;
+        const dirArr = dn._dirRes && dn._dirRes[key] ? dn._dirRes[key] : [];
+        const dirHr = dirArr.length ? dirArr.reduce((a, b) => a + b, 0) / dirArr.length : null;
+        let flags = '';
+        if (p && p.inverted) flags += `<span title="Osiris keert deze markt autonoom om: out-of-sample hitRate ${dirHr != null ? (dirHr * 100 | 0) + '%' : '\u2014'} over ${dirArr.length}" style="color:#ffb627; font-size:0.72em; font-weight:700;">\u21c4 omgekeerd</span>`;
+        if (p && p.proven) flags += `${flags ? ' \u00b7 ' : ''}<span title="Bewezen gekalibreerd: mag de core overrulen bij tegenspraak" style="color:#14f195; font-size:0.72em; font-weight:700;">\u2713 bewezen</span>`;
         cards += `<div style="flex:1; min-width:118px; background:rgba(255,255,255,0.02); border:1px solid ${col}44; border-radius:6px; padding:7px 9px;">
             <div style="display:flex; justify-content:space-between; align-items:center;"><span style="color:${col}; font-weight:700; font-size:0.9em;">${key}</span>${p ? `<span style="color:${p.meta ? '#eaffff' : '#7d99ac'}; font-size:0.85em;">${(cal * 100).toFixed(0)}% ${p.meta ? p.side + '\u2713' : (p.trade ? p.side : '\u2014')}</span>` : '<span style="color:#5c7488;">\u2014</span>'}</div>
+            ${flags ? `<div style="margin-top:3px;">${flags}</div>` : ''}
             <div style="margin-top:5px; font-size:0.8em; color:#7d99ac;">walk-forward precisie</div>
             <div style="height:5px; background:rgba(255,255,255,0.07); border-radius:3px; margin-top:2px; overflow:hidden;"><div style="height:100%; width:${(prec * 100).toFixed(0)}%; background:${precCol};"></div></div>
             <div style="font-size:0.75em; color:${precCol}; margin-top:2px;">${wf ? `${(prec * 100).toFixed(0)}% \u00b7 acc ${(wf.acc * 100).toFixed(0)}% \u00b7 n=${wf.n}` : 'nog niet getraind'}</div>
