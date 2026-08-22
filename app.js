@@ -1905,7 +1905,7 @@ function startAutonomousBot(isAutoRestart = false) {
     try { const _shadowCb = document.getElementById('osiris-shadow-toggle'); if (_shadowCb) _shadowCb.checked = true; } catch (e) {}
     // Reset een eventueel vastgelopen circuit breaker bij elke start. Zonder recente
     // Osiris-trades kon die zichzelf nooit hervatten en blokkeerde hij ETH/SOL stil.
-    try { if (typeof OsirisGuard !== 'undefined' && OsirisGuard.paused) { OsirisGuard.paused = false; if (OsirisGuard._persist) OsirisGuard._persist(); try { logAdaptation('Circuit breaker: gereset bij start', 'vastgelopen pauze opgeheven zodat ETH/SOL kunnen instappen'); } catch (e) {} } } catch (e) {}
+    try { if (typeof OsirisGuard !== 'undefined' && OsirisGuard.pausedMarkets && Object.keys(OsirisGuard.pausedMarkets).length) { OsirisGuard.pausedMarkets = {}; if (OsirisGuard._persist) OsirisGuard._persist(); try { logAdaptation('Circuit breaker: gereset bij start', 'vastgelopen pauze(s) opgeheven zodat ETH/SOL kunnen instappen'); } catch (e) {} } } catch (e) {}
 
     // Badge in de (ingeklapte) ENGINE CONFIGURATION-header: toont in één
     // oogopslag de executiemodus én hoe de sessie gestart is (manual vs.
@@ -4567,18 +4567,24 @@ let _lastCalibUpdateMs = (function(){ try { return +localStorage.getItem('osiris
 // Generieke bouwer: maakt een predicted-vs-measured mapping voor de trades die door
 // filterFn komen. Teruggegeven: { map, n, provisional }.
 function _buildCalibMap(filterFn) {
-    const pts = [];
-    const buckets = [[50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
     const withProb = learningLog.filter(filterFn);
     const provisional = withProb.length < 50;
     if (withProb.length < 10) return { map: null, n: withProb.length, provisional };
-    const minPerBucket = withProb.length < 50 ? 4 : 15;
-    for (const [lo, hi] of buckets) {
-        const inB = withProb.filter(l => l.entryProbabilityPct >= lo && l.entryProbabilityPct < hi);
-        if (inB.length >= minPerBucket) pts.push([(lo + Math.min(hi, 100)) / 2, inB.filter(l => l.outcome === 'win').length / inB.length * 100]);
+    // QUANTIEL-BINNING (22-08): gelijk-gevulde bins over de werkelijke entry-kansen -> meer,
+    // betrouwbaardere punten dan de oude vaste 10%-vakken (die vaak maar 4 punten gaven).
+    const arr = withProb.map(l => ({ p: l.entryProbabilityPct, win: l.outcome === 'win' ? 1 : 0 })).sort((a, b) => a.p - b.p);
+    const nBins = Math.max(2, Math.min(10, Math.floor(arr.length / 10)));   // ~10 per bin
+    const per = Math.floor(arr.length / nBins);
+    const pts = [];
+    for (let b = 0; b < nBins; b++) {
+        const seg = arr.slice(b * per, b === nBins - 1 ? arr.length : (b + 1) * per);
+        if (seg.length < 4) continue;
+        const px = seg.reduce((a, x) => a + x.p, 0) / seg.length;
+        const py = seg.filter(x => x.win).length / seg.length * 100;
+        pts.push([px, py]);
     }
     if (pts.length < 1) return { map: null, n: withProb.length, provisional };
-    for (let i = 1; i < pts.length; i++) pts[i][1] = Math.max(pts[i][1], pts[i - 1][1]);
+    for (let i = 1; i < pts.length; i++) pts[i][1] = Math.max(pts[i][1], pts[i - 1][1]);   // monotoon
     return { map: pts, n: withProb.length, provisional };
 }
 // Neo BTC (global _calibMap, blijft BTC-zuiver + versie-zuiver).
@@ -10378,8 +10384,9 @@ function osirisShadowTick() {
         for (const p of picks) {
             const sym = p.sym;
             if (sym === 'BTC') continue;                    // BTC loopt via de hoofd-engine
-            // INGREEP 2 - circuit breaker: geen nieuwe Osiris-entries zolang gepauzeerd
-            if (typeof OsirisGuard !== 'undefined' && OsirisGuard.ENABLED && OsirisGuard.paused) { osirisState.skip[sym] = 'circuit breaker gepauzeerd'; continue; }
+            // INGREEP 2 - circuit breaker PER MARKT: pauzeert alleen de munt die zelf
+            // onderpresteert, en nooit een munt met open meta + FSO-bliksemkans.
+            if (typeof OsirisGuard !== 'undefined' && OsirisGuard.ENABLED && typeof OsirisGuard.isPaused === 'function' && OsirisGuard.isPaused(sym)) { osirisState.skip[sym] = 'circuit breaker gepauzeerd (deze munt)'; continue; }
             const a = alloc[sym] || 0;
             if (a <= 0 || !p.side) { if (a <= 0 && p.side) osirisState.skip[sym] = 'geen allocatie (andere munt won)'; continue; }
             // al een open positie op deze munt? niet dubbelen
@@ -12382,8 +12389,9 @@ function downloadDeepNetModels() {
 }
 window.downloadDeepNetModels = downloadDeepNetModels;
 
-function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin){
+function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin, unit){
     var plot=document.getElementById(plotId); if(!plot) return;
+    unit=unit||'trades';
     xMin=(xMin==null)?50:xMin;
     var lc=plotId.replace('calib-plot-','');
     var xlo=document.getElementById('calib-xlo-'+lc); if(xlo) xlo.textContent=xMin;
@@ -12397,7 +12405,7 @@ function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin){
         if(gap>5){verdict='overconfident +'+gap.toFixed(0)+'pt';vcol='#ffb627';}
         else if(gap<-5){verdict='underconfident '+gap.toFixed(0)+'pt';vcol='#14f195';}
         else{verdict='well calibrated';vcol='#14f195';}
-        head.innerHTML=label+' <span style="color:'+vcol+';font-weight:400">\u00b7 '+verdict+' \u00b7 '+n+' trades</span>';
+        head.innerHTML=label+' <span style="color:'+vcol+';font-weight:400">\u00b7 '+verdict+' \u00b7 '+n+' '+unit+'</span>';
         head.style.color=col;
     }
     // plot-area binnen de viewBox: x[30..228], y[120..12]  (0..100%)
@@ -12429,11 +12437,17 @@ function renderAllCalibrationCurves(){
     }catch(e){}
     ['ETH','SOL'].forEach(function(sym){ try{
         var c=dn?dn.calibrationCurve(sym):null; var lc=sym.toLowerCase();
-        if(c&&c.map) _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,c.map,c.n,c.n<60,C[sym],'Neo '+sym,0);
-        else { var r=computeCalibrationMapFor(sym); _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,r.map,r.n,r.provisional,C[sym],'Neo '+sym,50); }
+        // voorkeur: de trade-gebaseerde per-markt-curve (echte trades). Alleen als die te
+        // weinig data heeft, val terug op de DeepNet walk-forward-curve (label 'wf-samples').
+        var r=computeCalibrationMapFor(sym);
+        if(r&&r.map) _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,r.map,r.n,r.provisional,C[sym],'Neo '+sym,0,'trades');
+        else if(c&&c.map) _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,c.map,c.n,c.n<60,C[sym],'Neo '+sym,0,'wf-samples');
+        else _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,null,(r?r.n:0),true,C[sym],'Neo '+sym,0,'trades');
     }catch(e){} });
     try{ var o=dn?dn.calibrationCurve('OSIRIS'):null;
-        if(o&&o.map) _drawCalibInto('calib-plot-osiris','calib-head-osiris',o.map,o.n,o.n<60,C.OSIRIS,'Osiris Mainbrain',0);
+        var ro=computeCalibrationMapFor('OSIRIS');
+        if(ro&&ro.map) _drawCalibInto('calib-plot-osiris','calib-head-osiris',ro.map,ro.n,ro.provisional,C.OSIRIS,'Osiris Mainbrain',0,'trades');
+        else if(o&&o.map) _drawCalibInto('calib-plot-osiris','calib-head-osiris',o.map,o.n,o.n<60,C.OSIRIS,'Osiris Mainbrain',0,'wf-samples');
     }catch(e){}
 }
 function renderCalibrationCurve() {
@@ -13536,7 +13550,9 @@ function _neoNetDraw(now, canvasId, outId) {
 
     const layers = _neonet.layers, conns = _neonet.conns;
     const _isBigNet = (canvasId === 'neo-net-canvas-big' || canvasId === 'neo-net-canvas-wal');
-    const padX = w * 0.13, padTop = h * 0.065, padBot = h * 0.10, padY = padTop;   // (22-08) minder top-padding -> inputs verder uit elkaar
+    // (22-08) padTop groter zodat de inputs ONDER de titel/subtitel beginnen (geen overlap);
+    // padBot groter zodat de laag-labels + status-regel ruim boven de panel-hoeken/randen vallen.
+    const padX = w * 0.13, padTop = h * 0.135, padBot = h * 0.18, padY = padTop;
     const _FX = [0, 0.32, 0.49, 0.66, 0.83, 1.0];
     const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
     // Per-laag verticale spreiding: inputs/integratie vol uitgespreid (meer ruimte tussen
@@ -13744,7 +13760,7 @@ function _neoNetDraw(now, canvasId, outId) {
     const lnames = (_neonet.layerLabels) || ['INPUTS', 'INTEGRATION', 'CORES', 'OSIRIS', 'DECISION', 'OUTPUT'];
     for (let li = 0; li < layers.length; li++) {
         ctx.fillStyle = 'rgba(92,116,136,0.85)';
-        ctx.fillText(lnames[li], pos[li][0].x, h - padBot * 0.32);
+        ctx.fillText(lnames[li], pos[li][0].x, h - padBot * 0.62);   // (22-08) verder onder de dataflow, ruim boven de status-regel
     }
     // ---- HMM-regime + shadow-backtest OP HET NETWERK (alleen groot canvas) ----
     if (isBig) {
@@ -13775,7 +13791,7 @@ function _neoNetDraw(now, canvasId, outId) {
         if (typeof OsirisShadowBacktest !== 'undefined' && OsirisShadowBacktest.best) {
             const B = OsirisShadowBacktest.best;
             ctx.textAlign = 'right'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(20,241,149,0.85)';
-            ctx.fillText(`SHADOW-BT · tgt ${B.target}% / stop ${B.stop}% · Sharpe ${B.sharpe.toFixed(2)}`, w - 14, h - 8);
+            ctx.fillText(`SHADOW-BT · tgt ${B.target}% / stop ${B.stop}% · Sharpe ${B.sharpe.toFixed(2)}`, w - 14, h - 20);
         }
         // RL-agent advies-badge (linksonder)
         if (typeof OsirisRL !== 'undefined' && OsirisRL.episodes > 0) {
@@ -13783,7 +13799,7 @@ function _neoNetDraw(now, canvasId, outId) {
             ctx.textAlign = 'left'; ctx.font = "8px 'JetBrains Mono',monospace";
             ctx.fillStyle = 'rgba(127,216,255,0.85)';
             const adv = d ? `${R.ACTIONS[d.action]} ${(d.conf * 100 | 0)}%` : '\u2014';
-            ctx.fillText(`RL · ${(R.episodes / 1000).toFixed(0)}k scenario's · advies ${adv}`, 14, h - 8);
+            ctx.fillText(`RL · ${(R.episodes / 1000).toFixed(0)}k scenario's · advies ${adv}`, 14, h - 20);
         }
         // FSO SYSTEEM-STRESS: badge (regime + niveau) rechtsboven + subtiele stress-aura.
         try {
@@ -13848,7 +13864,7 @@ function _neoNetDraw(now, canvasId, outId) {
             const _lblOn = (typeof _fbActive !== 'undefined' && _fbActive);
             ctx.fillStyle = _lblOn ? 'rgba(20,241,149,0.85)' : 'rgba(20,241,149,0.4)';
             ctx.font = "7.5px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
-            ctx.fillText('\u21bb feedback \u00b7 uitkomst flitst terug door het net \u00b7 leert van elke trade', w / 2, h - 8);
+            ctx.fillText('\u21bb feedback \u00b7 uitkomst flitst terug door het net \u00b7 leert van elke trade', w / 2, h - 20);
             ctx.restore();
         } catch (e) {}
     }
@@ -14664,15 +14680,23 @@ const OsirisDeepNet = {
         let rel = [];
         if (key === 'OSIRIS') { for (const k of ['BTC', 'ETH', 'SOL']) if (this.markets[k] && this.markets[k].rel) rel = rel.concat(this.markets[k].rel); }
         else if (this.markets[key] && this.markets[key].rel) rel = this.markets[key].rel;
-        if (rel.length < 20) return { map: null, n: rel.length };
-        const buckets = [[0, 10], [10, 20], [20, 30], [30, 40], [40, 50], [50, 60], [60, 70], [70, 80], [80, 90], [90, 101]];
+        if (rel.length < 15) return { map: null, n: rel.length };
+        // QUANTIEL-BINNING (22-08): verdeel de voorspellingen in gelijk-gevulde bins i.p.v.
+        // vaste 10%-vakken. Zo krijg je veel meer punten die állemaal genoeg samples hebben,
+        // en de curve loopt netjes over het werkelijke voorspel-bereik (niet 4 losse punten).
+        const arr = rel.map(r => ({ p: r.p * 100, y: r.y })).sort((a, b) => a.p - b.p);
+        const nBins = Math.max(3, Math.min(10, Math.floor(arr.length / 12)));
+        const per = Math.floor(arr.length / nBins);
         const pts = [];
-        for (const [lo, hi] of buckets) {
-            const inB = rel.filter(r => r.p * 100 >= lo && r.p * 100 < hi);
-            if (inB.length >= 8) pts.push([(lo + Math.min(hi, 100)) / 2, inB.filter(r => r.y === 1).length / inB.length * 100]);
+        for (let b = 0; b < nBins; b++) {
+            const seg = arr.slice(b * per, b === nBins - 1 ? arr.length : (b + 1) * per);
+            if (seg.length < 5) continue;
+            const px = seg.reduce((a, x) => a + x.p, 0) / seg.length;
+            const py = seg.filter(x => x.y === 1).length / seg.length * 100;
+            pts.push([px, py]);
         }
         if (pts.length < 1) return { map: null, n: rel.length };
-        return { map: pts, n: rel.length };
+        return { map: pts, n: rel.length, unit: 'wf-samples' };
     },
     keyOf(pos) {
         if (!pos) return null;
@@ -14823,52 +14847,63 @@ window.deepNetGate = (on) => OsirisDeepNet.setGate(on);
 // ============================================================
 const OsirisGuard = {
     ENABLED: true,
-    WINDOW: 20,          // aantal recente Osiris-trades in het venster
+    WINDOW: 20,          // aantal recente trades per markt in het venster
     FLOOR: -0.0005,      // gem. pnl < -0.05% -> pauzeren
     RESUME: 0.0,         // gem. pnl >= break-even -> hervatten
-    MIN_TRADES: 12,      // pas oordelen vanaf zoveel trades
-    paused: false,
-    lastExpectancy: null,
+    MIN_TRADES: 8,       // pas oordelen vanaf zoveel trades PER MARKT
+    MARKETS: ['ETH', 'SOL'],
+    pausedMarkets: {},   // (22-08) PER MARKT i.p.v. één globale pauze
+    lastExp: {},
     _restore() {
-        try { this.paused = localStorage.getItem('osirisGuardPaused') === 'true'; } catch (e) {}
+        try { this.pausedMarkets = JSON.parse(localStorage.getItem('osirisGuardPausedMk') || '{}') || {}; } catch (e) { this.pausedMarkets = {}; }
         try { const e = localStorage.getItem('osirisGuardEnabled'); if (e != null) this.ENABLED = (e === 'true'); } catch (e) {}
+        try { localStorage.removeItem('osirisGuardPaused'); } catch (e) {}   // oude globale vlag opruimen
     },
-    _persist() { try { localStorage.setItem('osirisGuardPaused', this.paused ? 'true' : 'false'); } catch (e) {} },
-    rollingExpectancy() {
+    _persist() { try { localStorage.setItem('osirisGuardPausedMk', JSON.stringify(this.pausedMarkets)); } catch (e) {} },
+    // backward-compat: 'paused' = alle Osiris-markten gepauzeerd (voor oude checks)
+    get paused() { return this.MARKETS.every(k => this.pausedMarkets[k]); },
+    rollingExpectancy(sym) {
         const ex = (typeof botTradeLog !== 'undefined' ? botTradeLog : [])
-            .filter(t => t.action === 'EXIT' && (t.isOsiris === true || (t.market && t.market !== 'BTC')));
+            .filter(t => t.action === 'EXIT' && (t.isOsiris === true || (t.market && t.market !== 'BTC')) && (sym ? t.market === sym : true));
         const rec = ex.slice(-this.WINDOW);
         if (rec.length < this.MIN_TRADES) return { exp: null, n: rec.length };
         return { exp: rec.reduce((a, t) => a + (t.pnl || 0), 0) / rec.length, n: rec.length };
     },
+    // OPPORTUNITY-OVERRIDE (22-08): een markt met een OPEN DeepNet-meta én een sterke
+    // FSO-bliksemkans mag NIET gepauzeerd worden - dat is juist de kans die je wil pakken.
+    // De breaker is bedoeld om te stoppen met matige verliesgevende setups, niet om de
+    // béste setup over te slaan (dat gaf: ETH/SOL gepauzeerd terwijl SOL meta-open stond).
+    _override(sym) {
+        try {
+            const dnp = (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.last) ? OsirisDeepNet.last[sym] : null;
+            const metaOpen = dnp && dnp.meta;
+            const opp = (typeof osirisMarketOpportunity === 'function') ? osirisMarketOpportunity(sym) : 0;
+            return !!metaOpen && opp > 0.5;
+        } catch (e) { return false; }
+    },
+    isPaused(sym) { if (!this.ENABLED) return false; if (this._override(sym)) return false; return !!this.pausedMarkets[sym]; },
     evaluate() {
-        if (!this.ENABLED) { if (this.paused) { this.paused = false; this._persist(); } return; }
-        const { exp, n } = this.rollingExpectancy();
-        this.lastExpectancy = exp;
-        if (exp == null) {
-            // Geen (genoeg) recente Osiris-trades om op te oordelen. Blijft de breaker dan
-            // gepauzeerd hangen (uit een oude verliezende sessie), dan kan hij zichzelf nooit
-            // hervatten en blokkeert hij ETH/SOL eeuwig. Daarom hier resetten.
-            if (this.paused) {
-                this.paused = false; this._persist();
-                try { logAdaptation('Circuit breaker: gereset', 'geen recente Osiris-trades om op te oordelen - pauze opgeheven zodat ETH/SOL weer kunnen instappen'); } catch (e) {}
-                try { updateDeepNetPanel(); } catch (e) {}
+        if (!this.ENABLED) { if (Object.keys(this.pausedMarkets).length) { this.pausedMarkets = {}; this._persist(); } return; }
+        for (const sym of this.MARKETS) {
+            const { exp, n } = this.rollingExpectancy(sym); this.lastExp[sym] = exp;
+            if (exp == null) {
+                if (this.pausedMarkets[sym]) { this.pausedMarkets[sym] = false; this._persist(); try { logAdaptation(`Circuit breaker ${sym}: gereset`, 'te weinig recente trades om op te oordelen - hervat'); } catch (e) {} }
+                continue;
             }
-            return;
-        }
-        if (!this.paused && exp < this.FLOOR) {
-            this.paused = true; this._persist();
-            try { logAdaptation('Circuit breaker: Osiris-entries GEPAUZEERD', `Rollende expectancy ${(exp * 100).toFixed(3)}% over ${n} trades onder de vloer - geen nieuwe entries tot herstel`); } catch (e) {}
-        } else if (this.paused && exp >= this.RESUME) {
-            this.paused = false; this._persist();
-            try { logAdaptation('Circuit breaker: Osiris-entries HERVAT', `Rollende expectancy ${(exp * 100).toFixed(3)}% over ${n} trades terug boven break-even`); } catch (e) {}
+            if (!this.pausedMarkets[sym] && exp < this.FLOOR && !this._override(sym)) {
+                this.pausedMarkets[sym] = true; this._persist();
+                try { logAdaptation(`Circuit breaker ${sym}: GEPAUZEERD`, `expectancy ${(exp * 100).toFixed(3)}% over ${n} trades onder de vloer (geen open meta/opportunity)`); } catch (e) {}
+            } else if (this.pausedMarkets[sym] && (exp >= this.RESUME || this._override(sym))) {
+                this.pausedMarkets[sym] = false; this._persist();
+                try { logAdaptation(`Circuit breaker ${sym}: HERVAT`, this._override(sym) ? 'open meta + FSO-bliksemkans - kans wordt niet overgeslagen' : `expectancy ${(exp * 100).toFixed(3)}% terug boven break-even`); } catch (e) {}
+            }
         }
         try { updateDeepNetPanel(); } catch (e) {}
     },
     setEnabled(on) {
         this.ENABLED = !!on;
         try { localStorage.setItem('osirisGuardEnabled', on ? 'true' : 'false'); } catch (e) {}
-        if (!on && this.paused) { this.paused = false; this._persist(); }
+        if (!on) { this.pausedMarkets = {}; this._persist(); }
         try { updateDeepNetPanel(); } catch (e) {}
     },
     snapshotChampion() {
