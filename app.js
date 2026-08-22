@@ -13536,7 +13536,7 @@ function _neoNetDraw(now, canvasId, outId) {
 
     const layers = _neonet.layers, conns = _neonet.conns;
     const _isBigNet = (canvasId === 'neo-net-canvas-big' || canvasId === 'neo-net-canvas-wal');
-    const padX = w * 0.13, padTop = h * 0.13, padBot = h * 0.11, padY = padTop;
+    const padX = w * 0.13, padTop = h * 0.065, padBot = h * 0.10, padY = padTop;   // (22-08) minder top-padding -> inputs verder uit elkaar
     const _FX = [0, 0.32, 0.49, 0.66, 0.83, 1.0];
     const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
     // Per-laag verticale spreiding: inputs/integratie vol uitgespreid (meer ruimte tussen
@@ -13678,8 +13678,8 @@ function _neoNetDraw(now, canvasId, outId) {
         const flash = 0.5 + 0.5 * Math.sin(now / 340 * (0.7 + cn.sp) + cn.flow * 6.28);
         const a = 0.05 + 0.30 * signal + (0.10 + 0.34 * signal) * flash;
         ctx.strokeStyle = `rgba(${col},${a.toFixed(3)})`;
-        ctx.lineWidth = 0.5 + 1.4 * signal;   // (22-08) dunner
-        if (hot) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.6)`; ctx.shadowBlur = (2 + 4 * signal) * (0.4 + 0.6 * flash); }   // (22-08) lichter/subtieler
+        ctx.lineWidth = 0.35 + 0.8 * signal;   // (22-08) veel dunner
+        if (hot) { ctx.save(); ctx.shadowColor = `rgba(${OSIRIS_NEON},0.45)`; ctx.shadowBlur = (1 + 2 * signal) * (0.4 + 0.6 * flash); }   // (22-08) veel subtieler
         ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
         if (hot) ctx.restore();
         // CONTINUE DATA-FLOW: klein deeltje reist voorwaarts (A -> B) langs ELKE lijn, zodat de
@@ -13697,10 +13697,10 @@ function _neoNetDraw(now, canvasId, outId) {
         if (_fbActive && _fbPos >= cn.li && _fbPos <= cn.li + 1) {
             const _t = _fbPos - cn.li;
             const _px = A.x + (B.x - A.x) * _t, _py = A.y + (B.y - A.y) * _t;
-            ctx.strokeStyle = `rgba(20,241,149,${(0.30 * (1 - Math.abs(_t - 0.5))).toFixed(3)})`;
-            ctx.lineWidth = 1.1; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
-            ctx.save(); ctx.shadowColor = '#14f195'; ctx.shadowBlur = 7;
-            ctx.beginPath(); ctx.arc(_px, _py, 1.7, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.92)'; ctx.fill(); ctx.restore();
+            ctx.strokeStyle = `rgba(20,241,149,${(0.16 * (1 - Math.abs(_t - 0.5))).toFixed(3)})`;
+            ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();   // (22-08) dunner
+            ctx.save(); ctx.shadowColor = '#14f195'; ctx.shadowBlur = 2.5;                                    // (22-08) veel kleiner deeltje
+            ctx.beginPath(); ctx.arc(_px, _py, 0.7, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.8)'; ctx.fill(); ctx.restore();
         }
     }
 
@@ -13796,10 +13796,12 @@ function _neoNetDraw(now, canvasId, outId) {
                     ag.addColorStop(0, 'rgba(0,0,0,0)'); ag.addColorStop(1, `rgba(255,79,109,${Math.min(0.16, (lvl - 0.15) * 0.5)})`);
                     ctx.fillStyle = ag; ctx.fillRect(0, 0, w, h);
                 }
+                // (22-08) verplaatst naar onder de HTML 'Osiris decision'-badge (rechtsboven),
+                // zodat de FSO-stress-tekst en de SHORT/LONG-uitkomst elkaar niet meer overlappen.
                 ctx.textAlign = 'right'; ctx.font = "bold 9px 'JetBrains Mono',monospace"; ctx.fillStyle = rc;
-                ctx.fillText(`◉ FSO ${osirisStress.regime} · stress ${lvl.toFixed(3)}`, w - 14, 16);
+                ctx.fillText(`◉ FSO ${osirisStress.regime} · stress ${lvl.toFixed(3)}`, w - 14, 62);
                 ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(127,180,255,0.85)';
-                ctx.fillText(`σ² ${(osirisStress.variance || 0).toFixed(4)} · asynchronie`, w - 14, 28);
+                ctx.fillText(`σ² ${(osirisStress.variance || 0).toFixed(4)} · asynchronie`, w - 14, 74);
             }
         } catch (e) {}
         // TESLA-LIGHTNING: gekartelde bliksem ALLEEN tussen de laatste lagen
