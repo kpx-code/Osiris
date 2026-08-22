@@ -13787,19 +13787,24 @@ function _neoNetDraw(now, canvasId, outId) {
         // De LIJN zelf flasht: de verbinding tussen de parameters licht op, helderheid
         // pulseert (data bepaalt de basis + hoe fel). Geen los reizend deeltje meer.
         const flash = 0.5 + 0.5 * Math.sin(now / 340 * (0.7 + cn.sp) + cn.flow * 6.28);
-        // (22-08b) standaard-verbindingslijnen iets duidelijker: hogere basis-helderheid + -dikte,
-        // zodat de vaste netwerkstructuur beter leesbaar is; actieve edges blijven feller pulseren.
-        const a = 0.13 + 0.30 * signal + (0.10 + 0.34 * signal) * flash;
+        // (22-08e) LICHTERE LIJNEN + LICHTERE RENDER op verzoek: de verbindingslijnen zijn nu
+        // subtieler (lagere basis-helderheid/-dikte) en de dure blauwe gloed (shadowBlur) wordt
+        // ALLEEN nog op de weinige ACTIEVE (hete) edges getekend i.p.v. op elke lijn — dat scheelt
+        // enorm in de render. De inactieve lijnen worden plat en goedkoop getekend. De data-true
+        // dataflow-deeltjes hieronder lopen ongewijzigd over ELKE lijn.
+        const a = 0.09 + 0.26 * signal + (0.07 + 0.28 * signal) * flash;
         ctx.strokeStyle = `rgba(${col},${a.toFixed(3)})`;
-        ctx.lineWidth = 0.6 + 0.8 * signal;
-        // (22-08d) BLAUWE JARVIS-GLOED TERUG op verzoek: zachte shadowBlur op de verbindingslijn,
-        // helderheid data-true (schaalt met de echte co-activatie aAct*bAct). GEEN gekartelde bliksem
-        // meer — dat losse tesla-boog-effect is en blijft weg; dit is enkel een vloeiende gloed.
-        ctx.save();
-        ctx.shadowColor = `rgb(${col})`;
-        ctx.shadowBlur = hot ? (5 + 9 * signal) : (2 + 4 * signal);
-        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
-        ctx.restore();
+        ctx.lineWidth = 0.5 + 0.7 * signal;
+        if (hot) {
+            ctx.save();
+            ctx.shadowColor = `rgb(${col})`;
+            ctx.shadowBlur = 4 + 7 * signal;                 // blauwe jarvis-gloed enkel op actieve lijnen
+            ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+            ctx.restore();
+        } else {
+            ctx.shadowBlur = 0;                              // geen dure gloed op de vele inactieve lijnen
+            ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+        }
         // CONTINUE DATA-FLOW: klein deeltje reist voorwaarts (A -> B) langs ELKE lijn, zodat de
         // hele stroom van inputs naar uitkomst continu zichtbaar beweegt (kleur = herkomst).
         {
