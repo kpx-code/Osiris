@@ -2570,7 +2570,7 @@ function updateWalletUI() {
                 const convTxt = (p.isOsiris && p.osirisAllocPct != null)
                     ? ` <span style="color:var(--text-dimmer);">(conv ${(p.osirisAllocPct * 100).toFixed(0)}%)</span>` : '';
                 return `<tr>
-                    <td style="padding:4px; font-size:0.72em; font-weight:bold; white-space:nowrap;"><span style="color:${ft.origin.c};">${ft.origin.l}</span> <span style="color:var(--text-dimmer);">&middot;</span> <span style="color:${ft.strat.c};">${ft.strat.l}</span></td>
+                    <td style="padding:4px; font-size:0.72em; font-weight:bold; white-space:nowrap;"><span style="color:${ft.origin.c};">${ft.origin.l}</span> <span style="color:var(--text-dimmer);">&middot;</span> <span style="color:${ft.strat.c};">${ft.strat.l}</span> ${p.isTestnet ? '<span title="Echte order-fill van het Binance spot-testnet" style="color:#14f195; font-weight:400;">✓ testnet</span>' : '<span title="Gesimuleerd op de live prijsfeed - geen echte order" style="color:#ffb627; font-weight:400;">~ sim</span>'}</td>
                     <td style="color:${mktColor}; font-weight:bold; font-size:0.8em;">${mkt}</td>
                     <td style="color:${p.side === 'LONG' ? '#26a69a' : '#ef5350'}; font-weight:bold;">${p.side}</td>
                     <td>${formatChartPrice(p.entryPrice)}</td>
@@ -2673,10 +2673,20 @@ function updateHistoryUI(entry) {
     const ft = typeFacetsFromFlags(entry);
     const mkt = entry.market || 'BTC';
     const mktColor = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' }[mkt] || '#8b95a5';
+    // opening-tijd: uit de verrijkte EXIT-entry, of afgeleid uit holdMinutes, anders —
+    const openStr = entry.openTimeStr
+        || (entry.openTimeMs ? formatFullDateTime(entry.openTimeMs) : null)
+        || ((entry.holdMinutes != null && entry.timestampMs) ? formatFullDateTime(entry.timestampMs - entry.holdMinutes * 60000) : '—');
+    // testnet-fill badge (echte testnet-order vs. simulatie)
+    const isReal = (entry.isTestnet === true) || (entry.isTestnet === undefined && entry.executionSource === 'TESTNET');
+    const fill = isReal
+        ? '<span title="Echte order-fill van het Binance spot-testnet" style="color:#14f195;">✓ testnet</span>'
+        : '<span title="Gesimuleerd op de live prijsfeed" style="color:#ffb627;">~ sim</span>';
     const row = document.createElement('tr');
     row.style.borderBottom = '1px solid #222';
     row.innerHTML = `
-        <td style="padding:5px; color:#888;">${entry.timestamp}</td>
+        <td style="padding:5px; color:#6d8296; white-space:nowrap; font-size:0.9em;">${openStr}</td>
+        <td style="padding:5px; color:#888; white-space:nowrap;">${entry.timestamp}</td>
         <td style="font-weight:bold; font-size:0.85em; white-space:nowrap;"><span style="color:${ft.origin.c};">${ft.origin.l}</span> <span style="color:#666;">&middot;</span> <span style="color:${ft.strat.c};">${ft.strat.l}</span></td>
         <td style="color:${mktColor}; font-weight:bold; font-size:0.85em;">${mkt}</td>
         <td style="color:${entry.side === 'LONG' ? '#26a69a' : '#ef5350'};">${entry.side || '-'}</td>
@@ -2684,7 +2694,8 @@ function updateHistoryUI(entry) {
         <td>${formatMoney(entry.notionalEUR || 0)}</td>
         <td style="color:#7d99ac;">${entry.sizePct != null ? (entry.sizePct * 100).toFixed(0) + '%' : '-'}</td>
         <td style="color:${pnlColor}; font-weight:bold;">${(entry.pnl * 100).toFixed(2)}% (${formatMoney(entry.pnlAmount || 0)})</td>
-        <td style="color:#7d99ac; font-size:0.82em; white-space:nowrap; max-width:220px; overflow:hidden; text-overflow:ellipsis;" title="${(entry.reason || '').replace(/"/g, '&quot;')}">${entry.reason || '-'}</td>
+        <td style="white-space:nowrap; font-size:0.82em;">${fill}</td>
+        <td style="color:#7d99ac; font-size:0.82em; white-space:nowrap; max-width:200px; overflow:hidden; text-overflow:ellipsis;" title="${(entry.reason || '').replace(/"/g, '&quot;')}">${entry.reason || '-'}</td>
     `;
     body.insertBefore(row, body.firstChild);
     // FIX: toonde voorheen alleen de laatste 10 rijen (harde cap). De gebruiker
@@ -4539,7 +4550,8 @@ function finalizeClosePosition(pos, pnlPct, reason) {
         posMarket = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || 'BTC';
     }
     logBotAction("EXIT", exitPrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional, pos.isScalp || false, posMarket, pos.isOsiris === true, pos.isManual === true, pos.isIct === true, (pos.sizePct != null ? pos.sizePct : null));
-    try { if (botTradeLog.length) { const _e = botTradeLog[botTradeLog.length - 1]; _e.mfePct = (pos.mfe != null ? +(pos.mfe * 100).toFixed(3) : null); _e.maePct = (pos.mae != null ? +(pos.mae * 100).toFixed(3) : null); _e.walletFill = (typeof getEquity === 'function' ? +getEquity().toFixed(2) : null); _e.executionSource = (botSettings && botSettings.executionMode) || 'TESTNET'; _e.botVersion = OSIRIS_VERSION; _e.entryPrice = pos.entryPrice; _e.holdMinutes = pos.openTime ? +(((Date.now() - pos.openTime) / 60000).toFixed(1)) : null; } } catch (e) {}
+    try { if (botTradeLog.length) { const _e = botTradeLog[botTradeLog.length - 1]; _e.mfePct = (pos.mfe != null ? +(pos.mfe * 100).toFixed(3) : null); _e.maePct = (pos.mae != null ? +(pos.mae * 100).toFixed(3) : null); _e.walletFill = (typeof getEquity === 'function' ? +getEquity().toFixed(2) : null); _e.executionSource = (botSettings && botSettings.executionMode) || 'TESTNET'; _e.botVersion = OSIRIS_VERSION; _e.entryPrice = pos.entryPrice; _e.openTimeMs = pos.openTime || null; _e.openTimeStr = pos.openTime ? formatFullDateTime(pos.openTime) : null; _e.isTestnet = (pos.isTestnet === true); _e.holdMinutes = pos.openTime ? +(((Date.now() - pos.openTime) / 60000).toFixed(1)) : null; } } catch (e) {}
+    try { rebuildHistoryUIFromLog(); } catch (e) {}   // ververs de historie-tabel zodat opening-tijd + fill-badge live kloppen
     savePersistentState();
     updateWalletUI();
     updatePositionLines();
@@ -5834,8 +5846,9 @@ function syncMarginWallet() {
         }
         const crows = document.getElementById('m-closed-rows');
         if (crows) {
-            if (!marginState.closed.length) crows.innerHTML = '<tr><td colspan="6" style="color:var(--dim); padding:8px;">Nog geen gesloten margin-trades.</td></tr>';
-            else crows.innerHTML = marginState.closed.slice(0, 30).map(t => { const pc = (t.pnl || 0) >= 0 ? '#14f195' : '#ff8a94'; return `<tr style="border-top:1px solid var(--line);"><td style="padding:6px; white-space:nowrap;">${typeof formatFullDateTime === 'function' ? formatFullDateTime(t.ts) : new Date(t.ts).toLocaleString('nl-NL')}</td><td style="text-align:center; color:#c792ea;">${t.sym}</td><td style="text-align:center;">${t.side}</td><td style="text-align:center;">${t.leverage}x</td><td style="text-align:center; color:var(--dim);">${t.reason} \u00b7 ${fillBadge(t.filled === true)}</td><td style="text-align:center; color:${pc};">${(t.pnl * 100).toFixed(2)}% (\u20ae${(t.pnlUSD || 0).toFixed(2)})</td></tr>`; }).join('');
+            const _fdt = (ms) => (typeof formatFullDateTime === 'function' ? formatFullDateTime(ms) : new Date(ms).toLocaleString('nl-NL'));
+            if (!marginState.closed.length) crows.innerHTML = '<tr><td colspan="7" style="color:var(--dim); padding:8px;">Nog geen gesloten margin-trades.</td></tr>';
+            else crows.innerHTML = marginState.closed.slice(0, 30).map(t => { const pc = (t.pnl || 0) >= 0 ? '#14f195' : '#ff8a94'; return `<tr style="border-top:1px solid var(--line);"><td style="padding:6px; white-space:nowrap; color:var(--dim);">${t.openTime ? _fdt(t.openTime) : '\u2014'}</td><td style="padding:6px; white-space:nowrap;">${_fdt(t.ts)}</td><td style="text-align:center; color:#c792ea;">${t.sym}</td><td style="text-align:center;">${t.side}</td><td style="text-align:center;">${t.leverage}x</td><td style="text-align:center; color:var(--dim);">${t.reason} \u00b7 ${fillBadge(t.filled === true)}</td><td style="text-align:center; color:${pc};">${(t.pnl * 100).toFixed(2)}% (\u20ae${(t.pnlUSD || 0).toFixed(2)})</td></tr>`; }).join('');
         }
         const tg = document.getElementById('m-toggle'); if (tg) { tg.textContent = marginEngineEnabled ? 'MARGIN AAN' : 'MARGIN UIT'; tg.style.color = marginEngineEnabled ? '#14f195' : '#7d99ac'; }
         // Exit-bijdrage · margin (verdeling van exit-redenen over gesloten trades)
@@ -8380,57 +8393,88 @@ window.OsirisFSO = OsirisFSO;
 
 // ---- CANVAS-RENDERER: pastel-oscillatoren + dikke Global-Stress-lijn + variance (2e as) ----
 const _FSO_PASTEL = ['#f7931a', '#ffb27a', '#ffd19a', '#8fb8ff', '#a5c8ff', '#14f195', '#7af0b8', '#c792ea', '#e0a3f0', '#7fd8ff', '#a3e4ff', '#ff8a94', '#ffb0b6', '#f0d97a', '#b8e986', '#9ad0c2', '#d0a3ff'];
+// (22-08) HERONTWORPEN naar UOTAM-stijl: per-markt stress-lijnen (elk eigen kleur) + correlatie-
+// breuk, dunne lijnen, drempellijnen (SPANNING 0.15 / CRISIS 0.30) en een gearceerde GEVARENZONE.
+const FSO_LINE_COL = { BTC: '#f7931a', ETH: '#8fb8ff', SOL: '#14f195', CORR: '#c792ea', STRESS: '#ff5f7e', VAR: '#7fb4ff' };
+// (22-08) per-lijn zichtbaarheid — via de klikbare legenda aan/uit te zetten. De Y-schaal blijft
+// VAST (0–0.60) zodat de drempellijnen betekenisvol blijven; toggelen verbergt alleen de lijn,
+// het canvas wordt elke frame volledig gewist (clearRect) dus er is geen na-tekening/overlap.
+const FSO_VISIBLE = { BTC: true, ETH: true, SOL: true, CORR: true, STRESS: true, VAR: true };
+try { const _fv = JSON.parse(localStorage.getItem('osirisFSOvisible') || 'null'); if (_fv) Object.assign(FSO_VISIBLE, _fv); } catch (e) {}
+function fsoToggleLine(key) {
+    if (!(key in FSO_VISIBLE)) return;
+    FSO_VISIBLE[key] = !FSO_VISIBLE[key];
+    try { localStorage.setItem('osirisFSOvisible', JSON.stringify(FSO_VISIBLE)); } catch (e) {}
+    // legenda-item visueel bijwerken
+    try { const el = document.getElementById('fso-leg-' + key); if (el) { el.style.opacity = FSO_VISIBLE[key] ? '1' : '0.32'; el.style.textDecoration = FSO_VISIBLE[key] ? 'none' : 'line-through'; } } catch (e) {}
+    // alle 4 schalen direct opnieuw tekenen (schone redraw, geen overlap)
+    try { ['micro', 'meso', 'macro', 'full'].forEach(k => drawFSOChart('fso-' + k, k)); } catch (e) {}
+}
+window.fsoToggleLine = fsoToggleLine;
+// "solo": toon alleen deze markt (verberg de rest) of, als hij al solo staat, weer alles aan.
+function fsoSoloLine(key) {
+    const lineKeys = ['BTC', 'ETH', 'SOL', 'CORR', 'STRESS', 'VAR'];
+    const isSolo = FSO_VISIBLE[key] && lineKeys.every(k => k === key ? FSO_VISIBLE[k] : !FSO_VISIBLE[k]);
+    for (const k of lineKeys) FSO_VISIBLE[k] = isSolo ? true : (k === key);
+    try { localStorage.setItem('osirisFSOvisible', JSON.stringify(FSO_VISIBLE)); } catch (e) {}
+    try { for (const k of lineKeys) { const el = document.getElementById('fso-leg-' + k); if (el) { el.style.opacity = FSO_VISIBLE[k] ? '1' : '0.32'; el.style.textDecoration = FSO_VISIBLE[k] ? 'none' : 'line-through'; } } } catch (e) {}
+    try { ['micro', 'meso', 'macro', 'full'].forEach(k => drawFSOChart('fso-' + k, k)); } catch (e) {}
+}
+window.fsoSoloLine = fsoSoloLine;
 function drawFSOChart(canvasId, key) {
     const cv = document.getElementById(canvasId); if (!cv) return;
     const S = OsirisFSO.scales[key]; const ctx = cv.getContext('2d');
-    const W = cv.width, H = cv.height, padL = 36, padR = 44, padT = 12, padB = 18;
+    const W = cv.width, H = cv.height, padL = 34, padR = 60, padT = 14, padB = 18;
     ctx.clearRect(0, 0, W, H);
     if (!S) { ctx.fillStyle = '#5c7488'; ctx.font = "10px 'JetBrains Mono',monospace"; ctx.textAlign = 'center'; ctx.fillText('FSO laadt marktdata\u2026', W / 2, H / 2); return; }
     const L = S.stress.length; if (L < 2) return;
     const now = Date.now() / 1000;
+    const SMAX = 0.6;
     const x = i => padL + (i / (L - 1)) * (W - padL - padR);
-    const yS = v => padT + (1 - Math.max(0, Math.min(1, v / 0.6))) * (H - padT - padB);
+    const yS = v => padT + (1 - Math.max(0, Math.min(1, v / SMAX)) ) * (H - padT - padB);
     const vmax = Math.max(0.01, Math.max.apply(null, S.variance)) * 1.15; const yV = v => padT + (1 - v / vmax) * (H - padT - padB);
+    const plotW = W - padL - padR;
 
-    // regime-banden (subtiel)
-    let prev = 0; for (const bnd of OsirisFSO.BANDS) { const y1 = yS(Math.min(0.6, bnd.to)), y0 = yS(prev); ctx.fillStyle = bnd.c; ctx.fillRect(padL, y1, W - padL - padR, y0 - y1); prev = bnd.to; }
-    // horizontale gridlijnen op de regime-grenzen
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
-    [0.15, 0.30, 0.45].forEach(v => { ctx.beginPath(); ctx.moveTo(padL, yS(v)); ctx.lineTo(W - padR, yS(v)); ctx.stroke(); }); ctx.setLineDash([]);
+    // --- ZONES: RUST (<0.15) / SPANNING (0.15-0.30) / GEVARENZONE=CRISIS (>0.30) ---
+    ctx.fillStyle = 'rgba(20,241,149,0.04)'; ctx.fillRect(padL, yS(0.15), plotW, yS(0) - yS(0.15));      // rust
+    ctx.fillStyle = 'rgba(255,182,39,0.05)'; ctx.fillRect(padL, yS(0.30), plotW, yS(0.15) - yS(0.30));   // spanning
+    ctx.fillStyle = 'rgba(255,79,109,0.10)'; ctx.fillRect(padL, yS(SMAX), plotW, yS(0.30) - yS(SMAX));   // gevarenzone (crisis)
+    // "GEVARENZONE"-label linksboven in de rode band
+    ctx.fillStyle = 'rgba(255,120,140,0.5)'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.textAlign = 'left';
+    ctx.fillText('GEVARENZONE', padL + 3, yS(0.30) - 3);
 
-    // i.p.v. 17 losse lijnen: een LICHTE min-max ENVELOPPE (de spreiding = asynchronie,
-    // visueel veel rustiger en leesbaarder). Boven- en ondergrens van alle oscillatoren.
-    const mn = new Array(L), mx = new Array(L);
-    for (let i = 0; i < L; i++) { let a2 = 1, b2 = 0; for (let o = 0; o < S.osc.length; o++) { const v = S.osc[o][i]; if (v < a2) a2 = v; if (v > b2) b2 = v; } mn[i] = a2; mx[i] = b2; }
-    ctx.beginPath(); for (let i = 0; i < L; i++) { const px = x(i), py = yS(mx[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
-    for (let i = L - 1; i >= 0; i--) ctx.lineTo(x(i), yS(mn[i])); ctx.closePath();
-    ctx.fillStyle = 'rgba(127,180,255,0.08)'; ctx.fill();
+    // --- DREMPELLIJNEN (kritieke node-levels) ---
+    const thr = (v, col, label) => { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(padL, yS(v)); ctx.lineTo(W - padR, yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = col; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.textAlign = 'right'; ctx.fillText(`${label} ${v.toFixed(2)}`, W - padR - 2, yS(v) - 2); };
+    thr(0.30, 'rgba(255,79,109,0.85)', 'CRISIS-drempel');
+    thr(0.15, 'rgba(255,182,39,0.8)', 'SPANNING-drempel');
 
-    // System Variance (blauw, 2e as) - duidelijke lijn met eigen gebied
-    ctx.beginPath(); for (let i = 0; i < L; i++) { const px = x(i), py = yV(S.variance[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
-    ctx.lineTo(x(L - 1), H - padB); ctx.lineTo(x(0), H - padB); ctx.closePath();
-    ctx.fillStyle = 'rgba(127,180,255,0.06)'; ctx.fill();
-    ctx.strokeStyle = 'rgba(127,180,255,0.9)'; ctx.lineWidth = 1.4; ctx.beginPath();
-    for (let i = 0; i < L; i++) { const px = x(i), py = yV(S.variance[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke();
+    const line = (arr, col, w, dash, ymap) => { const Y = ymap || yS; ctx.strokeStyle = col; ctx.lineWidth = w; if (dash) ctx.setLineDash(dash); ctx.beginPath(); for (let i = 0; i < L; i++) { const px = x(i), py = Y(arr[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); if (dash) ctx.setLineDash([]); };
 
-    // Global Stress: gevuld gebied + dikke lijn (het hoofdsignaal, maximaal leesbaar)
-    const grd = ctx.createLinearGradient(0, padT, 0, H - padB);
-    grd.addColorStop(0, 'rgba(255,95,126,0.28)'); grd.addColorStop(1, 'rgba(255,95,126,0.02)');
-    ctx.beginPath(); for (let i = 0; i < L; i++) { const px = x(i), py = yS(S.stress[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
-    ctx.lineTo(x(L - 1), H - padB); ctx.lineTo(x(0), H - padB); ctx.closePath(); ctx.fillStyle = grd; ctx.fill();
-    ctx.strokeStyle = '#ff5f7e'; ctx.lineWidth = 2.4; ctx.shadowColor = '#ff5f7e'; ctx.shadowBlur = 5; ctx.beginPath();
-    for (let i = 0; i < L; i++) { const px = x(i), py = yS(S.stress[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); ctx.shadowBlur = 0;
+    // --- PER-MARKT STRESS-LIJNEN (gemiddelde van de 5 oscillatoren van d\u00ede munt) ---
+    const grp = {}; for (let o = 0; o < S.osc.length; o++) { const pfx = (S.names[o] || '').split('\u00b7')[0]; (grp[pfx] = grp[pfx] || []).push(S.osc[o]); }
+    const _vis = (typeof FSO_VISIBLE !== 'undefined') ? FSO_VISIBLE : { BTC: 1, ETH: 1, SOL: 1, CORR: 1, STRESS: 1, VAR: 1 };
+    const perMkt = {};
+    for (const m of ['BTC', 'ETH', 'SOL']) { if (grp[m] && grp[m].length) { const avg = new Array(L).fill(0); for (let i = 0; i < L; i++) { let s = 0; for (const a of grp[m]) s += a[i]; avg[i] = s / grp[m].length; } perMkt[m] = avg; if (_vis[m]) line(avg, FSO_LINE_COL[m], 1.0); } }
+    // --- CORRELATIE-BREUK (systeem-ontkoppeling) eigen kleur, gestippeld ---
+    const ci = S.names.indexOf('X\u00b7corr-break');
+    if (ci >= 0 && _vis.CORR) line(S.osc[ci], FSO_LINE_COL.CORR, 1.0, [2, 2]);
+    // --- SYSTEM VARIANCE (asynchronie, 2e as) dun blauw ---
+    if (_vis.VAR) line(S.variance, FSO_LINE_COL.VAR, 1.0, [4, 3], yV);
+    // --- GLOBAL STRESS (hoofdsignaal) dun, geen glow ---
+    if (_vis.STRESS) line(S.stress, FSO_LINE_COL.STRESS, 1.5);
 
-    // TIKKENDE huidige-waarde marker (pulseert per seconde) rechts
-    const cx = x(L - 1), cyv = yS(S.stress[L - 1]);
-    const pulse = 3 + 1.6 * Math.sin(now * 3);
-    ctx.beginPath(); ctx.arc(cx, cyv, pulse + 3, 0, 6.283); ctx.fillStyle = 'rgba(255,95,126,0.2)'; ctx.fill();
-    ctx.beginPath(); ctx.arc(cx, cyv, 3.2, 0, 6.283); ctx.fillStyle = '#ffd0d8'; ctx.fill();
+    // huidige-waarde marker (alleen als de stress-lijn zichtbaar is)
+    if (_vis.STRESS) {
+        const cx = x(L - 1), cyv = yS(S.stress[L - 1]);
+        const pulse = 2.5 + 1.4 * Math.sin(now * 3);
+        ctx.beginPath(); ctx.arc(cx, cyv, pulse + 2.5, 0, 6.283); ctx.fillStyle = 'rgba(255,95,126,0.2)'; ctx.fill();
+        ctx.beginPath(); ctx.arc(cx, cyv, 2.8, 0, 6.283); ctx.fillStyle = '#ffd0d8'; ctx.fill();
+    }
 
-    // as-labels (y)
+    // y-labels
     ctx.fillStyle = '#7d99ac'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.textAlign = 'right';
     [0, 0.15, 0.3, 0.45, 0.6].forEach(v => ctx.fillText(v.toFixed(2), padL - 4, yS(v) + 3));
-    // TIJDAS (x): labels afgeleid uit S.times, geformatteerd per schaal
+    // tijdas
     try {
         if (S.times && S.times.length === L) {
             const fmt = (ms) => { const dt = new Date(ms); const p = n => String(n).padStart(2, '0'); if (key === 'micro') return `${p(dt.getHours())}:${p(dt.getMinutes())}`; if (key === 'meso') return `${p(dt.getDate())}/${p(dt.getMonth() + 1)} ${p(dt.getHours())}h`; return `${p(dt.getMonth() + 1)}/${String(dt.getFullYear()).slice(2)}`; };
@@ -8440,12 +8484,17 @@ function drawFSOChart(canvasId, key) {
                 const i = Math.round((s2 / steps) * (L - 1)); const px = x(i);
                 ctx.textAlign = s2 === 0 ? 'left' : s2 === steps ? 'right' : 'center';
                 ctx.fillText(fmt(S.times[i]), px, H - 4);
-                ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.beginPath(); ctx.moveTo(px, padT); ctx.lineTo(px, H - padB); ctx.stroke();
             }
         }
     } catch (e) {}
-    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(127,180,255,0.85)'; ctx.fillText('\u03c3\u00b2', W - padR + 5, padT + 8);
-    // regime-badge bovenin (verplaatst zodat de tijdas onderaan vrij is)
+    // rechter-as label voor variance
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(127,180,255,0.85)'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillText('\u03c3\u00b2', W - padR + 4, padT + 8);
+    // huidige per-markt eindwaarden rechts (mini-legenda in de grafiek)
+    ctx.font = "7px 'JetBrains Mono',monospace"; ctx.textAlign = 'left';
+    let ly = padT + 18;
+    for (const m of ['BTC', 'ETH', 'SOL']) { if (perMkt[m] && _vis[m]) { ctx.fillStyle = FSO_LINE_COL[m]; ctx.fillText(`${m} ${perMkt[m][L - 1].toFixed(2)}`, W - padR + 4, ly); ly += 9; } }
+    if (ci >= 0 && _vis.CORR) { ctx.fillStyle = FSO_LINE_COL.CORR; ctx.fillText(`corr ${S.osc[ci][L - 1].toFixed(2)}`, W - padR + 4, ly); ly += 9; }
+    // regime-badge
     const rc = S.regime === 'CRISIS' ? '#ff4f6d' : S.regime === 'SPANNING' ? '#ffb627' : '#14f195';
     ctx.textAlign = 'left'; ctx.fillStyle = rc; ctx.font = "bold 10px 'JetBrains Mono',monospace";
     ctx.fillText(`\u25cf ${S.regime}`, padL + 2, padT + 9);
@@ -8512,6 +8561,8 @@ window.fsoLiveTick = fsoLiveTick;
 function startOsirisFSO() {
     try {
         if (typeof OsirisFSO === 'undefined') return;
+        // legenda-items in lijn brengen met de opgeslagen zichtbaarheid
+        try { for (const k of ['BTC', 'ETH', 'SOL', 'CORR', 'STRESS', 'VAR']) { const el = document.getElementById('fso-leg-' + k); if (el) { el.style.opacity = FSO_VISIBLE[k] ? '1' : '0.32'; el.style.textDecoration = FSO_VISIBLE[k] ? 'none' : 'line-through'; } } } catch (e) {}
         OsirisFSO.refreshAll();
         if (!_fsoInterval) _fsoInterval = setInterval(() => {
             OsirisFSO.update('micro');
@@ -10325,7 +10376,7 @@ async function marginClose(pos, price, lev, reason) {
                 try { if (typeof recalibrateAdaptiveWeights === 'function') recalibrateAdaptiveWeights(); } catch (e) {}
             }
         } catch (e) {}
-        const rec = { ts: Date.now(), sym: pos.sym, side: pos.side, price: exitPrice, entryPrice: (pos.entryFillPrice != null ? pos.entryFillPrice : pos.entryPrice), qty: pos.qty, pnl: lev, pnlUSD, reason, leverage: pos.leverage, filled: exitFilled, mfe: pos.mfe, mae: pos.mae };
+        const rec = { ts: Date.now(), openTime: pos.openTime || null, sym: pos.sym, side: pos.side, price: exitPrice, entryPrice: (pos.entryFillPrice != null ? pos.entryFillPrice : pos.entryPrice), qty: pos.qty, pnl: lev, pnlUSD, reason, leverage: pos.leverage, filled: exitFilled, mfe: pos.mfe, mae: pos.mae };
         marginState.closed.unshift(rec); if (marginState.closed.length > 100) marginState.closed.pop();
         marginState.tradeLog.unshift({ action: 'EXIT', ts: Date.now(), sym: pos.sym, side: pos.side, price: exitPrice, pnl: lev, pnlUSD, reason, filled: exitFilled });
         marginState.lastAction = `EXIT ${pos.sym} ${reason} ${(lev * 100).toFixed(2)}%${exitFilled ? ' [fill]' : ' [sim]'}`;
@@ -13040,13 +13091,15 @@ function renderCalibrationCurve() {
         _drawCalibCurve(_calibMap, n, _calibProvisional, col, label, 50);
         return;
     }
-    // OPTIE A: kalibreer op de DeepNet-kans (die spreidt 0-100%) i.p.v. de Osiris-pick (~55%).
+    // (22-08) VOORKEUR: de LIVE trade-gebaseerde curve (n groeit met echte trades) i.p.v. de
+    // vaste walk-forward-backtest (n=144). Zo klopt het getoonde aantal met de werkelijkheid.
+    const r = computeCalibrationMapFor(sym);
+    if (r && r.map && r.n >= 20) { _drawCalibCurve(r.map, r.n, r.provisional, col, label + ' (live trades)', 0); return; }
+    // fallback zolang er te weinig echte trades zijn: de DeepNet walk-forward-backtest (vast venster).
     let dn = null;
     try { if (typeof OsirisDeepNet !== 'undefined') dn = OsirisDeepNet.calibrationCurve(sym); } catch (e) {}
-    if (dn && dn.map) { _drawCalibCurve(dn.map, dn.n, dn.n < 60, col, label + ' (DeepNet)', 0); return; }
-    // fallback zolang de DeepNet nog niet genoeg getraind heeft
-    const r = computeCalibrationMapFor(sym);
-    _drawCalibCurve(r.map, r.n, r.provisional, col, label, 50);
+    if (dn && dn.map) { _drawCalibCurve(dn.map, dn.n, dn.n < 60, col, label + ' (walk-forward backtest)', 0); return; }
+    if (r && r.map) { _drawCalibCurve(r.map, r.n, r.provisional, col, label, 50); }
 }
 
 function renderExitDistribution() {
