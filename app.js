@@ -8699,7 +8699,9 @@ const OsirisKinetic = {
     _resolve(now) {
         try {
             const still = [];
+            const _stale = (typeof osirisFeedStale === 'function') && osirisFeedStale();   // stale feed → niet scoren
             for (const p of this.predictions) {
+                if (_stale) { still.push(p); continue; }
                 const m = (typeof neoMultiState !== 'undefined') ? neoMultiState.markets[p.sym] : null;
                 const px = m && m.lastPrice != null ? m.lastPrice : null;
                 if (px != null) p.extremeReached = p.dir > 0 ? Math.max(p.extremeReached, px) : Math.min(p.extremeReached, px);
@@ -8911,6 +8913,7 @@ const OsirisPredict = {
             const still = [];
             for (const o of this.open) {
                 if (now < o.deadline) { still.push(o); continue; }
+                if (typeof osirisFeedStale === 'function' && osirisFeedStale()) { still.push(o); continue; }   // stale feed → NIET scoren (geen valse data)
                 const m = neoMultiState.markets[o.sym]; const px = m ? m.lastPrice : null;
                 if (px == null) { still.push(o); continue; }
                 const realizedUp = px >= o.entryPrice;
@@ -9097,6 +9100,19 @@ function osirisSafetyReason() {
     try { const r = []; if (OsirisGuardian && OsirisGuardian.paused) r.push('guardian: ' + OsirisGuardian.alerts.join(', ')); if (OsirisRisk && !OsirisRisk.entriesAllowed()) r.push('risk: ' + (OsirisRisk.reasons.join(', ') || 'exposure/drawdown')); return r.join(' | '); } catch (e) { return ''; }
 }
 window.osirisSafetyReason = osirisSafetyReason;
+
+// (22-08) STALE-FEED GUARD: is de prijsfeed bevroren/stale (Guardian), dan mag NIETS gescoord/
+// gekalibreerd worden — anders leert Osiris op VALSE data (bv. ETH die op een bevroren koers
+// 'gekalibreerd' werd). De shadow-scorers (predict/kinetic/deepnet-richting) checken dit vóór ze
+// een uitkomst vastleggen; bij stale feed slaan ze de meting over i.p.v. 'm fout te scoren.
+function osirisFeedStale() {
+    try {
+        if (typeof OsirisGuardian === 'undefined' || !OsirisGuardian.paused) return false;
+        const al = (OsirisGuardian.alerts || []).join(' ').toLowerCase();
+        return /bevroren|stale|freeze|bevriezing|geen update/.test(al);
+    } catch (e) { return false; }
+}
+window.osirisFeedStale = osirisFeedStale;
 
 // AUTONOME TOOL-GOVERNANCE (22-08): Osiris zet de DeepNet-entry-poort en exit-sturing zélf
 // aan/uit op basis van de walk-forward-precisie, met een STALL-BESCHERMING zodat trades niet
@@ -9492,6 +9508,115 @@ function osirisMetaBundle() {
 window.osirisMetaBundle = osirisMetaBundle;
 function downloadMetaData() { try { _downloadJSON(osirisMetaBundle(), `osiris_meta_${Date.now()}.json`); } catch (e) { try { alert('Meta-export mislukt: ' + e.message); } catch (x) {} } }
 window.downloadMetaData = downloadMetaData;
+
+// ============================================================
+// MASTER-EXPORT (22-08): ALLE data in ÉÉN bestand, netjes verdeeld in categorieën.
+// Elke categorie is los in try/catch zodat een ontbrekend onderdeel de rest niet breekt.
+// ============================================================
+function osirisMasterBundle() {
+    const g = (fn, d) => { try { const v = fn(); return v === undefined ? (d ?? null) : v; } catch (e) { return { _fout: (e && e.message) || String(e) }; } };
+    const mkts = ['BTC', 'ETH', 'SOL'];
+    const B = {
+        exportedAt: new Date().toISOString(),
+        versie: (typeof currentConfigVersion === 'function') ? g(() => currentConfigVersion()) : null,
+        uitleg: 'Master-export van Osiris — alle downloadbare data in één bestand, verdeeld per categorie.',
+        categorieen: {}
+    };
+    const C = B.categorieen;
+
+    // 1) ENGINE
+    C.engine = {
+        botSettings: g(() => botSettings),
+        isRunning: g(() => (typeof isBotRunning !== 'undefined' ? isBotRunning : null)),
+        osirisTune: g(() => (typeof osirisTune !== 'undefined' ? osirisTune : null)),
+        laatsteBeslissing: g(() => (typeof lastOsirisDecision !== 'undefined' ? lastOsirisDecision : null)),
+        laatsteVolumeMetrics: g(() => (typeof lastOsirisMetrics !== 'undefined' ? lastOsirisMetrics : null)),
+        regimeHMM: g(() => (typeof OsirisRegimeHMM !== 'undefined' ? { label: OsirisRegimeHMM.label, prob: OsirisRegimeHMM.prob, stable: OsirisRegimeHMM.stable, means: OsirisRegimeHMM.means, trans: OsirisRegimeHMM.trans } : null)),
+        shadowBacktest: g(() => (typeof OsirisShadowBacktest !== 'undefined' ? OsirisShadowBacktest.best : null)),
+        systemLog: g(() => (typeof osirisSystemLog !== 'undefined' ? osirisSystemLog.slice(0, 300) : null)),
+        metricsHistory: g(() => (typeof metricsHistory !== 'undefined' ? metricsHistory : null))
+    };
+
+    // 2) WALLETS (spot + margin)
+    C.wallets = {
+        spot: {
+            startingCapital: g(() => walletState.startingCapital), realizedPnL: g(() => walletState.realizedPnL),
+            balance: g(() => (typeof getBalance === 'function' ? getBalance() : walletState.balance)),
+            equity: g(() => (typeof getEquity === 'function' ? getEquity() : null)),
+            unrealizedPnL: g(() => (typeof getUnrealizedPnL === 'function' ? getUnrealizedPnL() : null)),
+            wins: g(() => walletState.wins), losses: g(() => walletState.losses),
+            openPositions: g(() => (typeof openPositions !== 'undefined' ? openPositions : null)),
+            pendingOrders: g(() => (typeof pendingOrders !== 'undefined' ? pendingOrders : null))
+        },
+        margin: g(() => (typeof marginState !== 'undefined' ? {
+            enabled: (typeof marginEngineEnabled !== 'undefined' ? marginEngineEnabled : null), leverage: (typeof marginLeverage !== 'undefined' ? marginLeverage : null),
+            equity: (typeof marginEquity === 'function' ? marginEquity() : marginState.equity), equitySource: marginState.equitySource, walletBalance: marginState.walletBalance,
+            realizedPnL: marginState.realizedPnL, wins: marginState.wins, losses: marginState.losses,
+            openPositions: marginState.positions, closed: marginState.closed, tradeLog: marginState.tradeLog ? marginState.tradeLog.slice(0, 200) : [],
+            reasoning: marginState.reasoning, adaptation: marginState.adaptation
+        } : null))
+    };
+
+    // 3) KALIBRATIE-LOGS
+    const dn = (typeof OsirisDeepNet !== 'undefined') ? OsirisDeepNet : null;
+    C.kalibratie_logs = {
+        governor: g(() => ({ weights: OsirisGovernor.weights, metrics: OsirisGovernor.metrics(), log: OsirisGovernor.log })),
+        predict: g(() => ({ metrieken: OsirisPredict.metrics(), inversie: OsirisPredict._invert, rawHitrates: OsirisPredict._rawRes, afgerond: OsirisPredict.resolved.slice(0, 300) })),
+        kinetic: g(() => (typeof OsirisKinetic !== 'undefined' ? OsirisKinetic.metrics() : null)),
+        deepnet_walkforward: g(() => dn ? Object.fromEntries(mkts.map(k => [k, dn.markets[k] ? dn.markets[k].wf : null])) : null),
+        deepnet_curves: g(() => dn ? Object.fromEntries(mkts.concat(['OSIRIS']).map(k => { const c = dn.calibrationCurve(k); return [k, { curve: c ? c.map : null, n: c ? c.n : 0, oordeel: (typeof _calibInsight === 'function' ? _calibInsight(c) : null) }]; })) : null),
+        deepnet_inversie: g(() => dn ? { invert: dn._invert, mode: dn._invMode, kalibratie: dn._invCal, dirHitrates: dn._dirRes } : null),
+        llm_verificatie: g(() => (typeof OsirisLLMVerify !== 'undefined' ? OsirisLLMVerify.log.slice(0, 80) : null))
+    };
+
+    // 4) MARKET CHARTS + HISTORIE (3 markten)
+    C.market_charts_en_historie = {
+        btc_candles: g(() => (typeof rawData !== 'undefined' ? rawData.slice(-720).map(d => ({ t: d[0], o: +d[1], h: +d[2], l: +d[3], c: +d[4], v: +d[5] })) : null)),
+        multiMarkt: g(() => (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? Object.fromEntries(mkts.map(k => { const m = neoMultiState.markets[k]; return [k, m ? { lastPrice: m.lastPrice, ema: m.ema, emaSlow: m.emaSlow, rsi: m.rsi, vfm: m.vfm, chaos: m.chaos, bestProb: m.bestProb, bestSide: m.bestSide, candles: m.candles || m.klines || null } : null]; })) : null),
+        fso: g(() => (typeof osirisStress !== 'undefined' ? { huidig: osirisStress, historie: (typeof osirisFSOLog !== 'undefined' ? osirisFSOLog.slice(0, 300) : null) } : null))
+    };
+
+    // 5) LEARNINGS L1/L2/L3 + MODELLEN
+    C.learnings = {
+        L1_adaptiveWeights: g(() => (typeof adaptiveWeights !== 'undefined' ? adaptiveWeights : null)),
+        L1_perBrein: g(() => (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? Object.fromEntries(mkts.map(k => [k, neoMultiState.markets[k] && neoMultiState.markets[k].brain ? neoMultiState.markets[k].brain.weights : null])) : null),
+        L2: g(() => (typeof _l2 !== 'undefined' && _l2 ? { trained: _l2.trained, trainedOn: _l2.trainedOn, lastTrainMs: _l2.lastTrainMs, model: _l2.model || null } : null)),
+        L3: g(() => (typeof _l3 !== 'undefined' && _l3 ? { trained: _l3.trained, valAcc: _l3.valAcc, trainedOn: _l3.trainedOn, weightCap: (typeof l3WeightCap === 'function' ? l3WeightCap() : null), model: _l3.model || null } : null)),
+        deepnet_modellen: g(() => dn ? Object.fromEntries(mkts.map(k => [k, dn.markets[k] ? { model: dn.markets[k].model, platt: dn.markets[k].platt, wf: dn.markets[k].wf, trainedMs: dn.markets[k].trainedMs } : null])) : null),
+        RL_model: g(() => (typeof OsirisRL !== 'undefined' ? { episodes: OsirisRL.episodes, avgReward: OsirisRL.avgReward, statesLearned: OsirisRL.statesLearned, Q: OsirisRL.Q } : null)),
+        selfReview: g(() => (typeof OsirisSelfReview !== 'undefined' ? OsirisSelfReview.bundle() : null)),
+        learningLog: g(() => (typeof learningLog !== 'undefined' ? learningLog : null))
+    };
+
+    // 6) OVERIGE TOOLS
+    C.overige_tools = {
+        kinetic_engine: g(() => (typeof OsirisKinetic !== 'undefined' ? OsirisKinetic.exportBundle() : null)),
+        llm_context: g(() => (typeof OsirisLLM !== 'undefined' ? OsirisLLM.exportBundle() : null)),
+        journaal: g(() => (typeof OsirisJournal !== 'undefined' ? OsirisJournal.exportBundle() : null)),
+        next_steps: g(() => (typeof OsirisNextSteps !== 'undefined' ? OsirisNextSteps.exportBundle() : null)),
+        guardian: g(() => (typeof OsirisGuardian !== 'undefined' ? { paused: OsirisGuardian.paused, alerts: OsirisGuardian.alerts, log: OsirisGuardian.log } : null)),
+        risk: g(() => (typeof OsirisRisk !== 'undefined' ? OsirisRisk.state : null)),
+        guard_breaker: g(() => (typeof OsirisGuard !== 'undefined' ? { pausedMarkets: OsirisGuard.pausedMarkets, lastExpectancy: OsirisGuard.lastExpectancy } : null))
+    };
+
+    // 7) OVERIGE / REST
+    C.rest = {
+        tradeLog: g(() => (typeof botTradeLog !== 'undefined' ? botTradeLog : null)),
+        networkErrors: g(() => (typeof osirisNetworkErrors !== 'undefined' ? osirisNetworkErrors.slice(0, 150) : null)),
+        datasetSchema: {
+            learningLog: 'timestampMs, side, market, outcome, pnlPct, exitReason, entryProbabilityPct, regimeAtEntry',
+            tradeLog: 'action, price, side, pnlPct, amount, reason, notional, market, timestamp',
+            uitleg: 'Categorieën: engine, wallets(spot+margin), kalibratie_logs, market_charts_en_historie, learnings(L1/L2/L3+modellen), overige_tools, rest.'
+        }
+    };
+    return B;
+}
+window.osirisMasterBundle = osirisMasterBundle;
+function downloadEverything() {
+    try { _downloadJSON(osirisMasterBundle(), `osiris_ALLES_${Date.now()}.json`); }
+    catch (e) { try { _dlJSON(osirisMasterBundle(), `osiris_ALLES_${Date.now()}.json`); } catch (x) { try { alert('Master-export mislukt: ' + e.message); } catch (y) {} } }
+}
+window.downloadEverything = downloadEverything;
 
 // ---- Neural-net-tab: uitgebreid voorspellings-infopaneel ----
 function renderOsirisPredictPanel() {
@@ -12702,8 +12827,22 @@ function _drawCalibCurve(map, n, provisional, col, label, xMin) {
         upd.textContent = `last updated ${d}-${m} ${hh}:${mm}:${ss} \u00b7 ${n} trades`;
     }
     if (note) {
-        if (single) note.textContent = `${label} \u00b7 ${n} trades \u00b7 voorspellingen clusteren rond ${map[0][0].toFixed(0)}% \u2014 1 kalibratiepunt (te weinig spreiding voor een curve). Gemeten winrate daar: ${map[0][1].toFixed(0)}%.`;
-        else note.textContent = `${label} \u00b7 ${n} trades \u00b7 ${provisional ? 'VOORLOPIG (kleine steekproef) \u00b7 ' : ''}hoe verder onder de stippellijn, hoe overmoediger de score.`;
+        if (single) { note.textContent = `${label} \u00b7 ${n} trades \u00b7 voorspellingen clusteren rond ${map[0][0].toFixed(0)}% \u2014 1 kalibratiepunt (te weinig spreiding voor een curve). Gemeten winrate daar: ${map[0][1].toFixed(0)}%.`; }
+        else {
+            // UITGEBREIDE, DATA-GEDREVEN UITLEG PER BREIN (live) \u2014 bias, ECE, richting, oordeel + advies.
+            const bias = map.reduce((a, [r, w]) => a + (r - w), 0) / map.length;   // + = voorspelt hoger dan werkelijk (overmoedig)
+            const ece = map.reduce((a, [r, w]) => a + Math.abs(r - w), 0) / map.length;
+            const lo = map[0], hi = map[map.length - 1];
+            const trend = hi[1] - lo[1];
+            let oordeel, kleur, advies;
+            if (map.length >= 3 && trend < -8) { oordeel = 'INVERSIE \u2014 curve omgekeerd'; kleur = '#ff6b6b'; advies = 'de score wijst structureel de verkeerde kant op; Osiris\' inversie-autopiloot keert deze markt om zodra n groot genoeg is.'; }
+            else if (bias > 5) { oordeel = `overmoedig (+${bias.toFixed(0)}pt)`; kleur = 'var(--amber)'; advies = 'het model schat de kans te hoog in; de Governor weegt hem lager en Platt-herkalibratie trekt de kans omlaag.'; }
+            else if (bias < -5) { oordeel = `te bescheiden (${bias.toFixed(0)}pt)`; kleur = 'var(--teal)'; advies = 'het model schat de kans te laag in \u2014 er is ruimte om deze markt zwaarder te laten meewegen.'; }
+            else if (ece > 12) { oordeel = `wisselvallig (ECE ${ece.toFixed(0)}pt)`; kleur = 'var(--amber)'; advies = 'de score en de werkelijkheid lopen grillig uiteen; meer out-of-sample data nodig voordat je hem vertrouwt.'; }
+            else { oordeel = 'goed gekalibreerd'; kleur = 'var(--teal)'; advies = 'voorspelde kans \u2248 gemeten uitkomst; deze markt mag normaal meewegen.'; }
+            note.innerHTML = `<b style="color:${kleur};">${label}: ${oordeel}.</b> ${advies}`
+                + ` <span style="color:var(--dim);">\u00b7 ${n} ${provisional ? 'samples (VOORLOPIG, kleine steekproef)' : 'samples'} \u00b7 ECE ${ece.toFixed(0)}pt \u00b7 bias ${bias >= 0 ? '+' : ''}${bias.toFixed(0)}pt \u00b7 laagste bin voorspeld ${lo[0].toFixed(0)}%\u2192gemeten ${lo[1].toFixed(0)}%, hoogste ${hi[0].toFixed(0)}%\u2192${hi[1].toFixed(0)}% \u00b7 hoe verder onder de stippellijn, hoe overmoediger.</span>`;
+        }
     }
 }
 // Tekent de curve van het ACTIEVE brein (wordt ook door de live-loop aangeroepen).
@@ -14507,6 +14646,10 @@ function updateL2UI() {
     // Level 3 paneel ook bijwerken
     try { renderL3Panel(); } catch (e) {}
     if (!_l2) return;
+    // voortgang: schone trades richting een stabiel model (ruwweg 300)
+    const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : '';
+    const schoon = (typeof learningLog !== 'undefined') ? learningLog.filter(l => !l.manual && l.configVersion === cfg && l.outcome).length : 0;
+    const vol = schoon >= 300;
     if (st) {
         let base = _l2.trained ? `getraind · ${_l2.trainedOn} samples` : 'nog niet getraind';
         if (_l2.trained && _l2.lastTrainMs) base += ` · bijgewerkt ${formatFullDateTime(_l2.lastTrainMs)}`;
@@ -14515,15 +14658,21 @@ function updateL2UI() {
             const actief = (_l3.valAcc != null && _l3.valAcc > 0.52);
             base += ` · L3-net ${acc}${actief ? ' (actief)' : ' (inactief, <52%)'}`;
         }
+        // (22-08) DUIDELIJK: het model stopt NIET als de balk vol is — het blijft elke 30 min
+        // hertrainen op de nieuwe binnenkomende data (rollend). Bij 'vol' = doel bereikt, maar
+        // Osiris blijft doorlopend herkalibreren zolang hij draait.
+        if (_l2.trained) base += vol ? ' · ✓ doel bereikt — blijft doorlopend herkalibreren (elke 30 min)' : ' · blijft live herkalibreren (elke 30 min)';
         st.textContent = base;
     }
     if (tr) tr.textContent = _l2.trainedOn || 0;
     if (pr) {
-        // voortgang: schone trades richting een stabiel model (ruwweg 300)
-        const cfg = (typeof currentConfigVersion === 'function') ? currentConfigVersion() : '';
-        const schoon = (typeof learningLog !== 'undefined') ? learningLog.filter(l => !l.manual && l.configVersion === cfg && l.outcome).length : 0;
         pr.style.width = Math.min(100, (schoon / 300) * 100).toFixed(0) + '%';
+        // vol = doorlopend lerend: geef de balk een subtiele "levende" tint i.p.v. statisch vol.
+        pr.style.background = vol ? 'linear-gradient(90deg, var(--teal), #7fd8ff)' : 'var(--teal)';
+        pr.title = vol ? 'Doel bereikt. Model blijft elke 30 min herkalibreren op nieuwe data (rollend venster).' : `${schoon}/300 schone trades richting een stabiel model.`;
     }
+    // label naast de balk dynamisch maken
+    try { const lbl = document.getElementById('cortex-goal'); if (lbl) lbl.textContent = vol ? '✓ doel bereikt · doorlopend bijlerend' : 'doel: 90% winrate + positieve P/L'; } catch (e) {}
     // Alleen de BTC-legend bijwerken als de BTC-tab actief is; anders zou de live-loop
     // de ETH/SOL-tekst overschrijven (tekst-overlap bij het switchen van tab).
     const _l2BtcActive = (typeof _activeL2Brain === 'undefined') || _activeL2Brain === 'BTC';
@@ -14932,8 +15081,10 @@ const OsirisDeepNet = {
     _resolveDir(now) {
         try {
             const still = [];
+            const _stale = (typeof osirisFeedStale === 'function') && osirisFeedStale();
             for (const o of this._dirOpen) {
                 if (now < o.deadline) { still.push(o); continue; }
+                if (_stale) { still.push(o); continue; }   // stale feed → richting niet scoren (geen valse data)
                 const m = (typeof neoMultiState !== 'undefined') ? neoMultiState.markets[o.key] : null;
                 const px = m ? m.lastPrice : null;
                 if (px == null) { still.push(o); continue; }
