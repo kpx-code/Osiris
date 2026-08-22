@@ -5759,7 +5759,15 @@ function syncMarginWallet() {
         const baseline = (marginState.equitySource === 'exchange' && marginState.exchangeStart != null) ? marginState.exchangeStart : marginState.startEquity;
         const pnl = eq - baseline;
         set('m-leverage', marginLeverage + 'x'); set('m-lev2', marginLeverage + 'x');
-        set('m-pnl', `\u20ae${pnl.toFixed(2)}`, pnl >= 0 ? '#14f195' : '#ff8a94');
+        // RECONCILIATIE (22-08): de kern-P/L is equity \u2212 baseline en is dus NETTO (na echte
+        // testnet-fees). De open-posities tonen BRUTO geleveraged rendement. We splitsen het
+        // hier expliciet uit \u2014 onreal. (bruto) + realized \u2212 fees = kern-P/L \u2014 zodat het verschil
+        // tussen de kern-metric en de som van de posities zichtbaar de fees is, niet een 1x/3x-bug.
+        const _grossUnreal = marginState.positions.reduce((a, p) => a + (p.uPnl || 0), 0);
+        const _realM = marginState.realizedPnL || 0;
+        const _feesM = _realM + _grossUnreal - pnl;   // impliciete kosten uit de echte fills
+        const _pnlSub = `<span style="font-size:0.58em; color:var(--dim); font-weight:400;">onreal. \u20ae${_grossUnreal.toFixed(2)} bruto${Math.abs(_realM) > 0.005 ? ` \u00b7 real. \u20ae${_realM.toFixed(2)}` : ''}${Math.abs(_feesM) > 0.01 ? ` \u00b7 fees \u20ae-${Math.abs(_feesM).toFixed(2)}` : ''}</span>`;
+        set('m-pnl', `\u20ae${pnl.toFixed(2)} ${_pnlSub}`, pnl >= 0 ? '#14f195' : '#ff8a94');
         const totC = marginState.wins + marginState.losses;
         // break-even winrate uit de werkelijke avg win / avg loss van de gesloten trades:
         // BE-WR = avgLoss / (avgWin + avgLoss). Staat de echte winrate erboven, dan is er een edge.
@@ -5817,9 +5825,9 @@ function syncMarginWallet() {
                     + '<td style="text-align:center;">$' + dp(p.entryPrice) + '</td>'
                     + '<td style="text-align:center; color:var(--dim);">' + tijd + '</td>'
                     + '<td style="text-align:center;">\u20ae' + p.notional.toFixed(2) + '</td>'
-                    + '<td style="text-align:center;">' + Math.min(100, (p.marginUSD / (marginEquity() || 1)) * 100).toFixed(1) + '% <span style="color:var(--dim);">(' + p.leverage + 'x)</span></td>'
-                    + '<td style="text-align:center; color:' + pc + ';">' + (lev * 100).toFixed(2) + '%</td>'
-                    + '<td style="text-align:center; color:' + pc + ';">\u20ae' + (p.marginUSD * lev).toFixed(2) + '</td>'
+                    + '<td style="text-align:center;" title="Marge (onderpand) = \u20ae' + p.marginUSD.toFixed(2) + ' \u00b7 ' + p.leverage + 'x hefboom \u2192 notional \u20ae' + p.notional.toFixed(2) + '">' + Math.min(100, (p.marginUSD / (marginEquity() || 1)) * 100).toFixed(1) + '% <span style="color:var(--dim);">(' + p.leverage + 'x)</span></td>'
+                    + '<td style="text-align:center; color:' + pc + ';" title="ROE = geleveraged rendement op de marge. Prijs-move ' + (raw * 100).toFixed(3) + '% \u00d7 ' + p.leverage + 'x hefboom = ' + (lev * 100).toFixed(2) + '% op je marge.">' + (lev * 100).toFixed(2) + '% <span style="color:var(--dim); font-size:0.82em;">(' + (raw * 100).toFixed(2) + '%\u00d7' + p.leverage + 'x)</span></td>'
+                    + '<td style="text-align:center; color:' + pc + ';" title="Echte dollar-P/L = prijs-move ' + (raw * 100).toFixed(3) + '% \u00d7 notional \u20ae' + p.notional.toFixed(2) + ' (hefboom zit al in de notional). Bruto, exclusief fees.">\u20ae' + (p.marginUSD * lev).toFixed(2) + '</td>'
                     + '<td style="text-align:center;"><button type="button" onclick="marginCloseManual(' + i + ')" class="btn btn-ghost btn-mini" style="color:#ff8a94; border-color:rgba(255,138,148,0.4); font-size:0.72em;">SLUIT</button></td>'
                     + '</tr>';
             }).join('');
