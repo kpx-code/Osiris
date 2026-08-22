@@ -13784,8 +13784,14 @@ function _neoNetDraw(now, canvasId, outId) {
         const a = 0.13 + 0.30 * signal + (0.10 + 0.34 * signal) * flash;
         ctx.strokeStyle = `rgba(${col},${a.toFixed(3)})`;
         ctx.lineWidth = 0.6 + 0.8 * signal;
-        // (22-08) lightning/gloed VERWIJDERD op verzoek: schone lijnen, geen shadowBlur-crackle.
+        // (22-08d) BLAUWE JARVIS-GLOED TERUG op verzoek: zachte shadowBlur op de verbindingslijn,
+        // helderheid data-true (schaalt met de echte co-activatie aAct*bAct). GEEN gekartelde bliksem
+        // meer — dat losse tesla-boog-effect is en blijft weg; dit is enkel een vloeiende gloed.
+        ctx.save();
+        ctx.shadowColor = `rgb(${col})`;
+        ctx.shadowBlur = hot ? (5 + 9 * signal) : (2 + 4 * signal);
         ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+        ctx.restore();
         // CONTINUE DATA-FLOW: klein deeltje reist voorwaarts (A -> B) langs ELKE lijn, zodat de
         // hele stroom van inputs naar uitkomst continu zichtbaar beweegt (kleur = herkomst).
         {
@@ -13908,43 +13914,9 @@ function _neoNetDraw(now, canvasId, outId) {
                 ctx.fillText(`σ² ${(osirisStress.variance || 0).toFixed(4)} · asynchronie`, w - 14, 74);
             }
         } catch (e) {}
-        // TESLA-LIGHTNING: gekartelde bliksem ALLEEN tussen de laatste lagen
-        // (Osiris -> Decision -> Output), flikkerend en data-true. Puur visueel.
-        try {
-            const _bolt = (A, B, col, act, seed) => {
-                if (!A || !B || act < 0.12) return;
-                if (Math.sin(now / 90 + seed * 2.3) < 0.35) return;   // flikker
-                ctx.save(); ctx.beginPath(); ctx.moveTo(A.x, A.y);
-                const seg = 8;
-                for (let k = 1; k <= seg; k++) {
-                    const t = k / seg; const bx = A.x + (B.x - A.x) * t, by = A.y + (B.y - A.y) * t;
-                    const jag = Math.sin(Math.PI * t) * 16; const ox = (Math.random() - 0.5) * jag, oy = (Math.random() - 0.5) * jag;
-                    ctx.lineTo(bx + ox, by + oy);
-                }
-                ctx.strokeStyle = _rgba(col, 0.4 + 0.45 * act); ctx.lineWidth = 1.1;
-                ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.stroke(); ctx.restore();
-            };
-            const _n = pos.length;
-            if (_n >= 3) {
-                const osi = pos[_n - 3], dec = pos[_n - 2], out = pos[_n - 1];
-                const osiA = layers[_n - 3], decA = layers[_n - 2];
-                // De Osiris-laag = de parameters zelf: 0=BTC, 1=ETH, 2=SOL, 3=OSIRIS-mainbrain.
-                // Kleur elke boog naar zijn BRON-knoop, zodat de kleuren data-true zijn.
-                const _coreCol = ['#f7931a', '#8fb8ff', '#14f195', '#7fd8ff'];
-                // dominante parameter (sterkste osiris-knoop) bepaalt de kleur van het laatste stuk
-                let _di = 0, _dv = -1; for (let a = 0; a < osiA.length; a++) { const v = (osiA[a] && osiA[a].act) || 0; if (v > _dv) { _dv = v; _di = a; } }
-                const _domCol = _coreCol[_di] || '#7fd8ff';
-                // Osiris -> Decision (kleur = bron-parameter)
-                for (let a = 0; a < osi.length; a++) for (let b = 0; b < dec.length; b++) {
-                    const act = Math.min(1, ((osiA[a] && osiA[a].act || 0) + (decA[b] && decA[b].act || 0)) / 2);
-                    _bolt(osi[a], dec[b], _coreCol[a] || '#7fd8ff', act, a * 3 + b);
-                }
-                // Decision -> Output (kleur = dominante parameter)
-                for (let b = 0; b < dec.length; b++) {
-                    _bolt(dec[b], out[0], _domCol, Math.min(1, (decA[b] && decA[b].act || 0)), 20 + b);
-                }
-            }
-        } catch (e) {}
+        // (22-08c) TESLA-BLIKSEM VERWIJDERD op verzoek: geen gekartelde bogen/vortex meer tussen
+        // Osiris -> Decision -> Output. Deze verbindingen worden al als schone lijnen getekend door
+        // de reguliere conns-lus hierboven; hier tekenen we niets extra's (geen shadowBlur, geen jag).
         // FEEDBACK-LUS: de puls flitst nu TERUG langs de bestaande netwerklijnen (zie de
         // groene deeltjes in de verbindingen hierboven). Alleen nog een label onderaan.
         try {
@@ -15102,12 +15074,28 @@ window.deepNetRetrain = () => OsirisDeepNet.trainAll();
 // Tekent: input-features -> 3 sub-breinen (BTC/ETH/SOL, elk met gekalibreerde
 // kans) -> Osiris mainbrain (kiest de sterkste meta-goedgekeurde markt) -> output.
 // Leest live uit OsirisDeepNet.last, dus dit IS wat het net op dit moment doet.
-const _dnviz = { raf: null, pulse: 0, last: 0 };
+const _dnviz = { raf: null, pulse: 0, last: 0, t: 0 };
 const _DN_COL = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
 
+// cubische bezier tussen (x1,y1)->(x2,y2) met horizontale controlepunten (vloeiende dataflow)
+function _dnBez(ctx, x1, y1, x2, y2) {
+    const cx = x1 + (x2 - x1) * 0.5;
+    ctx.moveTo(x1, y1); ctx.bezierCurveTo(cx, y1, cx, y2, x2, y2);
+}
+function _dnBezPt(x1, y1, x2, y2, t) {
+    const cx1 = x1 + (x2 - x1) * 0.5, cx2 = cx1, u = 1 - t;
+    const bx = u * u * u * x1 + 3 * u * u * t * cx1 + 3 * u * t * t * cx2 + t * t * t * x2;
+    const by = u * u * u * y1 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y2;
+    return { x: bx, y: by };
+}
+
+// MODERN/FUTURISTISCH (22-08c) — herontworpen om bij de grote Osiris-net-visual te passen:
+// vloeiende bezier-dataflow met reizende deeltjes, gloeiende marktknopen met ring (=conviction),
+// meta-halo, inversie/bewezen-badges, een pulserende OSIRIS-kern en een gloeiende beslis-orb.
 function _deepnetDraw(now) {
     _dnviz.raf = requestAnimationFrame(_deepnetDraw);
-    if (now - _dnviz.last < 40) return;
+    if (now - _dnviz.last < 33) return;
+    const dt = _dnviz.last ? Math.min(80, now - _dnviz.last) : 33;
     _dnviz.last = now;
     const cv = document.getElementById('deepnet-canvas');
     if (!cv) return;
@@ -15118,83 +15106,165 @@ function _deepnetDraw(now) {
     ctx.setTransform(2, 0, 0, 2, 0, 0);
     const w = rect.width, h = rect.height;
     ctx.clearRect(0, 0, w, h);
-    _dnviz.pulse = (_dnviz.pulse + 0.012) % 1;
+    _dnviz.pulse = (_dnviz.pulse + dt / 1400) % 1;
+    _dnviz.t += dt / 1000;
+    const T = _dnviz.t;
+    const rgba = (hex, a) => (typeof _hexToRgba === 'function') ? _hexToRgba(hex, a) : hex;
+
+    // ---- backdrop: fijn hex/dot-raster + zachte vignette (subtiel, futuristisch) ----
+    ctx.save();
+    const grad = ctx.createRadialGradient(w * 0.62, h * 0.5, 10, w * 0.62, h * 0.5, Math.max(w, h) * 0.7);
+    grad.addColorStop(0, 'rgba(10,26,38,0.55)'); grad.addColorStop(1, 'rgba(3,10,16,0)');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(120,180,220,0.05)';
+    for (let gx = 14; gx < w; gx += 26) for (let gy = 12; gy < h; gy += 20) { ctx.beginPath(); ctx.arc(gx, gy, 0.6, 0, 6.28); ctx.fill(); }
+    ctx.restore();
 
     const keys = ['BTC', 'ETH', 'SOL'];
-    const inX = w * 0.10, subX = w * 0.42, mainX = w * 0.72, outX = w * 0.92;
-    const rowY = k => h * 0.24 + h * 0.26 * k;
+    const inX = w * 0.085, mktX = w * 0.42, coreX = w * 0.72, outX = w * 0.925;
+    const topPad = h * 0.20, botPad = h * 0.86;
+    const rowY = k => topPad + (botPad - topPad) * (k / 2);
+    const coreY = h * 0.5;
 
     // mainbrain-keuze: sterkste markt met open meta-poort (anders: abstineren)
     let choice = null, best = -1;
-    for (const key of keys) {
-        const p = OsirisDeepNet.last[key];
-        if (p && p.meta && p.conf > best) { best = p.conf; choice = p; }
-    }
+    for (const key of keys) { const p = OsirisDeepNet.last[key]; if (p && p.meta && p.conf > best) { best = p.conf; choice = p; } }
+    const domCol = choice ? _DN_COL[choice.key] : '#00d9ff';
 
-    // input-hint (features van de gekozen/eerste markt)
+    // ---- input-feature-kolom (magnitude = gloed) ----
     const anyP = choice || OsirisDeepNet.last.BTC || OsirisDeepNet.last.ETH || OsirisDeepNet.last.SOL;
     const feats = anyP ? anyP.features : new Array(7).fill(0);
-    const fLabels = ['vfm', 'mom', 'er', 'fib', 'pat', 'svp', 'btc→'];
+    const fLabels = ['VFM', 'MOM', 'ER', 'FIB', 'PAT', 'SVP', 'BTC→'];
+    const inYs = [];
     for (let i = 0; i < 7; i++) {
-        const y = h * 0.12 + (h * 0.76) * (i / 6);
+        const y = h * 0.14 + (h * 0.72) * (i / 6); inYs.push(y);
         const a = Math.min(1, Math.abs(feats[i] || 0));
-        ctx.beginPath(); ctx.arc(inX, y, 3, 0, 6.28);
-        ctx.fillStyle = `rgba(127,216,255,${0.25 + 0.6 * a})`; ctx.fill();
-        ctx.fillStyle = 'rgba(127,216,255,0.5)'; ctx.font = '7px JetBrains Mono';
-        ctx.textAlign = 'right'; ctx.fillText(fLabels[i], inX - 6, y + 2.5);
+        ctx.beginPath(); ctx.arc(inX, y, 2.6 + 1.6 * a, 0, 6.28);
+        ctx.fillStyle = `rgba(127,216,255,${0.22 + 0.6 * a})`; ctx.fill();
+        ctx.fillStyle = 'rgba(127,180,220,0.55)'; ctx.font = "6.5px 'JetBrains Mono',monospace";
+        ctx.textAlign = 'right'; ctx.fillText(fLabels[i], inX - 6, y + 2.2);
     }
 
-    // sub-breinen
+    // ---- input -> markt: vloeiende bezier + reizende deeltjes ----
     keys.forEach((key, k) => {
-        const p = OsirisDeepNet.last[key];
-        const y = rowY(k);
-        const cal = p ? p.calProb : 0.5;
-        const col = _DN_COL[key];
-        // input -> sub verbindingen (pulserend)
+        const p = OsirisDeepNet.last[key]; const y = rowY(k); const col = _DN_COL[key];
+        const conf = p ? p.conf : 0;
         for (let i = 0; i < 7; i++) {
-            const iy = h * 0.12 + (h * 0.76) * (i / 6);
-            const ph = (_dnviz.pulse + i * 0.05) % 1;
-            ctx.beginPath(); ctx.moveTo(inX, iy); ctx.lineTo(subX, y);
-            ctx.strokeStyle = `rgba(120,160,190,${0.04 + 0.05 * (p ? p.conf : 0)})`; ctx.lineWidth = 0.6; ctx.stroke();
-            if (p) {
-                const px = inX + (subX - inX) * ph, py = iy + (y - iy) * ph;
-                ctx.beginPath(); ctx.arc(px, py, 1.1, 0, 6.28); ctx.fillStyle = `${col}55`; ctx.fill();
+            const iy = inYs[i];
+            ctx.beginPath(); _dnBez(ctx, inX + 4, iy, mktX - 12, y);
+            ctx.strokeStyle = `rgba(130,170,200,${(0.03 + 0.08 * conf).toFixed(3)})`; ctx.lineWidth = 0.6; ctx.stroke();
+            if (p && conf > 0.05) {
+                const tt = ((T * 0.5) + i * 0.13 + k * 0.07) % 1;
+                const pt = _dnBezPt(inX + 4, iy, mktX - 12, y, tt);
+                ctx.beginPath(); ctx.arc(pt.x, pt.y, 0.8 + 1.2 * conf, 0, 6.28);
+                ctx.fillStyle = rgba(col, 0.35 + 0.45 * conf); ctx.fill();
             }
         }
-        // sub-node
-        const r = 10 + 10 * (p ? p.conf : 0);
-        ctx.beginPath(); ctx.arc(subX, y, r, 0, 6.28);
-        ctx.fillStyle = _hexToRgba ? _hexToRgba(col, p && p.trade ? 0.9 : 0.4) : col;
-        ctx.fill();
-        ctx.strokeStyle = p && p.meta ? '#eaffff' : 'rgba(255,255,255,0.15)';
-        ctx.lineWidth = p && p.meta ? 1.6 : 0.8; ctx.stroke();
-        ctx.fillStyle = '#04121c'; ctx.font = 'bold 8px JetBrains Mono'; ctx.textAlign = 'center';
-        ctx.fillText(key, subX, y - 1);
-        ctx.fillStyle = col; ctx.font = '7.5px JetBrains Mono';
-        ctx.fillText(`${(cal * 100).toFixed(0)}% ${p ? p.side : ''}`, subX, y + r + 9);
-        if (p && p.agree === false) { ctx.fillStyle = '#ff6b6b'; ctx.fillText('≠sub', subX + r + 12, y + 2); }
-        // sub -> mainbrain
-        const my = h * 0.5;
-        ctx.beginPath(); ctx.moveTo(subX + r, y); ctx.lineTo(mainX, my);
-        ctx.strokeStyle = (choice && choice.key === key) ? `${col}cc` : `${col}22`;
-        ctx.lineWidth = (choice && choice.key === key) ? 2.2 : 0.7; ctx.stroke();
     });
 
-    // Osiris mainbrain
-    const my = h * 0.5;
-    ctx.beginPath(); ctx.arc(mainX, my, 16, 0, 6.28);
-    ctx.fillStyle = choice ? _hexToRgba(_DN_COL[choice.key], 0.85) : 'rgba(0,217,255,0.35)';
-    ctx.fill(); ctx.strokeStyle = '#00d9ff'; ctx.lineWidth = 1.4; ctx.stroke();
-    ctx.fillStyle = '#02131c'; ctx.font = 'bold 8px JetBrains Mono'; ctx.textAlign = 'center';
-    ctx.fillText('OSIRIS', mainX, my + 2.5);
+    // ---- markt -> OSIRIS-kern: bezier (gekozen markt helder + deeltjesstroom) ----
+    keys.forEach((key, k) => {
+        const p = OsirisDeepNet.last[key]; const y = rowY(k); const col = _DN_COL[key];
+        const chosen = choice && choice.key === key;
+        ctx.beginPath(); _dnBez(ctx, mktX + 14, y, coreX - 16, coreY);
+        ctx.strokeStyle = chosen ? rgba(col, 0.85) : rgba(col, 0.14);
+        ctx.lineWidth = chosen ? 2.2 : 0.8; ctx.stroke();
+        if (chosen || (p && p.meta)) {
+            const n = chosen ? 3 : 1;
+            for (let d = 0; d < n; d++) {
+                const tt = ((T * 0.7) + d / n) % 1;
+                const pt = _dnBezPt(mktX + 14, y, coreX - 16, coreY, tt);
+                ctx.beginPath(); ctx.arc(pt.x, pt.y, chosen ? 2 : 1.3, 0, 6.28);
+                ctx.fillStyle = rgba(col, 0.9); ctx.fill();
+            }
+        }
+    });
 
-    // output
-    ctx.beginPath(); ctx.moveTo(mainX + 16, my); ctx.lineTo(outX, my); ctx.strokeStyle = 'rgba(234,255,255,0.4)'; ctx.lineWidth = 1; ctx.stroke();
-    ctx.fillStyle = '#eaffff'; ctx.font = 'bold 9px JetBrains Mono'; ctx.textAlign = 'center';
-    if (choice) ctx.fillText(`${choice.key} ${choice.side}`, outX, my - 6);
-    else { ctx.fillStyle = '#7d99ac'; ctx.fillText('abstineert', outX, my - 6); }
-    ctx.fillStyle = choice ? _DN_COL[choice.key] : '#7d99ac'; ctx.font = '8px JetBrains Mono';
-    if (choice) ctx.fillText(`${(choice.calProb * 100).toFixed(0)}%`, outX, my + 8);
+    // ---- marktknopen ----
+    keys.forEach((key, k) => {
+        const p = OsirisDeepNet.last[key]; const y = rowY(k); const col = _DN_COL[key];
+        const cal = p ? p.calProb : 0.5; const conf = p ? p.conf : 0;
+        const R = 11 + 9 * conf;
+        // conviction-ring (achter de knoop)
+        ctx.save();
+        ctx.beginPath(); ctx.arc(mktX, y, R + 4, -Math.PI / 2, -Math.PI / 2 + 6.283 * Math.max(0.02, conf));
+        ctx.strokeStyle = rgba(col, 0.85); ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke();
+        ctx.beginPath(); ctx.arc(mktX, y, R + 4, 0, 6.283);
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 2; ctx.stroke();
+        // meta-halo
+        if (p && p.meta) { const hp = 0.5 + 0.5 * Math.sin(T * 3); ctx.beginPath(); ctx.arc(mktX, y, R + 8 + 2 * hp, 0, 6.283); ctx.strokeStyle = rgba(domCol, 0.20 + 0.25 * hp); ctx.lineWidth = 1.2; ctx.stroke(); }
+        // knoop-body met gloed
+        ctx.shadowColor = col; ctx.shadowBlur = p && p.trade ? 12 : 4;
+        ctx.beginPath(); ctx.arc(mktX, y, R, 0, 6.28);
+        const bg = ctx.createRadialGradient(mktX - R * 0.3, y - R * 0.3, 1, mktX, y, R);
+        bg.addColorStop(0, rgba(col, 0.95)); bg.addColorStop(1, rgba(col, p && p.trade ? 0.55 : 0.28));
+        ctx.fillStyle = bg; ctx.fill(); ctx.shadowBlur = 0;
+        ctx.strokeStyle = p && p.meta ? '#eaffff' : rgba(col, 0.7); ctx.lineWidth = p && p.meta ? 1.6 : 0.8; ctx.stroke();
+        ctx.restore();
+        // labels
+        ctx.fillStyle = '#04121c'; ctx.font = "bold 8px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+        ctx.fillText(key, mktX, y + 2.6);
+        const sideCol = p ? (p.side === 'LONG' ? '#14f195' : '#ff6b6b') : '#7d99ac';
+        ctx.fillStyle = sideCol; ctx.font = "7.5px 'JetBrains Mono',monospace";
+        ctx.fillText(`${(cal * 100).toFixed(0)}% ${p ? p.side : ''}`, mktX, y + R + 10);
+        // status-badges (nieuw: inversie / bewezen / oneens met core)
+        let bx = mktX + R + 7;
+        if (p && p.inverted) { ctx.fillStyle = '#ffb627'; ctx.textAlign = 'left'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillText('⇄ omgek.', bx, y - 3); }
+        if (p && p.proven) { ctx.fillStyle = '#14f195'; ctx.textAlign = 'left'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillText('✓ bewezen', bx, y + 7); }
+        else if (p && p.agree === false) { ctx.fillStyle = '#ff6b6b'; ctx.textAlign = 'left'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillText('≠ core', bx, y + 7); }
+    });
+
+    // ---- OSIRIS-kern: pulserende dubbele ring + hex-kern, getint naar de gekozen markt ----
+    const pls = 0.5 + 0.5 * Math.sin(T * 2.2);
+    ctx.save();
+    for (let g = 3; g >= 1; g--) { ctx.beginPath(); ctx.arc(coreX, coreY, 15 + g * 5 * (0.7 + 0.3 * pls), 0, 6.283); ctx.fillStyle = rgba(domCol, 0.05 * g * (choice ? 1 : 0.6)); ctx.fill(); }
+    // roterende ring
+    ctx.beginPath(); ctx.arc(coreX, coreY, 20, T % 6.283, T % 6.283 + 4.2); ctx.strokeStyle = rgba(domCol, 0.5); ctx.lineWidth = 1.4; ctx.lineCap = 'round'; ctx.stroke();
+    // hex-kern
+    ctx.beginPath();
+    for (let s = 0; s < 6; s++) { const ang = T * 0.4 + s * Math.PI / 3; const hx = coreX + 13 * Math.cos(ang), hy = coreY + 13 * Math.sin(ang); s ? ctx.lineTo(hx, hy) : ctx.moveTo(hx, hy); }
+    ctx.closePath();
+    ctx.shadowColor = domCol; ctx.shadowBlur = 14;
+    const cg = ctx.createRadialGradient(coreX, coreY, 1, coreX, coreY, 14);
+    cg.addColorStop(0, rgba(domCol, 0.95)); cg.addColorStop(1, rgba(domCol, 0.35));
+    ctx.fillStyle = cg; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = rgba(domCol, 0.9); ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = '#02131c'; ctx.font = "bold 7.5px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+    ctx.fillText('OSIRIS', coreX, coreY + 2.4);
+
+    // ---- kern -> output: lijn + deeltjes + gloeiende beslis-orb ----
+    ctx.beginPath(); _dnBez(ctx, coreX + 16, coreY, outX - 14, coreY);
+    ctx.strokeStyle = choice ? rgba(domCol, 0.8) : 'rgba(125,153,172,0.3)'; ctx.lineWidth = choice ? 2 : 1; ctx.stroke();
+    if (choice) { for (let d = 0; d < 3; d++) { const tt = ((T * 0.9) + d / 3) % 1; const pt = _dnBezPt(coreX + 16, coreY, outX - 14, coreY, tt); ctx.beginPath(); ctx.arc(pt.x, pt.y, 1.8, 0, 6.28); ctx.fillStyle = rgba(domCol, 0.9); ctx.fill(); } }
+    // beslis-orb
+    const orbR = 12 + (choice ? 6 * choice.conf : 0);
+    ctx.save();
+    if (choice) {
+        const oc = choice.side === 'LONG' ? '#14f195' : '#ff6b6b';
+        for (let g = 3; g >= 1; g--) { ctx.beginPath(); ctx.arc(outX, coreY, orbR + g * 4 * (0.7 + 0.3 * pls), 0, 6.283); ctx.fillStyle = rgba(oc, 0.06 * g); ctx.fill(); }
+        ctx.shadowColor = oc; ctx.shadowBlur = 16;
+        const og = ctx.createRadialGradient(outX - 3, coreY - 3, 1, outX, coreY, orbR);
+        og.addColorStop(0, rgba(oc, 0.98)); og.addColorStop(1, rgba(oc, 0.4));
+        ctx.beginPath(); ctx.arc(outX, coreY, orbR, 0, 6.28); ctx.fillStyle = og; ctx.fill(); ctx.shadowBlur = 0;
+        ctx.fillStyle = '#04121c'; ctx.font = "bold 8px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+        ctx.fillText(choice.side === 'LONG' ? '▲' : '▼', outX, coreY + 3);
+    } else {
+        ctx.beginPath(); ctx.arc(outX, coreY, orbR, 0, 6.28); ctx.fillStyle = 'rgba(125,153,172,0.18)'; ctx.fill();
+        ctx.strokeStyle = 'rgba(125,153,172,0.5)'; ctx.lineWidth = 1; ctx.stroke();
+    }
+    ctx.restore();
+    // output-label
+    ctx.textAlign = 'center';
+    if (choice) {
+        ctx.fillStyle = '#eaffff'; ctx.font = "bold 8.5px 'JetBrains Mono',monospace";
+        ctx.fillText(`${choice.key}`, outX, coreY - orbR - 8);
+        ctx.fillStyle = _DN_COL[choice.key]; ctx.font = "7.5px 'JetBrains Mono',monospace";
+        ctx.fillText(`${(choice.calProb * 100).toFixed(0)}%`, outX, coreY + orbR + 11);
+    } else {
+        ctx.fillStyle = '#7d99ac'; ctx.font = "7.5px 'JetBrains Mono',monospace";
+        ctx.fillText('abstineert', outX, coreY - orbR - 8);
+    }
 }
 
 function startDeepNetViz() {
