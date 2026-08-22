@@ -379,7 +379,7 @@ footer{padding:60px 0; text-align:center; font-family:'JetBrains Mono',monospace
         #reasoning-chevron{ transition:transform 0.25s ease; color:#00ff41; }
         #reasoning-chevron.open{ transform:rotate(180deg); }
         #reasoning-body{ max-height:0; overflow:hidden; transition:max-height 0.35s ease; }
-        #reasoning-body.open{ max-height:320px; overflow-y:scroll; margin-top:10px; }
+        #reasoning-body.open{ max-height:360px; overflow-y:scroll; margin-top:10px; }
         #reasoning-body::-webkit-scrollbar{ width: 8px; }
         #reasoning-body::-webkit-scrollbar-track{ background: #000; }
         #reasoning-body::-webkit-scrollbar-thumb{ background: #00ff41; }
@@ -788,7 +788,25 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
 
       <div class="panel" style="margin-top:14px;"><div class="plabel" style="color:#ff5f7e;">FINANCIAL STRESS OSCILLATOR &middot; UOTAM &mdash; systeem-stress &amp; asynchronie over de cryptomarkt</div>
-        <div style="font-size:0.56rem; color:var(--dim); margin:6px 0 10px;"><span style="color:#ff5f7e;">Global Stress</span> = gemiddelde van alle oscillatoren (S&#772;) &middot; <span style="color:#7fb4ff;">System Variance</span> = variantie/asynchronie (&sigma;&sup2;, early-warning) &middot; banden: <span style="color:#14f195;">rust</span> / <span style="color:#ffb627;">spanning</span> / <span style="color:#ff4f6d;">crisis</span>. Data-true (Binance BTC/ETH/SOL).</div>
+        <div style="font-size:0.56rem; color:var(--dim); margin:6px 0 10px; line-height:1.7; background:rgba(0,0,0,0.3); border:1px solid var(--line); border-radius:6px; padding:8px 10px;">
+          <div style="color:#9fb2c4; font-weight:700; margin-bottom:4px; letter-spacing:0.5px;">LEGENDA &middot; wat je ziet <span style="color:var(--text-dimmer); font-weight:400; letter-spacing:0;">(klik = lijn aan/uit &middot; dubbelklik = alleen deze)</span></div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:2px 16px;">
+            <span id="fso-leg-BTC" onclick="fsoToggleLine('BTC')" ondblclick="fsoSoloLine('BTC')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen BTC"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #f7931a;vertical-align:middle;"></span> <b style="color:#f7931a;">BTC</b>-stress &mdash; gem. van BTC's 5 oscillatoren</span>
+            <span id="fso-leg-ETH" onclick="fsoToggleLine('ETH')" ondblclick="fsoSoloLine('ETH')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen ETH"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #8fb8ff;vertical-align:middle;"></span> <b style="color:#8fb8ff;">ETH</b>-stress</span>
+            <span id="fso-leg-SOL" onclick="fsoToggleLine('SOL')" ondblclick="fsoSoloLine('SOL')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen SOL"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #14f195;vertical-align:middle;"></span> <b style="color:#14f195;">SOL</b>-stress</span>
+            <span id="fso-leg-CORR" onclick="fsoToggleLine('CORR')" ondblclick="fsoSoloLine('CORR')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen correlatie"><span style="display:inline-block;width:14px;height:0;border-top:2px dotted #c792ea;vertical-align:middle;"></span> <b style="color:#c792ea;">Correlatie-breuk</b> &mdash; hoe sterk de 3 munten ontkoppelen (hoog = systeemrisico)</span>
+            <span id="fso-leg-STRESS" onclick="fsoToggleLine('STRESS')" ondblclick="fsoSoloLine('STRESS')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen global stress"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #ff5f7e;vertical-align:middle;"></span> <b style="color:#ff5f7e;">Global Stress (S&#772;)</b> &mdash; gemiddelde van alle 17 oscillatoren</span>
+            <span id="fso-leg-VAR" onclick="fsoToggleLine('VAR')" ondblclick="fsoSoloLine('VAR')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen variance"><span style="display:inline-block;width:14px;height:0;border-top:2px dashed #7fb4ff;vertical-align:middle;"></span> <b style="color:#7fb4ff;">Variance (&sigma;&sup2;)</b> &mdash; asynchronie / early-warning (2e as)</span>
+          </div>
+          <div style="color:#9fb2c4; font-weight:700; margin:6px 0 3px; letter-spacing:0.5px;">KRITIEKE LEVELS &middot; wat de cijfers betekenen</div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:2px 16px;">
+            <span><span style="color:#14f195;">RUST</span> &mdash; stress &lt; <b>0.15</b>: kalm, normaal traden</span>
+            <span><span style="color:#ffb627;">SPANNING-drempel 0.15</span> &mdash; energie bouwt op, strenger traden</span>
+            <span><span style="color:#ff4f6d;">CRISIS-drempel 0.30</span> &mdash; grote beweging op komst (kans of gevaar)</span>
+            <span><span style="color:#ff8a94;">GEVARENZONE</span> &mdash; stress &gt; <b>0.30</b>: het rode gearceerde vlak</span>
+          </div>
+          <div style="color:var(--text-dimmer); margin-top:5px;">Schaal 0&ndash;0.60. De rechter mini-legenda in elke grafiek toont de huidige eindwaarde per munt. Data-true (Binance BTC/ETH/SOL).</div>
+        </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
           <div><div style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7fd8ff; letter-spacing:1px; margin-bottom:3px;">MICRO &middot; 1m (~6u) &mdash; acute schokken</div><canvas id="fso-micro" width="620" height="200" style="width:100%; height:200px; display:block; background:rgba(0,0,0,0.25); border-radius:6px;"></canvas></div>
           <div><div style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7fd8ff; letter-spacing:1px; margin-bottom:3px;">MESO &middot; 1h (~2wk) &mdash; swing-regime</div><canvas id="fso-meso" width="620" height="200" style="width:100%; height:200px; display:block; background:rgba(0,0,0,0.25); border-radius:6px;"></canvas></div>
@@ -940,7 +958,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="panel mb"><div class="plabel">Gesloten posities &middot; huidige sessie</div>
         <div class="table-wrap scrollable" style="max-height:240px; overflow-y:auto; margin-top:6px;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th><th style="text-align:left;">Reden</th></tr></thead>
+            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Opening</th><th style="text-align:left; padding:6px;">Sluiting</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th><th>Fill</th><th style="text-align:left;">Reden</th></tr></thead>
             <tbody id="history-body"></tbody>
           </table>
         </div>
@@ -997,8 +1015,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         </div>
         <div class="panel" style="margin-top:6px;"><div class="plabel" style="color:#c792ea;">Gesloten posities &middot; margin</div>
           <div style="overflow:auto; max-height:260px;"><table style="width:100%; border-collapse:collapse; font-size:0.62rem; margin-top:6px;">
-            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Datum/Tijd</th><th>Markt</th><th>Side</th><th>Lev</th><th>Reden</th><th>P/L</th></tr></thead>
-            <tbody id="m-closed-rows"><tr><td colspan="6" style="color:var(--dim); padding:8px;">Nog geen gesloten margin-trades.</td></tr></tbody>
+            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Opening</th><th style="text-align:left; padding:6px;">Sluiting</th><th>Markt</th><th>Side</th><th>Lev</th><th>Reden</th><th>P/L</th></tr></thead>
+            <tbody id="m-closed-rows"><tr><td colspan="7" style="color:var(--dim); padding:8px;">Nog geen gesloten margin-trades.</td></tr></tbody>
           </table></div>
         </div>
 
@@ -1280,7 +1298,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
             <span>&#9679; SPOT &mdash; beredenering (live), elke berekeningsstap</span>
             <span id="reasoning-chevron" class="open">&#9662;</span>
           </div>
-          <div id="reasoning-body" class="open" style="max-height:340px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.55); border:1px solid rgba(66,135,245,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.8;">
+          <div id="reasoning-body" class="open" style="height:360px; max-height:360px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.55); border:1px solid rgba(66,135,245,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.8;">
             <div id="bot-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">Wacht op eerste marktdata-scan...</span></div>
           </div>
         </div>
@@ -1288,7 +1306,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <div class="rlabel" style="display:flex; justify-content:space-between; align-items:center; color:#c792ea;">
             <span>&#9679; MARGIN &mdash; beredenering (live), per stap</span>
           </div>
-          <div class="open" style="max-height:340px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.55); border:1px solid rgba(199,146,234,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.8; color:#d8c7ec;">
+          <div class="open" style="height:360px; overflow-y:auto; margin-top:10px; background:rgba(0,0,0,0.55); border:1px solid rgba(199,146,234,0.25); padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; line-height:1.8; color:#d8c7ec;">
             <div id="feed-margin-reasoning"><span style="color:var(--text-dim); font-size:0.85em;">wacht op margin-beredenering&hellip;</span></div>
           </div>
         </div>
