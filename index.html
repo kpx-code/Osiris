@@ -582,7 +582,7 @@ section { position:relative; z-index:2; }
   #flow-svg{min-height:220px;}
 }
 </style>
-<style>#tab-charts .hud,#tab-system .hud,#tab-net .hud,#tab-wallet .hud,#tab-feed .hud,#tab-brains .hud,#tab-engine .hud,#tab-overview .hud{background:var(--panel)!important;}.app{position:relative;z-index:1;}</style>
+<style>#tab-charts .hud,#tab-system .hud,#tab-net .hud,#tab-wallet .hud,#tab-feed .hud,#tab-brains .hud,#tab-engine .hud{background:var(--panel)!important;}.app{position:relative;z-index:1;}</style>
 <style id="jv-fixes">
 /* 1) donkere achtergrond met licht zichtbare ruit-strepen */
 body{background:#04070e!important;}
@@ -621,7 +621,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   </div>
   <div class="rail" id="rail">
     <div class="navb active" data-tab="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><span>About</span></div>
-    <div class="navb" data-tab="overview"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg><span>Overzicht</span></div>
     <div class="navb" data-tab="net"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 12l3-5M7 12l3 5M14 7l4 4M14 17l4-4"/></svg><span>Neural Net</span></div>
     <div class="navb" data-tab="wallet"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 14h2"/></svg><span>Wallet</span></div>
     <div class="navb" data-tab="charts"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 4-6"/></svg><span>Charts</span></div>
@@ -705,91 +704,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <p class="hero-lead" style="max-width:none;">Nothing here is static. Every closed trade flashes back through the network, feeding the calibration table, the adaptive weights, the entry thresholds, the exit timing and the target and stop. The bot tunes itself &mdash; entry probability, harvest timing, per-regime holds and the time-stop all re-calibrate autonomously from its own recent results, the detected regime and the RL agent's learnings &mdash; and every adjustment it makes is written to the live <b style="color:var(--cyan)">Autonomous adjustments</b> feed so nothing changes silently.</p>
 
       <div class="panel" style="margin-top:24px;border-color:rgba(255,182,39,0.35);background:rgba(255,182,39,0.04);"><div class="plabel" style="color:var(--amber)">&#9888; Not financial advice</div><div style="font-size:0.68rem;line-height:1.9;color:var(--dim)">Osiris is an <b style="color:var(--amber)">experimental, educational project</b> running entirely on the Binance <b style="color:var(--cyan)">Spot and Futures testnets</b> with fake capital. Nothing in this app is financial, investment or trading advice. Its numbers, probabilities and decisions are the output of a self-learning model and can be wrong. Never trade real money based on this bot without your own research; trading carries a real risk of loss.</div></div>
-    </section>
-    <section class="tab" id="tab-overview">
-      <div class="eyebrow">Systeemoverzicht</div><h1 class="h">COMMANDOKERN</h1>
-      <div class="brain-shell">
-        <svg id="osiris-brain" viewBox="0 0 640 400" preserveAspectRatio="xMidYMid meet" style="width:100%; max-width:760px; height:auto; display:block; margin:0 auto;"></svg>
-        <div id="brain-info" class="brain-info">
-          <div class="bi-title" style="font-family:'Orbitron',sans-serif; font-weight:700; letter-spacing:1px; color:#eafcff;">OSIRIS · MAINBRAIN</div>
-          <div class="bi-sub" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7d99ac; letter-spacing:1px; margin:3px 0 8px;">hover over een hersengebied</div>
-          <div class="bi-tools" style="font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--dim); line-height:1.5;"></div>
-        </div>
-      </div>
-<div id="bot-monitor" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px;">
-          <div class="meter"><div class="l">STATUS</div><div class="v" style="font-size:0.9rem; color:var(--teal);" id="bot-status">STANDBY</div></div>
-          <div class="meter"><div class="l">LIVE P/L</div><div class="v" style="font-size:0.9rem;" id="bot-pnl">0.00%</div></div>
-          <div class="meter"><div class="l">OPEN POSITIES</div><div class="v" style="font-size:0.9rem;" id="bot-position">Geen</div></div>
-          <div class="meter"><div class="l">LAATSTE ACTIE</div><div class="v" style="font-size:0.7rem; line-height:1.3;" id="bot-last-action">-</div></div>
-        </div>
-        <div style="text-align:center; margin:26px 0 4px;">
-          <div class="mock-title" style="display:inline-flex; gap:10px; align-items:center; justify-content:center;">
-            <span style="width:26px; height:1px; background:var(--cyan);"></span>Ocular Core &middot; the heart of the bot <span id="flow-hud-chev" style="display:none;">&#9662;</span><span style="width:26px; height:1px; background:var(--cyan);"></span>
-          </div>
-          <div class="livep" id="flow-price" style="font-size:0.82rem; margin-top:6px;">&mdash;</div>
-        </div>
-        <div id="flow-hud">
-          <div id="flow-hud-body">
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:stretch; background:#000004; border-radius:10px; padding:6px;">
-              <!-- LINKERKOLOM: oog boven, neuraal netwerk onder -->
-              <div style="display:flex; flex-direction:column; gap:10px;">
-                <div id="eye-cell" class="neo-quad">
-                <canvas id="eye-plexus" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></canvas>
-                <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#00d9ff; letter-spacing:2px; z-index:2;">OSIRIS &middot; QUANTUM TRACKING</div>
-                <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">ocular core &middot; live feed</div>
-                <svg id="flow-svg" viewBox="0 0 1000 400" preserveAspectRatio="xMidYMid meet" style="display:block; margin:0 auto; position:relative; z-index:1;">
-                <g id="w-eye"></g>
-                <g font-family="'JetBrains Mono',monospace" font-size="9">
-                  <text x="14" y="200" fill="#5c7488">VFM <tspan fill="#00d9ff" id="flow-vfm">&mdash;</tspan></text>
-                  <text x="150" y="105" fill="#5c7488">ER <tspan fill="#4fc3f7" id="flow-er">&mdash;</tspan></text>
-                  <text x="150" y="295" fill="#5c7488">DB <tspan fill="#81d4fa" id="flow-db">&mdash;</tspan></text>
-                  <text x="240" y="40" fill="#5c7488">CHAOS <tspan fill="#ffb627" id="flow-chaos">&mdash;</tspan></text>
-                  <text x="240" y="360" fill="#5c7488">SENT <tspan fill="#c792ea" id="flow-sent">&mdash;</tspan></text>
-                  <text x="986" y="200" fill="#5c7488" text-anchor="end">KANS L/S <tspan fill="#00ff9f" id="flow-prob">&mdash;</tspan></text>
-                  <text x="850" y="105" fill="#5c7488" text-anchor="end">KAL. <tspan fill="#ffb627" id="flow-cal">&mdash;</tspan></text>
-                  <text x="850" y="295" fill="#5c7488" text-anchor="end">REGIME <tspan fill="#14f195" id="flow-regime">&mdash;</tspan></text>
-                  <text x="760" y="40" fill="#5c7488" text-anchor="end">NODE <tspan fill="#c792ea" id="flow-node">&mdash;</tspan></text>
-                  <text x="760" y="360" fill="#5c7488" text-anchor="end">MID <tspan fill="#4fc3f7" id="flow-mid">&mdash;</tspan></text>
-                </g>
-                <circle id="flow-pupil" cx="500" cy="200" r="1" fill="none" stroke="none"/>
-                </svg>
-                </div>
-                <div id="neo-net-panel" class="neo-quad">
-                  <canvas id="neo-net-canvas"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">NEO &middot; NEURAL NET</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">actieve verwerking &middot; live</div>
-                  <div id="neo-net-decision" style="position:absolute; top:8px; right:10px; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#eaffff; z-index:2; text-align:right;">beslissing<br><span id="neo-net-out" style="font-size:0.8rem;">&mdash;</span></div>
-                </div>
-              </div>
-              <!-- RECHTERKOLOM: hoofd boven, brein onder -->
-              <div style="display:flex; flex-direction:column; gap:10px;">
-                <div id="neo-panel" class="neo-quad">
-                  <canvas id="neo-canvas"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#7fd8ff; letter-spacing:2px; z-index:2;">OSIRIS &middot; CORE</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">leerhi&euml;rarchie L1&middot;L2&middot;L3 &rarr; mainbrain</div>
-                  <div style="position:absolute; bottom:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:#38bdf8; z-index:2;"><span id="neo-samples">0</span> samples</div>
-                  <div style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff; z-index:2;">kans <span id="neo-prob">&mdash;</span></div>
-                </div>
-                <div id="neo-brain-panel" class="neo-quad">
-                  <canvas id="neo-brain-canvas"></canvas>
-                  <div style="position:absolute; top:8px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:#c792ea; letter-spacing:2px; z-index:2;">NEO &middot; CORTEX</div>
-                  <div style="position:absolute; top:22px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:#5c7488; z-index:2;">brein-plexus &middot; lerend</div>
-                  <div id="neo-brain-bias" style="position:absolute; bottom:6px; left:10px; font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#eaffff; z-index:2;">bias <span id="neo-brain-out">&mdash;</span></div>
-                </div>
-              </div>
-            </div>
-            <div class="hub-statusbar" style="margin-top:10px;">
-              <div class="eye-foot">
-                <span class="live-dot" style="flex:none;"></span>
-                <span id="flow-console">Ocular core initialiseert...</span>
-                <span class="hud-micro" style="animation:hudBlink 2s infinite;">SYS <span id="flow-sys" style="color:#00d9ff;">NOMINAAL</span></span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        
-
     </section>
 
     <!-- NEURAL NET -->
