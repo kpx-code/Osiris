@@ -4114,6 +4114,9 @@ function openPositionFromOrder(order, entryTag = '') {
     try { if (typeof osirisPredictGate === 'function') { const g = osirisPredictGate('BTC', order.side); if (!g.allow) { logBotAction('SKIPPED', livePrice, order.side, 0, 0, g.reason); return; } } } catch (e) {}
     // trend-alignment veto: geen counter-trend entry bij een sterke trend
     try { if (typeof osirisTrendVeto === 'function') { const tv = osirisTrendVeto('BTC', order.side); if (tv.veto) { logBotAction('SKIPPED', livePrice, order.side, 0, 0, tv.reason); return; } } } catch (e) {}
+    // (23-08) Timing-Agent soft-gate: houd de order pending tot de timing gunstig staat (blokkeert
+    // niets tot de TA zich bewezen heeft; de order blijft staan en wordt opnieuw geëvalueerd).
+    try { if (typeof osirisTimingGate === 'function') { const _tg = osirisTimingGate('BTC', order.side); if (!_tg.allow) { logBotAction('SKIPPED', livePrice, order.side, 0, 0, 'TA: ' + _tg.reason); return; } } } catch (e) {}
     const price = livePrice;
     const confluence = lastOsirisDecision ? lastOsirisDecision.confluence : 0;
     const maxConfluence = 9; // zie getOrisisDecisionData: vfm(2)+db(1)+chaos(1)+er(1)+volumeScore(1)+MA(1)+crossover(1)+voorspelling(1)
@@ -9426,9 +9429,11 @@ function osirisMetaTick() {
         } catch (e) {}
         try { osirisAutoGovernTools(); } catch (e) {}
         try { OsirisSelfReview.tick(); } catch (e) {}
+        try { osirisTimingTick(); } catch (e) {}                       // Timing-Agent: snapshots/resolves + 5-trade herkalibratie
         try { OsirisJournal.harvest(); } catch (e) {}                 // events -> journaal
         try { OsirisLLM.run(); } catch (e) {}                          // LLM/vertaler-perceptie (async, fire-and-forget)
         try { renderOsirisPredictPanel(); } catch (e) {}
+        try { renderTimingPanel(); } catch (e) {}
         try { renderLiveFeeds(); } catch (e) {}
         try { renderLLMFeeds(); } catch (e) {}
         try { renderNextSteps(); } catch (e) {}
@@ -9559,8 +9564,484 @@ const OsirisSelfReview = {
 window.OsirisSelfReview = OsirisSelfReview;
 try { OsirisSelfReview._restore(); } catch (e) {}
 
+// ============================================================
+// TIMING-AGENT (TA) — 23-08
+// Aparte agent die ALLE timing-tools bundelt (NN/DeepNet, UOTAM node-countdown, FSO,
+// RL, confluenties vfm/er/db/chaos + ema/rsi, en Predict/Kinetic-ETA) tot één
+// readiness-score per markt/richting: "is NÚ een goed moment om long/short te openen?".
+// - Zelf-kalibrerend: elke component heeft een gewicht dat meebeweegt met zijn EIGEN
+//   out-of-sample hitrate. De TA neemt elke tick een snapshot van de componenten en
+//   lost die na een horizon op tegen de werkelijke prijsbeweging — óók als Osiris niet
+//   echt handelde. Zo leert hij van scenario's die de live-executie niet ziet.
+// - Soft-gate: een geldig entry-signaal wordt UITGESTELD tot de timing gunstig staat,
+//   met een geduld-mechanisme zodat een sterk signaal nooit voor eeuwig blijft wachten.
+//   De TA blokkeert NIETS zolang hij zich niet bewezen heeft (invloed schaalt met trust).
+// - Twee TA's: LIVE (30m-horizon, breed) + SCHADUW (kortere horizon, andere nadruk).
+//   Osiris kalibreert op beide; de schaduw mag zichzelf promoveren zodra hij zich over
+//   ≥5 resolves bewijst en de live-TA verslaat. Herkalibratie elke 5 gesloten trades.
+// Open posities worden NOOIT geraakt — de TA werkt alleen op NIEUWE entries.
+// ============================================================
+function _taClamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+let _taWait = {};        // geduld-teller per markt (soft-gate)
+let _taTradeCount = 0;   // laatste gesloten-trade telling voor 5-trade herkalibratie
+let _taShadowProof = 0;  // hoe vaak de schaduw de live-TA op rij verslaat
+
+// Candle-afgeleide features per markt (prijs/volume/fib) — gedeeld door live-TA én backtest-logica.
+function _taFeat(sym) {
+    try {
+        const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
+        const kl = (m && m.klines && m.klines.length > 30) ? m.klines : null;
+        if (!kl) return null;
+        const n = kl.length;
+        const c = kl.map(d => +d[4]), hi = kl.map(d => +d[2]), lo = kl.map(d => +d[3]), vol = kl.map(d => +d[5]);
+        const last = n - 1;
+        // momentum (3 candles)
+        const mom = c[last - 3] ? (c[last] - c[last - 3]) / c[last - 3] : 0;
+        // ema-helling (12 vs 26)
+        const ema = (arr, p) => { const kk = 2 / (p + 1); let e = arr[0]; for (let i = 1; i < arr.length; i++) e = arr[i] * kk + e * (1 - kk); return e; };
+        const eF = ema(c.slice(-60), 12), eS = ema(c.slice(-60), 26);
+        const emaSlope = eS ? (eF - eS) / eS : 0;
+        // rsi-14
+        let g = 0, l = 0; for (let i = last - 13; i <= last; i++) { if (i < 1) continue; const d = c[i] - c[i - 1]; if (d > 0) g += d; else l -= d; } const rs = l === 0 ? 100 : g / l; const rsi = 100 - 100 / (1 + rs);
+        // volume z-score (30)
+        const vw = vol.slice(-30); const vm = vw.reduce((a, b) => a + b, 0) / (vw.length || 1);
+        const vsd = Math.sqrt(vw.reduce((a, b) => a + (b - vm) * (b - vm), 0) / (vw.length || 1)) || 1e-9;
+        const volz = (vol[last] - vm) / vsd;
+        const upCandle = c[last] >= (kl[last] ? +kl[last][1] : c[last]) ? 1 : -1;
+        // fibonacci over de laatste 120 bars (swing hi/lo) — nabijheid = timing, positie = richting
+        const W = Math.min(120, n); const sHi = Math.max(...hi.slice(-W)), sLo = Math.min(...lo.slice(-W)); const rng = (sHi - sLo) || 1e-9;
+        const price = c[last]; const posInRange = (price - sLo) / rng;   // 0=bodem, 1=top
+        const levels = [0.236, 0.382, 0.5, 0.618, 0.786];
+        let nearest = 1; for (const lv of levels) nearest = Math.min(nearest, Math.abs(posInRange - lv));
+        const fibReady = _taClamp(1 - nearest / 0.06, 0, 1);   // binnen ~6% van een fib-niveau = scherp venster
+        const fibLean = _taClamp((0.5 - posInRange) * 2, -1, 1); // onder mid → bounce-long, boven mid → reject-short
+        // cnn-patroonbias (indien beschikbaar) op deze markt-candles
+        let cnn = 0; try { if (typeof neoScanPatterns === 'function') cnn = neoScanPatterns(kl, 40).netBias || 0; } catch (e) {}
+        return { mom, emaSlope, rsi, volz, upCandle, fibLean, fibReady, cnn, posInRange };
+    } catch (e) { return null; }
+}
+
+// Config-onafhankelijke component-signalen. lean>0 = gunstig voor LONG, ready 0..1 =
+// hoe gunstig het TIMING-venster is, conf 0..1 = hoeveel gewicht de component verdient.
+function _taComponents(sym) {
+    const out = {};
+    const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
+    const F = _taFeat(sym);
+    // 1) NN — DeepNet (gekalibreerd) + neo-core sub-brein
+    try {
+        let lean = 0, conf = 0.3, n = 0;
+        if (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.last) {
+            const dnp = OsirisDeepNet.last[sym];
+            if (dnp && dnp.calProb != null) { const d = (dnp.side === 'SHORT' ? -1 : 1); lean += d * (dnp.calProb - 0.5) * 2; conf = Math.max(conf, (dnp.meta ? 0.9 : 0.45) * (dnp.conf || 0.5)); n++; }
+        }
+        if (m && m.bestSide && m.bestProb != null) { const d = (m.bestSide === 'SHORT' ? -1 : 1); lean += d * (m.bestProb - 0.5) * 2; conf = Math.max(conf, m.bestProb); n++; }
+        if (n) lean /= n;
+        out.nn = { lean: _taClamp(lean, -1, 1), ready: _taClamp(Math.abs(lean) * 1.3, 0, 1), conf: _taClamp(conf, 0, 1) };
+    } catch (e) { out.nn = { lean: 0, ready: 0, conf: 0 }; }
+    // 2) NODE — UOTAM temporele node-countdown (dicht bij een node-flip = scherp timing-venster)
+    try {
+        const nc = (typeof getNodeContext === 'function') ? getNodeContext() : null;
+        const ni = (nc && typeof calculateNodeInfluence === 'function') ? calculateNodeInfluence(nc) : 0;
+        const win = 94.33;
+        const proxNext = nc ? Math.max(0, 1 - nc.nextNode.minutesUntil / win) : 0;
+        const proxLast = nc ? Math.max(0, 1 - nc.lastNode.minutesAgo / win) : 0;
+        out.node = { lean: _taClamp(Math.tanh(ni / 4), -1, 1), ready: _taClamp(Math.max(proxNext, proxLast), 0, 1), conf: 0.5 };
+    } catch (e) { out.node = { lean: 0, ready: 0, conf: 0 }; }
+    // 3) FSO — Financial Stress Oscillator: opportunity = bliksem-kans; CRISIS = niet nu
+    try {
+        const opp = (typeof osirisMarketOpportunity === 'function') ? osirisMarketOpportunity(sym) : 0;
+        const reg = (typeof osirisStress !== 'undefined' && osirisStress.regime) ? osirisStress.regime : 'RUST';
+        const crisis = reg === 'CRISIS';
+        out.fso = { lean: 0, ready: crisis ? 0 : _taClamp(opp, 0, 1), conf: crisis ? 0.9 : 0.5 };
+    } catch (e) { out.fso = { lean: 0, ready: 0, conf: 0 }; }
+    // 4) RL — is een VERSE positie in dit regime gunstig (HOLD/TRAIL/SCHAAL > SLUIT)?
+    try {
+        let ready = 0.4, conf = 0.3;
+        if (typeof OsirisRL !== 'undefined' && OsirisRL.Q && OsirisRL.episodes > 500) {
+            const reg = (typeof OsirisRL._regimeIdx === 'function') ? OsirisRL._regimeIdx() : 1;
+            const q = OsirisRL.Q[reg + '|2|1|0'];   // verse positie: kleine winst-zone, neutraal momentum, jong
+            if (q) { const hold = Math.max(q[0], q[2], q[3]); ready = _taClamp(0.5 + (hold - q[1]) * 0.5, 0, 1); conf = 0.5; }
+        }
+        out.rl = { lean: 0, ready, conf };
+    } catch (e) { out.rl = { lean: 0, ready: 0, conf: 0 }; }
+    // 5) CONFLUENTIE — vfm/ema/rsi/momentum/db/cnn (richting) + er/chaos (timing-kwaliteit)
+    try {
+        let lean = 0, k = 0;
+        if (m && m.vfm != null) { lean += Math.tanh(m.vfm); k++; }
+        if (F) { lean += Math.tanh(F.emaSlope * 100); k++; lean += Math.tanh((F.rsi - 50) / 20); k++; lean += Math.tanh(F.mom * 60); k++; lean += _taClamp(F.cnn, -1, 1); k++; }
+        else if (m) { if (m.ema != null && m.emaSlow) { lean += Math.tanh((m.ema - m.emaSlow) / m.emaSlow * 100); k++; } if (m.rsi != null) { lean += Math.tanh((m.rsi - 50) / 20); k++; } }
+        if (typeof db !== 'undefined' && db != null) { lean += Math.tanh(db); k++; }   // directional bias (globaal)
+        if (k) lean /= k;
+        const erv = (typeof er !== 'undefined' && er != null) ? _taClamp(er, 0, 1) : 0.5;
+        const chaosV = (m && m.chaos != null) ? m.chaos : ((typeof chaos !== 'undefined' && chaos != null) ? chaos : 0);
+        out.confluence = { lean: _taClamp(lean, -1, 1), ready: _taClamp(erv * (1 - _taClamp(chaosV, 0, 1)), 0, 1), conf: 0.55 };
+    } catch (e) { out.confluence = { lean: 0, ready: 0, conf: 0 }; }
+    // 6) VOLUME — VOL-Z: hoge volume-instroom = beter (bevestigd) instapmoment; richting via candle-body
+    try {
+        let ready = 0.3, lean = 0, conf = 0.4;
+        if (F) { ready = _taClamp(Math.abs(F.volz) / 2.5, 0, 1); lean = _taClamp(F.upCandle * Math.min(1, Math.abs(F.volz) / 2), -1, 1); conf = 0.5; }
+        out.volume = { lean, ready, conf };
+    } catch (e) { out.volume = { lean: 0, ready: 0, conf: 0 }; }
+    // 7) FIB — fibonacci-confluentie: nabijheid van een niveau = scherp venster; positie = richting
+    try {
+        if (F) out.fib = { lean: F.fibLean, ready: F.fibReady, conf: 0.5 };
+        else out.fib = { lean: 0, ready: 0, conf: 0 };
+    } catch (e) { out.fib = { lean: 0, ready: 0, conf: 0 }; }
+    // 8) FUND — positionering/sentiment: funding + L/S + BTC-corr + sentiment (contrair)
+    try {
+        let lean = 0, k = 0; const f = (m && m.fund) ? m.fund : null;
+        if (f) {
+            if (f.fundingRate != null) { lean += -Math.tanh(f.fundingRate * 2000); k++; }       // hoge funding = te veel longs → contrair short
+            if (f.longShortRatio != null) { lean += -Math.tanh((f.longShortRatio - 1) * 1.5); k++; }
+            if (f.btcCorr != null && sym !== 'BTC') { /* corr is context, geen directe richting */ }
+        }
+        if (m && m.sentScore != null) { lean += _taClamp((m.sentScore - 50) / 60, -1, 1); k++; }
+        if (k) lean /= k;
+        out.fund = { lean: _taClamp(lean, -1, 1), ready: 0.4, conf: k ? 0.45 : 0 };
+    } catch (e) { out.fund = { lean: 0, ready: 0, conf: 0 }; }
+    // 9) PREDICT/KINETIC — richting + ETA naar breakpoint (imminente beweging = goed instapmoment)
+    try {
+        const p = (typeof OsirisPredict !== 'undefined' && OsirisPredict.state) ? OsirisPredict.state[sym] : null;
+        const gw = (typeof OsirisGovernor !== 'undefined') ? OsirisGovernor.weight('predict') : 0.3;
+        let lean = 0, ready = 0, conf = 0.2;
+        if (p) { lean = _taClamp((p.dir || 0) * ((p.pShown || 0.5) - 0.5) * 2, -1, 1); ready = _taClamp((p.etaActionable ? 0.7 : 0.3) + Math.min(0.3, (p.expectedMovePct || 0) / 5), 0, 1); conf = _taClamp(gw, 0, 1); }
+        out.predict = { lean, ready, conf };
+    } catch (e) { out.predict = { lean: 0, ready: 0, conf: 0 }; }
+    return out;
+}
+
+function makeTimingAgent(name, cfg) {
+    return {
+        name, cfg, defaultBase: Object.assign({}, cfg.base), prior: {}, w: Object.assign({}, cfg.base), hit: {}, open: [], resolved: [],
+        score: null, n: 0, lastReady: {}, MINN: 20,
+        // readiness voor een gevraagde richting
+        readiness(sym, side) {
+            const comps = _taComponents(sym);
+            const dir = (side === 'SHORT' || side === -1) ? -1 : 1;
+            let dirNum = 0, dirDen = 0, timeNum = 0, timeDen = 0;
+            for (const key in comps) {
+                const c = comps[key], w = (this.w[key] != null ? this.w[key] : 0);
+                if (w <= 0) continue;
+                dirNum += w * c.conf * (c.lean * dir); dirDen += w * c.conf;
+                timeNum += w * c.ready; timeDen += w;
+            }
+            const dirAgree = dirDen > 0 ? dirNum / dirDen : 0;
+            const timing = timeDen > 0 ? timeNum / timeDen : 0;
+            const readiness = _taClamp(0.5 * ((dirAgree + 1) / 2) + 0.5 * timing, 0, 1);
+            this.lastReady[sym + '|' + dir] = { readiness, dirAgree, timing, ts: Date.now() };
+            return { readiness, dirAgree, timing, comps };
+        },
+        // telemetrie: snapshot per markt (richting = eigen blend), later opgelost tegen echte beweging
+        snapshot(sym) {
+            try {
+                const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
+                if (!m || m.lastPrice == null) return;
+                const comps = _taComponents(sym);
+                this.open.push({ sym, ts: Date.now(), price: m.lastPrice, comps, deadline: Date.now() + this.cfg.horizonMin * 60000 });
+                if (this.open.length > 400) this.open.shift();
+            } catch (e) {}
+        },
+        resolveDue() {
+            const now = Date.now(); const keep = [];
+            for (const s of this.open) {
+                if (now < s.deadline) { keep.push(s); continue; }
+                try {
+                    const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[s.sym] : null;
+                    if (!m || m.lastPrice == null) { if (now < s.deadline + 600000) keep.push(s); continue; }
+                    const move = (m.lastPrice - s.price) / s.price; const moveSign = move > 0 ? 1 : (move < 0 ? -1 : 0);
+                    for (const key in s.comps) {
+                        const c = s.comps[key]; if (Math.abs(c.lean) < 0.05) continue;
+                        const h = this.hit[key] || (this.hit[key] = { n: 0, hh: 0, contrib: 0 });
+                        h.n++; if ((c.lean > 0 ? 1 : -1) === moveSign) h.hh++;
+                        h.contrib += (c.lean > 0 ? 1 : -1) * move * 100;
+                    }
+                    s.move = move; this.resolved.unshift(s); if (this.resolved.length > 300) this.resolved.pop();
+                } catch (e) {}
+            }
+            this.open = keep;
+        },
+        recalibrate() {
+            let tot = 0, hh = 0;
+            for (const key in this.cfg.base) {
+                const h = this.hit[key];
+                if (h && h.n >= 8) { const hr = h.hh / h.n; this.w[key] = _taClamp(this.cfg.base[key] * (0.4 + 1.6 * hr), 0.05, 2.5); tot += h.n; hh += h.hh; }
+                else if (this.prior[key] != null) { this.w[key] = _taClamp(this.cfg.base[key] * (0.4 + 1.6 * this.prior[key]), 0.05, 2.5); }   // backtest-prior tot er live-resolves zijn
+                else this.w[key] = this.cfg.base[key];
+            }
+            this.n = tot; this.score = tot > 0 ? hh / tot : null;
+        },
+        applyPrior(priorHit, bestThr) {   // uit de historische backtester
+            try { if (priorHit) { for (const k in priorHit) this.prior[k] = priorHit[k]; } if (bestThr != null && !this.proven()) this.cfg.thr = _taClamp(bestThr, 0.45, 0.7); this.recalibrate(); } catch (e) {}
+        },
+        proven() { return this.n >= this.MINN && this.score != null && this.score > 0.5; },
+        influence() { return this.proven() ? _taClamp((this.score - 0.5) / 0.25, 0, 1) : 0; },
+        bundle() {
+            const perComp = {}; for (const k in this.hit) { const h = this.hit[k]; perComp[k] = { n: h.n, hitratePct: h.n ? +(h.hh / h.n * 100).toFixed(1) : null, gemBijdragePct: h.n ? +(h.contrib / h.n).toFixed(4) : null, gewicht: +(this.w[k] || 0).toFixed(3) }; }
+            return { naam: this.name, config: this.cfg, gewichten: this.w, componentHitrates: perComp, resolves_n: this.n, scorePct: this.score != null ? +(this.score * 100).toFixed(1) : null, bewezen: this.proven(), invloed: +(this.influence()).toFixed(3), openSnapshots: this.open.length, laatsteReadiness: this.lastReady, resolvedRecent: this.resolved.slice(0, 40).map(r => ({ sym: r.sym, ts: r.ts, bewegingPct: r.move != null ? +(r.move * 100).toFixed(3) : null })) };
+        },
+        save(key) { try { localStorage.setItem(key, JSON.stringify({ w: this.w, hit: this.hit, prior: this.prior, resolved: this.resolved.slice(0, 120), n: this.n, score: this.score, cfg: this.cfg })); } catch (e) {} },
+        restore(key) {
+            try {
+                const d = JSON.parse(localStorage.getItem(key) || 'null'); if (!d) return;
+                // MIGRATIE: houd de HUIDIGE component-set (defaultBase) aan zodat nieuwe componenten
+                // (volume/fib/fund) niet verdwijnen door een oude opgeslagen config. Bewaar wel de
+                // geleerde horizon/drempel en de geleerde gewichten waar ze bestaan.
+                if (d.cfg) { this.cfg.horizonMin = d.cfg.horizonMin || this.cfg.horizonMin; this.cfg.thr = d.cfg.thr != null ? d.cfg.thr : this.cfg.thr; }
+                this.cfg.base = Object.assign({}, this.defaultBase);
+                this.w = Object.assign({}, this.cfg.base, d.w || {});
+                this.hit = d.hit || {}; this.prior = d.prior || {}; this.resolved = d.resolved || []; this.n = d.n || 0; this.score = (d.score != null ? d.score : null);
+            } catch (e) {}
+        }
+    };
+}
+
+const OsirisTiming = makeTimingAgent('LIVE', { horizonMin: 30, thr: 0.52, base: { nn: 1.0, node: 0.8, fso: 0.6, rl: 0.5, confluence: 0.8, volume: 0.6, fib: 0.7, fund: 0.5, predict: 0.4 } });
+const OsirisTimingShadow = makeTimingAgent('SCHADUW', { horizonMin: 12, thr: 0.48, base: { nn: 0.7, node: 1.2, fso: 0.9, rl: 0.4, confluence: 0.6, volume: 1.0, fib: 1.1, fund: 0.6, predict: 0.9 } });
+window.OsirisTiming = OsirisTiming; window.OsirisTimingShadow = OsirisTimingShadow;
+try { OsirisTiming.restore('osirisTiming'); OsirisTimingShadow.restore('osirisTimingShadow'); } catch (e) {}
+
+// ============================================================
+// TIMING-BACKTESTER (23-08) — duizenden scenario's uit de prijshistorie
+// Draait in een INLINE Web Worker over de laatste ~600 candles per markt en simuleert
+// entry-points met de candle-gebaseerde timing-componenten (trend/confluentie, VOLUME/VOL-Z
+// en FIBONACCI), over een grid van drempels × horizons. Levert per markt: aantal scenario's,
+// beste drempel/horizon, expectancy, winrate (long/short) én per-component hitrate. Dit voedt
+// de live-TA + schaduw als PRIOR — zo heeft Osiris meteen calibratie-data voor scenario's die
+// de live-executie (nog) niet heeft gezien. Zwaar rekenwerk blijft van de UI-thread af.
+// ============================================================
+const OsirisTimingBacktest = {
+    _worker: null, _busy: false, last: 0, result: null, runs: 0,
+    _ensure() {
+        if (this._worker) return true;
+        try {
+            const code = `
+            function ema(a,p){var k=2/(p+1),e=a[0],o=[e];for(var i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e);}return o;}
+            function feat(c,h,l,v,i){
+              var mom=c[i-3]?(c[i]-c[i-3])/c[i-3]:0;
+              var s=Math.max(0,i-59);var seg=c.slice(s,i+1);var eF=ema(seg,12),eS=ema(seg,26);var emaSlope=eS[eS.length-1]?(eF[eF.length-1]-eS[eS.length-1])/eS[eS.length-1]:0;
+              var g=0,ll=0;for(var j=i-13;j<=i;j++){if(j<1)continue;var d=c[j]-c[j-1];if(d>0)g+=d;else ll-=d;}var rs=ll===0?100:g/ll;var rsi=100-100/(1+rs);
+              var vs=Math.max(0,i-29);var vw=v.slice(vs,i+1);var vm=0;for(var q=0;q<vw.length;q++)vm+=vw[q];vm/=(vw.length||1);var sd=0;for(var q2=0;q2<vw.length;q2++)sd+=(vw[q2]-vm)*(vw[q2]-vm);sd=Math.sqrt(sd/(vw.length||1))||1e-9;var volz=(v[i]-vm)/sd;
+              var W=Math.min(120,i+1);var hi=-1e18,lo=1e18;for(var w2=i-W+1;w2<=i;w2++){if(h[w2]>hi)hi=h[w2];if(l[w2]<lo)lo=l[w2];}var rng=(hi-lo)||1e-9;var pir=(c[i]-lo)/rng;
+              var lv=[0.236,0.382,0.5,0.618,0.786];var near=1;for(var z=0;z<lv.length;z++)near=Math.min(near,Math.abs(pir-lv[z]));
+              var fibReady=Math.max(0,Math.min(1,1-near/0.06));var fibLean=Math.max(-1,Math.min(1,(0.5-pir)*2));
+              return {mom:mom,emaSlope:emaSlope,rsi:rsi,volz:volz,fibLean:fibLean,fibReady:fibReady};
+            }
+            function cl(v,a,b){return Math.max(a,Math.min(b,v));}
+            onmessage=function(ev){
+              var d=ev.data;var MK=d.markets||[];var base=d.base||{};var cost=d.cost!=null?d.cost:0.1;
+              var THR=[0.50,0.55,0.60,0.65];var HOR=[6,10,16];var baseH=10;
+              var per={};var gScn=0,gHit={confluence:{n:0,h:0},volume:{n:0,h:0},fib:{n:0,h:0}};
+              var gBest={thr:0.55,H:10,exp:-1e9};
+              for(var mi=0;mi<MK.length;mi++){
+                var M=MK[mi];var c=M.c,h=M.h,l=M.l,v=M.v;var N=c.length;if(N<80)continue;
+                var atr=0,ak=0;for(var r=Math.max(1,N-200);r<N;r++){atr+=Math.abs(c[r]-c[r-1])/c[r-1];ak++;}atr=(ak?atr/ak:0.004);
+                var STOP=Math.max(0.003,Math.min(0.03,atr*3)),TGT=STOP*1.2;
+                var comp={confluence:{n:0,h:0},volume:{n:0,h:0},fib:{n:0,h:0}};
+                var grid={};for(var a=0;a<THR.length;a++)for(var b2=0;b2<HOR.length;b2++)grid[THR[a]+'|'+HOR[b2]]={n:0,sum:0,w:0};
+                var scn=0,longW=0,longN=0,shortW=0,shortN=0;
+                for(var i=40;i<N-Math.max.apply(null,HOR)-1;i++){
+                  var F=feat(c,h,l,v,i);
+                  // candle-component leans
+                  var cLean=cl((Math.tanh(F.emaSlope*100)+Math.tanh((F.rsi-50)/20)+Math.tanh(F.mom*60))/3,-1,1);
+                  var vLean=cl((c[i]>=c[i-1]?1:-1)*Math.min(1,Math.abs(F.volz)/2),-1,1);var vReady=cl(Math.abs(F.volz)/2.5,0,1);
+                  var fLean=F.fibLean,fReady=F.fibReady;
+                  // forward move over baseH voor component-hitrate
+                  var fwd=(c[Math.min(i+baseH,N-1)]-c[i])/c[i];var fs=fwd>0?1:(fwd<0?-1:0);
+                  if(Math.abs(cLean)>0.05){comp.confluence.n++;if((cLean>0?1:-1)===fs)comp.confluence.h++;}
+                  if(Math.abs(vLean)>0.05){comp.volume.n++;if((vLean>0?1:-1)===fs)comp.volume.h++;}
+                  if(Math.abs(fLean)>0.05){comp.fib.n++;if((fLean>0?1:-1)===fs)comp.fib.h++;}
+                  // blended score per side
+                  var wC=base.confluence||0.8,wV=base.volume||0.6,wF=base.fib||0.7;
+                  for(var sdi=0;sdi<2;sdi++){
+                    var side=sdi===0?1:-1;
+                    var dirNum=wC*0.55*(cLean*side)+wV*0.5*(vLean*side)+wF*0.5*(fLean*side);
+                    var dirDen=wC*0.55+wV*0.5+wF*0.5;
+                    var timeNum=wC*cl((0.5),0,1)+wV*vReady+wF*fReady;var timeDen=wC+wV+wF;
+                    var dirAgree=dirDen>0?dirNum/dirDen:0;var timing=timeDen>0?timeNum/timeDen:0;
+                    var score=cl(0.5*((dirAgree+1)/2)+0.5*timing,0,1);
+                    for(var a2=0;a2<THR.length;a2++){if(score<THR[a2])continue;
+                      for(var b3=0;b3<HOR.length;b3++){var H=HOR[b3];var entry=c[i];var pnl=null;
+                        for(var j=i+1;j<=i+H&&j<N;j++){var up=side>0?(h[j]-entry)/entry:(entry-l[j])/entry;var dn=side>0?(entry-l[j])/entry:(h[j]-entry)/entry;
+                          if(dn>=STOP){pnl=-STOP;break;}if(up>=TGT){pnl=TGT;break;}}
+                        if(pnl===null)pnl=side*(c[Math.min(i+H,N-1)]-entry)/entry;
+                        pnl=pnl*100-cost;var key=THR[a2]+'|'+H;grid[key].n++;grid[key].sum+=pnl;
+                        if(H===baseH&&THR[a2]===0.55){scn++;if(side>0){longN++;if(pnl>0)longW++;}else{shortN++;if(pnl>0)shortW++;}}
+                      }
+                    }
+                  }
+                }
+                var mBest={thr:0.55,H:10,exp:-1e9,n:0};
+                for(var kk in grid){var G=grid[kk];if(G.n<20)continue;var e2=G.sum/G.n;if(e2>mBest.exp){var pp=kk.split('|');mBest={thr:+pp[0],H:+pp[1],exp:e2,n:G.n};}}
+                var tot=0;for(var kk2 in grid)tot+=grid[kk2].n;gScn+=tot;
+                for(var ck in comp){gHit[ck].n+=comp[ck].n;gHit[ck].h+=comp[ck].h;}
+                per[M.sym]={scenarios:tot,bestThr:mBest.thr,bestHorizon:mBest.H,expectancyPct:+mBest.exp.toFixed(4),
+                  winratePct:scn?+((longW+shortW)/scn*100).toFixed(1):null,longWrPct:longN?+((longW/longN)*100).toFixed(1):null,shortWrPct:shortN?+((shortW/shortN)*100).toFixed(1):null,
+                  componentHit:{confluence:comp.confluence.n?+(comp.confluence.h/comp.confluence.n).toFixed(3):null,volume:comp.volume.n?+(comp.volume.h/comp.volume.n).toFixed(3):null,fib:comp.fib.n?+(comp.fib.h/comp.fib.n).toFixed(3):null}};
+                if(mBest.exp>gBest.exp)gBest={thr:mBest.thr,H:mBest.H,exp:mBest.exp};
+              }
+              var gc={confluence:gHit.confluence.n?gHit.confluence.h/gHit.confluence.n:null,volume:gHit.volume.n?gHit.volume.h/gHit.volume.n:null,fib:gHit.fib.n?gHit.fib.h/gHit.fib.n:null};
+              postMessage({perMarket:per,totaalScenarios:gScn,bestThr:gBest.thr,bestHorizon:gBest.H,componentHitGlobal:gc});
+            };`;
+            const blob = new Blob([code], { type: 'application/javascript' });
+            this._worker = new Worker(URL.createObjectURL(blob));
+            this._worker.onmessage = (ev) => this._onDone(ev.data);
+            return true;
+        } catch (e) { this._worker = null; return false; }
+    },
+    run() {
+        try {
+            if (this._busy || !this._ensure()) return;
+            const markets = [];
+            const syms = (typeof MULTI_SYMBOLS !== 'undefined') ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL'];
+            for (const sym of syms) {
+                const m = (typeof neoMultiState !== 'undefined') ? neoMultiState.markets[sym] : null;
+                const kl = (m && m.klines && m.klines.length > 80) ? m.klines.slice(-600) : null;
+                if (kl) markets.push({ sym, o: kl.map(d => +d[1]), h: kl.map(d => +d[2]), l: kl.map(d => +d[3]), c: kl.map(d => +d[4]), v: kl.map(d => +d[5]) });
+            }
+            if (!markets.length) return;
+            this._busy = true;
+            this._worker.postMessage({ markets, base: OsirisTiming.cfg.base, cost: 0.1 });
+        } catch (e) { this._busy = false; }
+    },
+    maybeRun() { try { const now = Date.now(); if (now - this.last > 10 * 60000) { this.last = now; this.run(); } } catch (e) {} },
+    _onDone(d) {
+        try {
+            this._busy = false; this.runs++; this.result = Object.assign({ ts: Date.now(), runs: this.runs }, d);
+            // voed live + schaduw met de backtest-prior (component-hitrates + beste drempel)
+            try { OsirisTiming.applyPrior(d.componentHitGlobal, d.bestThr); } catch (e) {}
+            try { OsirisTimingShadow.applyPrior(d.componentHitGlobal, d.bestThr); } catch (e) {}
+            try { localStorage.setItem('osirisTimingBT', JSON.stringify(this.result)); } catch (e) {}
+            try { logAdaptation('Timing-backtest voltooid', `${(d.totaalScenarios || 0).toLocaleString('nl-NL')} scenario's over ~600 candles/markt — beste drempel ${d.bestThr}, horizon ${d.bestHorizon}. Component-hitrates: confl ${d.componentHitGlobal && d.componentHitGlobal.confluence != null ? (d.componentHitGlobal.confluence * 100 | 0) + '%' : 'n/a'}, volume ${d.componentHitGlobal && d.componentHitGlobal.volume != null ? (d.componentHitGlobal.volume * 100 | 0) + '%' : 'n/a'}, fib ${d.componentHitGlobal && d.componentHitGlobal.fib != null ? (d.componentHitGlobal.fib * 100 | 0) + '%' : 'n/a'}.`); } catch (e) {}
+        } catch (e) { this._busy = false; }
+    },
+    bundle() { return this.result || (function () { try { return JSON.parse(localStorage.getItem('osirisTimingBT') || 'null'); } catch (e) { return null; } })(); }
+};
+window.OsirisTimingBacktest = OsirisTimingBacktest;
+try { const _bt = localStorage.getItem('osirisTimingBT'); if (_bt) { OsirisTimingBacktest.result = JSON.parse(_bt); const r = OsirisTimingBacktest.result; if (r) { OsirisTiming.applyPrior(r.componentHitGlobal, r.bestThr); OsirisTimingShadow.applyPrior(r.componentHitGlobal, r.bestThr); } } } catch (e) {}
+
+// Schaduw vergelijken en (indien bewezen) promoveren — draait op de 5-trade herkalibratie.
+function _timingCompareAndPromote(atTrades) {
+    try {
+        const L = OsirisTiming, S = OsirisTimingShadow;
+        if (S.score == null || L.score == null || S.n < 5) return;
+        if (S.score > L.score + 0.05) {   // schaduw duidelijk beter dan live
+            _taShadowProof++;
+            L.cfg = JSON.parse(JSON.stringify(S.cfg));   // live neemt de betere config over
+            L.w = Object.assign({}, S.w);                // én de geleerde gewichten
+            try { logAdaptation('Timing-Agent: schaduw gepromoveerd', `bij ${atTrades} trades — schaduw ${(S.score * 100 | 0)}% > live ${(L.score * 100 | 0)}% over ${S.n} resolves. Live-TA neemt schaduw-config over (horizon ${L.cfg.horizonMin}m). Schaduw krijgt nieuwe verkennende config.`); } catch (e) {}
+            // schaduw krijgt een NIEUWE verkennende horizon zodat hij blijft zoeken
+            S.cfg = JSON.parse(JSON.stringify(S.cfg)); S.cfg.horizonMin = (S.cfg.horizonMin >= 20 ? 8 : S.cfg.horizonMin + 6);
+            S.hit = {}; S.resolved = []; S.n = 0; S.score = null; S.w = Object.assign({}, S.cfg.base);
+        } else { _taShadowProof = 0; }
+    } catch (e) {}
+}
+
+// Driver: elke ~10s (osirisMetaTick) — snapshots nemen, oplossen, en elke 5 trades herkalibreren.
+function osirisTimingTick() {
+    try {
+        const syms = (typeof MULTI_SYMBOLS !== 'undefined') ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL'];
+        for (const s of syms) { OsirisTiming.snapshot(s); OsirisTimingShadow.snapshot(s); }
+        OsirisTiming.resolveDue(); OsirisTimingShadow.resolveDue();
+        try { OsirisTimingBacktest.maybeRun(); } catch (e) {}   // duizenden scenario's uit prijshistorie (elke ~10 min)
+        let closed = 0; try { closed = OsirisSelfReview._closed(); } catch (e) {}
+        if (closed >= _taTradeCount + 5) {
+            _taTradeCount = closed;
+            OsirisTiming.recalibrate(); OsirisTimingShadow.recalibrate();
+            _timingCompareAndPromote(closed);
+            OsirisTiming.save('osirisTiming'); OsirisTimingShadow.save('osirisTimingShadow');
+            try { logAdaptation('Timing-Agent herkalibratie', `bij ${closed} trades — live ${OsirisTiming.score != null ? (OsirisTiming.score * 100 | 0) + '%' : 'n/a'} (n=${OsirisTiming.n}, invloed ${(OsirisTiming.influence() * 100 | 0)}%) · schaduw ${OsirisTimingShadow.score != null ? (OsirisTimingShadow.score * 100 | 0) + '%' : 'n/a'} (n=${OsirisTimingShadow.n})`); } catch (e) {}
+        }
+    } catch (e) {}
+}
+window.osirisTimingTick = osirisTimingTick;
+
+// SOFT-GATE + size-modifier voor entries. Blokkeert niets tot de TA zich bewijst (influence>0).
+function osirisTimingGate(sym, side) {
+    try {
+        if (typeof OsirisTiming === 'undefined') return { allow: true, sizeMult: 1 };
+        const r = OsirisTiming.readiness(sym, side);
+        const infl = OsirisTiming.influence();
+        const sizeMult = _taClamp(1 + infl * ((r.readiness - 0.5) * 0.8), 0.7, 1.3);
+        if (infl <= 0) return { allow: true, sizeMult: 1, readiness: r.readiness, reason: `TA kalibreert (score ${OsirisTiming.score != null ? (OsirisTiming.score * 100 | 0) + '%' : 'n/a'}, n=${OsirisTiming.n})` };
+        let thr = OsirisTiming.cfg.thr;
+        try { if (typeof OsirisSelfReview !== 'undefined') thr -= (OsirisSelfReview.aggr - 1) * 0.06; } catch (e) {}
+        const wc = (_taWait[sym] = (_taWait[sym] || 0));
+        const effThr = thr - Math.min(0.12, wc * 0.03);   // geduld: drempel zakt hoe langer een geldig signaal wacht
+        if (r.readiness >= effThr) { _taWait[sym] = 0; return { allow: true, sizeMult, readiness: r.readiness, reason: `timing ok (${(r.readiness * 100 | 0)}% ≥ ${(effThr * 100 | 0)}%)` }; }
+        _taWait[sym] = wc + 1;
+        return { allow: false, sizeMult: 1, readiness: r.readiness, reason: `wacht op timing (${(r.readiness * 100 | 0)}% < ${(effThr * 100 | 0)}%, ${wc + 1}×)` };
+    } catch (e) { return { allow: true, sizeMult: 1 }; }
+}
+window.osirisTimingGate = osirisTimingGate;
+
+// ---- RENDER: Timing-Agent paneel (Live Feed tab) ----
+function renderTimingPanel() {
+    try {
+        const els = ['ta-panel', 'ta-panel-nn'].map(id => document.getElementById(id)).filter(Boolean);
+        if (!els.length) return;
+        const L = OsirisTiming, S = OsirisTimingShadow;
+        const syms = (typeof MULTI_SYMBOLS !== 'undefined') ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL'];
+        const COL = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
+        const pct = (x) => x == null ? '—' : (x * 100 | 0) + '%';
+        const scoreCol = (s) => s == null ? 'var(--text-dim)' : (s >= 0.55 ? '#14f195' : s >= 0.5 ? '#ffb627' : '#ff8a94');
+        // kop
+        const inflPct = (L.influence() * 100 | 0);
+        const kop = `<div style="display:flex; flex-wrap:wrap; gap:14px; align-items:center; font-size:0.6rem; margin-bottom:8px;">
+            <span>LIVE-TA <b style="color:${scoreCol(L.score)}">${L.score != null ? pct(L.score) : 'kalibreert'}</b> <span style="color:var(--text-dim)">(n=${L.n}, horizon ${L.cfg.horizonMin}m)</span></span>
+            <span>invloed <b style="color:${inflPct > 0 ? '#14f195' : 'var(--text-dim)'}">${inflPct}%</b> ${L.proven() ? '<span style="color:#14f195">✓ bewezen</span>' : '<span style="color:var(--text-dim)">— verdient trust</span>'}</span>
+            <span style="margin-left:auto;">SCHADUW <b style="color:${scoreCol(S.score)}">${S.score != null ? pct(S.score) : 'kalibreert'}</b> <span style="color:var(--text-dim)">(n=${S.n}, horizon ${S.cfg.horizonMin}m)</span>${(S.score != null && L.score != null && S.score > L.score + 0.05) ? ' <span style="color:#ffb627">↑ verslaat live</span>' : ''}</span>
+        </div>`;
+        // per-markt readiness voor de huidige core-richting
+        let rows = syms.map(s => {
+            const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[s] : null;
+            const side = (m && m.bestSide) ? m.bestSide : 'LONG';
+            const r = L.readiness(s, side);
+            const w = Math.max(2, r.readiness * 100);
+            const rc = r.readiness >= (L.cfg.thr) ? '#14f195' : '#ffb627';
+            const waitTxt = (_taWait[s] > 0) ? ` <span style="color:#ff8a94;">wacht ${_taWait[s]}×</span>` : '';
+            return `<div style="display:flex; align-items:center; gap:8px; font-size:0.58rem; margin:2px 0;">
+                <span style="width:34px; color:${COL[s] || '#8b95a5'}; font-weight:700;">${s}</span>
+                <span style="width:44px; color:${side === 'SHORT' ? '#ff5f7e' : '#14f195'};">${side}</span>
+                <span style="flex:1; height:8px; background:rgba(255,255,255,0.06); border-radius:4px; overflow:hidden;"><span style="display:block; height:100%; width:${w}%; background:${rc};"></span></span>
+                <span style="width:40px; text-align:right; color:${rc};">${pct(r.readiness)}</span>${waitTxt}
+            </div>`;
+        }).join('');
+        // component-gewichten + hitrates
+        const comps = ['nn', 'node', 'fso', 'rl', 'confluence', 'volume', 'fib', 'fund', 'predict'];
+        const cnames = { nn: 'NN/DeepNet', node: 'Node-timing', fso: 'FSO', rl: 'RL', confluence: 'Confluentie', volume: 'Volume/VOL-Z', fib: 'Fibonacci', fund: 'Funding/L-S', predict: 'Predict/ETA' };
+        let ctab = comps.map(k => {
+            const h = L.hit[k]; const liveHr = (h && h.n >= 8) ? (h.hh / h.n) : null;
+            const prHr = (L.prior && L.prior[k] != null) ? L.prior[k] : null;
+            const hr = liveHr != null ? liveHr : prHr; const src = liveHr != null ? 'live' : (prHr != null ? 'BT' : '');
+            const wv = L.w[k] || 0; const wbar = Math.min(100, wv / 2.5 * 100);
+            const hrTxt = hr == null ? 'n/a' : ((hr * 100 | 0) + '%' + (src === 'BT' ? ' ᴮᵀ' : (h ? ' (' + h.n + ')' : '')));
+            return `<div style="display:flex; align-items:center; gap:6px; font-size:0.55rem; margin:1px 0;">
+                <span style="width:82px; color:#9fb4c4;">${cnames[k]}</span>
+                <span style="flex:1; height:6px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden;"><span style="display:block; height:100%; width:${wbar}%; background:#7fd8ff;"></span></span>
+                <span style="width:34px; text-align:right; color:#7fd8ff;">×${wv.toFixed(2)}</span>
+                <span style="width:64px; text-align:right; color:${hr == null ? 'var(--text-dim)' : (hr >= 0.5 ? '#14f195' : '#ff8a94')};">${hrTxt}</span>
+            </div>`;
+        }).join('');
+        // backtest-samenvatting (duizenden scenario's uit prijshistorie)
+        let btBlock = '';
+        try {
+            const bt = OsirisTimingBacktest.bundle();
+            if (bt && bt.perMarket) {
+                const rowsBt = Object.keys(bt.perMarket).map(s => { const b = bt.perMarket[s]; const ec = (b.expectancyPct || 0) >= 0 ? '#14f195' : '#ff8a94'; return `<div style="font-size:0.54rem;"><span style="color:${COL[s] || '#8b95a5'}; font-weight:700;">${s}</span> <span style="color:var(--text-dim)">${(b.scenarios || 0).toLocaleString('nl-NL')} scen · drmpl ${b.bestThr} · H${b.bestHorizon} · exp <b style="color:${ec}">${(b.expectancyPct > 0 ? '+' : '') + (b.expectancyPct != null ? b.expectancyPct.toFixed(3) : '?')}%</b> · WR ${b.winratePct != null ? b.winratePct + '%' : '—'} (L ${b.longWrPct != null ? b.longWrPct + '%' : '—'}/S ${b.shortWrPct != null ? b.shortWrPct + '%' : '—'})</span></div>`; }).join('');
+                btBlock = `<div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:6px; margin-top:6px;"><div style="color:var(--text-dim); font-size:0.54rem; margin-bottom:3px;">scenario-backtest (~600 candles/markt · ${(bt.totaalScenarios || 0).toLocaleString('nl-NL')} scenario's totaal) — prijshistorie voedt de kalibratie (ᴮᵀ)</div>${rowsBt}</div>`;
+            }
+        } catch (e) {}
+        const html = kop +
+            `<div style="margin-bottom:8px;">${rows}</div>` +
+            `<div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:6px;"><div style="color:var(--text-dim); font-size:0.54rem; margin-bottom:3px;">component-gewichten (zelf-gekalibreerd) &middot; hitrate (live of ᴮᵀ=backtest)</div>${ctab}</div>` +
+            btBlock;
+        els.forEach(el => { el.innerHTML = html; });
+    } catch (e) {}
+}
+window.renderTimingPanel = renderTimingPanel;
+
 function osirisMetaBundle() {
-    return { exportedAt: new Date().toISOString(), governor: { weights: OsirisGovernor.weights, metrics: OsirisGovernor.metrics(), log: OsirisGovernor.log }, predict: { huidig: OsirisPredict.state, metrieken: OsirisPredict.metrics(), open: OsirisPredict.open, afgerond: OsirisPredict.resolved.slice(0, 300) }, selfReview: (typeof OsirisSelfReview !== 'undefined') ? OsirisSelfReview.bundle() : null, opportunity: (typeof osirisState !== 'undefined') ? (osirisState.opportunity || null) : null, guardian: { paused: OsirisGuardian.paused, alerts: OsirisGuardian.alerts, log: OsirisGuardian.log }, risk: OsirisRisk.state, uitleg: 'Governor stelt trust-gewichten autonoom bij op out-of-sample hit-rate + Brier; Predict levert gekalibreerde richting/breakpoint per munt; Guardian bewaakt data-integriteit; Risk bewaakt drawdown/dagverlies/exposure. Halt-vlag pauzeert entries in alle engines.' };
+    return { exportedAt: new Date().toISOString(), governor: { weights: OsirisGovernor.weights, metrics: OsirisGovernor.metrics(), log: OsirisGovernor.log }, predict: { huidig: OsirisPredict.state, metrieken: OsirisPredict.metrics(), open: OsirisPredict.open, afgerond: OsirisPredict.resolved.slice(0, 300) }, selfReview: (typeof OsirisSelfReview !== 'undefined') ? OsirisSelfReview.bundle() : null, timing: (typeof OsirisTiming !== 'undefined') ? { live: OsirisTiming.bundle(), schaduw: (typeof OsirisTimingShadow !== 'undefined' ? OsirisTimingShadow.bundle() : null), scenario_backtest: (typeof OsirisTimingBacktest !== 'undefined' ? OsirisTimingBacktest.bundle() : null) } : null, opportunity: (typeof osirisState !== 'undefined') ? (osirisState.opportunity || null) : null, guardian: { paused: OsirisGuardian.paused, alerts: OsirisGuardian.alerts, log: OsirisGuardian.log }, risk: OsirisRisk.state, uitleg: 'Governor stelt trust-gewichten autonoom bij op out-of-sample hit-rate + Brier; Predict levert gekalibreerde richting/breakpoint per munt; Timing-Agent bundelt alle timing-tools tot een readiness-score (soft-gate) met live+schaduw; Guardian bewaakt data-integriteit; Risk bewaakt drawdown/dagverlies/exposure. Halt-vlag pauzeert entries in alle engines.' };
 }
 window.osirisMetaBundle = osirisMetaBundle;
 function downloadMetaData() { try { _downloadJSON(osirisMetaBundle(), `osiris_meta_${Date.now()}.json`); } catch (e) { try { alert('Meta-export mislukt: ' + e.message); } catch (x) {} } }
@@ -9729,6 +10210,15 @@ function osirisMasterBundle() {
         uitleg: 'Exit-bijdrage wordt berekend uit learningLog (persistent) i.p.v. de wallet-buffers, zodat de cumulatieve bijdrage per exit-reden blijft bestaan na een wallet-reset en Osiris hierop kan blijven kalibreren. Equity-verdeling toont de huidige allocatie over markten/posities (spot + margin).'
     };
 
+    // 6d) TIMING-AGENT (TA LIVE + SCHADUW) — entry-timing, zelf-kalibrerend
+    C.timing_agent = {
+        live: g(() => (typeof OsirisTiming !== 'undefined' ? OsirisTiming.bundle() : null)),
+        schaduw: g(() => (typeof OsirisTimingShadow !== 'undefined' ? OsirisTimingShadow.bundle() : null)),
+        scenario_backtest: g(() => (typeof OsirisTimingBacktest !== 'undefined' ? OsirisTimingBacktest.bundle() : null)),
+        laatste_componenten: g(() => (typeof _taComponents === 'function' ? Object.fromEntries(mkts.map(k => [k, _taComponents(k)])) : null)),
+        uitleg: 'Timing-Agent bundelt NN/DeepNet, UOTAM node-countdown, FSO, RL, confluenties (vfm/er/db/chaos+ema/rsi/momentum/cnn), VOLUME (VOL-Z), FIBONACCI, FUNDING/L-S/sentiment en Predict/Kinetic-ETA tot één readiness-score per markt/richting (soft-gate op het openingsmoment). Elk component-gewicht kalibreert op zijn eigen out-of-sample hitrate. LIVE = 30m-horizon; SCHADUW = kortere horizon/andere nadruk (nadruk op fib+volume) en mag zichzelf naar live promoveren zodra hij zich (≥5 resolves) bewijst. Herkalibratie elke 5 gesloten trades. scenario_backtest berekent duizenden entry-scenario\'s uit ~600 candles/markt (fib+volume+trend, grid over drempel×horizon) en voedt de kalibratie als prior (ᴮᵀ). componentHitrates toont per tool: n, hitrate%, gem. bijdrage% en het geleerde gewicht.'
+    };
+
     // 7) OVERIGE / REST
     C.rest = {
         tradeLog: g(() => (typeof botTradeLog !== 'undefined' ? botTradeLog : null)),
@@ -9736,7 +10226,7 @@ function osirisMasterBundle() {
         datasetSchema: {
             learningLog: 'timestampMs, side, market, outcome, pnlPct, exitReason, entryProbabilityPct, regimeAtEntry',
             tradeLog: 'action, price, side, pnlPct, amount, reason, notional, market, timestamp',
-            uitleg: 'Categorieën: engine (incl. liveSnapshot + sessionLog), wallets(spot+margin), kalibratie_logs, market_charts_en_historie, nn_en_nodes, learnings(L1/L2/L3+modellen+RL), overige_tools, reasonings, exit_bijdrage_en_equity, rest.'
+            uitleg: 'Categorieën: engine (incl. liveSnapshot + sessionLog), wallets(spot+margin), kalibratie_logs, market_charts_en_historie, nn_en_nodes, learnings(L1/L2/L3+modellen+RL), overige_tools, reasonings, exit_bijdrage_en_equity, timing_agent (TA live+schaduw), rest.'
         }
     };
     return B;
@@ -10337,6 +10827,16 @@ async function marginTick() {
                     }
                 }
             } catch (e) {}
+            // (23-08) TIMING-AGENT soft-gate: stel de entry uit tot de timing (ritme/momentum/node/
+            // FSO/predict) gunstig staat, en pas de positiegrootte licht aan. De TA blokkeert niets
+            // zolang hij zich niet out-of-sample bewezen heeft (invloed schaalt met trust).
+            let _taSizeMul = 1;
+            try {
+                if (typeof osirisTimingGate === 'function') {
+                    const _tg = osirisTimingGate(sym, m.bestSide); _taSizeMul = _tg.sizeMult || 1;
+                    if (!_tg.allow) { marginState.lastAction = `${sym} ${m.bestSide}: ${_tg.reason}`; try { _marginLog('reasoning', `${sym} ${m.bestSide} uitgesteld — Timing-Agent: ${_tg.reason}`); } catch (e) {} continue; }
+                }
+            } catch (e) {}
             // FIX (20-08, runaway-P/L): size op de GEREALISEERDE equity (marginState.equity).
             const sizingBase = (marginState.equity != null && marginState.equity > 0) ? marginState.equity : marginEquity();
             // FIX (22-08, alloc-bug): begrens de totale NOTIONAL-EXPOSURE, niet de marge-fractie.
@@ -10350,7 +10850,7 @@ async function marginTick() {
             // FSO-OPPORTUNITY-TILT: meer notional naar de munt met de echte bliksem-kans.
             const _opp = (typeof osirisMarketOpportunity === 'function') ? osirisMarketOpportunity(sym) : 0;
             const perCap = MARGIN_PER_TRADE_EXPO * (0.6 + 0.9 * _opp);                             // 0.6×..1.5× de basis afhankelijk van opportunity
-            const perTradeExpo = Math.min(perCap, availExpo);                                      // per trade max notional (× equity)
+            const perTradeExpo = Math.min(perCap * _taSizeMul, availExpo);                          // per trade max notional (× equity), licht bijgesteld door Timing-Agent
             // CHOP: verlaag de hefboom voor DEZE entry naar het minimum (minder gevoelig voor ruis).
             const entryLev = _chopReg ? (typeof MARGIN_LEV_MIN !== 'undefined' ? Math.min(marginLeverage, MARGIN_LEV_MIN) : Math.min(marginLeverage, 2)) : marginLeverage;
             const sizePct = perTradeExpo / entryLev;                                               // bijhorende marge-fractie
@@ -11100,6 +11600,9 @@ function osirisShadowTick() {
             if (_osirisLastEntry[sym] && (now - _osirisLastEntry[sym]) < 60000) { osirisState.skip[sym] = '60s cooldown'; continue; }
             try { if (typeof osirisPredictGate === 'function') { const _pg = osirisPredictGate(sym, p.side); if (!_pg.allow) { osirisState.skip[sym] = _pg.reason; continue; } } } catch (e) {}
             try { if (typeof osirisTrendVeto === 'function') { const _tv = osirisTrendVeto(sym, p.side); if (_tv.veto) { osirisState.skip[sym] = _tv.reason; continue; } } } catch (e) {}
+            // (23-08) TIMING-AGENT soft-gate voor spot: stel uit tot de timing gunstig staat + size-tilt.
+            let _taSizeMulSpot = 1;
+            try { if (typeof osirisTimingGate === 'function') { const _tg = osirisTimingGate(sym, p.side); _taSizeMulSpot = _tg.sizeMult || 1; if (!_tg.allow) { osirisState.skip[sym] = `TA: ${_tg.reason}`; continue; } } } catch (e) {}
             const m = neoMultiState.markets[sym];
             if (!m || m.lastPrice == null) { osirisState.skip[sym] = 'geen verse prijs (multi-engine?)'; continue; }
             // INGREEP 1 - DeepNet-poort: alleen instappen als de per-markt DeepNet het eens
@@ -11144,7 +11647,7 @@ function osirisShadowTick() {
             const _btcOpen = openPositions.some(x => ((x.symbol === 'BTCUSDT') || (x.market === 'BTC')) && !x.isOsiris);
             const btcReserve = _btcOpen ? 0 : (typeof OSIRIS_BTC_RESERVE !== 'undefined' ? OSIRIS_BTC_RESERVE : 0.15);
             const availablePct = Math.max(0, 1 - allocSoFar - reservePct - btcReserve);
-            const sizePct = Math.min(a * maxAlloc, availablePct);
+            const sizePct = Math.min(a * maxAlloc * _taSizeMulSpot, availablePct);   // Timing-Agent size-tilt
             if (sizePct <= 0) { osirisState.skip[sym] = 'geen vrije equity'; continue; }   // wallet al vol
             const notionalUSD = freeEquity * sizePct;
             if (notionalUSD < 5) { osirisState.skip[sym] = 'order < $5'; continue; }
@@ -14190,7 +14693,10 @@ function buildNeoNet() {
     // laag 3 = Osiris mainbrain-integratie (vergelijkt de sub-breinen)
     // laag 4 = output: LONG / NEUTRAAL / SHORT + equity-keuze
     // laag 5 = HET ENE EINDPUNT (alle 3 outputs convergeren tot 1 beslissing)
-    const layerSizes = [NEONET_INPUTS.length, 14, 3, 4, 3, 1];
+    // (23-08) FSO-laag (BTC/ETH/SOL/ALL) + TIMING-AGENT-laag (BTC/ETH/SOL) tussen de
+    // integratie en de sub-breinen: 0=inputs 1=integratie 2=FSO(4) 3=TA(3) 4=cores(3)
+    // 5=osiris(4) 6=decision(3) 7=output(1).
+    const layerSizes = [NEONET_INPUTS.length, 14, 4, 3, 3, 4, 3, 1];
     const layers = layerSizes.map((n, li) => {
         const nodes = [];
         for (let i = 0; i < n; i++) nodes.push({ li, i, act: 0, tw: Math.random() * 6.28 });
@@ -14206,7 +14712,7 @@ function buildNeoNet() {
     }
     _neonet.layers = layers; _neonet.conns = conns; _neonet.built = true;
     // labels voor de betekenisvolle lagen
-    _neonet.layerLabels = ['INPUTS', 'INTEGRATION', 'CORES', 'OSIRIS', 'DECISION', 'OUTPUT'];
+    _neonet.layerLabels = ['INPUTS', 'INTEGRATION', 'FSO', 'TIMING-AGENT', 'CORES', 'OSIRIS', 'DECISION', 'OUTPUT'];
     _neonet.subBrainLabels = ['BTC', 'ETH', 'SOL'];
     _neonet.outputLabels = ['LONG', 'NEUTRAAL', 'SHORT'];
 }
@@ -14278,13 +14784,13 @@ function _neoNetDraw(now, canvasId, outId) {
     // (22-08) padTop groter zodat de inputs ONDER de titel/subtitel beginnen (geen overlap);
     // padBot groter zodat de laag-labels + status-regel ruim boven de panel-hoeken/randen vallen.
     const padX = w * 0.13, padTop = h * 0.135, padBot = h * 0.18, padY = padTop;
-    const _FX = [0, 0.32, 0.49, 0.66, 0.83, 1.0];
+    const _FX = [0, 0.19, 0.31, 0.43, 0.56, 0.70, 0.85, 1.0];
     const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
     // Per-laag verticale spreiding: inputs/integratie vol uitgespreid (meer ruimte tussen
     // de punten), en cores/osiris/beslissing compacter EN gecentreerd zodat die punten
     // dichter bij elkaar staan. Alles blijft binnen het canvas zichtbaar.
     const colH = h - padTop - padBot, cyMid = padTop + colH / 2;
-    const _SPREAD = [1.0, 0.98, 0.52, 0.60, 0.52, 0.40];
+    const _SPREAD = [1.0, 0.98, 0.62, 0.52, 0.52, 0.60, 0.52, 0.40];
     const _spreadOf = li => (_SPREAD[li] != null ? _SPREAD[li] : 1.0);
     const pos = layers.map((nodes, li) => {
         const h2 = colH * _spreadOf(li), top = cyMid - h2 / 2, gap = h2 / Math.max(1, nodes.length - 1);
@@ -14324,10 +14830,35 @@ function _neoNetDraw(now, canvasId, outId) {
         nd.act = Math.max(0, Math.min(1, wsum ? Math.abs(s) / wsum : 0));
         nd.sign = Math.sign(sgn);
     });
-    // laag 2 (SUB-BREINEN): elk knooppunt = een munt, gevoed met zijn ECHTE sub-brein-kans
+    // laag 2 (FSO): BTC/ETH/SOL = per-markt stress-opportunity, ALL = globale systeem-stress
+    try {
+        const fsym = ['BTC', 'ETH', 'SOL'];
+        layers[2].forEach((nd, i) => {
+            if (i < 3) {
+                let opp = 0; try { opp = (typeof osirisMarketOpportunity === 'function') ? osirisMarketOpportunity(fsym[i]) : 0; } catch (e) {}
+                nd.act = Math.max(0.1, Math.min(1, 0.12 + opp)); nd.sign = 1; nd.label = 'FSO ' + fsym[i]; nd.fsoAll = false;
+            } else {
+                const lvl = (typeof osirisStress !== 'undefined' && osirisStress.level != null) ? osirisStress.level : 0;
+                const crisis = (typeof osirisStress !== 'undefined' && osirisStress.regime === 'CRISIS');
+                nd.act = Math.max(0.1, Math.min(1, 0.12 + lvl)); nd.sign = crisis ? -1 : 1; nd.label = 'FSO ALL'; nd.fsoAll = true;
+            }
+        });
+    } catch (e) {}
+    // laag 3 (TIMING-AGENT): per markt de live-TA readiness voor de huidige core-richting
+    try {
+        const tsym = ['BTC', 'ETH', 'SOL'];
+        layers[3].forEach((nd, i) => {
+            const m = neoMultiState.markets[tsym[i]];
+            const side = (m && m.bestSide) ? m.bestSide : 'LONG';
+            let rd = 0.3; try { if (typeof OsirisTiming !== 'undefined') rd = OsirisTiming.readiness(tsym[i], side).readiness; } catch (e) {}
+            nd.act = Math.max(0.1, Math.min(1, 0.1 + rd * 0.9));
+            nd.sign = (side === 'SHORT') ? -1 : 1; nd.label = 'TA ' + tsym[i];
+        });
+    } catch (e) {}
+    // laag 4 (SUB-BREINEN): elk knooppunt = een munt, gevoed met zijn ECHTE sub-brein-kans
     try {
         const syms = ['BTC', 'ETH', 'SOL'];
-        layers[2].forEach((nd, i) => {
+        layers[4].forEach((nd, i) => {
             const m = neoMultiState.markets[syms[i]];
             const prob = m && m.bestProb != null ? m.bestProb : 0.5;
             nd.act = Math.max(0.1, Math.min(1, prob));
@@ -14335,11 +14866,11 @@ function _neoNetDraw(now, canvasId, outId) {
             nd.label = syms[i];
         });
     } catch (e) {}
-    // laag 3 (OSIRIS): gevoed met de equity-verdeling per munt + een integratie-knoop
+    // laag 5 (OSIRIS): gevoed met de equity-verdeling per munt + een integratie-knoop
     try {
         const alloc = (typeof osirisState !== 'undefined' && osirisState.allocations) ? osirisState.allocations : {};
         const syms = ['BTC', 'ETH', 'SOL'];
-        layers[3].forEach((nd, i) => {
+        layers[5].forEach((nd, i) => {
             if (i < 3) { nd.act = Math.max(0.1, Math.min(1, alloc[syms[i]] || 0)); nd.label = syms[i]; }
             else { nd.act = Math.max(...syms.map(s => alloc[s] || 0), 0.2); nd.label = 'OSIRIS'; }  // mainbrain-integratie
         });
@@ -14373,10 +14904,10 @@ function _neoNetDraw(now, canvasId, outId) {
             else if (/bear|short|crash|daal/i.test(lastDecision.decision)) decisionBias = Math.min(decisionBias, -0.3);
         } } catch (e) {}
     }
-    layers[4][0].act = Math.max(0, decisionBias);       // LONG
-    layers[4][1].act = Math.max(0.05, 1 - Math.abs(decisionBias)); // NEUTRAAL
-    layers[4][2].act = Math.max(0, -decisionBias);      // SHORT
-    if (layers[5] && layers[5][0]) layers[5][0].act = Math.max(Math.abs(decisionBias), 0.2); // het ene eindpunt
+    layers[6][0].act = Math.max(0, decisionBias);       // LONG
+    layers[6][1].act = Math.max(0.05, 1 - Math.abs(decisionBias)); // NEUTRAAL
+    layers[6][2].act = Math.max(0, -decisionBias);      // SHORT
+    if (layers[7] && layers[7][0]) layers[7][0].act = Math.max(Math.abs(decisionBias), 0.2); // het ene eindpunt
 
     // ---- verbindingen: swingen + oplichten waar de compute-golf is ----
     // Elke verbinding krijgt een duidelijke grondlaag (altijd zichtbaar, zodat de hele
@@ -14574,19 +15105,28 @@ function _neoNetDraw(now, canvasId, outId) {
     // input-labels links van de eerste kolom
     ctx.textAlign = 'right'; ctx.font = "7px 'JetBrains Mono', monospace";
     layers[0].forEach((nd, i) => { ctx.fillStyle = NEONET_INPUTS[i].c; ctx.fillText(NEONET_INPUTS[i].label, pos[0][i].x - 9, pos[0][i].y + 2.5); });
-    // SUB-BREIN labels (laag 2): BTC/ETH/SOL in hun eigen kleur, op de knoop
     const brainCols = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
-    ctx.textAlign = 'center'; ctx.font = "bold 7px 'JetBrains Mono', monospace";
+    ctx.textAlign = 'center'; ctx.font = "bold 6.5px 'JetBrains Mono', monospace";
+    // FSO labels (laag 2): FSO BTC/ETH/SOL/ALL
     if (layers[2]) layers[2].forEach((nd) => {
-        if (nd.label) { ctx.fillStyle = brainCols[nd.label] || '#8b95a5'; ctx.fillText(nd.label, pos[2][nd.i].x, pos[2][nd.i].y - 8); }
+        if (nd.label) { ctx.fillStyle = nd.fsoAll ? '#ffb627' : (brainCols[nd.label.replace('FSO ', '')] || '#8b95a5'); ctx.fillText(nd.label, pos[2][nd.i].x, pos[2][nd.i].y - 8); }
     });
-    // OSIRIS labels (laag 3): equity-aandeel per munt + mainbrain
+    // TIMING-AGENT labels (laag 3): TA BTC/ETH/SOL
     if (layers[3]) layers[3].forEach((nd) => {
-        if (nd.label) { ctx.fillStyle = nd.label === 'OSIRIS' ? '#00d9ff' : (brainCols[nd.label] || '#8b95a5'); ctx.fillText(nd.label, pos[3][nd.i].x, pos[3][nd.i].y - 8); }
+        if (nd.label) { ctx.fillStyle = '#7fd8ff'; ctx.fillText(nd.label, pos[3][nd.i].x, pos[3][nd.i].y - 8); }
     });
-    // output-labels rechts
+    // SUB-BREIN labels (laag 4): BTC/ETH/SOL in hun eigen kleur, op de knoop
+    ctx.font = "bold 7px 'JetBrains Mono', monospace";
+    if (layers[4]) layers[4].forEach((nd) => {
+        if (nd.label) { ctx.fillStyle = brainCols[nd.label] || '#8b95a5'; ctx.fillText(nd.label, pos[4][nd.i].x, pos[4][nd.i].y - 8); }
+    });
+    // OSIRIS labels (laag 5): equity-aandeel per munt + mainbrain
+    if (layers[5]) layers[5].forEach((nd) => {
+        if (nd.label) { ctx.fillStyle = nd.label === 'OSIRIS' ? '#00d9ff' : (brainCols[nd.label] || '#8b95a5'); ctx.fillText(nd.label, pos[5][nd.i].x, pos[5][nd.i].y - 8); }
+    });
+    // output-labels rechts (laag 6 = DECISION)
     ctx.textAlign = 'left'; ctx.font = "7px 'JetBrains Mono', monospace";
-    layers[4].forEach((nd, i) => { ctx.fillStyle = outCols[i]; ctx.fillText(outLabels[i], pos[4][i].x + 9, pos[4][i].y + 2.5); });
+    layers[6].forEach((nd, i) => { ctx.fillStyle = outCols[i]; ctx.fillText(outLabels[i], pos[6][i].x + 9, pos[6][i].y + 2.5); });
 
     // beslissing-tekst onderin het paneel bijwerken (id hangt af van welk canvas rendert)
     const outEl = document.getElementById(_neonet._outId || 'neo-net-out');
