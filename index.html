@@ -909,12 +909,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
             <div class="kpi"><small>equity</small><b id="hub-equity">&mdash;</b><span id="hub-equity-pct" style="display:none;"></span></div>
           </div>
           <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:8px;">
-            <div class="meter"><div class="l">session net</div><div class="v" id="sp-ses-net" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter" title="Net session P/L (fees + slippage already deducted). Gross = net + session cost."><div class="l">session net</div><div class="v" id="sp-ses-net" style="font-size:0.8rem;">&mdash;</div></div>
             <div class="meter"><div class="l">session gains</div><div class="v" id="sp-ses-gains" style="font-size:0.8rem;">&mdash;</div></div>
             <div class="meter"><div class="l">session losses</div><div class="v" id="sp-ses-losses" style="font-size:0.8rem;">&mdash;</div></div>
             <div class="meter"><div class="l">equity realised</div><div class="v" id="sp-eq-real" style="font-size:0.8rem;">&mdash;</div></div>
             <div class="meter"><div class="l">equity unrealised</div><div class="v" id="sp-eq-unreal" style="font-size:0.8rem;">&mdash;</div></div>
-            <div class="meter" title="Total session cost: fees + slippage (round-trip)."><div class="l">session cost</div><div class="v" id="sp-ses-cost" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter" title="Trading cost this session: Binance fees + slippage (round-trip). NOTE: for spot this is already deducted from the P/L above — it is shown for insight, not subtracted again."><div class="l">session cost</div><div class="v" id="sp-ses-cost" style="font-size:0.8rem;">&mdash;</div></div>
           </div>
           <span id="wallet-realized-pnl" style="display:none;"></span><span id="wallet-unrealized-pnl" style="display:none;"></span>
           <div class="flex gap wrap" style="margin-top:12px;">
@@ -1034,12 +1034,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
             <div class="meter"><div class="l">&nbsp;</div><div class="v" style="font-size:0.7rem; color:var(--dim);">&nbsp;</div></div>
           </div>
           <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:8px;">
-            <div class="meter"><div class="l">session net</div><div class="v" id="m-ses-net" style="font-size:0.8rem;">&mdash;</div></div>
-            <div class="meter"><div class="l">session gains</div><div class="v" id="m-ses-gains" style="font-size:0.8rem;">&mdash;</div></div>
-            <div class="meter"><div class="l">session losses</div><div class="v" id="m-ses-losses" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter" title="Session net = gross closed P/L MINUS estimated trading cost. Margin P/L from closed trades is gross (leveraged), so cost is subtracted here. In exchange mode the authoritative figure is the P/L tile above (equity − baseline)."><div class="l">session net</div><div class="v" id="m-ses-net" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter" title="Gross gains from winning closed trades (before fees)."><div class="l">session gains</div><div class="v" id="m-ses-gains" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter" title="Gross losses from losing closed trades (before fees)."><div class="l">session losses</div><div class="v" id="m-ses-losses" style="font-size:0.8rem;">&mdash;</div></div>
             <div class="meter"><div class="l">equity realised</div><div class="v" id="m-eq-real" style="font-size:0.8rem;">&mdash;</div></div>
             <div class="meter"><div class="l">equity unrealised</div><div class="v" id="m-eq-unreal" style="font-size:0.8rem;">&mdash;</div></div>
-            <div class="meter" title="Total session cost: fees + slippage (round-trip)."><div class="l">session cost</div><div class="v" id="m-ses-cost" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter" title="Trading cost this session: fees + slippage on the leveraged notional (round-trip, estimate). Subtracted from gross to get session net."><div class="l">session cost</div><div class="v" id="m-ses-cost" style="font-size:0.8rem;">&mdash;</div></div>
           </div>
           <div style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim);">Runtime <span id="m-runtime" style="color:#c792ea;">00:00:00</span> &middot; last action: <span id="m-last-action">&mdash;</span></div>
         </div>
