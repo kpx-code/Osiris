@@ -41,6 +41,65 @@ let activeFibLines = [];
 let currentFibLevels = { MIC: null, MES: null, MAC: null };
 let lastProcessedNodeId = null;
 let sentimentWs = null;
+
+// ── BFCache-/tab-freeze-bestendige verbindingslaag ──────────────────────────
+// Chrome & Edge sluiten ALLE open WebSockets zodra de pagina in de Back-Forward
+// Cache belandt (tab wisselen, weg-navigeren, of een achtergrond-tab bevriezen).
+// De meldingen "WebSocket ... failed: Page entered Back-Forward Cache" zijn dus
+// GEEN echte netwerkfout - ze horen bij het normaal wegleggen van de pagina.
+// OsirisNet herkent die situatie, onderdrukt de rode foutmeldingen én de
+// hamer-reconnects, en verbindt alle streams pas opnieuw zodra de pagina echt
+// terug in beeld is (pageshow uit BFCache / resume / weer zichtbaar / weer online).
+const OsirisNet = (function () {
+    let frozen = false;
+    const restarters = new Set();
+    // "verwacht" = pagina is verborgen/bevroren -> een socket-close hoort er dan bij
+    const expected = () => frozen || (typeof document !== 'undefined' && document.visibilityState === 'hidden');
+    const restartAll = () => {
+        if (expected()) return;
+        for (const fn of restarters) { try { fn(); } catch (e) {} }
+    };
+    const freeze = () => { frozen = true; };
+    const thaw = (force) => {
+        if (!frozen && !force) return;
+        frozen = false;
+        // korte adempauze zodat het netwerk na resume/terugkeer weer klaar is
+        setTimeout(restartAll, 350);
+    };
+    if (typeof window !== 'undefined') {
+        window.addEventListener('pagehide', (e) => { if (e.persisted) freeze(); });      // gaat mogelijk BFCache in
+        document.addEventListener('freeze', freeze);                                     // Page Lifecycle API
+        window.addEventListener('pageshow', (e) => { if (e.persisted) thaw(true); });    // terug uit BFCache
+        document.addEventListener('resume', () => thaw(true));                           // Page Lifecycle API
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') thaw(false); });
+        window.addEventListener('online', () => thaw(false));
+    }
+    return {
+        expected,
+        register: (fn) => { restarters.add(fn); },
+        // guard voor reconnect-timers: alleen doorgaan als de pagina zichtbaar & online is
+        canReconnect: () => !expected() && (typeof navigator === 'undefined' || navigator.onLine !== false),
+    };
+})();
+window.OsirisNet = OsirisNet;
+// Eén schone hersteldraad voor álle streams: initDashboard() herstart bot-,
+// chart-view- én sentiment-stream (de futures-WS herverbindt lui bij de eerstvolgende call).
+OsirisNet.register(() => { try { if (typeof initDashboard === 'function') initDashboard(); } catch (e) {} });
+
+// ── Prestatie-helpers ───────────────────────────────────────────────────────
+// Doel: 'setInterval handler took Nms'-violations wegwerken. Twee principes:
+//  (1) teken/UI-werk alleen doen als de pagina/tab echt zichtbaar is;
+//  (2) zware, niet-handelskritieke taken over losse frames spreiden zodat geen
+//      enkele interval-tick de main-thread >50ms blokkeert. Handelslogica
+//      (exits, triggers, scans) blijft altijd synchroon en op tijd draaien.
+function _osVisible() { return typeof document === 'undefined' || document.visibilityState === 'visible'; }
+function _osShown(id) { const el = document.getElementById(id); return !!(el && el.offsetParent !== null); } // false bij display:none-tab
+function _osChunk(tasks) { // voer taken één-voor-één uit, met een frame ademruimte ertussen
+    const q = tasks.slice();
+    const yieldNext = (typeof requestAnimationFrame === 'function') ? (f) => requestAnimationFrame(() => f()) : (f) => setTimeout(f, 0);
+    (function step() { if (!q.length) return; const t = q.shift(); try { if (typeof t === 'function') t(); } catch (e) {} yieldNext(step); })();
+}
+window._osVisible = _osVisible;
 let activeFibScales = {
     MIC: true, // Alleen deze staat bij start aan
     MES: false,
@@ -6088,13 +6147,16 @@ function botHeartbeat() {
         scanForOpportunities(decision, metrics);
         scanForRangeScalps();
         if (botSettings.ictEnabled) { fetchIctTimeframes().then(() => scanForIctSetup()); }
-        renderMovingAverage();
-        renderRSI();
-        renderPrediction();
-        renderPatternMarkers();
-        updatePatternStructureCard();
-        // OSIRIS DEEPNET (shadow): voorspel per markt, log en visualiseer - raakt niks live
+        // OSIRIS DEEPNET (shadow): voorspel per markt, log en visualiseer - raakt niks live.
+        // Blijft altijd draaien (ook verborgen) zodat de schaduwmodellen niet stilvallen.
         try { OsirisDeepNet.tick(); } catch (e) {}
+        // De chart-renders zijn NIET handelskritiek: sla ze over als de pagina verborgen
+        // is en spreid ze anders over losse frames. Dit haalt de zware 10s-tick (voorheen
+        // ~90-110ms in één blok) onder de violation-drempel. Bij terugkeer/tab-wissel
+        // hertekent initDashboard (via OsirisNet) sowieso alles.
+        if (_osVisible()) {
+            _osChunk([renderMovingAverage, renderRSI, renderPrediction, renderPatternMarkers, updatePatternStructureCard]);
+        }
     }
 }
 
@@ -8677,6 +8739,11 @@ function _fsoUpdateGlobal() {
 // zodat de charts echt per seconde bewegen (klines zijn 1m, dit interpoleert de laatste bar).
 function fsoLiveTick() {
     try {
+        // Niets te tekenen als de pagina verborgen is of de FSO-tab niet zichtbaar
+        // (display:none): dit was de bron van de per-seconde 'handler took Nms'-
+        // violation - vier canvas-charts werden elke seconde gerenderd, óók buiten
+        // beeld. De 60s-tick (_fsoInterval) houdt osirisStress ondertussen vers.
+        if (!_osVisible() || !_osShown('fso-micro')) return;
         const S = OsirisFSO.scales.micro;
         if (S && S.stress && S.stress.length > 5 && S._raw) {
             // gebruik live lastPrice per munt om de laatste bar-close te verversen
@@ -8691,7 +8758,11 @@ function fsoLiveTick() {
             }
             if (changed) { const res = OsirisFSO._compute(S._raw, FSO_SCALES.micro.win); if (res) { res._raw = S._raw; OsirisFSO.scales.micro = res; } }
         }
-        drawFSOChart('fso-micro', 'micro'); drawFSOChart('fso-meso', 'meso'); drawFSOChart('fso-macro', 'macro'); drawFSOChart('fso-full', 'full');
+        // alleen de micro-chart beweegt per seconde; meso/macro/full wijzigen op hun
+        // eigen cadans (60s/15m/6h) - die hertekenen we hooguit 1x/4s i.p.v. elke tick.
+        drawFSOChart('fso-micro', 'micro');
+        window._fsoSlowTick = (window._fsoSlowTick || 0) + 1;
+        if (window._fsoSlowTick % 4 === 0) { drawFSOChart('fso-meso', 'meso'); drawFSOChart('fso-macro', 'macro'); drawFSOChart('fso-full', 'full'); }
         _fsoUpdateGlobal();
     } catch (e) {}
 }
@@ -11246,7 +11317,7 @@ function ensureMarginWs() {
             if (msg.status === 200) pend.resolve(msg.result);
             else pend.reject(new Error(`Futures ${msg.status}: ${msg.error && msg.error.msg || 'onbekende fout'} (code ${msg.error && msg.error.code || '?'})`));
         };
-        sock.onerror = () => { try { logNetworkError('futures-WS', 'verbinding met testnet.binancefuture.com mislukt'); } catch (e) {} clearTimeout(to); _mwsSetState('disconnected', 'verbinding mislukt'); finish(false, new Error('WebSocket-verbinding met testnet.binancefuture.com mislukt')); };
+        sock.onerror = () => { const exp = (typeof OsirisNet !== 'undefined' && OsirisNet.expected()); if (!exp) { try { logNetworkError('futures-WS', 'verbinding met testnet.binancefuture.com mislukt'); } catch (e) {} } else { try { console.info('Futures-WS gepauzeerd (tab weg / BFCache).'); } catch (e) {} } clearTimeout(to); _mwsSetState('disconnected', exp ? 'gepauzeerd (BFCache)' : 'verbinding mislukt'); finish(false, new Error('WebSocket-verbinding met testnet.binancefuture.com mislukt')); };
         sock.onclose = () => { clearTimeout(to); try { if (typeof navigator !== 'undefined' && !navigator.onLine) logNetworkError('futures-WS', 'WS gesloten terwijl offline'); } catch (e) {} if (_mws === sock) _mws = null; _mwsConnecting = null; _mwsSetState('disconnected', 'gesloten'); for (const [, pp] of _mwsPending) pp.reject(new Error('Futures-WS gesloten')); _mwsPending.clear(); finish(false, new Error('Futures-WS gesloten tijdens verbinden')); };
     });
     return _mwsConnecting;
@@ -13208,10 +13279,17 @@ function startLiveUpdates() {
     // bot-data ververst zodat gemiste candles worden ingehaald.
     currentWs.onclose = () => {
         if (!currentWs) return; // bewust gesloten (bv. interval-herstart)
+        // BFCache / verborgen tab: dit is een verwachte sluiting - geen rode fout,
+        // geen backoff-reconnect. OsirisNet herstart alles zodra de pagina terugkomt.
+        if (OsirisNet.expected()) {
+            console.info('Bot-stream gepauzeerd (tab weg / BFCache) - verbindt weer bij terugkeer.');
+            return;
+        }
         const delay = Math.min(60000, (window._botWsRetryDelay = (window._botWsRetryDelay || 1000) * 2));
         console.warn(`Bot-stream verbroken - herverbinden over ${delay / 1000}s...`);
         setTimeout(() => {
-            initDashboard(); // haalt gemiste candles op én start de stream opnieuw
+            if (OsirisNet.canReconnect()) initDashboard(); // haalt gemiste candles op én start de stream opnieuw
+            else window._botWsRetryDelay = 1000;           // nog verborgen: reset backoff, resume-handler pakt het op
         }, delay);
     };
     currentWs.onopen = () => { window._botWsRetryDelay = 1000; };
@@ -13404,21 +13482,36 @@ function startSentimentStream() {
     // Depth stream: @depth10@100ms geeft de top 10 bids/asks elke 100ms
     sentimentWs = new WebSocket(`wss://fstream.binance.com/ws/btcusdt@depth10@100ms`);
 
+    sentimentWs.onopen = () => { window._sentWsRetryDelay = 1000; };
+
     sentimentWs.onmessage = (event) => {
         const depth = JSON.parse(event.data);
-        
+
         // Bereken de totale liquiditeit aan beide kanten
         const bids = depth.b.reduce((sum, item) => sum + parseFloat(item[1]), 0);
         const asks = depth.a.reduce((sum, item) => sum + parseFloat(item[1]), 0);
-        
+
         // Order Book Imbalance (OBI) - Waarde tussen -1 en 1
         const obi = (bids - asks) / (bids + asks);
-        
+
         // Update de sentiment balk direct met deze nieuwe, zuivere data
         updateSentimentBar(obi);
     };
-    
-    sentimentWs.onerror = (err) => console.error("Sentiment Stream Fout:", err);
+
+    // BFCache/verborgen tab -> geen rode fout: dit is een verwachte sluiting.
+    sentimentWs.onerror = () => {
+        if (OsirisNet.expected()) { console.info('Sentiment-stream gepauzeerd (tab weg / BFCache).'); return; }
+        console.warn('Sentiment-stream onderbroken - herverbinden...');
+    };
+    // RECONNECT: de sentiment-stream had geen herstel - viel hij weg, dan bleef de
+    // OBI-balk bevroren. Nu automatische herverbinding met oplopende backoff, maar
+    // alleen als de pagina zichtbaar is (anders wacht OsirisNet op terugkeer).
+    sentimentWs.onclose = () => {
+        if (!sentimentWs) return;
+        if (OsirisNet.expected()) return; // verwacht (BFCache); resume-handler herstart alles
+        const delay = Math.min(30000, (window._sentWsRetryDelay = (window._sentWsRetryDelay || 1000) * 2));
+        setTimeout(() => { if (OsirisNet.canReconnect()) startSentimentStream(); else window._sentWsRetryDelay = 1000; }, delay);
+    };
 }
 
 function calculateFibLevels(high, low, isBullish) {
