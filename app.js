@@ -10057,7 +10057,22 @@ function osirisMasterBundle() {
     const B = {
         exportedAt: new Date().toISOString(),
         versie: (typeof currentConfigVersion === 'function') ? g(() => currentConfigVersion()) : null,
-        uitleg: 'Master-export van Osiris — alle downloadbare data in één bestand, verdeeld per categorie.',
+        uitleg: 'Master export of Osiris — every downloadable dataset in ONE file, split per category. This is a complete superset of all the individual download buttons. NOTE: the Temporal Attractor Model (TAM) backtest data is deliberately NOT included here — it is a separate, large download of its own.',
+        manifest: {
+            engine: 'Bot settings & tuning, running state, last decision, last volume metrics, HMM regime, shadow-backtest, system log (vfm/er/db/chaos/volume/scores every ~10s), session log (START/STOP/settings changes), metrics history buffer, and the live snapshot (livePrice, vfm, er, db, chaos, momentum, node context/influence, RSI, MAs, linear prediction, fib confluence).',
+            wallets: 'Spot + margin: starting capital, balance, equity, realized/unrealized P/L, wins/losses, all open & closed positions, pending orders, margin leverage/exposure and the margin reasoning + adaptation logs.',
+            kalibratie_logs: 'Governor trust weights + metrics + log, Predict metrics/inversion/raw hit-rates/resolved, Kinetic metrics, DeepNet walk-forward + reliability curves + dual-track inversion per market, and the LLM verification log.',
+            market_charts_en_historie: 'BTC candles (last 720), per-market OHLC + indicators for BTC/ETH/SOL (price, EMA, RSI, VFM, chaos, bestSide/bestProb, candles), and the FSO stress series (current + history). Largest category.',
+            nn_en_nodes: 'UOTAM node grid, node context (last/next node, time since/until, type), node influence, MIC/MES/MAC fib levels, the live NN input vector (all 16 inputs), per-market NN state (sub-brain label, rhythm, caps, node influence, best side/prob, brain weights) and the live DeepNet output.',
+            learnings: 'Adaptive weights (global + per brain), Level-2 & Level-3 nets, DeepNet models per market (weights + Platt calibration + walk-forward), the RL model (Q-table, episodes, avg reward, action-dist, last decision, history), self-review and the full learning log (every closed trade with factors + outcome).',
+            reasonings: 'Every "why": engine adaptations (what/why per revision), margin reasoning/adaptation/last action (incl. DeepNet & Timing-Agent gating), session events and self-review.',
+            exit_bijdrage_en_equity: 'Cumulative P/L per exit reason (spot + margin) computed from the persistent learning log (survives a wallet reset), plus the current equity allocation across markets and positions (spot + margin).',
+            timing_agent: 'Timing-Agent: component weights & out-of-sample hit-rates (NN, node, FSO, RL, confluence, volume, fib, funding, predict), live vs shadow, the scenario-backtest results and the latest per-market component values.',
+            overige_tools: 'Kinetic engine export, LLM context, journal, next-steps queue, Guardian (data integrity), Risk (drawdown/day P/L/exposure) and the per-market circuit breaker.',
+            beveiliging: 'Access/security log: device-ID + label, IP + coarse location (if enabled), precise location (if consented), engagement time per device and the click log with sensitive actions flagged. (Webhook URL / email keys are NOT included.)',
+            rest: 'Full trade action log (every ENTRY/EXIT/PENDING/CANCELLED/SKIPPED with € amounts + timestamps), network errors and the dataset schema (field descriptions).'
+        },
+        nietInbegrepen: { tam_backtest: 'De Temporal Attractor Model backtest-data zit hier bewust NIET in — dat is een aparte download (knop "Download all TAM backtest data").', geheime_sleutels: 'API-keys (testnet + LLM) en de audit webhook/e-mail-sleutels worden NOOIT geëxporteerd of gesynct.' },
         categorieen: {}
     };
     const C = B.categorieen;
@@ -10219,6 +10234,12 @@ function osirisMasterBundle() {
         uitleg: 'Timing-Agent bundelt NN/DeepNet, UOTAM node-countdown, FSO, RL, confluenties (vfm/er/db/chaos+ema/rsi/momentum/cnn), VOLUME (VOL-Z), FIBONACCI, FUNDING/L-S/sentiment en Predict/Kinetic-ETA tot één readiness-score per markt/richting (soft-gate op het openingsmoment). Elk component-gewicht kalibreert op zijn eigen out-of-sample hitrate. LIVE = 30m-horizon; SCHADUW = kortere horizon/andere nadruk (nadruk op fib+volume) en mag zichzelf naar live promoveren zodra hij zich (≥5 resolves) bewijst. Herkalibratie elke 5 gesloten trades. scenario_backtest berekent duizenden entry-scenario\'s uit ~600 candles/markt (fib+volume+trend, grid over drempel×horizon) en voedt de kalibratie als prior (ᴮᵀ). componentHitrates toont per tool: n, hitrate%, gem. bijdrage% en het geleerde gewicht.'
     };
 
+    // 6e) BEVEILIGING / TOEGANGSLOG (wie opent Osiris, wat doen ze — gevoelige tools)
+    C.beveiliging = {
+        toegangslog: g(() => (typeof OsirisAudit !== 'undefined' ? OsirisAudit.bundle() : null)),
+        uitleg: 'Access/security log: device-ID + label (OS/browser/type), IP + coarse location (if enabled), precise location (if consented), engagement time per device and the click log with sensitive actions flagged. Webhook URL / email keys are intentionally NOT included.'
+    };
+
     // 7) OVERIGE / REST
     C.rest = {
         tradeLog: g(() => (typeof botTradeLog !== 'undefined' ? botTradeLog : null)),
@@ -10226,7 +10247,7 @@ function osirisMasterBundle() {
         datasetSchema: {
             learningLog: 'timestampMs, side, market, outcome, pnlPct, exitReason, entryProbabilityPct, regimeAtEntry',
             tradeLog: 'action, price, side, pnlPct, amount, reason, notional, market, timestamp',
-            uitleg: 'Categorieën: engine (incl. liveSnapshot + sessionLog), wallets(spot+margin), kalibratie_logs, market_charts_en_historie, nn_en_nodes, learnings(L1/L2/L3+modellen+RL), overige_tools, reasonings, exit_bijdrage_en_equity, timing_agent (TA live+schaduw), rest.'
+            uitleg: 'Categorieën: engine (incl. liveSnapshot + sessionLog), wallets(spot+margin), kalibratie_logs, market_charts_en_historie, nn_en_nodes, learnings(L1/L2/L3+modellen+RL), overige_tools, reasonings, exit_bijdrage_en_equity, timing_agent (TA live+schaduw), beveiliging (toegangslog), rest. TAM-backtest is een APARTE download (niet hierin). Zie ook het "manifest"-veld bovenaan voor een uitgebreide beschrijving per categorie.'
         }
     };
     return B;
@@ -10334,10 +10355,207 @@ function initDlTracking() {
         // bubble-fase: draait ná de onclick; stempel alleen als de download niet is afgebroken
         sec.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-dl]'); if (!b) return; setTimeout(() => { if (!window._osirisDlAborted) osirisMarkDownloaded(b.getAttribute('data-dl')); }, 0); });
         renderDlStamps();
+        try { initAuditUI(); } catch (e) {}
     } catch (e) {}
 }
+function initAuditUI() {
+    try {
+        if (typeof OsirisAudit === 'undefined') return;
+        const c = OsirisAudit.cfg || {};
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+        set('aud-enabled', c.enabled !== false); set('aud-ip', c.ipEnabled !== false); set('aud-geo', c.geoEnabled !== false); set('aud-notice', c.notice !== false);
+        const dn = document.getElementById('aud-devname'); if (dn && OsirisAudit.deviceName) dn.value = OsirisAudit.deviceName;
+        const wh = document.getElementById('aud-webhook'); if (wh && c.webhookUrl) wh.value = c.webhookUrl;
+        if (c.emailjs) { const s = document.getElementById('aud-ejs-service'); if (s) s.value = c.emailjs.serviceId || ''; const t = document.getElementById('aud-ejs-template'); if (t) t.value = c.emailjs.templateId || ''; const k = document.getElementById('aud-ejs-key'); if (k) k.value = c.emailjs.publicKey || ''; }
+    } catch (e) {}
+}
+window.initAuditUI = initAuditUI;
 window.initDlTracking = initDlTracking;
 try { if (document.readyState !== 'loading') initDlTracking(); else document.addEventListener('DOMContentLoaded', initDlTracking); } catch (e) {}
+
+// ============================================================
+// OSIRIS SENTRY — toegangs-/beveiligingslog (23-08)
+// ============================================================
+// Legt vast WIE Osiris opent en WAT ze doen, omdat sommige tools zeer gevoelig zijn.
+// Per device/gebruiker: stabiele device-ID + leesbaar label (OS/browser/type), scherm,
+// tijdzone, taal; IP + grove locatie (via opt-in IP-API); nauwkeurige locatie (met
+// toestemmingsprompt); actieve engagement-tijd; en een klik-log met EXTRA markering van
+// gevoelige acties (keys, live-trading, wallet-reset, exports, margin…).
+// Sinks: (1) lokaal + downloadbaar, (2) Supabase-tabel osiris_access_log (anon-insert,
+// hoofd-opslag), (3) optioneel e-mail/webhook die JIJ instelt (sleutel NIET in de code).
+// De config met endpoints/sleutels staat in NIET-gesyncte localStorage (zoals je keys).
+const OsirisAudit = {
+    VERSION: 1,
+    cfg: { enabled: true, ipEnabled: true, geoEnabled: true, notice: true, ipEndpoint: 'https://ipwho.is/', webhookUrl: '', emailjs: null, emailOn: 'sensitive' },
+    deviceId: null, deviceName: null, device: null, ip: null, geo: null, geoPrecise: null,
+    session: null, log: [], _pending: [], _engageMs: 0, _lastAct: 0, _started: 0, _flushT: 0, _newDevice: false,
+    SENS_RE: /(key|sleutel|testnet|llm|reset|wallet|margin|live|start|stop|download|backup|export|snapshot|api)/i,
+    _uuid() { try { return 'dev-' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6); } catch (e) { return 'dev-' + Date.now(); } },
+    _loadCfg() { try { const c = JSON.parse(localStorage.getItem('osirisAuditCfg') || 'null'); if (c) this.cfg = Object.assign({}, this.cfg, c); } catch (e) {} },
+    _saveCfg() { try { localStorage.setItem('osirisAuditCfg', JSON.stringify(this.cfg)); } catch (e) {} },
+    setCfg(patch) { try { this.cfg = Object.assign({}, this.cfg, patch || {}); this._saveCfg(); } catch (e) {} },
+    _load() { try { const l = JSON.parse(localStorage.getItem('osirisAuditLog') || '[]'); if (Array.isArray(l)) this.log = l; } catch (e) {} },
+    _save() { try { localStorage.setItem('osirisAuditLog', JSON.stringify(this.log.slice(-800))); } catch (e) {} },
+    _detectDevice() {
+        try {
+            const ua = navigator.userAgent || '';
+            const isTablet = /iPad|Tablet/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua));
+            const isMobile = /Mobi|iPhone|Android.*Mobile|Windows Phone/i.test(ua);
+            const type = isTablet ? 'tablet' : (isMobile ? 'mobile' : 'desktop');
+            let os = 'onbekend';
+            if (/Windows NT/i.test(ua)) os = 'Windows'; else if (/Mac OS X|Macintosh/i.test(ua)) os = 'macOS';
+            else if (/Android/i.test(ua)) os = 'Android'; else if (/iPhone|iPad|iPod/i.test(ua)) os = 'iOS'; else if (/Linux/i.test(ua)) os = 'Linux';
+            let br = 'onbekend';
+            if (/Edg\//i.test(ua)) br = 'Edge'; else if (/OPR\/|Opera/i.test(ua)) br = 'Opera'; else if (/Chrome\//i.test(ua) && !/Chromium/i.test(ua)) br = 'Chrome';
+            else if (/Firefox\//i.test(ua)) br = 'Firefox'; else if (/Safari\//i.test(ua) && !/Chrome/i.test(ua)) br = 'Safari';
+            return {
+                type, os, browser: br, label: `${os} · ${br} · ${type}`,
+                ua, platform: navigator.platform || null, language: navigator.language || null,
+                languages: (navigator.languages || []).slice(0, 4), timezone: (Intl && Intl.DateTimeFormat) ? Intl.DateTimeFormat().resolvedOptions().timeZone : null,
+                screen: (typeof screen !== 'undefined') ? { w: screen.width, h: screen.height, dpr: window.devicePixelRatio || 1 } : null,
+                cores: navigator.hardwareConcurrency || null, memoryGB: navigator.deviceMemory || null, touch: (('ontouchstart' in window) || navigator.maxTouchPoints > 0)
+            };
+        } catch (e) { return { label: 'onbekend', _error: (e && e.message) || String(e) }; }
+    },
+    async _fetchIP() {
+        if (!this.cfg.ipEnabled) return;
+        try {
+            const r = await fetch(this.cfg.ipEndpoint, { cache: 'no-store' });
+            if (!r.ok) return;
+            const d = await r.json();
+            // ipwho.is / ipapi.co compatibel
+            this.ip = d.ip || d.query || null;
+            this.geo = {
+                city: d.city || null, region: d.region || d.region_name || null, country: d.country || d.country_name || null,
+                countryCode: d.country_code || d.countryCode || null, org: (d.connection && d.connection.org) || d.org || d.isp || null,
+                lat: d.latitude || d.lat || null, lon: d.longitude || d.lon || null, source: 'ip-api'
+            };
+            this._touchSession();
+        } catch (e) {}
+    },
+    _requestGeo() {
+        if (!this.cfg.geoEnabled || !navigator.geolocation) return;
+        try {
+            navigator.geolocation.getCurrentPosition(
+                (p) => { try { this.geoPrecise = { lat: +p.coords.latitude.toFixed(5), lon: +p.coords.longitude.toFixed(5), accuracyM: Math.round(p.coords.accuracy), source: 'browser-geolocation', ts: Date.now() }; this._touchSession(); this.record('geo', { label: 'precieze locatie toegestaan' }, true); } catch (e) {} },
+                () => { try { this.record('geo', { label: 'locatie geweigerd/niet beschikbaar' }); } catch (e) {} },
+                { enableHighAccuracy: false, timeout: 12000, maximumAge: 600000 }
+            );
+        } catch (e) {}
+    },
+    _touchSession() { try { if (this.session) { this.session.ip = this.ip; this.session.geo = this.geo; this.session.geoPrecise = this.geoPrecise; this.session.engagementMs = this._engageMs; this.session.lastActive = Date.now(); } } catch (e) {} },
+    _startEngagement() {
+        try {
+            this._lastAct = Date.now();
+            const mark = () => { this._lastAct = Date.now(); };
+            ['mousemove', 'keydown', 'scroll', 'click', 'touchstart', 'pointerdown'].forEach(ev => window.addEventListener(ev, mark, { passive: true }));
+            setInterval(() => {
+                try {
+                    const now = Date.now();
+                    if (document.visibilityState === 'visible' && (now - this._lastAct) < 30000) this._engageMs += 5000;
+                    this._touchSession();
+                    if (now - this._flushT > 30000) this._flush(false);
+                } catch (e) {}
+            }, 5000);
+            window.addEventListener('visibilitychange', () => { try { if (document.visibilityState === 'hidden') { this._touchSession(); this._flush(true); } } catch (e) {} });
+            window.addEventListener('pagehide', () => { try { this._touchSession(); this.record('session_end', { label: 'sessie einde', engagementMs: this._engageMs }); this._flush(true); } catch (e) {} });
+        } catch (e) {}
+    },
+    _describeTarget(el) {
+        try {
+            const t = el.closest('button, a, [data-dl], [data-tool], input, select, textarea, .navb, .btn');
+            if (!t) return null;
+            let label = (t.getAttribute && (t.getAttribute('data-dl-label') || t.getAttribute('aria-label') || t.getAttribute('title'))) || '';
+            if (!label) label = (t.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+            if (!label && t.id) label = '#' + t.id;
+            const id = t.id || null; const dl = t.getAttribute && t.getAttribute('data-dl');
+            const tab = t.closest && t.closest('.tab') ? (t.closest('.tab').id || null) : null;
+            const hay = `${id || ''} ${label} ${dl || ''} ${(t.className || '')}`;
+            const sensitive = this.SENS_RE.test(hay);
+            return { label: label || (t.tagName || '').toLowerCase(), id, dl: dl || null, tab, sensitive };
+        } catch (e) { return null; }
+    },
+    record(type, data, priority) {
+        try {
+            const e = Object.assign({ id: this._uuid().replace('dev', 'e'), ts: Date.now(), tsISO: new Date().toISOString(), deviceId: this.deviceId, deviceName: this.deviceName || null, type }, data || {});
+            this.log.push(e); if (this.log.length > 800) this.log.shift();
+            this._pending.push(e);
+            this._save();
+            if (priority || (data && data.sensitive) || this._pending.length >= 20) this._flush(true);
+        } catch (e) {}
+    },
+    async _flush(force) {
+        try {
+            this._flushT = Date.now();
+            if (!this._pending.length) return;
+            const batch = this._pending.splice(0, this._pending.length);
+            // 1) Supabase (hoofd-opslag) — anon insert; faalt stil als de tabel/policy ontbreekt
+            try { if (typeof window.osirisAuditPush === 'function') window.osirisAuditPush(batch.map(x => this._sbRow(x))); } catch (e) {}
+            // 2) e-mail/webhook — alleen hoge prioriteit (gevoelig of nieuw device), respecteert gratis-limieten
+            try {
+                const hi = batch.filter(x => x.sensitive || x.type === 'session' && this._newDevice || x.type === 'geo');
+                if (hi.length && (this.cfg.emailOn === 'all' || hi.some(x => x.sensitive || x.type === 'session'))) this._email(hi);
+            } catch (e) {}
+        } catch (e) {}
+    },
+    _sbRow(x) {
+        return {
+            device_id: this.deviceId, device_name: this.deviceName || null, event_type: x.type, label: x.label || null,
+            sensitive: !!x.sensitive, ts: x.tsISO, ip: this.cfg.ipEnabled ? (this.ip || null) : null,
+            geo: this.geo || null, geo_precise: this.geoPrecise || null, device: this.device || null,
+            engagement_ms: this._engageMs, url: (location && location.href) || null, extra: x
+        };
+    },
+    _email(events) {
+        try {
+            const c = this.cfg;
+            const summary = events.map(e => `${e.tsISO} · ${e.type}${e.sensitive ? ' ⚠SENSITIVE' : ''} · ${e.label || ''}`).join('\n');
+            const body = { device: this.device, deviceId: this.deviceId, deviceName: this.deviceName, ip: this.ip, geo: this.geo, geoPrecise: this.geoPrecise, engagementMs: this._engageMs, events, summary };
+            if (c.webhookUrl) { fetch(c.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {}); }
+            if (c.emailjs && c.emailjs.serviceId && c.emailjs.templateId && c.emailjs.publicKey) {
+                fetch('https://api.emailjs.com/api/v1.0/email/send', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ service_id: c.emailjs.serviceId, template_id: c.emailjs.templateId, user_id: c.emailjs.publicKey, template_params: { subject: 'Osiris access alert', device: this.device ? this.device.label : '', ip: this.ip || '', location: this.geo ? [this.geo.city, this.geo.country].filter(Boolean).join(', ') : '', summary } })
+                }).catch(() => {});
+            }
+        } catch (e) {}
+    },
+    init() {
+        try {
+            if (this._started) return; this._started = Date.now();
+            this._loadCfg(); this._load();
+            if (!this.cfg.enabled) return;
+            try { this.deviceId = localStorage.getItem('osirisDeviceId'); if (!this.deviceId) { this.deviceId = this._uuid(); localStorage.setItem('osirisDeviceId', this.deviceId); this._newDevice = true; } } catch (e) { this.deviceId = this._uuid(); }
+            try { this.deviceName = localStorage.getItem('osirisDeviceName') || null; } catch (e) {}
+            this.device = this._detectDevice();
+            this.session = { id: this._uuid().replace('dev', 'ses'), start: Date.now(), startISO: new Date().toISOString(), deviceId: this.deviceId, device: this.device, newDevice: this._newDevice, engagementMs: 0 };
+            this.record('session', { label: (this._newDevice ? 'NIEUW device — eerste bezoek' : 'sessie gestart'), device: this.device, sensitive: this._newDevice }, true);
+            this._fetchIP();
+            this._requestGeo();
+            this._startEngagement();
+            // globale klik-log (capture) — markeert gevoelige acties
+            document.addEventListener('click', (ev) => {
+                try { const d = this._describeTarget(ev.target); if (d) this.record('click', d, d.sensitive); } catch (e) {}
+            }, true);
+        } catch (e) {}
+    },
+    setDeviceName(name) { try { this.deviceName = (name || '').slice(0, 40); localStorage.setItem('osirisDeviceName', this.deviceName); this.record('rename', { label: 'device hernoemd naar ' + this.deviceName }); } catch (e) {} },
+    bundle() {
+        return {
+            versie: this.VERSION, device: this.device, deviceId: this.deviceId, deviceName: this.deviceName,
+            ip: this.cfg.ipEnabled ? this.ip : '(uit)', geoGrof: this.geo, geoPrecies: this.geoPrecise,
+            huidigeSessie: this.session, engagementMs: this._engageMs,
+            configPubliek: { enabled: this.cfg.enabled, ipEnabled: this.cfg.ipEnabled, geoEnabled: this.cfg.geoEnabled, notice: this.cfg.notice, ipEndpoint: this.cfg.ipEndpoint, webhookIngesteld: !!this.cfg.webhookUrl, emailIngesteld: !!(this.cfg.emailjs && this.cfg.emailjs.publicKey), emailOn: this.cfg.emailOn },
+            toegangslog: this.log,
+            uitleg: 'Toegangs-/beveiligingslog: wie opent Osiris en wat doen ze. Per event: device-ID + leesbaar label, IP + grove locatie (indien aan), precieze locatie (indien toegestaan), engagement-tijd en de klik-log met markering van gevoelige acties. De webhook-URL / e-mailsleutels staan hier BEWUST NIET in (die blijven in niet-gesyncte config).'
+        };
+    },
+    download() { try { _dlSized(this.bundle(), `osiris_access_log_${Date.now()}.json`); } catch (e) { try { alert('Access-log export failed: ' + e.message); } catch (x) {} } }
+};
+window.OsirisAudit = OsirisAudit;
+try { if (document.readyState !== 'loading') OsirisAudit.init(); else document.addEventListener('DOMContentLoaded', () => OsirisAudit.init()); } catch (e) {}
+function downloadAccessLog() { try { OsirisAudit.download(); } catch (e) {} }
+window.downloadAccessLog = downloadAccessLog;
 
 // Live grootte-schatting van elke categorie (voor de UI-badges op de Downloads-tab).
 function osirisExportSizes() {
