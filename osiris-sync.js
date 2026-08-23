@@ -28,6 +28,7 @@ const OSIRIS_STATE_KEYS = [
     'osirisDeepNetTsAB', 'osirisDeepNetDynOff', 'osirisDeepNetLive',
     'osirisFSOLog', 'osirisKineticLog', 'osirisRLModel', 'osirisMarginState', 'osirisMetaState', 'osirisSelfReview',
     'osirisDeepNetDir', 'osirisPredictInv',        // inversie-autopiloot staat (DeepNet + Predict)
+    'osirisTiming', 'osirisTimingShadow', 'osirisTimingBT',   // Timing-Agent (live + schaduw + scenario-backtest): gewichten + hitrates + resolves
     'osirisJournal', 'osirisLLMfeed',              // G: journaal + LLM/vertaler-feed (leesbare neerslag)
     'osirisLiveEnabled', 'multiEngineRunning',
     'botIsRunning', 'botStartTime'
