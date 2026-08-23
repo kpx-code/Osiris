@@ -10233,10 +10233,242 @@ function osirisMasterBundle() {
 }
 window.osirisMasterBundle = osirisMasterBundle;
 function downloadEverything() {
-    try { _downloadJSON(osirisMasterBundle(), `osiris_ALLES_${Date.now()}.json`); }
-    catch (e) { try { _dlJSON(osirisMasterBundle(), `osiris_ALLES_${Date.now()}.json`); } catch (x) { try { alert('Master-export mislukt: ' + e.message); } catch (y) {} } }
+    try { _dlSized(osirisMasterBundle(), `osiris_ALLES_${Date.now()}.json`); }
+    catch (e) { try { _dlJSON(osirisMasterBundle(), `osiris_ALLES_${Date.now()}.json`); } catch (x) { try { alert('Master export failed: ' + e.message); } catch (y) {} } }
 }
 window.downloadEverything = downloadEverything;
+
+// ============================================================
+// DOWNLOAD-HELPERS (23-08) — grootte-bewust + per-categorie + ruwe inputs + TAM-backtest
+// ============================================================
+// Schat de grootte, download, en waarschuw als een export zo groot wordt dat het de
+// werking kan raken. Praktische grenzen: cloud-sync/localStorage ~5 MB per sleutel;
+// een download-bestand zelf kan groter, maar boven ~50 MB kan de browser-tab traag
+// worden bij het bouwen van de JSON. De grootste bijdrage zijn de candle-historie
+// (market data) en de logs.
+function _osirisSizeMB(str) { try { return (new Blob([str]).size) / (1024 * 1024); } catch (e) { return (str.length / (1024 * 1024)); } }
+// Diep-getrimde kloon: arrays langer dan `cap` worden ingekort tot de laatste `cap`
+// elementen + een marker. Zo blijft een "lite"-export klein maar wél representatief.
+function _osirisTrimDeep(obj, cap) {
+    cap = cap || 50;
+    const seen = new WeakSet();
+    const walk = (v) => {
+        if (v == null || typeof v !== 'object') return v;
+        if (seen.has(v)) return '[circular]';
+        seen.add(v);
+        if (Array.isArray(v)) {
+            if (v.length > cap) { const keep = v.slice(-cap).map(walk); keep.unshift(`[… ${v.length - cap} eerdere items ingekort voor lite-export …]`); return keep; }
+            return v.map(walk);
+        }
+        const o = {}; for (const k in v) { try { o[k] = walk(v[k]); } catch (e) { o[k] = '[error]'; } } return o;
+    };
+    return walk(obj);
+}
+window._osirisTrimDeep = _osirisTrimDeep;
+function _dlSized(obj, name, opts) {
+    opts = opts || {};
+    window._osirisDlAborted = false;
+    const warnMB = opts.warnMB != null ? opts.warnMB : 50;
+    let str;
+    try { str = JSON.stringify(obj, null, 2); }
+    catch (e) { window._osirisDlAborted = true; try { alert('Export failed while building JSON (likely too large for memory): ' + e.message + '\n\nUse a smaller option instead: a single category, the Raw-inputs export, or "Download EVERYTHING (lite)".'); } catch (x) {} return; }
+    const mb = _osirisSizeMB(str);
+    if (mb > warnMB) {
+        const ok = confirm(`This export is large (~${mb.toFixed(1)} MB).\n\nDownloading still works, but building a file this big can briefly slow the tab, and it is too large to keep in cloud-sync / localStorage (~5 MB limit). The biggest contributors are candle history and logs.\n\n• OK = download the full file anyway\n• Cancel = pick a smaller option instead (a single category, Raw inputs, or "Download EVERYTHING (lite)" which trims candle history & long logs)`);
+        if (!ok) { window._osirisDlAborted = true; return; }
+    }
+    try {
+        const blob = new Blob([str], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = name;
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { try { document.body.removeChild(a); } catch (e) {} URL.revokeObjectURL(url); }, 120);
+    } catch (e) { window._osirisDlAborted = true; try { alert('Download failed: ' + e.message); } catch (x) {} }
+    return mb;
+}
+window._dlSized = _dlSized;
+// LITE master-export: alle categorieën, maar arrays ingekort (candle-historie + lange logs)
+// zodat het altijd klein genoeg blijft om te downloaden en te delen.
+function downloadEverythingLite() {
+    try { _dlSized(_osirisTrimDeep(osirisMasterBundle(), 40), `osiris_ALLES_lite_${Date.now()}.json`, { warnMB: 999 }); }
+    catch (e) { try { alert('Lite export failed: ' + e.message); } catch (x) {} }
+}
+window.downloadEverythingLite = downloadEverythingLite;
+
+// ---- "Laatst gedownload"-stempels voor alle download-knoppen ----
+let _osirisDlStamps = {};
+try { _osirisDlStamps = JSON.parse(localStorage.getItem('osirisDlStamps') || '{}') || {}; } catch (e) { _osirisDlStamps = {}; }
+function _fmtDlStamp(ts) { try { const d = new Date(ts); const p = n => (n < 10 ? '0' + n : '' + n); return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; } catch (e) { return '—'; } }
+function osirisMarkDownloaded(key) {
+    if (!key) return;
+    _osirisDlStamps[key] = Date.now();
+    try { localStorage.setItem('osirisDlStamps', JSON.stringify(_osirisDlStamps)); } catch (e) {}
+    try { renderDlStamps(); } catch (e) {}
+}
+window.osirisMarkDownloaded = osirisMarkDownloaded;
+function renderDlStamps() {
+    try {
+        const panels = document.querySelectorAll('#tab-downloads .panel');
+        panels.forEach(panel => {
+            const btns = panel.querySelectorAll('[data-dl]');
+            if (!btns.length) return;
+            let box = panel.querySelector('.dl-when-box');
+            if (!box) { box = document.createElement('div'); box.className = 'dl-when-box'; box.style.cssText = 'margin-top:8px; font-family:\'JetBrains Mono\',monospace; font-size:0.5rem; line-height:1.7; border-top:1px solid rgba(255,255,255,0.06); padding-top:6px;'; panel.appendChild(box); }
+            const parts = [];
+            btns.forEach(b => {
+                const key = b.getAttribute('data-dl'); const ts = _osirisDlStamps[key];
+                const name = (b.getAttribute('data-dl-label') || (b.textContent || '').replace(/[^\x20-\x7E]/g, '').trim() || key);
+                parts.push(`<span style="white-space:nowrap;">${name}: <b style="color:${ts ? '#7fd8ff' : 'var(--text-dimmer)'};">${ts ? _fmtDlStamp(ts) : 'not yet'}</b></span>`);
+            });
+            box.innerHTML = `<span style="color:var(--text-dimmer);">&#8681; last downloaded &mdash;</span> ` + parts.join(' <span style="color:var(--text-dimmer);">&middot;</span> ');
+        });
+    } catch (e) {}
+}
+window.renderDlStamps = renderDlStamps;
+function initDlTracking() {
+    try {
+        const sec = document.getElementById('tab-downloads');
+        if (!sec || sec._dlInit) return; sec._dlInit = true;
+        // capture-fase: reset de abort-vlag vóór de inline onclick draait
+        sec.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-dl]'); if (b) window._osirisDlAborted = false; }, true);
+        // bubble-fase: draait ná de onclick; stempel alleen als de download niet is afgebroken
+        sec.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-dl]'); if (!b) return; setTimeout(() => { if (!window._osirisDlAborted) osirisMarkDownloaded(b.getAttribute('data-dl')); }, 0); });
+        renderDlStamps();
+    } catch (e) {}
+}
+window.initDlTracking = initDlTracking;
+try { if (document.readyState !== 'loading') initDlTracking(); else document.addEventListener('DOMContentLoaded', initDlTracking); } catch (e) {}
+
+// Live grootte-schatting van elke categorie (voor de UI-badges op de Downloads-tab).
+function osirisExportSizes() {
+    const out = {};
+    try {
+        const B = osirisMasterBundle();
+        let totalStr = '';
+        try { totalStr = JSON.stringify(B); } catch (e) {}
+        out.TOTAL = +_osirisSizeMB(totalStr).toFixed(2);
+        const cats = B && B.categorieen ? B.categorieen : {};
+        for (const k in cats) { let s = ''; try { s = JSON.stringify(cats[k]); } catch (e) {} out[k] = +_osirisSizeMB(s).toFixed(2); }
+    } catch (e) {}
+    try { out.TAM = +_osirisSizeMB(JSON.stringify(osirisTAMBundle())).toFixed(2); } catch (e) {}
+    try { out.RAW_INPUTS = +_osirisSizeMB(JSON.stringify(osirisRawInputsBundle())).toFixed(2); } catch (e) {}
+    return out;
+}
+window.osirisExportSizes = osirisExportSizes;
+
+// Download één categorie uit de master-bundle als eigen bestand ("Download All" per categorie).
+function downloadCategory(catKey) {
+    try {
+        const B = osirisMasterBundle();
+        const cat = (B && B.categorieen) ? B.categorieen[catKey] : null;
+        if (cat == null) { alert('Category not found: ' + catKey); return; }
+        _dlSized({ exportedAt: new Date().toISOString(), categorie: catKey, versie: B.versie, data: cat }, `osiris_${catKey}_${Date.now()}.json`);
+    } catch (e) { try { alert('Category export failed: ' + e.message); } catch (x) {} }
+}
+window.downloadCategory = downloadCategory;
+
+// RUWE INDICATOR-INPUTS — expliciet: vfm/er/db/chaos/momentum/volume/rsi/ema… als tijdreeks
+// (metricsHistory), de live input-vector, en per-markt de rauwe indicator-snapshots.
+function osirisRawInputsBundle() {
+    const g = (fn) => { try { const v = fn(); return v === undefined ? null : v; } catch (e) { return { _error: (e && e.message) || String(e) }; } };
+    const mkts = ['BTC', 'ETH', 'SOL'];
+    return {
+        exportedAt: new Date().toISOString(),
+        uitleg: 'Raw indicator inputs — the actual signal values Osiris reasons on. metricsHistory is the time series (one sample per ~10s scan) of vfm/er/db/chaos/volume/momentum etc.; liveInputs is the current normalized NN input vector (all 16 inputs); perMarkt has the raw per-market indicator snapshots.',
+        liveInputs: g(() => (typeof neoNetInputs === 'function' ? neoNetInputs() : null)),
+        liveSnapshotBTC: g(() => ({
+            livePrice: (typeof livePrice !== 'undefined' ? livePrice : null), vfm: (typeof vfm !== 'undefined' ? vfm : null), er: (typeof er !== 'undefined' ? er : null),
+            db: (typeof db !== 'undefined' ? db : null), chaos: (typeof chaos !== 'undefined' ? chaos : null), isBullish: (typeof isBullish !== 'undefined' ? isBullish : null),
+            rsi14: (typeof getCurrentRSIValue === 'function' ? getCurrentRSIValue() : null)
+        })),
+        metricsHistory: g(() => (typeof metricsHistory !== 'undefined' ? metricsHistory : null)),
+        systemLog: g(() => (typeof osirisSystemLog !== 'undefined' ? osirisSystemLog.slice(0, 600) : null)),
+        perMarkt: g(() => (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? Object.fromEntries(mkts.map(k => {
+            const m = neoMultiState.markets[k];
+            return [k, m ? { lastPrice: m.lastPrice, vfm: m.vfm, chaos: m.chaos, rsi: m.rsi, ema: m.ema, emaSlow: m.emaSlow, bestSide: m.bestSide, bestProb: m.bestProb, sentScore: m.sentScore, fund: m.fund || null } : null];
+        })) : null),
+        inputLabels: (typeof NEONET_INPUTS !== 'undefined') ? NEONET_INPUTS.map(x => ({ key: x.key, label: x.label })) : null
+    };
+}
+window.osirisRawInputsBundle = osirisRawInputsBundle;
+function downloadRawInputs() { try { _dlSized(osirisRawInputsBundle(), `osiris_raw_inputs_${Date.now()}.json`); } catch (e) { try { alert('Raw-inputs export failed: ' + e.message); } catch (x) {} } }
+window.downloadRawInputs = downloadRawInputs;
+
+// ============================================================
+// TEMPORAL ATTRACTOR MODEL (TAM/UOTAM) BACKTEST DATA — BTC/ETH/SOL
+// ============================================================
+// Alle data om de TAM-hypothese (prijs reageert rond temporele nodes op de π-cyclus,
+// Tesla 3-6-9) te toetsen op de cryptomarkt. Per markt: de volledige candle-historie,
+// PER CANDLE uitgelijnd op het node-grid (afstand tot dichtstbijzijnde node + node-type),
+// plus forward-returns (+1/+3/+6 candles) zodat je kunt meten of nodes turns voorspellen.
+// Plus het model (π-constante, anchor, node-types, gewichten), FSO-stress-reeks, kinetische
+// breakpoints/ETA, de gekalibreerde voorspel-uitkomsten en de timing-scenario-backtest.
+function _tamNodeAlign(tms) {
+    try {
+        const HALF = T_PI_MS / 2;
+        const kRaw = (tms - ANCHOR_TIME) / HALF;
+        const kNear = Math.round(kRaw);
+        const nodeTime = ANCHOR_TIME + kNear * HALF;
+        const minutesToNode = (tms - nodeTime) / 60000;           // <0 = vóór node, >0 = ná node
+        const type = (typeof nodeTypeForHalfStepIndex === 'function') ? nodeTypeForHalfStepIndex(kNear) : null;
+        const isPrimary = (kNear % 2 === 0);
+        return { halfStepIndex: kNear, nodeTime, nodeTimeISO: new Date(nodeTime).toISOString(), minutesToNode: +minutesToNode.toFixed(2), nodeType: type, isPrimaryNode: isPrimary };
+    } catch (e) { return null; }
+}
+function osirisTAMBundle() {
+    const g = (fn) => { try { const v = fn(); return v === undefined ? null : v; } catch (e) { return { _error: (e && e.message) || String(e) }; } };
+    const mkts = ['BTC', 'ETH', 'SOL'];
+    const perMarkt = {};
+    for (const sym of mkts) {
+        perMarkt[sym] = g(() => {
+            const m = (typeof neoMultiState !== 'undefined') ? neoMultiState.markets[sym] : null;
+            const kl = (m && m.klines && m.klines.length) ? m.klines : null;
+            if (!kl) return { candles: null, nodeAligned: null, note: 'geen candle-data geladen' };
+            const closes = kl.map(d => +d[4]);
+            const n = kl.length;
+            const nodeAligned = kl.map((d, i) => {
+                const t = +d[0];
+                const al = _tamNodeAlign(t);
+                const c = +d[4];
+                const fwd = (h) => (i + h < n && c) ? +(((closes[i + h] - c) / c) * 100).toFixed(4) : null;
+                return { t, iso: new Date(t).toISOString(), o: +d[1], h: +d[2], l: +d[3], c: c, v: +d[5], halfStepIndex: al ? al.halfStepIndex : null, nodeType: al ? al.nodeType : null, isPrimaryNode: al ? al.isPrimaryNode : null, minutesToNode: al ? al.minutesToNode : null, fwdRet1: fwd(1), fwdRet3: fwd(3), fwdRet6: fwd(6) };
+            });
+            return {
+                candleCount: n,
+                candles: kl.map(d => ({ t: +d[0], o: +d[1], h: +d[2], l: +d[3], c: +d[4], v: +d[5] })),
+                nodeAligned,
+                opportunity: g(() => (typeof osirisMarketOpportunity === 'function' ? osirisMarketOpportunity(sym) : null)),
+                kinetic: g(() => (typeof OsirisKinetic !== 'undefined' && OsirisKinetic.state ? OsirisKinetic.state[sym] : null)),
+                predictResolved: g(() => (typeof OsirisPredict !== 'undefined' && OsirisPredict.resolved) ? OsirisPredict.resolved.filter(r => r.sym === sym).slice(0, 200) : null)
+            };
+        });
+    }
+    return {
+        exportedAt: new Date().toISOString(),
+        title: 'Temporal Attractor Model (TAM/UOTAM) backtest data — BTC/ETH/SOL',
+        uitleg: 'Everything needed to test the Temporal Attractor Model on the crypto market. Per market you get the full candle history AND each candle aligned to the temporal node grid (nearest node, node type, minutes-to-node) with forward returns (+1/+3/+6 candles) — so you can measure whether price reacts around the π-cycle nodes. Plus the model constants, the FSO stress series, kinetic breakpoints/ETA, calibrated prediction outcomes, and the timing scenario-backtest.',
+        model: {
+            piCycleMinutes: (typeof T_PI_MINUTES !== 'undefined' ? T_PI_MINUTES : null),
+            piCycleMs: (typeof T_PI_MS !== 'undefined' ? T_PI_MS : null),
+            halfStepMinutes: (typeof T_PI_MS !== 'undefined' ? T_PI_MS / 2 / 60000 : null),
+            anchorTimeMs: (typeof ANCHOR_TIME !== 'undefined' ? ANCHOR_TIME : null),
+            anchorTimeISO: (typeof ANCHOR_TIME !== 'undefined' ? new Date(ANCHOR_TIME).toISOString() : null),
+            nodeInfluenceWeights: (typeof NODE_INFLUENCE_WEIGHTS !== 'undefined' ? NODE_INFLUENCE_WEIGHTS : null),
+            uitleg: 'Primary nodes at integer n (t_n = anchor + n·π_ms); mid-pulses at n+0.5. Node type per half-step index via nodeTypeForHalfStepIndex. Tesla 3-6-9 harmonics underlie the node typing.'
+        },
+        nodeGridNu: g(() => (typeof allNodes !== 'undefined' ? allNodes : null)),
+        nodeContext: g(() => (typeof getNodeContext === 'function' ? getNodeContext() : null)),
+        nodeInfluenceNu: g(() => (typeof calculateNodeInfluence === 'function' && typeof getNodeContext === 'function' ? calculateNodeInfluence(getNodeContext()) : null)),
+        fibLevels: g(() => (typeof currentFibLevels !== 'undefined' ? currentFibLevels : null)),
+        fsoHistorie: g(() => (typeof osirisFSOLog !== 'undefined' ? osirisFSOLog.slice(0, 400) : null)),
+        fsoNu: g(() => (typeof osirisStress !== 'undefined' ? osirisStress : null)),
+        timingScenarioBacktest: g(() => (typeof OsirisTimingBacktest !== 'undefined' ? OsirisTimingBacktest.bundle() : null)),
+        perMarkt
+    };
+}
+window.osirisTAMBundle = osirisTAMBundle;
+function downloadTAMData() { try { _dlSized(osirisTAMBundle(), `osiris_TAM_backtest_${Date.now()}.json`, { warnMB: 40 }); } catch (e) { try { alert('TAM export failed: ' + e.message); } catch (x) {} } }
+window.downloadTAMData = downloadTAMData;
 
 // ---- Neural-net-tab: uitgebreid voorspellings-infopaneel ----
 function renderOsirisPredictPanel() {
