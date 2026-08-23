@@ -648,6 +648,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#5c7488;letter-spacing:0.14em;text-transform:uppercase;margin-top:10px;text-align:center;">Reads price, volume &amp; volatility &middot; tests every prediction</div>
         </div>
       </div>
+      <!-- BEVEILIGING / TOEGANGSLOG — transparantie voor bezoekers -->
+      <div class="panel" style="margin-top:26px; border-color:rgba(255,95,126,0.4); background:rgba(255,95,126,0.05);">
+        <div class="plabel" style="color:#ff8a94;">&#128274; Security &amp; access logging &mdash; please read</div>
+        <p class="about-para" style="margin-top:6px;">Osiris controls a live trading engine and contains highly sensitive tools (API-key fields, live-trading toggles, wallet controls and full-data exports). For that reason <b>access to this dashboard is logged</b>. When you open or use Osiris, it may record: a per-device identifier and device profile (operating system, browser, device type, screen, timezone, language), your IP address and approximate location (city/country) via an IP lookup service, and &mdash; only if you grant the browser permission &mdash; your precise location. It also records active engagement time per device and which controls you click, with sensitive actions flagged. This log is kept for the owner's security review (stored locally and in the owner's private Supabase; optionally emailed to the owner on sensitive events). It is used <b>solely</b> to protect this application and is never sold or shared. If you do not consent to this, please close the page. API keys are never logged or exported.</p>
+      </div>
+
       <!-- AUTONOME TOOLS: eigen, herkenbare stijl (Osiris stuurt deze zélf bij) -->
       <div class="eyebrow" style="margin-top:34px; color:#14f195;">&mdash; Autonome tools &middot; Osiris stelt deze zelf bij</div>
       <h1 class="h" style="margin-top:6px;">De gereedschapskist</h1>
@@ -1704,7 +1710,23 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <!-- MASTER EXPORTS -->
       <div class="panel" style="border-color:rgba(0,217,255,0.45); background:rgba(0,217,255,0.05);">
         <div class="plabel" style="color:#00d9ff;">&#11088; Everything in one file &middot; categorized</div>
-        <div class="flex gap wrap center"><button class="btn go" type="button" data-dl="all_categorized" data-dl-label="Everything (categorized)" onclick="downloadEverything()" style="background:rgba(0,217,255,0.15); color:#00d9ff; border-color:rgba(0,217,255,0.5);">&#8681; Download EVERYTHING (1 file, per category)</button><span class="muted">One JSON, split into: <b>engine</b> &middot; <b>wallets</b> (spot+margin) &middot; <b>calibration logs</b> &middot; <b>market data + history</b> &middot; <b>neural net + nodes</b> &middot; <b>learnings</b> &middot; <b>reasonings</b> &middot; <b>exit contribution + equity</b> &middot; <b>timing-agent</b> &middot; <b>other tools</b> &middot; <b>rest</b>.</span></div>
+        <div class="flex gap wrap center"><button class="btn go" type="button" data-dl="all_categorized" data-dl-label="Everything (categorized)" onclick="downloadEverything()" style="background:rgba(0,217,255,0.15); color:#00d9ff; border-color:rgba(0,217,255,0.5);">&#8681; Download EVERYTHING (1 file, per category)</button><span class="muted">A complete superset of every download below &mdash; <b>except</b> the TAM backtest data, which is a separate download. Contains no API keys.</span></div>
+        <details style="margin-top:10px;"><summary style="cursor:pointer; color:#7fd8ff; font-size:0.62rem;">&#9656; What exactly is in this file? (full breakdown)</summary>
+          <div class="note" style="margin-top:8px; line-height:1.8;">
+            <b>engine</b> &mdash; bot settings &amp; tuning, running state, last decision, HMM regime, shadow-backtest, system log (vfm/er/db/chaos/volume every ~10s), session log (START/STOP/settings), metrics-history buffer and the live snapshot (price, vfm, er, db, chaos, momentum, node context/influence, RSI, MAs, prediction, fib).<br>
+            <b>wallets</b> &mdash; spot + margin: capital, balance, equity, realized/unrealized P/L, wins/losses, all open &amp; closed positions, pending orders, leverage/exposure and margin reasoning + adaptation.<br>
+            <b>calibration logs</b> &mdash; Governor trust weights/metrics/log, Predict metrics/inversion/raw hit-rates/resolved, Kinetic metrics, DeepNet walk-forward + reliability curves + dual-track inversion, LLM verification log.<br>
+            <b>market data + history</b> &mdash; BTC candles (720), per-market OHLC + indicators (BTC/ETH/SOL) and the FSO stress series. <span style="color:#ffb627;">Largest part.</span><br>
+            <b>neural net + nodes</b> &mdash; UOTAM node grid, node context/influence, MIC/MES/MAC fib levels, live 16-input NN vector, per-market NN state and live DeepNet output.<br>
+            <b>learnings</b> &mdash; adaptive weights (global + per brain), L2 &amp; L3 nets, DeepNet models per market, RL model (Q-table, action-dist, history), self-review and the full learning log.<br>
+            <b>reasonings</b> &mdash; engine adaptations, margin reasoning/adaptation/last action (incl. DeepNet &amp; Timing-Agent gating), session events, self-review.<br>
+            <b>exit contribution + equity</b> &mdash; cumulative P/L per exit reason (spot + margin, survives wallet reset) and current equity allocation.<br>
+            <b>timing-agent</b> &mdash; component weights &amp; hit-rates (NN/node/FSO/RL/confluence/volume/fib/funding/predict), live vs shadow and the scenario-backtest.<br>
+            <b>other tools</b> &mdash; Kinetic, LLM context, journal, next-steps, Guardian, Risk, circuit breaker.<br>
+            <b>beveiliging (security)</b> &mdash; the access log: device profile, IP + coarse location (if on), precise location (if consented), engagement time and the flagged click log. <i>Webhook/email keys are never included.</i><br>
+            <b>rest</b> &mdash; full trade action log, network errors and the dataset schema.<br>
+            <span style="color:var(--text-dimmer);">Also embedded in the file: a <b>manifest</b> field repeating this breakdown, and a <b>nietInbegrepen</b> field noting that TAM data and all secret keys are excluded.</span>
+          </div></details>
         <div class="flex gap wrap center" style="margin-top:10px;">
           <button class="btn btn-ghost btn-mini" type="button" data-dl="all_lite" data-dl-label="Everything (lite)" onclick="downloadEverythingLite()" style="color:#ffd54a; border-color:rgba(255,213,74,0.5);">&#8681; Download EVERYTHING (lite &mdash; trims candles &amp; long logs)</button>
           <button class="btn btn-ghost btn-mini" type="button" data-dl="all_flat" data-dl-label="Everything (flat)" onclick="downloadAllData()" style="color:#14f195; border-color:rgba(20,241,149,0.4);">&#8681; Everything (flat file)</button>
@@ -1758,6 +1780,34 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
         <div class="panel" style="border-color:rgba(255,213,74,0.4);"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center; color:#ffd54a;"><span>Raw indicator inputs</span><button class="btn btn-mini" type="button" data-dl="raw_inputs" data-dl-label="Raw inputs (all)" onclick="downloadRawInputs()" style="color:#ffd54a; border-color:rgba(255,213,74,0.5);">&#8681; Download all</button></div>
           <div class="note">The raw signals Osiris reasons on, explicit: the <b>metricsHistory</b> time series (vfm / er / db / chaos / volume / momentum &hellip; one sample per ~10s), the live 16-input NN vector and the raw per-market indicator snapshots.</div></div>
+      </div>
+
+      <!-- SECURITY / ACCESS LOG -->
+      <div class="panel" style="border-color:rgba(255,95,126,0.45); background:rgba(255,95,126,0.05); margin-top:14px;">
+        <div class="plabel" style="color:#ff8a94; display:flex; justify-content:space-between; align-items:center;"><span>&#128274; Security &amp; access log &mdash; who opens Osiris &amp; what they do</span><button class="btn btn-mini" type="button" data-dl="access_log" data-dl-label="Access log" onclick="downloadAccessLog()" style="color:#ff8a94; border-color:rgba(255,95,126,0.5);">&#8681; Download access log</button></div>
+        <div class="note">Logs per device/user: device profile (OS/browser/type/screen/timezone), IP + coarse location (IP-API), precise location (with permission), active engagement time and the click log with <b>sensitive actions flagged</b> (keys, live-trading, wallet reset, exports, margin). Primary store is your <b>Supabase</b> table <code>osiris_access_log</code> (create it once &mdash; the SQL + RLS policy is in the comments of osiris-sync.js). Email is optional and free via a webhook or EmailJS you configure below, or a Supabase trigger you own. <b>Keys are never logged.</b> Visitors are informed on the About page.</div>
+        <div class="flex gap wrap" style="margin-top:10px; align-items:center;">
+          <label style="font-size:0.6rem; color:var(--dim);"><input type="checkbox" id="aud-enabled" onchange="OsirisAudit.setCfg({enabled:this.checked}); alert('Reload to apply.');"> logging on</label>
+          <label style="font-size:0.6rem; color:var(--dim);"><input type="checkbox" id="aud-ip" onchange="OsirisAudit.setCfg({ipEnabled:this.checked});"> IP + coarse location</label>
+          <label style="font-size:0.6rem; color:var(--dim);"><input type="checkbox" id="aud-geo" onchange="OsirisAudit.setCfg({geoEnabled:this.checked});"> precise location (asks permission)</label>
+          <label style="font-size:0.6rem; color:var(--dim);"><input type="checkbox" id="aud-notice" onchange="OsirisAudit.setCfg({notice:this.checked});"> show visitor notice</label>
+        </div>
+        <div class="flex gap wrap" style="margin-top:10px; align-items:center;">
+          <input id="aud-devname" type="text" placeholder="name this device (e.g. My laptop)" style="flex:1; min-width:180px; background:rgba(0,0,0,0.4); border:1px solid var(--line); color:#eafcff; padding:6px 8px; font-size:0.6rem; border-radius:6px;">
+          <button class="btn btn-ghost btn-mini" type="button" onclick="OsirisAudit.setDeviceName(document.getElementById('aud-devname').value); alert('Device named.');">Save device name</button>
+        </div>
+        <details style="margin-top:10px;"><summary style="cursor:pointer; color:#ff8a94; font-size:0.6rem;">&#9656; Email / webhook setup (optional, free &mdash; keys stay local, never synced)</summary>
+          <div class="note" style="margin-top:8px;">Fires only on <b>sensitive actions</b> and new devices (to stay within free limits). Nothing here is synced to the cloud or included in any export.</div>
+          <div class="flex gap wrap" style="margin-top:8px; align-items:center;">
+            <input id="aud-webhook" type="text" placeholder="Webhook URL (POST JSON) — e.g. your Supabase edge function or Zapier/Make hook" style="flex:1; min-width:260px; background:rgba(0,0,0,0.4); border:1px solid var(--line); color:#eafcff; padding:6px 8px; font-size:0.58rem; border-radius:6px;">
+          </div>
+          <div class="flex gap wrap" style="margin-top:6px; align-items:center;">
+            <input id="aud-ejs-service" type="text" placeholder="EmailJS service_id" style="background:rgba(0,0,0,0.4); border:1px solid var(--line); color:#eafcff; padding:6px 8px; font-size:0.58rem; border-radius:6px; width:150px;">
+            <input id="aud-ejs-template" type="text" placeholder="EmailJS template_id" style="background:rgba(0,0,0,0.4); border:1px solid var(--line); color:#eafcff; padding:6px 8px; font-size:0.58rem; border-radius:6px; width:150px;">
+            <input id="aud-ejs-key" type="text" placeholder="EmailJS public key" style="background:rgba(0,0,0,0.4); border:1px solid var(--line); color:#eafcff; padding:6px 8px; font-size:0.58rem; border-radius:6px; width:150px;">
+            <button class="btn btn-ghost btn-mini" type="button" onclick="OsirisAudit.setCfg({webhookUrl:document.getElementById('aud-webhook').value.trim(), emailjs:{serviceId:document.getElementById('aud-ejs-service').value.trim(), templateId:document.getElementById('aud-ejs-template').value.trim(), publicKey:document.getElementById('aud-ejs-key').value.trim()}}); alert('Email/webhook config saved locally.');">Save email config</button>
+          </div>
+        </details>
       </div>
 
       <!-- TAM BACKTEST -->
