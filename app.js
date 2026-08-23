@@ -15920,7 +15920,7 @@ function buildNeoNet() {
     _neonet.layers = layers; _neonet.conns = conns; _neonet.built = true;
     // labels: 0=inputs(data+FSO-context) 1=integratie 2=cores 3=osiris(mainbrain) 4=timing-gate
     // 5=decision 6=capital 7=output.
-    _neonet.layerLabels = ['INPUTS', 'INTEGRATION', 'CORES', 'OSIRIS', 'TIMING-AGENT', 'DECISION', 'CAPITAL', 'OUTPUT'];
+    _neonet.layerLabels = ['INPUTS', 'INTEGRATION', 'CORES', 'OSIRIS', 'TA', 'DECISION', 'CAPITAL', 'OUTPUT'];
     _neonet.subBrainLabels = ['BTC', 'ETH', 'SOL'];
     _neonet.outputLabels = ['LONG', 'NEUTRAAL', 'SHORT'];
     _neonet.decisionLi = 5; _neonet.capitalLi = 6; _neonet.outputLi = 7;
@@ -16001,7 +16001,9 @@ function _neoNetDraw(now, canvasId, outId) {
     // (22-08) padTop groter zodat de inputs ONDER de titel/subtitel beginnen (geen overlap);
     // padBot groter zodat de laag-labels + status-regel ruim boven de panel-hoeken/randen vallen.
     const padX = w * 0.13, padTop = h * 0.135, padBot = h * 0.18, padY = padTop;
-    const _FX = [0, 0.15, 0.31, 0.46, 0.60, 0.74, 0.87, 1.0];
+    // horizontale posities per laag. De input-kant (INPUTS→INTEGRATION→CORES) krijgt ~1,5× méér
+    // tussenruimte dan de rechterkant (CORES→OSIRIS→TA→…): eerste twee gaps 0.1875, de rest 0.125.
+    const _FX = [0, 0.1875, 0.375, 0.500, 0.625, 0.750, 0.875, 1.0];
     const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
     // Per-laag verticale spreiding: inputs/integratie vol uitgespreid (meer ruimte tussen
     // de punten), en cores/osiris/beslissing compacter EN gecentreerd zodat die punten
@@ -16067,6 +16069,8 @@ function _neoNetDraw(now, canvasId, outId) {
         const syms = ['BTC', 'ETH', 'SOL']; let wsum = 0, asum = 0;
         for (const s of syms) { const a = (alloc[s] || 0); const m = neoMultiState.markets[s]; const conv = (m && m.bestProb != null) ? Math.max(0, (m.bestProb - 0.5) * 2) : 0; asum += a * (0.3 + conv); wsum += a; }
         if (layers[3][0]) { layers[3][0].act = wsum > 0 ? Math.max(0.15, Math.min(1, asum / wsum + 0.15)) : 0.2; layers[3][0].label = 'OSIRIS'; layers[3][0].sign = 1; }
+        // per-core allocatie (relatief t.o.v. de grootste) → dikte van de cores→osiris-verbindingen
+        const _mx = Math.max(...syms.map(s => alloc[s] || 0), 0.01); _neonet._coreAlloc = syms.map(s => Math.max(0.12, (alloc[s] || 0) / _mx));
     } catch (e) { if (layers[3][0]) { layers[3][0].act = 0.2; layers[3][0].label = 'OSIRIS'; } }
     // laag 4 (TIMING-AGENT — SOFT-GATE): readiness op de mainbrain-richting. 0=LIVE-TA, 1=SCHADUW-TA.
     // De TA bepaalt WANNEER er op de beslissing gehandeld wordt (hij zit dus NÁ de mainbrain, vlak
@@ -16158,6 +16162,10 @@ function _neoNetDraw(now, canvasId, outId) {
         const baseCol = srcCol[cn.li][cn.a];
         const hot = signal > 0.28;
         const col = hot ? OSIRIS_NEON : baseCol;
+        // CORES → OSIRIS: lijn-dikte volgt de ECHTE kapitaal-allocatie naar die munt (data-true):
+        // dikkere lijn = meer equity naar dat sub-brein. Geeft in één oogopslag de allocatie weer.
+        let _wMul = 1, _aFloor = 0;
+        if (cn.li === (_neonet.coresLi != null ? _neonet.coresLi : 2) && _neonet._coreAlloc) { const al = _neonet._coreAlloc[cn.a] || 0.12; _wMul = 0.6 + 2.2 * al; _aFloor = 0.10 + 0.22 * al; }
         // De LIJN zelf flasht: de verbinding tussen de parameters licht op, helderheid
         // pulseert (data bepaalt de basis + hoe fel). Geen los reizend deeltje meer.
         const flash = 0.5 + 0.5 * Math.sin(now / 340 * (0.7 + cn.sp) + cn.flow * 6.28);
@@ -16166,9 +16174,9 @@ function _neoNetDraw(now, canvasId, outId) {
         // ALLEEN nog op de weinige ACTIEVE (hete) edges getekend i.p.v. op elke lijn — dat scheelt
         // enorm in de render. De inactieve lijnen worden plat en goedkoop getekend. De data-true
         // dataflow-deeltjes hieronder lopen ongewijzigd over ELKE lijn.
-        const a = 0.09 + 0.26 * signal + (0.07 + 0.28 * signal) * flash;
+        const a = Math.max(_aFloor, 0.09 + 0.26 * signal + (0.07 + 0.28 * signal) * flash);
         ctx.strokeStyle = `rgba(${col},${a.toFixed(3)})`;
-        ctx.lineWidth = 0.5 + 0.7 * signal;
+        ctx.lineWidth = (0.5 + 0.7 * signal) * _wMul;
         if (hot) {
             ctx.save();
             ctx.shadowColor = `rgb(${col})`;
