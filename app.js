@@ -213,6 +213,44 @@ function roundTripCostPct() { return ((botSettings.feePct || 0) + (botSettings.s
 function roundTripFeePct() { return (botSettings.feePct || 0) * 2; }
 
 // ============================================================
+// FEE-AWARE EDGE (23-08) — "eten de fees de edge op?"
+// ============================================================
+// Vergelijkt de werkelijke winrate met de winrate die je NA kosten nodig hebt.
+// Margin: de gesloten-trade pnl is BRUTO (leveraged), dus de round-trip kost telt op de
+// leveraged notional (≈ roundTripCostPct × leverage). Spot: pnl is al NETTO, dus de kost
+// zit al in de gemiddelden — daar is de netto break-even de maat. edge=true ⇒ er is nog
+// marge ná kosten; edge=false ⇒ de fees eten de edge op (dan moet de engine strenger).
+function osirisFeeEdge(wallet) {
+    try {
+        const rt = roundTripCostPct() / 100;
+        if (wallet === 'margin') {
+            const cl = (typeof marginState !== 'undefined' && marginState.closed) ? marginState.closed : [];
+            if (cl.length < 12) return { ready: false, wallet, n: cl.length };
+            const w = cl.filter(t => (t.pnl || 0) > 0), l = cl.filter(t => (t.pnl || 0) <= 0);
+            const aW = w.length ? w.reduce((a, t) => a + (t.pnl || 0), 0) / w.length : 0;
+            const aL = l.length ? Math.abs(l.reduce((a, t) => a + (t.pnl || 0), 0) / l.length) : 0;
+            const lev = cl.reduce((a, t) => a + (t.leverage || marginLeverage), 0) / cl.length;
+            const cost = rt * lev;
+            const beWR = (aW + aL) > 0 ? Math.min(0.999, (aL + cost) / (aW + aL)) : null;
+            const actWR = cl.length ? w.length / cl.length : null;
+            const edge = (beWR != null && actWR != null) ? actWR > beWR : true;
+            return { ready: true, wallet, n: cl.length, actWR, beWR, edge, deficit: (beWR != null && actWR != null) ? Math.max(0, beWR - actWR) : 0, avgWin: aW, avgLoss: aL, costPct: cost, leverage: lev };
+        } else {
+            const rows = (typeof learningLog !== 'undefined' ? learningLog : []).filter(l => !l.manual && l.pnlPct != null).slice(0, 60);
+            if (rows.length < 12) return { ready: false, wallet, n: rows.length };
+            const w = rows.filter(r => r.pnlPct > 0), l = rows.filter(r => r.pnlPct <= 0);
+            const aW = w.length ? w.reduce((a, r) => a + r.pnlPct, 0) / w.length : 0;
+            const aL = l.length ? Math.abs(l.reduce((a, r) => a + r.pnlPct, 0) / l.length) : 0;
+            const beWR = (aW + aL) > 0 ? Math.min(0.999, aL / (aW + aL)) : null;   // pnl is al netto → BE is netto
+            const actWR = rows.length ? w.length / rows.length : null;
+            const edge = (beWR != null && actWR != null) ? actWR > beWR : true;
+            return { ready: true, wallet, n: rows.length, actWR, beWR, edge, deficit: (beWR != null && actWR != null) ? Math.max(0, beWR - actWR) : 0, avgWin: aW, avgLoss: aL, costPct: rt };
+        }
+    } catch (e) { return { ready: false, wallet }; }
+}
+window.osirisFeeEdge = osirisFeeEdge;
+
+// ============================================================
 // BINANCE SPOT TESTNET EXECUTIE
 // ============================================================
 // In executionMode 'TESTNET' stuurt de bot echte market-orders naar
@@ -5792,10 +5830,16 @@ function syncMarginWallet() {
         const _w = _cl.filter(t => (t.pnl || 0) > 0), _l = _cl.filter(t => (t.pnl || 0) <= 0);
         const _avgW = _w.length ? _w.reduce((a, t) => a + (t.pnl || 0), 0) / _w.length : 0;
         const _avgL = _l.length ? Math.abs(_l.reduce((a, t) => a + (t.pnl || 0), 0) / _l.length) : 0;
-        const _beWR = (_avgW + _avgL) > 0 ? _avgL / (_avgW + _avgL) : null;
+        // FEE-AWARE break-even (23-08): de gesloten-trade pnl is BRUTO (leveraged, geen fees).
+        // Elke trade betaalt round-trip kosten op de NOTIONAL = leverage \u00d7 margin, dus als fractie
+        // van de margin: kosten \u2248 roundTripCostPct \u00d7 leverage. Die tellen we bij de noemer \u00e9n bij
+        // de vereiste winst op, zodat de break-even de winrate toont die je n\u00e1 fees nodig hebt.
+        const _avgLev = _cl.length ? _cl.reduce((a, t) => a + (t.leverage || marginLeverage), 0) / _cl.length : marginLeverage;
+        const _cLev = (roundTripCostPct() / 100) * _avgLev;
+        const _beWR = (_avgW + _avgL) > 0 ? Math.min(0.999, (_avgL + _cLev) / (_avgW + _avgL)) : null;
         const _actWR = totC ? marginState.wins / totC : null;
         set('m-winrate', totC ? `${(_actWR * 100 | 0)}% <span style="font-size:0.62em; color:var(--dim);">(${marginState.wins}W / ${marginState.losses}L \u00b7 ${totC})</span>` : '\u2014');
-        if (_beWR != null && _actWR != null) set('m-breakeven', `<span style="color:${_actWR > _beWR ? '#14f195' : '#ff8a94'};">${(_beWR * 100).toFixed(0)}%</span> <span style="font-size:0.62em; color:var(--dim);">nodig \u00b7 nu ${(_actWR * 100 | 0)}%${_actWR > _beWR ? ' \u2713 edge' : ''}</span>`);
+        if (_beWR != null && _actWR != null) set('m-breakeven', `<span style="color:${_actWR > _beWR ? '#14f195' : '#ff8a94'};">${(_beWR * 100).toFixed(0)}%</span> <span style="font-size:0.62em; color:var(--dim);">na fees \u00b7 nu ${(_actWR * 100 | 0)}%${_actWR > _beWR ? ' \u2713 edge' : ' \u2717 fees eten de edge'}</span>`);
         else set('m-breakeven', '\u2014');
         set('m-open', marginState.positions.length);
         set('m-equity', `\u20ae${eq.toFixed(2)}`);
@@ -9633,9 +9677,21 @@ const OsirisSelfReview = {
             const wins = all.filter(x => x > 0).length; const wr = all.length ? wins / all.length : null;
             const avg = all.length ? all.reduce((a, b) => a + b, 0) / all.length : 0;
             const changes = [], notes = [];
-            if (wr != null && all.length >= 5) {
+            // FEE-AWARE (23-08): winrate hierboven is BRUTO. Een hoge bruto-winrate mag NIET tot
+            // agressiever traden leiden als de fees de netto-edge opeten. We toetsen de fee-aware
+            // edge en dwingen dan de voorzichtige tak af (en blokkeren de agressieve).
+            let _fe = null; try { _fe = osirisFeeEdge('margin'); } catch (e) {}
+            const _feeEatsEdge = !!(_fe && _fe.ready && !_fe.edge);
+            if (_feeEatsEdge) {
+                this.aggr = Math.max(0.5, +(this.aggr - 0.1).toFixed(2));
+                MARGIN_PER_TRADE_EXPO = Math.max(0.25, +(MARGIN_PER_TRADE_EXPO * 0.85).toFixed(3));
+                MARGIN_MIN_PROB = Math.min(0.7, +(MARGIN_MIN_PROB + 0.02).toFixed(3));
+                if (typeof marginLeverage !== 'undefined' && typeof MARGIN_LEV_MIN !== 'undefined' && marginLeverage > MARGIN_LEV_MIN) { marginLeverage = MARGIN_LEV_MIN; try { localStorage.setItem('osirisMarginLeverage', String(marginLeverage)); } catch (e) {} }
+                changes.push(`FEE-GUARD: fees eten de edge (winrate ${(_fe.actWR * 100 | 0)}% < ${(_fe.beWR * 100 | 0)}% nodig ná fees @ ${_fe.leverage.toFixed(1)}x) → voorzichtiger: expo ${MARGIN_PER_TRADE_EXPO}, minProb ${MARGIN_MIN_PROB}, hefboom→min`);
+                notes.push('fee-aware edge negatief: netto verliesrisico ondanks hoge bruto-winrate');
+            } else if (wr != null && all.length >= 5) {
                 if (wr < 0.40) { this.aggr = Math.max(0.5, +(this.aggr - 0.1).toFixed(2)); MARGIN_PER_TRADE_EXPO = Math.max(0.3, +(MARGIN_PER_TRADE_EXPO * 0.9).toFixed(3)); MARGIN_MIN_PROB = Math.min(0.6, +(MARGIN_MIN_PROB + 0.01).toFixed(3)); changes.push(`voorzichtiger: per-trade expo → ${MARGIN_PER_TRADE_EXPO}, margin-minProb → ${MARGIN_MIN_PROB}`); notes.push(`recente winrate ${(wr * 100 | 0)}% te laag`); }
-                else if (wr > 0.58) { this.aggr = Math.min(1.5, +(this.aggr + 0.1).toFixed(2)); MARGIN_PER_TRADE_EXPO = Math.min(0.8, +(MARGIN_PER_TRADE_EXPO * 1.08).toFixed(3)); MARGIN_MIN_PROB = Math.max(0.5, +(MARGIN_MIN_PROB - 0.01).toFixed(3)); changes.push(`agressiever: per-trade expo → ${MARGIN_PER_TRADE_EXPO}, margin-minProb → ${MARGIN_MIN_PROB}`); notes.push(`recente winrate ${(wr * 100 | 0)}% sterk`); }
+                else if (wr > 0.58) { this.aggr = Math.min(1.5, +(this.aggr + 0.1).toFixed(2)); MARGIN_PER_TRADE_EXPO = Math.min(0.8, +(MARGIN_PER_TRADE_EXPO * 1.08).toFixed(3)); MARGIN_MIN_PROB = Math.max(0.5, +(MARGIN_MIN_PROB - 0.01).toFixed(3)); changes.push(`agressiever: per-trade expo → ${MARGIN_PER_TRADE_EXPO}, margin-minProb → ${MARGIN_MIN_PROB}`); notes.push(`recente winrate ${(wr * 100 | 0)}% sterk (fee-edge ok)`); }
                 else notes.push(`winrate ${(wr * 100 | 0)}% neutraal — geen wijziging`);
             } else notes.push('te weinig data voor bijstelling');
             const rec = { ts: Date.now(), atTrades: n, window: all.length, winrate: wr != null ? +wr.toFixed(3) : null, avgPnl: +avg.toFixed(4), aggr: this.aggr, governor: (typeof OsirisGovernor !== 'undefined') ? OsirisGovernor.metrics() : null, predict: (typeof OsirisPredict !== 'undefined') ? OsirisPredict.metrics() : null, marginExpoCap: MARGIN_MAX_EXPOSURE, perTradeExpo: MARGIN_PER_TRADE_EXPO, marginMinProb: MARGIN_MIN_PROB, changes, notes };
@@ -10319,7 +10375,8 @@ function osirisMasterBundle() {
         margin_lastAction: g(() => (typeof marginState !== 'undefined' ? marginState.lastAction : null)),// laatste margin-actie + reden (incl. DeepNet soft-gate blokkades)
         sessie_events: g(() => (typeof sessionLog !== 'undefined' ? sessionLog : null)),
         self_review: g(() => (typeof OsirisSelfReview !== 'undefined' ? OsirisSelfReview.bundle() : null)),
-        uitleg: 'Alle "waarom"-verklaringen bij elkaar: waarom Osiris de engine bijstelde, waarom margin een positie wel/niet nam (incl. DeepNet-band soft-gate), en de sessie-events die de config-segmenten markeren.'
+        fee_edge: g(() => (typeof osirisFeeEdge === 'function' ? { spot: osirisFeeEdge('spot'), margin: osirisFeeEdge('margin') } : null)),   // fee-aware edge per wallet (winrate vs break-even ná kosten)
+        uitleg: 'Alle "waarom"-verklaringen bij elkaar: waarom Osiris de engine bijstelde, waarom margin/spot een positie wel/niet nam (incl. DeepNet-band + fee-aware guard), en de sessie-events die de config-segmenten markeren. fee_edge toont of de fees de edge opeten (edge=false ⇒ engine wordt strenger).'
     };
 
     // 6c) EXIT-BIJDRAGE + EQUITY-VERDELING (persistent — berekend uit learningLog, blijft na wallet-reset)
@@ -11333,10 +11390,14 @@ function marginAutoLeverage() {
         const wr = ex.length >= 5 ? ex.filter(t => (t.pnl || 0) > 0).length / ex.length : null;
         const reg = (typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null;
         const stressed = (typeof osirisStress !== 'undefined' && osirisStress.ts && (Date.now() - osirisStress.ts < 30 * 60000) && (osirisStress.regime === 'CRISIS' || osirisStress.variance > 0.02));
+        // FEE-AWARE: verhoog de hefboom NIET als de fees de edge opeten (hogere hefboom = meer
+        // notional = meer fees). Bij een negatieve fee-edge dwingen we het minimum af.
+        let _fe = null; try { _fe = osirisFeeEdge('margin'); } catch (e) {}
+        const _feeEatsEdge = !!(_fe && _fe.ready && !_fe.edge);
         let nv = marginLeverage;
-        if ((wr != null && wr < 0.4) || reg === 'volatiel' || stressed) nv = MARGIN_LEV_MIN;
+        if (_feeEatsEdge || (wr != null && wr < 0.4) || reg === 'volatiel' || stressed) nv = MARGIN_LEV_MIN;
         else if (wr != null && wr >= 0.6 && (reg === 'trending' || reg === 'kalm') && (typeof osirisStress === 'undefined' || osirisStress.regime === 'RUST')) nv = MARGIN_LEV_MAX;
-        if (nv !== marginLeverage) { marginLeverage = nv; marginState._levSet = {}; _marginLog('adaptation', `Osiris zet leverage -> ${nv}x (${reg || 'regime ?'}${wr != null ? `, winrate ${(wr * 100 | 0)}%` : ''}${stressed ? ', FSO-stress' : ''})`); }
+        if (nv !== marginLeverage) { marginLeverage = nv; marginState._levSet = {}; _marginLog('adaptation', `Osiris zet leverage -> ${nv}x (${_feeEatsEdge ? 'fee-guard: fees eten de edge' : (reg || 'regime ?')}${wr != null ? `, winrate ${(wr * 100 | 0)}%` : ''}${stressed ? ', FSO-stress' : ''})`); }
     } catch (e) {}
 }
 window.marginAutoLeverage = marginAutoLeverage;
@@ -11380,6 +11441,19 @@ async function marginTick() {
                 _chopReg = _hmmComp || _fsoSpan;
             } catch (e) {}
             if (_chopReg) MINP = Math.min(0.72, MINP + 0.08);   // strengere entry-drempel in chop
+            // (23-08) FEE-AWARE EDGE-GUARD: als de werkelijke winrate onder de winrate-ná-kosten
+            // zakt (de fees eten de edge op), handel dan NIET door op ruis. Osiris wordt strenger:
+            // hogere entry-drempel én lagere hefboom (minder notional = minder fees). Bij een grote
+            // achterstand alleen nog top-setups. Zodra de edge terugkeert, valt dit vanzelf weg.
+            let _feeGuard = null; try { _feeGuard = osirisFeeEdge('margin'); } catch (e) {}
+            const _feeNoEdge = !!(_feeGuard && _feeGuard.ready && !_feeGuard.edge);
+            let _feeMinP = 0;
+            if (_feeNoEdge) {
+                _feeMinP = Math.min(0.14, _feeGuard.deficit * 0.6 + 0.03);
+                MINP = Math.min(0.85, MINP + _feeMinP);
+                marginState.lastAction = `fee-guard: winrate ${(_feeGuard.actWR * 100 | 0)}% < break-even-ná-fees ${(_feeGuard.beWR * 100 | 0)}% — strenger (drempel ${(MINP * 100 | 0)}%, hefboom↓)`;
+                try { _marginLog('adaptation', `Fee-aware guard actief: fees eten de edge (winrate ${(_feeGuard.actWR * 100 | 0)}% vs ${(_feeGuard.beWR * 100 | 0)}% nodig ná fees @ ${_feeGuard.leverage.toFixed(1)}x). Entry-drempel → ${(MINP * 100 | 0)}%, hefboom naar minimum, alleen nog top-setups.`); } catch (e) {}
+            }
             // FSO-PAUZE (19-08, versoepeld op verzoek): alleen nog een harde stop bij ECHTE
             // CRISIS. De oude SPANNING+variance>0.02-clausule sloot margin bijna permanent af
             // (variance zat doorgaans al boven 0.02 in SPANNING) - spot heeft sowieso geen
@@ -11392,6 +11466,8 @@ async function marginTick() {
             if (marginState.positions.some(p => p.symbol === binSym)) continue;                 // al open
             if (_marginLastEntry[sym] && (now - _marginLastEntry[sym]) < 30000) continue;        // cooldown verkort 60s -> 30s (vaker traden dan spot)
             if (m.bestProb < MINP) continue;
+            // fee-guard: bij een grote edge-achterstand alleen nog top-setups (kans ≥ 70%)
+            if (_feeNoEdge && _feeGuard.deficit > 0.10 && m.bestProb < 0.70) { marginState.lastAction = `${sym} overgeslagen: fee-guard (edge-tekort ${(_feeGuard.deficit * 100 | 0)}pt, kans ${(m.bestProb * 100 | 0)}% < 70%)`; continue; }
             // adaptieve predict-poort: blokkeert tegengestelde trades zodra de voorspeller vertrouwd is
             try { if (typeof osirisPredictGate === 'function') { const _g = osirisPredictGate(sym, m.bestSide); if (!_g.allow) { marginState.lastAction = `${sym} overgeslagen: ${_g.reason}`; continue; } } } catch (e) {}
             // trend-alignment veto: geen counter-trend margin-entry bij een sterke trend
@@ -11435,7 +11511,8 @@ async function marginTick() {
             const perCap = MARGIN_PER_TRADE_EXPO * (0.6 + 0.9 * _opp);                             // 0.6×..1.5× de basis afhankelijk van opportunity
             const perTradeExpo = Math.min(perCap * _taSizeMul, availExpo);                          // per trade max notional (× equity), licht bijgesteld door Timing-Agent
             // CHOP: verlaag de hefboom voor DEZE entry naar het minimum (minder gevoelig voor ruis).
-            const entryLev = _chopReg ? (typeof MARGIN_LEV_MIN !== 'undefined' ? Math.min(marginLeverage, MARGIN_LEV_MIN) : Math.min(marginLeverage, 2)) : marginLeverage;
+            let entryLev = _chopReg ? (typeof MARGIN_LEV_MIN !== 'undefined' ? Math.min(marginLeverage, MARGIN_LEV_MIN) : Math.min(marginLeverage, 2)) : marginLeverage;
+            if (_feeNoEdge) entryLev = Math.min(entryLev, (typeof MARGIN_LEV_MIN !== 'undefined' ? MARGIN_LEV_MIN : 2));   // fee-guard: lagere hefboom = minder notional = minder fees
             const sizePct = perTradeExpo / entryLev;                                               // bijhorende marge-fractie
             if (sizePct < 0.03) { marginState.lastAction = `exposure-cap bereikt (${(curNotionalPct * 100 | 0)}% / ${(effMaxExpo * 100 | 0)}% notional)`; continue; }
             const marginUSD = sizingBase * sizePct;
@@ -12187,6 +12264,9 @@ function osirisShadowTick() {
             // (23-08) TIMING-AGENT soft-gate voor spot: stel uit tot de timing gunstig staat + size-tilt.
             let _taSizeMulSpot = 1;
             try { if (typeof osirisTimingGate === 'function') { const _tg = osirisTimingGate(sym, p.side); _taSizeMulSpot = _tg.sizeMult || 1; if (!_tg.allow) { osirisState.skip[sym] = `TA: ${_tg.reason}`; continue; } } } catch (e) {}
+            // FEE-AWARE guard (spot): als de netto-edge negatief is (fees eten 'm op), alleen nog
+            // sterke setups toelaten zodat Osiris niet op ruis blijft handelen.
+            try { const _fe = osirisFeeEdge('spot'); if (_fe && _fe.ready && !_fe.edge && _fe.deficit > 0.06 && (p.prob != null ? p.prob : 1) < 0.66) { osirisState.skip[sym] = `fee-guard: netto-edge negatief (winrate ${(_fe.actWR * 100 | 0)}% < ${(_fe.beWR * 100 | 0)}%), alleen sterke setups`; continue; } } catch (e) {}
             const m = neoMultiState.markets[sym];
             if (!m || m.lastPrice == null) { osirisState.skip[sym] = 'geen verse prijs (multi-engine?)'; continue; }
             // INGREEP 1 - DeepNet-poort: alleen instappen als de per-markt DeepNet het eens
@@ -13993,7 +14073,11 @@ function updateKpiStrip() {
     if (wins.length >= 5 && losses.length >= 5) {
         const W = wins.reduce((a, b) => a + b, 0) / wins.length;
         const L = losses.reduce((a, b) => a + b, 0) / losses.length;
-        set('kpi-breakeven', `${(L / (W + L) * 100).toFixed(0)}%`);
+        const be = L / (W + L);
+        // spot pnl is netto \u2192 be is al fee-inclusief; toon of er nog edge is
+        let edgeTxt = '';
+        try { const totw = (walletState.wins || 0), tott = totw + (walletState.losses || 0); if (tott >= 8) { const awr = totw / tott; edgeTxt = ` <span style="font-size:0.7em; color:${awr > be ? '#14f195' : '#ff8a94'};">${awr > be ? '\u2713 edge' : '\u2717 fees'}</span>`; } } catch (e) {}
+        set('kpi-breakeven', `${(be * 100).toFixed(0)}%${edgeTxt}`);
     } else {
         set('kpi-breakeven', '\u2014');
     }
@@ -14027,11 +14111,13 @@ function osirisSpotSessionMetrics() {
     const perMkt = _mkPerMkt(); let gains = 0, losses = 0, net = 0, wins = 0, lose = 0, feeSum = 0;
     entries.forEach(e => { const m = perMkt[e.market] ? e.market : 'BTC'; perMkt[m].opened++; feeSum += Math.abs(e.notionalEUR || 0) * cost / 2; });
     exits.forEach(t => { const pa = (typeof t.pnlAmount === 'number') ? t.pnlAmount : 0; net += pa; if (pa >= 0) { gains += pa; wins++; } else { losses += pa; lose++; } const m = perMkt[t.market] ? t.market : 'BTC'; perMkt[m].pnl += pa; pa >= 0 ? perMkt[m].wins++ : perMkt[m].losses++; feeSum += Math.abs(t.notionalEUR || 0) * cost / 2; });
+    // spot-P/L (pnlAmount) is al NETTO (fees+slippage afgetrokken bij close). De sessiekosten
+    // zijn dus al IN de net-P/L verwerkt; bruto = net + kosten (informatief).
     return {
         wallet: 'spot', trades: exits.length, wins, losses: lose, winratePct: exits.length ? +(wins / exits.length * 100).toFixed(1) : null,
-        sessionGains: +gains.toFixed(2), sessionLosses: +losses.toFixed(2), sessionNet: +net.toFixed(2),
+        sessionGains: +gains.toFixed(2), sessionLosses: +losses.toFixed(2), sessionNet: +net.toFixed(2), sessionGross: +(net + feeSum).toFixed(2),
         realisedPnL: +(walletState.realizedPnL || 0).toFixed(2), unrealisedPnL: +(((typeof getUnrealizedPnL === 'function') ? getUnrealizedPnL() : 0)).toFixed(2),
-        sessionCost: +feeSum.toFixed(2), equity: (typeof getEquity === 'function') ? +getEquity().toFixed(2) : null, startEquity: walletState.startingCapital,
+        sessionCost: +feeSum.toFixed(2), costInPnl: true, equity: (typeof getEquity === 'function') ? +getEquity().toFixed(2) : null, startEquity: walletState.startingCapital,
         runtimeMs: startMs ? Date.now() - startMs : null, perMarkt: perMkt
     };
 }
@@ -14046,11 +14132,15 @@ function osirisMarginSessionMetrics() {
     cl.forEach(t => { const pa = (typeof t.pnlUSD === 'number') ? t.pnlUSD : 0; net += pa; if (pa >= 0) { gains += pa; wins++; } else { losses += pa; lose++; } const m = perMkt[t.sym] ? t.sym : 'BTC'; perMkt[m].pnl += pa; pa >= 0 ? perMkt[m].wins++ : perMkt[m].losses++; const notional = (t.entryPrice && t.qty) ? t.entryPrice * t.qty : 0; feeSum += Math.abs(notional) * cost / 2; });
     const openUnreal = (typeof marginState !== 'undefined' && marginState.positions) ? marginState.positions.reduce((a, p) => a + (p.uPnl || 0), 0) : 0;
     const eq = (typeof marginEquity === 'function') ? marginEquity() : ((typeof marginState !== 'undefined') ? marginState.equity : 0);
+    // margin-P/L uit marginClose is BRUTO (geen fees). Netto = bruto − geschatte handelskosten.
+    const grossNet = net; const netAfterCost = grossNet - feeSum;
+    // exchange-waarheid als futures-keys verbonden zijn (equity − baseline)
+    let exchangeNet = null; try { if (typeof marginState !== 'undefined' && marginState.equitySource === 'exchange') { const base = (marginState.exchangeStart != null) ? marginState.exchangeStart : marginState.startEquity; if (base != null) exchangeNet = +(eq - base).toFixed(2); } } catch (e) {}
     return {
         wallet: 'margin', trades: cl.length, wins, losses: lose, winratePct: cl.length ? +(wins / cl.length * 100).toFixed(1) : null,
-        sessionGains: +gains.toFixed(2), sessionLosses: +losses.toFixed(2), sessionNet: +net.toFixed(2),
+        sessionGains: +gains.toFixed(2), sessionLosses: +losses.toFixed(2), sessionGross: +grossNet.toFixed(2), sessionNet: +netAfterCost.toFixed(2),
         realisedPnL: +((typeof marginState !== 'undefined' ? marginState.realizedPnL : 0) || 0).toFixed(2), unrealisedPnL: +openUnreal.toFixed(2),
-        sessionCost: +feeSum.toFixed(2), equity: +(+eq).toFixed(2), startEquity: (typeof marginState !== 'undefined' ? (marginState.walletBalance || marginState.equity) : null),
+        sessionCost: +feeSum.toFixed(2), costInPnl: false, equity: +(+eq).toFixed(2), exchangeNet, startEquity: (typeof marginState !== 'undefined' ? (marginState.walletBalance || marginState.equity) : null),
         runtimeMs: startMs ? Date.now() - startMs : null, perMarkt: perMkt
     };
 }
