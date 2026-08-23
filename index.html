@@ -603,7 +603,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 #site-plexus,#starmap{display:none!important;}
 .app{position:relative;z-index:1;}
 /* 3) neuraal net beter zichtbaar: groter canvas + subtiele reactor-glow eronder */
-#neo-net-canvas-big{height:520px!important;min-height:520px!important;
+#neo-net-canvas-big{height:740px!important;min-height:740px!important;
   background:radial-gradient(700px 340px at 50% 40%,rgba(0,60,90,0.28),transparent 70%)!important;border-radius:14px;}
 #neo-net-canvas{height:220px!important;}
 /* 2) WALLET nieuw design (niks weggelaten, alleen restyle) */
@@ -787,8 +787,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
       <div class="hudframe mb" style="margin-top:18px;">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
-        <canvas id="neo-net-canvas-big" style="width:100%; height:700px; display:block; position:relative; z-index:1;"></canvas>
-        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs &rarr; integration &rarr; FSO &rarr; timing-agent &rarr; cores &rarr; osiris &rarr; decision &rarr; capital &rarr; output</div></div>
+        <canvas id="neo-net-canvas-big" style="width:100%; height:740px; display:block; position:relative; z-index:1;"></canvas>
+        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs (data + FSO) &rarr; integration &rarr; cores &rarr; osiris &rarr; TA &rarr; decision &rarr; capital &rarr; output</div></div>
         <div class="net-out"><div class="l">Osiris decision</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
       </div>
 
@@ -1972,7 +1972,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260823-jarvis10-nnfix"></script>
+<script src="app.js?v=20260823-jarvis11-nnspace"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
