@@ -11,7 +11,7 @@
   gtag('config', 'G-0KTV089ZWE');
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OSIRIS — interface concept</title>
+<title>OSIRIS — Deepnet KPX</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -611,7 +611,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
 <div class="app">
   <div class="top">
-    <div class="brand">OSIRIS<small>AUTONOMOUS MULTI-BRAIN · TESTNET</small></div>
+    <div class="brand">OSIRIS<small>AUTONOMOUS ARTIFICIAL INTELLIGENCE · TESTNET</small></div>
     <div class="spacer"></div>
     <div class="pill"><span class="dot"></span> bot actief</div>
     <div class="pill"><span class="dot cyan"></span> worker online</div>
@@ -635,12 +635,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
     <!-- OVERVIEW -->
     <section class="tab show" id="tab-about">
-      <div class="eyebrow">&mdash; The Autonomous Engine</div>
+      <div class="eyebrow" style="color:var(--cyan);">&mdash; Osiris Deepnet KPX &middot; autonomous artificial intelligence</div>
       <div class="split-grid" style="margin-top:10px;">
         <div>
           <h1 class="hero-h1">Osiris trades.<br><em>And learns</em> from every trade.</h1>
-          <p class="hero-lead">Osiris is a deterministic trading engine that scans the market every ten seconds, weighs and smooths its probabilities, and protects every open position with a stack of exit mechanisms. It is built around a single idea: a bot should stay honest about its own certainty. So every closed trade flows back into a calibration table that compares what the model predicted against what actually happened, and the whole system is nudged by that truth.</p>
-          <p class="about-para">What comes out is an engine that is calibrated rather than confident &mdash; a raw score is only trusted to the degree its measured win rate earns. Positions are never left hanging: profit-lock, time-stop and harvest logic each close a thesis when its edge has played out. Entries are cost-aware, with fees and slippage priced into the maths before a trade is ever taken, and regime-gated, pausing when the market goes quiet or dead rather than forcing action into noise. On top of that sits a Quantum Market Tracking layer &mdash; UOTAM node timing plus four proprietary meters, live on every cycle &mdash; and a self-learning core whose adaptive weights keep shifting with the most recent trades.</p>
+          <p class="hero-lead">A self-directed trading intelligence for BTC, ETH and SOL. It scans the market every ten seconds, weighs its own probabilities, and guards every open position &mdash; on the Binance spot <em>and</em> futures testnets, with fake capital.</p>
+          <p class="about-para">One principle drives it: <b style="color:var(--cyan)">stay honest about your own certainty</b>. Every closed trade flows back into a calibration table that checks what the model predicted against what really happened, and the whole system is nudged by that truth. A raw score is trusted only as far as its measured win rate earns. Nothing changes silently &mdash; every self-adjustment is written to a live feed.</p>
         </div>
         <div id="about-eye-wrap" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div class="eyebrow" style="margin-bottom:8px;color:var(--cyan);text-align:center;">&mdash; Autonomous BTC / ETH / SOL Intelligence</div>
@@ -654,39 +654,41 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <p class="about-para" style="margin-top:6px;">Osiris controls a live trading engine and contains highly sensitive tools (API-key fields, live-trading toggles, wallet controls and full-data exports). For that reason <b>access to this dashboard is logged</b>. When you open or use Osiris, it may record: a per-device identifier and device profile (operating system, browser, device type, screen, timezone, language), your IP address and approximate location (city/country) via an IP lookup service, and &mdash; only if you grant the browser permission &mdash; your precise location. It also records active engagement time per device and which controls you click, with sensitive actions flagged. This log is kept for the owner's security review (stored locally and in the owner's private Supabase; optionally emailed to the owner on sensitive events). It is used <b>solely</b> to protect this application and is never sold or shared. If you do not consent to this, please close the page. API keys are never logged or exported.</p>
       </div>
 
-      <!-- AUTONOME TOOLS: eigen, herkenbare stijl (Osiris stuurt deze zélf bij) -->
-      <div class="eyebrow" style="margin-top:34px; color:#14f195;">&mdash; Autonome tools &middot; Osiris stelt deze zelf bij</div>
-      <h1 class="h" style="margin-top:6px;">De gereedschapskist</h1>
-      <p class="hero-lead" style="max-width:none;">Elk van deze onderdelen is een <b style="color:#14f195;">actief bijgestuurde tool</b>: Osiris meet hun resultaat out-of-sample en past hun invloed, drempels of allocatie autonoom aan. Ze dragen een AUTONOOM-label omdat ze zichzelf corrigeren.</p>
+      <!-- AUTONOMOUS TOOLS -->
+      <div class="eyebrow" style="margin-top:34px; color:#14f195;">&mdash; Autonomous tools &middot; Osiris tunes these itself</div>
+      <h1 class="h" style="margin-top:6px;">The toolkit</h1>
+      <p class="hero-lead" style="max-width:none;">Each one is <b style="color:#14f195;">self-correcting</b>: Osiris scores its result out-of-sample and shifts its weight, thresholds or allocation on its own. That is what the AUTONOMOUS tag means.</p>
       <div class="toolgrid">
-        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Predict</h4><p>Gekalibreerde richting-voorspeller per munt. Elke voorspelling wordt out-of-sample gescoord; de Governor bepaalt hoeveel stem hij krijgt.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Governor</h4><p>Zelf-governance: geeft elke tool een trust-gewicht dat meebeweegt met hit-rate en Brier-score. Zwak = afgeschaald, sterk = opgeschaald.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Kinetic breakpoint</h4><p>Kinetische energie (PE/KE/Loading/Shock) voorspelt het dichtstbijzijnde breakpoint, richting en ETA per markt.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>FSO-opportunity</h4><p>Onderscheidt per munt de échte bliksem-kans; verdeelt de wallet-equity autonoom naar de markt waar een grote beweging op komst is.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Guardian</h4><p>Data-integriteit: betrapt bevroren feeds en prijs-divergentie en pauzeert entries voordat Osiris op dode data handelt.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Risk-breaker</h4><p>Portfolio-breed: drawdown-, dagverlies- en exposure-limieten die entries automatisch pauzeren.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Margin-engine</h4><p>Futures met echte testnet-fills, autonome leverage (3&ndash;5&times;) en een notional exposure-cap die bij drawdown terugschaalt.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>DeepNet-poort</h4><p>Entry-poort en live exit-sturing die Osiris zelf aan/uit zet op walk-forward-precisie &mdash; met stall-bescherming zodat trades niet stilvallen.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>RL exit-agent</h4><p>Q-learning over duizenden scenario&rsquo;s (HOLD/SLUIT/TRAIL/SCHAAL) stuurt de discretionaire exit-timing en herijkt de time-stop.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOOM</span><h4>Zelf-review</h4><p>Elke 5 gesloten trades weegt Osiris de recente data af en stelt exposure en drempels bij &mdash; met de redenering opgeslagen en naleesbaar.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Predict</h4><p>Calibrated per-coin direction forecaster. Every call is scored out-of-sample; the Governor decides how much of a vote it gets.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Governor</h4><p>Self-governance. Gives every tool a trust weight that tracks its hit-rate and Brier score. Weak &rarr; scaled down, strong &rarr; scaled up.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Timing-Agent</h4><p>Bundles NN, node countdown, FSO, RL, confluence, volume, fib &amp; ETA into one readiness score for the entry moment. Live + shadow, each component self-weighted.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Timing shadow &amp; backtest</h4><p>A parallel timing agent plus a scenario backtest over ~600 candles. Thousands of entry scenarios seed the calibration; the shadow can promote itself once proven.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>FSO zone-calibration</h4><p>Stress zones (spanning / crisis / variance / correlation) recalibrate &mdash; but only after a shadow backtest and a live confirmation agree, in small bounded steps.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Kinetic breakpoint</h4><p>Treats stored asynchrony as potential energy and the move as kinetic; predicts the nearest breakpoint, direction and ETA per coin.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>FSO opportunity</h4><p>Finds the real "lightning" chance per coin and tilts wallet equity toward the market where a big move is building.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>DeepNet gate</h4><p>Entry gate and live exit steering that Osiris switches on/off by walk-forward precision &mdash; with stall-protection so trades never freeze.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>RL exit-agent</h4><p>Tabular Q-learning over thousands of scenarios (HOLD / CLOSE / TRAIL / SCALE) steers discretionary exits and re-tunes the time-stop.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Guardian &amp; Risk</h4><p>Guardian catches frozen feeds and price divergence; Risk enforces drawdown, daily-loss and exposure limits &mdash; both pause entries before harm.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Margin engine</h4><p>Futures with real testnet fills, autonomous leverage (3&ndash;5&times;) and a notional exposure cap that scales back on drawdown.</p></div>
+        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Self-review</h4><p>Every 5 closed trades Osiris re-weighs recent data and adjusts exposure and thresholds &mdash; with the reasoning saved and readable.</p></div>
       </div>
 
-      <!-- KERNPRINCIPES / OPTIES: aparte, rustiger stijl (eigenschappen, geen zelfsturende tools) -->
-      <div class="eyebrow" style="margin-top:34px; color:var(--cyan);">&mdash; Kernprincipes &amp; opties</div>
-      <h1 class="h" style="margin-top:6px;">Waar Osiris op rust</h1>
-      <p class="hero-lead" style="max-width:none;">Dit zijn eigenschappen en instellingen van de engine &mdash; het fundament, geen zelfsturende tools. Daarom een bewust andere, rustiger stijl.</p>
+      <!-- CORE PRINCIPLES -->
+      <div class="eyebrow" style="margin-top:34px; color:var(--cyan);">&mdash; Core principles</div>
+      <h1 class="h" style="margin-top:6px;">What Osiris rests on</h1>
+      <p class="hero-lead" style="max-width:none;">The foundation beneath the self-steering tools &mdash; the traits that never stop applying.</p>
       <div class="engine-cards">
-        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Calibrated</h4><p>Ruwe score &rarr; gemeten win rate, continu bijgewerkt.</p></div>
-        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Protected</h4><p>Profit-lock, time-stop, harvest &mdash; geen these blijft hangen.</p></div>
-        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Cost-aware</h4><p>Fees en slippage zijn ingeprijsd in elke entry en exit.</p></div>
-        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Regime-gated</h4><p>Pauzeert entries wanneer de markt stil of dood wordt.</p></div>
-        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Quantum Market Tracking</h4><p>UOTAM node-timing + vier eigen meters, live elke cyclus.</p></div>
-        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Self-learning (L1)</h4><p>Adaptieve gewichten schuiven mee met de laatste 20+ trades.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Calibrated</h4><p>Raw score &rarr; measured win rate, updated continuously.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Protected</h4><p>Profit-lock, time-stop, harvest &mdash; no thesis is left hanging.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Cost-aware</h4><p>Fees and slippage priced into every entry and exit.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Regime-gated</h4><p>Pauses entries when the market goes quiet or dead.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Verified before it acts</h4><p>Calibration shifts only after shadow + live agree.</p></div>
+        <div class="ecard"><span class="corner corner-tl"></span><span class="corner corner-br"></span><h4>Transparent</h4><p>Every self-adjustment is logged; all data is exportable.</p></div>
       </div>
 
       <div class="eyebrow" style="margin-top:34px;">&mdash; The living network</div>
-      <h1 class="h" style="margin-top:6px;">OSIRIS DEEPNET &middot; Tesla vortex</h1>
-      <p class="hero-lead" style="max-width:none;">The same network that drives every decision, rendered as a spinning vortex. Sixteen live inputs sit on the outer ring and spiral inward through twisted layers &mdash; integration, the three cores, the Osiris mainbrain &mdash; down to a glowing decision core. Tesla-style arcs crackle from the strongest signals to the centre, and every node reads its real activation right now, so what you see is what the bot is thinking.</p>
+      <h1 class="h" style="margin-top:6px;">OSIRIS DEEPNET &middot; live vortex</h1>
+      <p class="hero-lead" style="max-width:none;">The exact network that drives every decision, rendered live. Sixteen inputs spiral inward through the layers &mdash; integration, FSO, the Timing-Agent, the three cores, the Osiris mainbrain, the decision and the spot/margin capital &mdash; down to one glowing output. Every node reads its <b style="color:var(--cyan)">real activation right now</b>: what you see is what the bot is thinking. Nothing here is decorative.</p>
       <div style="display:flex; justify-content:center; margin-top:10px;">
         <canvas id="about-radial" width="640" height="640" style="width:100%; max-width:560px; height:auto; aspect-ratio:1/1; display:block;"></canvas>
       </div>
@@ -694,20 +696,26 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
       <div class="eyebrow" style="margin-top:34px;">&mdash; Under the hood</div>
       <h1 class="h" style="margin-top:6px;">Four brains, one decision</h1>
-      <p class="hero-lead" style="max-width:none;">Osiris runs a four-brain hierarchy on one shared testnet wallet. Neo&nbsp;BTC is the proven trend and range-scalp engine at the centre &mdash; it trades Bitcoin on its own, evaluates both directions and places only the strongest setup, always reserving around fifteen percent of the wallet so it can never be fully sidelined. Alongside it, Neo&nbsp;ETH and Neo&nbsp;SOL run as their own cores, each with presets tuned to a more volatile coin: wider stops, its own calibration, and a best-side-plus-probability read that flows upward. The Osiris mainbrain sits over all three, weighing the cores against each other, splitting equity probability-weighted so capital goes into more but smaller trades, and routing execution &mdash; including sweep-entries placed at the expected liquidation level rather than blindly at market.</p>
+      <p class="hero-lead" style="max-width:none;">A four-brain hierarchy on one shared wallet. Neo&nbsp;BTC is the proven trend and range-scalp core, trading Bitcoin on its own and reserving ~15% of the wallet so it is never sidelined. Neo&nbsp;ETH and Neo&nbsp;SOL run as their own cores, tuned for more volatile coins. Above them the Osiris mainbrain weighs the three against each other, splits equity probability-weighted, and routes execution across both the <b style="color:var(--cyan)">spot</b> and <b style="color:#c792ea">margin</b> wallets.</p>
 
       <h1 class="h" style="margin-top:26px;">A stack that keeps learning</h1>
-      <p class="hero-lead" style="max-width:none;">The intelligence is layered, and each layer learns on top of the one beneath it. At the base, Level&nbsp;1 adaptive weights work counterfactually, measuring the win rate with versus without each signal over the recent trade history. Level&nbsp;2 is a logistic regression trained on standardized signals &mdash; real trades weighted eight times heavier than shadow ones &mdash; and Platt-calibrated so that sixty percent genuinely means about sixty percent. Level&nbsp;3 is Osiris DeepNet, a 16-14-8-1 feedforward network per market with backpropagation, ECE and monotonicity calibration, and a confidence meta-gate that can abstain when it is unsure.</p>
-      <p class="about-para">Around that core sit the supervisors. A Gaussian Hidden Markov Model (Baum-Welch plus Viterbi) labels the market as trending, volatile, compressed or calm, so the rest of the stack can behave differently in each regime. A shadow-backtest tuner runs coordinate-descent over target and stop on the live buffer, optimizing Sharpe like a lightweight Bayesian auto-tuner. And a reinforcement-learning exit agent &mdash; tabular Q-learning over HOLD, CLOSE, TRAIL and SCALE &mdash; replays thousands of scenarios in a background Web Worker, then advises live exits and re-calibrates the time-stop from what it has learned.</p>
+      <p class="hero-lead" style="max-width:none;">Three learning levels, each on top of the last. <b>L1</b> adaptive weights measure the win rate with vs. without each signal. <b>L2</b> is a Platt-calibrated logistic regression (real trades weighted 8&times; shadow ones). <b>L3</b> is Osiris DeepNet &mdash; a 16-14-8-1 network per coin with backprop, ECE calibration and a meta-gate that abstains when unsure.</p>
+      <p class="about-para">Supervisors sit around that core. A Gaussian HMM (Baum-Welch + Viterbi) labels the regime &mdash; trending, volatile, compressed or calm. A shadow-backtest tuner optimizes target/stop on the live buffer for Sharpe. An RL exit-agent replays thousands of scenarios in a Web Worker to steer exits. And every 5 trades a self-review re-weighs the recent data and adjusts exposure and thresholds &mdash; reasoning saved.</p>
+
+      <h1 class="h" style="margin-top:26px;">Timing the entry</h1>
+      <p class="hero-lead" style="max-width:none;">A dedicated Timing-Agent answers one question &mdash; <b style="color:var(--cyan)">is now a good moment?</b> It fuses NN, node countdown, FSO, RL, confluence, volume, fibonacci and ETA into a per-coin readiness score, each component self-weighted on its own out-of-sample hit-rate. A parallel <b>shadow</b> agent and a scenario backtest over ~600 candles pressure-test it; the shadow may promote itself to live once it proves out, re-checked every 5 trades.</p>
 
       <h1 class="h" style="margin-top:26px;">Reading systemic pressure</h1>
-      <p class="hero-lead" style="max-width:none;">Two newer layers watch the market as a system rather than a single price. The Financial Stress Oscillator (FSO), built on the UOTAM framework, splits BTC, ETH and SOL into per-coin oscillators &mdash; realized volatility, drawdown, volume shock, range and RSI extremity &mdash; plus cross-market correlation-break and dispersion, and tracks both the average stress and the variance between them across four time scales. On top of it, a kinetic breakpoint engine treats stored asynchrony and compression as potential energy and the move itself as kinetic energy, predicting the nearest breakpoint per coin and logging every prediction so its accuracy can be scored over time.</p>
+      <p class="hero-lead" style="max-width:none;">The Financial Stress Oscillator (UOTAM) watches the market as a <em>system</em>: per-coin volatility, drawdown, volume shock, range and RSI extremity, plus cross-market correlation-break and dispersion, tracked as average stress and variance across four time scales. Its danger zones don't stay fixed &mdash; they recalibrate, but only after a shadow backtest <em>and</em> a live confirmation agree. A kinetic breakpoint engine reads stored energy to predict the nearest breakpoint, direction and ETA per coin.</p>
 
       <h1 class="h" style="margin-top:26px;">Sixteen live inputs, per market</h1>
-      <p class="hero-lead" style="max-width:none;">Every cycle the network reads sixteen signals for each coin, from the four raw meters to a per-market sentiment score blended from Fear &amp; Greed, funding rate and the long/short ratio. In order, those inputs are volume-flow momentum (VFM), the efficiency ratio (ER), delta balance (DB) and realized volatility (CHAOS); momentum, the volume z-score, RSI and EMA; the candlestick-pattern read (CNN), Fibonacci confluence and node timing (NN); the overall confluence score, funding and open interest, the long/short ratio, BTC correlation, and finally the per-market sentiment blend.</p>
+      <p class="hero-lead" style="max-width:none;">Each cycle the network reads sixteen signals per coin: volume-flow momentum (VFM), efficiency ratio (ER), delta balance (DB), realized volatility (CHAOS); momentum, volume z-score, RSI, EMA; candlestick pattern (CNN), Fibonacci confluence, node timing (NN); the confluence score, funding, long/short ratio, BTC correlation, and a per-market sentiment blend.</p>
+
+      <h1 class="h" style="margin-top:26px;">Memory, cloud &amp; sessions</h1>
+      <p class="hero-lead" style="max-width:none;">Osiris keeps its own history. Learnings, calibration and models persist locally and sync to a private cloud (Supabase); a headless worker can keep the engine alive. Every run is archived per wallet &mdash; P/L, runtime, trades, end equity, cost and positions opened &mdash; so sessions can be compared, and every dataset is exportable, categorized, in one click.</p>
 
       <h1 class="h" style="margin-top:26px;">The feedback loop</h1>
-      <p class="hero-lead" style="max-width:none;">Nothing here is static. Every closed trade flashes back through the network, feeding the calibration table, the adaptive weights, the entry thresholds, the exit timing and the target and stop. The bot tunes itself &mdash; entry probability, harvest timing, per-regime holds and the time-stop all re-calibrate autonomously from its own recent results, the detected regime and the RL agent's learnings &mdash; and every adjustment it makes is written to the live <b style="color:var(--cyan)">Autonomous adjustments</b> feed so nothing changes silently.</p>
+      <p class="hero-lead" style="max-width:none;">Nothing is static. Every closed trade flashes back through the network &mdash; feeding the calibration table, the adaptive weights, the entry thresholds, the exit timing and the target/stop. Osiris re-tunes itself from its own recent results, the detected regime and the RL agent's learnings, and writes every change to the live <b style="color:var(--cyan)">Autonomous adjustments</b> feed. Nothing changes silently.</p>
 
       <div class="panel" style="margin-top:24px;border-color:rgba(255,182,39,0.35);background:rgba(255,182,39,0.04);"><div class="plabel" style="color:var(--amber)">&#9888; Not financial advice</div><div style="font-size:0.68rem;line-height:1.9;color:var(--dim)">Osiris is an <b style="color:var(--amber)">experimental, educational project</b> running entirely on the Binance <b style="color:var(--cyan)">Spot and Futures testnets</b> with fake capital. Nothing in this app is financial, investment or trading advice. Its numbers, probabilities and decisions are the output of a self-learning model and can be wrong. Never trade real money based on this bot without your own research; trading carries a real risk of loss.</div></div>
     </section>
@@ -774,7 +782,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="hudframe mb" style="margin-top:18px;">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
         <canvas id="neo-net-canvas-big" style="width:100%; height:700px; display:block; position:relative; z-index:1;"></canvas>
-        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs &rarr; integration &rarr; cores &rarr; osiris &rarr; output</div></div>
+        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs &rarr; integration &rarr; FSO &rarr; timing-agent &rarr; cores &rarr; osiris &rarr; decision &rarr; capital &rarr; output</div></div>
         <div class="net-out"><div class="l">Osiris decision</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
       </div>
 
@@ -888,17 +896,25 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
     <!-- WALLET -->
     <section class="tab" id="tab-wallet">
-      <div class="eyebrow">Kapitaal</div><h1 class="h">WALLET &amp; POSITIES</h1>
+      <div class="eyebrow">Capital</div><h1 class="h">WALLET AND POSITIONS</h1>
 
       <div class="grid mb" style="grid-template-columns:1fr 1.15fr 1fr; gap:14px;">
-        <div class="panel"><div class="plabel">Kern-metrics</div>
+        <div class="panel"><div class="plabel">Core metrics &middot; spot</div>
           <div class="kpi-strip" style="border:1px solid var(--line); margin-top:8px;">
             <div class="kpi"><small>P/L</small><b id="kpi-pnl">&mdash;</b></div>
             <div class="kpi"><small>win rate</small><b id="kpi-winrate">&mdash;</b></div>
             <div class="kpi"><small>cal. edge</small><b id="kpi-cal" style="color:var(--amber);">&mdash;</b></div>
-            <div class="kpi" title="De winrate die je minimaal nodig hebt om quitte te spelen, uit de gemiddelde winst/verlies-verhouding van gesloten trades."><small>break-even</small><b id="kpi-breakeven" style="color:var(--cyan);">&mdash;</b></div>
+            <div class="kpi" title="Minimum win rate needed to break even, from the average win/loss ratio of closed trades."><small>break-even</small><b id="kpi-breakeven" style="color:var(--cyan);">&mdash;</b></div>
             <div class="kpi"><small>alloc</small><b id="kpi-alloc">&mdash;</b></div>
             <div class="kpi"><small>equity</small><b id="hub-equity">&mdash;</b><span id="hub-equity-pct" style="display:none;"></span></div>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:8px;">
+            <div class="meter"><div class="l">session net</div><div class="v" id="sp-ses-net" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter"><div class="l">session gains</div><div class="v" id="sp-ses-gains" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter"><div class="l">session losses</div><div class="v" id="sp-ses-losses" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter"><div class="l">equity realised</div><div class="v" id="sp-eq-real" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter"><div class="l">equity unrealised</div><div class="v" id="sp-eq-unreal" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter" title="Total session cost: fees + slippage (round-trip)."><div class="l">session cost</div><div class="v" id="sp-ses-cost" style="font-size:0.8rem;">&mdash;</div></div>
           </div>
           <span id="wallet-realized-pnl" style="display:none;"></span><span id="wallet-unrealized-pnl" style="display:none;"></span>
           <div class="flex gap wrap" style="margin-top:12px;">
@@ -907,9 +923,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           </div>
           <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 14px; align-items:baseline; font-family:'JetBrains Mono',monospace; font-size:0.62rem; margin-top:14px;">
             <span style="color:var(--dim);">Runtime</span><b id="wallet-runtime" style="color:var(--cyan); letter-spacing:1px;">--:--:--</b>
-            <span style="color:var(--dim);">Laatste actie</span><span id="wallet-last-action" style="color:#eaffff; line-height:1.4;">nog geen acties</span>
+            <span style="color:var(--dim);">Last action</span><span id="wallet-last-action" style="color:#eaffff; line-height:1.4;">no actions yet</span>
           </div>
-          <div class="mock-title" style="margin:12px 0 5px;">Live feed &middot; laatste trades</div>
+          <div class="mock-title" style="margin:12px 0 5px;">Live feed &middot; latest trades</div>
           <div id="wallet-feed" style="max-height:120px; overflow-y:auto; font-family:'JetBrains Mono',monospace; font-size:0.56rem; line-height:1.75; background:rgba(0,0,0,0.45); border:1px solid rgba(0,217,255,0.15); border-radius:6px; padding:7px 9px;"><span style="color:var(--dim);">Wacht op eerste trade...</span></div>
         </div>
 
@@ -940,7 +956,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="hudframe mb">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
         <canvas id="neo-net-canvas-wal" style="width:100%; height:460px; display:block; position:relative; z-index:1;"></canvas>
-        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs &rarr; integration &rarr; cores &rarr; osiris &rarr; output</div></div>
+        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs &rarr; integration &rarr; FSO &rarr; timing-agent &rarr; cores &rarr; osiris &rarr; decision &rarr; capital &rarr; output</div></div>
         <div class="net-out"><div class="l">Osiris decision</div><div class="v"><span id="neo-net-out-wal">&mdash;</span></div></div>
       </div>
 
@@ -967,12 +983,28 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div id="pending-orders-list" style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--tx); margin-top:6px;"><span style="color:var(--dim);">Geen pending orders</span></div>
       </div>
 
-      <div class="panel mb"><div class="plabel">Gesloten posities &middot; huidige sessie</div>
+      <div class="panel mb"><div class="plabel">Closed positions &middot; current session</div>
         <div class="table-wrap scrollable" style="max-height:240px; overflow-y:auto; margin-top:6px;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Opening</th><th style="text-align:left; padding:6px;">Sluiting</th><th>Type</th><th>Markt</th><th>Side</th><th>Prijs</th><th>Size</th><th>Alloc</th><th>P/L</th><th>Fill</th><th style="text-align:left;">Reden</th></tr></thead>
+            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Opened</th><th style="text-align:left; padding:6px;">Closed</th><th>Type</th><th>Market</th><th>Side</th><th>Price</th><th>Size</th><th>Alloc</th><th>P/L</th><th>Fill</th><th style="text-align:left;">Reason</th></tr></thead>
             <tbody id="history-body"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- ===================== PREVIOUS SESSIONS OVERVIEW (spot + margin) ===================== -->
+      <div class="panel mb" style="border-color:rgba(0,217,255,0.3);">
+        <div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>&#128337; Previous sessions overview &mdash; compare past runs</span><button type="button" onclick="try{downloadSessions();}catch(e){}" class="btn btn-ghost btn-mini" style="color:var(--cyan); border-color:rgba(0,217,255,0.4); font-size:0.6rem;">&#8681; Download sessions</button></div>
+        <div class="note" style="margin-top:4px;">Archived automatically on <b>Stop bot</b> and <b>Reset</b>. Each card shows P/L, runtime, trades (win/loss), end equity, session cost and how many BTC/ETH/SOL positions were opened.</div>
+        <div class="grid g-2" style="margin-top:10px;">
+          <div>
+            <div class="mock-title" style="color:var(--cyan); margin-bottom:4px;">SPOT sessions</div>
+            <div id="sessions-spot" style="max-height:280px; overflow-y:auto; background:rgba(0,0,0,0.45); border:1px solid rgba(0,217,255,0.15); border-radius:6px; padding:8px 10px; font-family:'JetBrains Mono',monospace;"><span style="color:var(--dim); font-size:0.6rem;">No archived sessions yet.</span></div>
+          </div>
+          <div>
+            <div class="mock-title" style="color:#c792ea; margin-bottom:4px;">MARGIN sessions</div>
+            <div id="sessions-margin" style="max-height:280px; overflow-y:auto; background:rgba(0,0,0,0.45); border:1px solid rgba(199,146,234,0.18); border-radius:6px; padding:8px 10px; font-family:'JetBrains Mono',monospace;"><span style="color:var(--dim); font-size:0.6rem;">No archived sessions yet.</span></div>
+          </div>
         </div>
       </div>
 
@@ -990,7 +1022,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         </div>
         <div class="mono" style="font-size:0.56rem; color:#7d6a99; margin-top:4px;">Aparte engine, dezelfde 3 markten &amp; brein-signalen &mdash; echte long &eacute;n short met leverage. Vereist futures-testnet-keys.</div>
 
-        <div class="panel" style="margin-top:12px;"><div class="plabel" style="color:#c792ea;">Kern-metrics &middot; margin</div>
+        <div class="panel" style="margin-top:12px;"><div class="plabel" style="color:#c792ea;">Core metrics &middot; margin</div>
           <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:8px;">
             <div class="meter"><div class="l">P/L</div><div class="v" id="m-pnl" style="color:#c792ea;">&#8366;0.00</div></div>
             <div class="meter"><div class="l">win rate</div><div class="v" id="m-winrate">&mdash;</div></div>
@@ -1001,7 +1033,15 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
             <div class="meter"><div class="l">exposure</div><div class="v" id="m-exposure" style="font-size:0.82rem;">&mdash;</div></div>
             <div class="meter"><div class="l">&nbsp;</div><div class="v" style="font-size:0.7rem; color:var(--dim);">&nbsp;</div></div>
           </div>
-          <div style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim);">Runtime <span id="m-runtime" style="color:#c792ea;">00:00:00</span> &middot; laatste actie: <span id="m-last-action">&mdash;</span></div>
+          <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:8px;">
+            <div class="meter"><div class="l">session net</div><div class="v" id="m-ses-net" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter"><div class="l">session gains</div><div class="v" id="m-ses-gains" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter"><div class="l">session losses</div><div class="v" id="m-ses-losses" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter"><div class="l">equity realised</div><div class="v" id="m-eq-real" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter"><div class="l">equity unrealised</div><div class="v" id="m-eq-unreal" style="font-size:0.8rem;">&mdash;</div></div>
+            <div class="meter" title="Total session cost: fees + slippage (round-trip)."><div class="l">session cost</div><div class="v" id="m-ses-cost" style="font-size:0.8rem;">&mdash;</div></div>
+          </div>
+          <div style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim);">Runtime <span id="m-runtime" style="color:#c792ea;">00:00:00</span> &middot; last action: <span id="m-last-action">&mdash;</span></div>
         </div>
 
         <div class="grid g-2 mb" style="margin-top:12px;">
