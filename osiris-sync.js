@@ -29,6 +29,7 @@ const OSIRIS_STATE_KEYS = [
     'osirisFSOLog', 'osirisKineticLog', 'osirisRLModel', 'osirisMarginState', 'osirisMetaState', 'osirisSelfReview',
     'osirisDeepNetDir', 'osirisPredictInv',        // inversie-autopiloot staat (DeepNet + Predict)
     'osirisTiming', 'osirisTimingShadow', 'osirisTimingBT',   // Timing-Agent (live + schaduw + scenario-backtest): gewichten + hitrates + resolves
+    'osirisFSOCal', 'osirisFSOShadow',             // FSO zone-kalibratie (live drempels) + shadow-backtest voorstellen
     'osirisJournal', 'osirisLLMfeed',              // G: journaal + LLM/vertaler-feed (leesbare neerslag)
     'osirisLiveEnabled', 'multiEngineRunning',
     'botIsRunning', 'botStartTime'
@@ -78,13 +79,26 @@ window.osirisSyncInit = osirisSyncInit;
 //   -- E-mail gratis: zet een Database Webhook / trigger op deze tabel die een gratis
 //   --   mailprovider (bijv. Resend free tier) aanroept — sleutels blijven server-side in Supabase.
 // ------------------------------------------------------------------
+let _auditDead = false, _auditFails = 0;
 async function osirisAuditPush(rows) {
     try {
-        if (!_sb || !Array.isArray(rows) || !rows.length) return;
-        await _sb.from('osiris_access_log').insert(rows);
-    } catch (e) { /* stil: tabel/policy nog niet aangemaakt, of offline */ }
+        if (_auditDead || !_sb || !Array.isArray(rows) || !rows.length) return;
+        const { error } = await _sb.from('osiris_access_log').insert(rows);
+        if (error) {
+            _auditFails++;
+            // tabel/policy ontbreekt (404/42P01) of geweigerd -> na 2 pogingen STOPPEN met pushen
+            // zodat de console niet volloopt met 404's. Log één keer een duidelijke hint.
+            if (_auditFails >= 2) {
+                _auditDead = true;
+                try { console.warn('[osiris-audit] access-log uitgeschakeld voor deze sessie: tabel public.osiris_access_log ontbreekt of weigert insert. Maak de tabel + anon-insert-policy aan (SQL staat boven osirisAuditPush) en herlaad.'); } catch (e) {}
+            }
+        } else { _auditFails = 0; }
+    } catch (e) {
+        _auditFails++; if (_auditFails >= 2) _auditDead = true;
+    }
 }
 window.osirisAuditPush = osirisAuditPush;
+window.osirisAuditReset = function () { _auditDead = false; _auditFails = 0; };   // na tabel-aanmaak: aanroepen of herladen
 
 async function osirisSignIn(email, pw) {
     if (!_sb) return;
