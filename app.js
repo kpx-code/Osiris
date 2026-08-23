@@ -14077,7 +14077,7 @@ function updateKpiStrip() {
         // spot pnl is netto \u2192 be is al fee-inclusief; toon of er nog edge is
         let edgeTxt = '';
         try { const totw = (walletState.wins || 0), tott = totw + (walletState.losses || 0); if (tott >= 8) { const awr = totw / tott; edgeTxt = ` <span style="font-size:0.7em; color:${awr > be ? '#14f195' : '#ff8a94'};">${awr > be ? '\u2713 edge' : '\u2717 fees'}</span>`; } } catch (e) {}
-        set('kpi-breakeven', `${(be * 100).toFixed(0)}%${edgeTxt}`);
+        { const _beEl = document.getElementById('kpi-breakeven'); if (_beEl) _beEl.innerHTML = `${(be * 100).toFixed(0)}%${edgeTxt}`; }   // innerHTML: de edge-badge is opmaak
     } else {
         set('kpi-breakeven', '\u2014');
     }
