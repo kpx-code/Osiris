@@ -17,6 +17,10 @@
 const OSIRIS_SUPABASE_URL = 'https://brhvybtokdjlmbxmxaiy.supabase.co';   // <-- INVULLEN
 const OSIRIS_SUPABASE_KEY = 'sb_publishable_bTchUvswyWHLAHkumkbN8w_HEAVP0R9';       // <-- INVULLEN (publiek, veilig)
 
+// Dirty-check-cache: ruwe localStorage-string per staat-sleutel bij de laatste
+// GESLAAGDE cloud-push. Laat osirisSyncPush ongewijzigde (vaak grote) blobs overslaan.
+let _osLastPushRaw = {};
+
 // localStorage-sleutels die we naar de cloud spiegelen (de EXACTE keys die je app schrijft).
 const OSIRIS_STATE_KEYS = [
     'osirisWalletState', 'osirisOpenPositions', 'osirisPendingOrders',
@@ -154,15 +158,25 @@ async function osirisSyncPush() {
             _osirisSyncStamp('kijk-modus · gesynct ' + new Date().toLocaleTimeString('nl-NL'), 'ok');
             return;
         }
-        // 1) staat-sleutels upserten (mirror) - alleen het engine-apparaat
-        const rows = [];
+        // 1) staat-sleutels upserten (mirror) - alleen het engine-apparaat.
+        // PRESTATIE: veel van deze sleutels (trade-log, FSO-log, DeepNet-modellen,
+        // RL-model) zijn grote JSON-blobs die zelden per minuut wijzigen. Voorheen
+        // werd elke tick ALLE 37 blobs geparsed + geüpload -> dat was de ~75ms
+        // 'setInterval handler took'-violation. Nu een dirty-check op de ruwe string:
+        // alleen gewijzigde sleutels worden geparsed en meegestuurd. De 'last pushed'-
+        // stempel wordt pas NA een geslaagde upsert gezet, zodat een mislukte push
+        // de volgende keer gewoon opnieuw wordt geprobeerd.
+        const rows = []; const pushedRaw = [];
+        _osLastPushRaw = (typeof _osLastPushRaw !== 'undefined' && _osLastPushRaw) ? _osLastPushRaw : {};
         for (const k of OSIRIS_STATE_KEYS) {
             const v = localStorage.getItem(k);
             if (v == null) continue;
+            if (_osLastPushRaw[k] === v) continue;   // ongewijzigd sinds vorige geslaagde push -> overslaan
             let parsed; try { parsed = JSON.parse(v); } catch (e) { parsed = v; }
             rows.push({ user_id: _sbUser.id, key: k, value: parsed, updated_at: new Date().toISOString() });
+            pushedRaw.push([k, v]);
         }
-        if (rows.length) await _sb.from('osiris_state').upsert(rows, { onConflict: 'user_id,key' });
+        if (rows.length) { await _sb.from('osiris_state').upsert(rows, { onConflict: 'user_id,key' }); for (const [k, v] of pushedRaw) _osLastPushRaw[k] = v; }
 
         // 2) nieuwe gesloten trades append (ontdubbeld op trade_id)
         const log = (typeof botTradeLog !== 'undefined' && Array.isArray(botTradeLog)) ? botTradeLog : [];
