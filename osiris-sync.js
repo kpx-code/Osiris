@@ -100,6 +100,9 @@ async function osirisAuditPush(rows) {
 window.osirisAuditPush = osirisAuditPush;
 window.osirisAuditReset = function () { _auditDead = false; _auditFails = 0; };   // na tabel-aanmaak: aanroepen of herladen
 
+// data-true cloud/sync status voor de neural-net visual
+window.osirisCloudStatus = function () { try { return { connected: !!_sb, signedIn: !!_sbUser, syncing: !!_syncTimer }; } catch (e) { return { connected: false, signedIn: false, syncing: false }; } };
+
 async function osirisSignIn(email, pw) {
     if (!_sb) return;
     if (!email || !pw) { _osirisSyncMsg('Vul e-mail en wachtwoord in.'); return; }
