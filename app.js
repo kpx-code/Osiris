@@ -8332,7 +8332,7 @@ const OsirisFSO = {
         return byMkt;
     },
     // oscillatoren + global stress + variance uit uitgelijnde OHLCV per munt
-    _compute(byMkt, win) {
+    _compute(byMkt, win, key) {
         // lijn uit op de kortste reeks (op index, recent-gealigneerd)
         const series = FSO_SYMS.map(s => byMkt[s] || []).filter(a => a.length > win + 5);
         if (series.length === 0) return null;
@@ -8383,14 +8383,25 @@ const OsirisFSO = {
         }
         const times = aligned[0].map(c => c.t);
         const cur = stress[L - 1] || 0;
-        const regime = cur > 0.30 ? 'CRISIS' : cur > 0.15 ? 'SPANNING' : 'RUST';
-        return { times, stress, variance, osc: oscArrays, names, regime, current: cur, curVar: variance[L - 1] || 0, marketsUsed };
+        // gekalibreerde zones (na shadow-verificatie + live-bevestiging), val terug op 0.15/0.30
+        let spanT = 0.15, crisT = 0.30, calibrated = false;
+        try { if (key && typeof OsirisFSOCal !== 'undefined') { const _c = OsirisFSOCal.get(key); spanT = _c.spanning; crisT = _c.crisis; calibrated = _c.calibrated; } } catch (e) {}
+        const regime = cur > crisT ? 'CRISIS' : cur > spanT ? 'SPANNING' : 'RUST';
+        return { times, stress, variance, osc: oscArrays, names, regime, current: cur, curVar: variance[L - 1] || 0, marketsUsed, spanT, crisT, calibrated };
     },
     async update(key) {
         try {
             const byMkt = await this._fetchScale(key);
-            const res = this._compute(byMkt, FSO_SCALES[key].win);
-            if (res) { res._raw = byMkt; this.scales[key] = res; this._last[key] = Date.now(); try { drawFSOChart('fso-' + key, key); } catch (e) {} }
+            const res = this._compute(byMkt, FSO_SCALES[key].win, key);
+            if (res) {
+                res._raw = byMkt; this.scales[key] = res; this._last[key] = Date.now();
+                // shadow-backtest de zones en overweeg (streng) live-kalibratie vóór de tekening
+                try { if (typeof OsirisFSOShadow !== 'undefined') OsirisFSOShadow.run(key); } catch (e) {}
+                try { if (typeof OsirisFSOCal !== 'undefined') OsirisFSOCal.consider(key); } catch (e) {}
+                // hercompute regime met (mogelijk) net-gekalibreerde drempels zodat de badge klopt
+                try { if (typeof OsirisFSOCal !== 'undefined') { const _c = OsirisFSOCal.get(key); res.spanT = _c.spanning; res.crisT = _c.crisis; res.calibrated = _c.calibrated; res.regime = res.current > _c.crisis ? 'CRISIS' : res.current > _c.spanning ? 'SPANNING' : 'RUST'; } } catch (e) {}
+                try { drawFSOChart('fso-' + key, key); } catch (e) {}
+            }
         } catch (e) { try { if (typeof logNetworkError === 'function') logNetworkError('FSO-update', `${key}: ${e.message}`); } catch (x) {} }
     },
     async refreshAll() {
@@ -8399,6 +8410,72 @@ const OsirisFSO = {
     }
 };
 window.OsirisFSO = OsirisFSO;
+
+// ============================================================
+// FSO ZONE-KALIBRATIE (23-08) — shadow-backtester + strikte live-verificatie
+// ============================================================
+// Osiris mag de FSO-zones (SPANNING/CRISIS-drempel, variance-early-warning, correlatie-breuk)
+// dynamisch kalibreren, MAAR onder zeer strenge voorwaarden en NOOIT blind:
+//  1) OsirisFSOShadow backtest eerst álle drempel-kandidaten op de historie: een drempel is
+//     alleen geldig als het overschrijden ervan gevolgd wordt door duidelijk grotere bewegingen
+//     (lift ≥ streng), met genoeg samples en niet te vaak (separatie-test).
+//  2) Pas als de shadow "proven" is, vergelijkt OsirisFSOCal de shadow-drempel met de LIVE FSO
+//     data (recent venster) — die moet óók separeren — vóór er iets verandert.
+//  3) Zelfs dan verschuift de live-drempel maar in kleine, begrensde stappen, met cooldown en
+//     ordening (crisis > spanning). Alles wordt gelogd. Zo niet-bevestigd = geen wijziging.
+function _fsoAlignedCloses(S) { try { const raw = S._raw; if (!raw) return null; const L = S.stress.length; const arrs = []; for (const s of FSO_SYMS) { const a = (raw[s] || []).map(c => c.c); if (a.length >= L) arrs.push(a.slice(a.length - L)); } return arrs.length ? arrs : null; } catch (e) { return null; } }
+function _fsoFwd(cl, L, H) { const fwd = new Array(L).fill(null); for (let i = 0; i < L - H; i++) { let s = 0, k = 0; for (const a of cl) { let mx = 0; for (let h = 1; h <= H; h++) { const r = Math.abs((a[i + h] - a[i]) / a[i]); if (r > mx) mx = r; } s += mx; k++; } fwd[i] = k ? s / k : null; } return fwd; }
+function _fsoLift(sig, fwd, T, i0, i1) { let n = 0, above = 0, bn = 0, bsum = 0; for (let i = i0; i < i1; i++) { if (fwd[i] == null) continue; bn++; bsum += fwd[i]; if (sig[i] > T) { n++; above += fwd[i]; } } const base = bn ? bsum / bn : 0; const am = n ? above / n : 0; return { n, lift: base > 0 ? am / base : 0, base, am }; }
+function _fsoBest(sig, fwd, o) { let best = null, validN = 0; const L = sig.length; for (let i = 0; i < L; i++) if (fwd[i] != null) validN++; for (let T = o.lo; T <= o.hi + 1e-9; T += o.step) { const r = _fsoLift(sig, fwd, T, 0, L); if (r.n < o.minN) continue; if (o.maxFrac && r.n > o.maxFrac * validN) continue; if (r.lift >= o.minLift && (!best || r.lift > best.lift)) best = { T: +T.toFixed(4), lift: +r.lift.toFixed(3), n: r.n }; } return best; }
+
+const OsirisFSOShadow = {
+    H: 8, prop: {},
+    run(key) {
+        try {
+            const S = OsirisFSO.scales[key]; if (!S || !S.stress || S.stress.length < 100) return;
+            const L = S.stress.length; const cl = _fsoAlignedCloses(S); if (!cl) return;
+            const fwd = _fsoFwd(cl, L, this.H);
+            const ci = S.names ? S.names.indexOf('X·corr-break') : -1; const corr = ci >= 0 ? S.osc[ci] : null;
+            const crisis = _fsoBest(S.stress, fwd, { lo: 0.20, hi: 0.45, step: 0.01, minLift: 1.35, minN: 20, maxFrac: 0.35 });   // strengst
+            const span = _fsoBest(S.stress, fwd, { lo: 0.08, hi: 0.24, step: 0.01, minLift: 1.12, minN: 35, maxFrac: 0.60 });
+            const vmax = Math.max(0.001, Math.max.apply(null, S.variance)); const varWarn = _fsoBest(S.variance, fwd, { lo: vmax * 0.2, hi: vmax * 0.8, step: Math.max(0.0005, vmax * 0.05), minLift: 1.25, minN: 20, maxFrac: 0.40 });
+            const corrWarn = corr ? _fsoBest(corr, fwd, { lo: 0.30, hi: 0.70, step: 0.02, minLift: 1.20, minN: 18, maxFrac: 0.40 }) : null;
+            this.prop[key] = { ts: Date.now(), n: L, horizon: this.H, spanning: span, crisis: crisis, varWarn, corrWarn, proven: !!(crisis && span) };
+            this._save();
+        } catch (e) {}
+    },
+    _save() { try { localStorage.setItem('osirisFSOShadow', JSON.stringify(this.prop)); } catch (e) {} },
+    _restore() { try { const d = JSON.parse(localStorage.getItem('osirisFSOShadow') || 'null'); if (d) this.prop = d; } catch (e) {} },
+    bundle() { return this.prop; }
+};
+const OsirisFSOCal = {
+    DEF: { spanning: 0.15, crisis: 0.30, varWarn: null, corrWarn: 0.5 },
+    cal: {}, cooldownMs: 5 * 60000,
+    get(key) { const c = this.cal[key]; return { spanning: (c && c.spanning != null) ? c.spanning : this.DEF.spanning, crisis: (c && c.crisis != null) ? c.crisis : this.DEF.crisis, varWarn: (c && c.varWarn != null) ? c.varWarn : this.DEF.varWarn, corrWarn: (c && c.corrWarn != null) ? c.corrWarn : this.DEF.corrWarn, calibrated: !!(c && (c.changes && c.changes.length)) }; },
+    _ensure(key) { if (!this.cal[key]) this.cal[key] = { spanning: this.DEF.spanning, crisis: this.DEF.crisis, varWarn: null, corrWarn: this.DEF.corrWarn, lastAdopt: 0, changes: [] }; return this.cal[key]; },
+    consider(key) {
+        try {
+            const S = OsirisFSO.scales[key]; if (!S || !S.stress) return;
+            const sh = OsirisFSOShadow.prop[key]; if (!sh || !sh.proven) return;
+            const c = this._ensure(key); const now = Date.now(); if (now - (c.lastAdopt || 0) < this.cooldownMs) return;
+            const L = S.stress.length; const cl = _fsoAlignedCloses(S); if (!cl) return; const fwd = _fsoFwd(cl, L, OsirisFSOShadow.H);
+            const i0 = Math.floor(L * 0.6);   // recent LIVE-venster: shadow-drempel moet hier óók separeren
+            const stepTo = (cur, target, bound) => { if (target == null) return { v: cur, changed: false }; const st = Math.max(-0.01, Math.min(0.01, target - cur)); let nv = Math.max(bound[0], Math.min(bound[1], cur + st)); nv = +nv.toFixed(3); return { v: nv, changed: Math.abs(nv - cur) >= 0.001 }; };
+            const changes = [];
+            if (sh.crisis) { const lr = _fsoLift(S.stress, fwd, sh.crisis.T, i0, L); if (lr.n >= 8 && lr.lift >= 1.25) { const r = stepTo(c.crisis, sh.crisis.T, [0.22, 0.50]); if (r.changed) { c.crisis = r.v; changes.push(`crisis→${r.v} (shadow lift ${sh.crisis.lift}, live ${lr.lift.toFixed(2)})`); } } }
+            if (sh.spanning) { const lr = _fsoLift(S.stress, fwd, sh.spanning.T, i0, L); if (lr.n >= 12 && lr.lift >= 1.08) { const r = stepTo(c.spanning, sh.spanning.T, [0.08, Math.max(0.09, c.crisis - 0.08)]); if (r.changed) { c.spanning = r.v; changes.push(`spanning→${r.v} (shadow ${sh.spanning.lift}, live ${lr.lift.toFixed(2)})`); } } }
+            if (c.spanning > c.crisis - 0.06) c.spanning = +(c.crisis - 0.08).toFixed(3);
+            if (sh.varWarn) { const lr = _fsoLift(S.variance, fwd, sh.varWarn.T, i0, L); if (lr.n >= 8 && lr.lift >= 1.20) { const cur = c.varWarn != null ? c.varWarn : sh.varWarn.T; const st = Math.max(-0.005, Math.min(0.005, sh.varWarn.T - cur)); const nv = +(cur + st).toFixed(4); if (c.varWarn == null || Math.abs(nv - c.varWarn) >= 0.0005) { c.varWarn = nv; changes.push(`varWarn→${nv}`); } } }
+            if (sh.corrWarn) { const ci = S.names.indexOf('X·corr-break'); const corr = ci >= 0 ? S.osc[ci] : null; if (corr) { const lr = _fsoLift(corr, fwd, sh.corrWarn.T, i0, L); if (lr.n >= 6 && lr.lift >= 1.15) { const r = stepTo(c.corrWarn, sh.corrWarn.T, [0.25, 0.75]); if (r.changed) { c.corrWarn = r.v; changes.push(`corrWarn→${r.v}`); } } } }
+            if (changes.length) { c.lastAdopt = now; c.changes.unshift({ ts: now, changes }); if (c.changes.length > 60) c.changes.pop(); this._save(); try { logAdaptation(`FSO-zone gekalibreerd (${key})`, changes.join(' · ') + ' — na shadow-verificatie én live-bevestiging'); } catch (e) {} }
+        } catch (e) {}
+    },
+    _save() { try { localStorage.setItem('osirisFSOCal', JSON.stringify(this.cal)); } catch (e) {} },
+    _restore() { try { const d = JSON.parse(localStorage.getItem('osirisFSOCal') || 'null'); if (d) this.cal = d; } catch (e) {} },
+    bundle() { return { defaults: this.DEF, perScale: this.cal, live: { micro: this.get('micro'), meso: this.get('meso'), macro: this.get('macro'), full: this.get('full') }, shadow: (typeof OsirisFSOShadow !== 'undefined') ? OsirisFSOShadow.bundle() : null, uitleg: 'FSO-zones worden alleen gekalibreerd na (1) shadow-backtest separatie-verificatie én (2) live-bevestiging op recente data, in kleine begrensde stappen met cooldown. Niet-bevestigd = geen wijziging.' }; }
+};
+window.OsirisFSOShadow = OsirisFSOShadow; window.OsirisFSOCal = OsirisFSOCal;
+try { OsirisFSOShadow._restore(); OsirisFSOCal._restore(); } catch (e) {}
 
 // ---- CANVAS-RENDERER: pastel-oscillatoren + dikke Global-Stress-lijn + variance (2e as) ----
 const _FSO_PASTEL = ['#f7931a', '#ffb27a', '#ffd19a', '#8fb8ff', '#a5c8ff', '#14f195', '#7af0b8', '#c792ea', '#e0a3f0', '#7fd8ff', '#a3e4ff', '#ff8a94', '#ffb0b6', '#f0d97a', '#b8e986', '#9ad0c2', '#d0a3ff'];
@@ -8444,18 +8521,24 @@ function drawFSOChart(canvasId, key) {
     const vmax = Math.max(0.01, Math.max.apply(null, S.variance)) * 1.15; const yV = v => padT + (1 - v / vmax) * (H - padT - padB);
     const plotW = W - padL - padR;
 
-    // --- ZONES: RUST (<0.15) / SPANNING (0.15-0.30) / GEVARENZONE=CRISIS (>0.30) ---
-    ctx.fillStyle = 'rgba(20,241,149,0.04)'; ctx.fillRect(padL, yS(0.15), plotW, yS(0) - yS(0.15));      // rust
-    ctx.fillStyle = 'rgba(255,182,39,0.05)'; ctx.fillRect(padL, yS(0.30), plotW, yS(0.15) - yS(0.30));   // spanning
-    ctx.fillStyle = 'rgba(255,79,109,0.10)'; ctx.fillRect(padL, yS(SMAX), plotW, yS(0.30) - yS(SMAX));   // gevarenzone (crisis)
-    // "GEVARENZONE"-label linksboven in de rode band
+    // --- ZONES (gekalibreerd): RUST / SPANNING / GEVARENZONE=CRISIS — drempels bewegen mee ---
+    let spanT = (S.spanT != null ? S.spanT : 0.15), crisT = (S.crisT != null ? S.crisT : 0.30), calib = !!S.calibrated;
+    try { if (typeof OsirisFSOCal !== 'undefined') { const _c = OsirisFSOCal.get(key); spanT = _c.spanning; crisT = _c.crisis; calib = _c.calibrated; } } catch (e) {}
+    ctx.fillStyle = 'rgba(20,241,149,0.04)'; ctx.fillRect(padL, yS(spanT), plotW, yS(0) - yS(spanT));         // rust
+    ctx.fillStyle = 'rgba(255,182,39,0.05)'; ctx.fillRect(padL, yS(crisT), plotW, yS(spanT) - yS(crisT));     // spanning
+    ctx.fillStyle = 'rgba(255,79,109,0.10)'; ctx.fillRect(padL, yS(SMAX), plotW, yS(crisT) - yS(SMAX));       // gevarenzone (crisis)
     ctx.fillStyle = 'rgba(255,120,140,0.5)'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.textAlign = 'left';
-    ctx.fillText('GEVARENZONE', padL + 3, yS(0.30) - 3);
+    ctx.fillText('GEVARENZONE', padL + 3, yS(crisT) - 3);
 
-    // --- DREMPELLIJNEN (kritieke node-levels) ---
+    // --- DREMPELLIJNEN (gekalibreerde kritieke levels) ---
     const thr = (v, col, label) => { ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(padL, yS(v)); ctx.lineTo(W - padR, yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle = col; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.textAlign = 'right'; ctx.fillText(`${label} ${v.toFixed(2)}`, W - padR - 2, yS(v) - 2); };
-    thr(0.30, 'rgba(255,79,109,0.85)', 'CRISIS-drempel');
-    thr(0.15, 'rgba(255,182,39,0.8)', 'SPANNING-drempel');
+    thr(crisT, 'rgba(255,79,109,0.85)', 'CRISIS-drempel');
+    thr(spanT, 'rgba(255,182,39,0.8)', 'SPANNING-drempel');
+    // varWarn (early-warning op de variance-as) indien gekalibreerd
+    try { if (typeof OsirisFSOCal !== 'undefined') { const _c = OsirisFSOCal.get(key); if (_c.varWarn != null) { ctx.strokeStyle = 'rgba(127,180,255,0.55)'; ctx.lineWidth = 1; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(padL, yV(_c.varWarn)); ctx.lineTo(W - padR, yV(_c.varWarn)); ctx.stroke(); ctx.setLineDash([]); } } } catch (e) {}
+    // kalibratie-status (data-true) — linksboven onder de regime-badge
+    ctx.textAlign = 'left'; ctx.font = "6.5px 'JetBrains Mono',monospace"; ctx.fillStyle = calib ? 'rgba(20,241,149,0.85)' : 'rgba(125,153,172,0.7)';
+    ctx.fillText(calib ? '⚙ zones gekalibreerd (shadow✓+live✓)' : '⚙ zones: standaard (shadow verzamelt bewijs)', padL + 3, padT + 20);
 
     const line = (arr, col, w, dash, ymap) => { const Y = ymap || yS; ctx.strokeStyle = col; ctx.lineWidth = w; if (dash) ctx.setLineDash(dash); ctx.beginPath(); for (let i = 0; i < L; i++) { const px = x(i), py = Y(arr[i]); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.stroke(); if (dash) ctx.setLineDash([]); };
 
@@ -9434,6 +9517,7 @@ function osirisMetaTick() {
         try { OsirisLLM.run(); } catch (e) {}                          // LLM/vertaler-perceptie (async, fire-and-forget)
         try { renderOsirisPredictPanel(); } catch (e) {}
         try { renderTimingPanel(); } catch (e) {}
+        try { renderFSOCalPanel(); } catch (e) {}
         try { renderLiveFeeds(); } catch (e) {}
         try { renderLLMFeeds(); } catch (e) {}
         try { renderNextSteps(); } catch (e) {}
@@ -10040,6 +10124,45 @@ function renderTimingPanel() {
 }
 window.renderTimingPanel = renderTimingPanel;
 
+// ---- RENDER: FSO zone-kalibratie (Neural Net + Live Feed tab, beide gevuld) ----
+function renderFSOCalPanel() {
+    try {
+        const els = ['fsocal-panel', 'fsocal-panel-nn'].map(id => document.getElementById(id)).filter(Boolean);
+        if (!els.length) return;
+        if (typeof OsirisFSOCal === 'undefined' || typeof OsirisFSO === 'undefined') { els.forEach(e => e.innerHTML = '<span style="color:var(--dim)">FSO-kalibratie initialiseert…</span>'); return; }
+        const keys = ['micro', 'meso', 'macro', 'full'];
+        const kn = { micro: 'MICRO · 1m', meso: 'MESO · 1h', macro: 'MACRO · 1d', full: 'FULL · 1w' };
+        const regCol = r => r === 'CRISIS' ? '#ff4f6d' : r === 'SPANNING' ? '#ffb627' : '#14f195';
+        const pct = v => Math.max(0, Math.min(100, ((v || 0) / 0.6) * 100));
+        const rows = keys.map(k => {
+            const S = (OsirisFSO.scales && OsirisFSO.scales[k]) ? OsirisFSO.scales[k] : null;
+            const cal = OsirisFSOCal.get(k);
+            const sh = (typeof OsirisFSOShadow !== 'undefined' && OsirisFSOShadow.prop) ? OsirisFSOShadow.prop[k] : null;
+            const cur = S ? S.current : null; const reg = S ? S.regime : '—';
+            const calBadge = cal.calibrated ? '<span style="color:#14f195">⚙ gekalibreerd (shadow✓+live✓)</span>' : '<span style="color:var(--text-dimmer)">standaard — shadow verzamelt bewijs</span>';
+            const shTxt = (sh && sh.proven) ? `shadow-voorstel: crisis <b style="color:#ff4f6d">${sh.crisis ? sh.crisis.T : '?'}</b> (lift ${sh.crisis ? sh.crisis.lift : '?'}, n${sh.crisis ? sh.crisis.n : '?'}) · spanning <b style="color:#ffb627">${sh.spanning ? sh.spanning.T : '?'}</b> (lift ${sh.spanning ? sh.spanning.lift : '?'})` : (sh ? 'shadow verzamelt bewijs (nog niet proven)' : 'shadow nog niet gedraaid');
+            return `<div style="border-top:1px solid rgba(255,255,255,0.06); padding:5px 0;">
+                <div style="display:flex; justify-content:space-between; font-size:0.58rem;"><span style="color:#7fd8ff; font-weight:700;">${kn[k]}</span><span style="color:${regCol(reg)}">${reg}${cur != null ? ' · stress ' + cur.toFixed(3) : ''}</span></div>
+                <div style="position:relative; height:9px; background:rgba(255,255,255,0.05); border-radius:4px; margin:4px 0;">
+                    <span style="position:absolute; left:0; top:0; bottom:0; width:${pct(cur)}%; background:${regCol(reg)}; opacity:0.45; border-radius:4px;"></span>
+                    <span title="spanning-drempel" style="position:absolute; left:${pct(cal.spanning)}%; top:-2px; bottom:-2px; width:2px; background:#ffb627;"></span>
+                    <span title="crisis-drempel" style="position:absolute; left:${pct(cal.crisis)}%; top:-2px; bottom:-2px; width:2px; background:#ff4f6d;"></span>
+                </div>
+                <div style="font-size:0.52rem; color:var(--dim);">spanning <b style="color:#ffb627">${cal.spanning.toFixed(3)}</b> · crisis <b style="color:#ff4f6d">${cal.crisis.toFixed(3)}</b>${cal.varWarn != null ? ` · σ²-warn <b style="color:#7fb4ff">${cal.varWarn.toFixed(4)}</b>` : ''}${cal.corrWarn != null ? ` · corr-break <b style="color:#c792ea">${cal.corrWarn.toFixed(2)}</b>` : ''} · ${calBadge}</div>
+                <div style="font-size:0.5rem; color:var(--text-dimmer); margin-top:1px;">${shTxt}</div>
+            </div>`;
+        }).join('');
+        let changes = [];
+        keys.forEach(k => { const c = OsirisFSOCal.cal[k]; if (c && c.changes) c.changes.slice(0, 4).forEach(ch => changes.push({ k, ts: ch.ts, txt: (ch.changes || []).join(', ') })); });
+        changes.sort((a, b) => b.ts - a.ts); changes = changes.slice(0, 6);
+        const chTxt = changes.length ? changes.map(c => { let t = ''; try { t = new Date(c.ts).toLocaleTimeString('nl-NL'); } catch (e) {} return `<div style="font-size:0.5rem; color:var(--dim);"><span style="color:var(--text-dimmer)">${t}</span> <b style="color:#7fd8ff">${c.k}</b> ${c.txt}</div>`; }).join('') : '<div style="font-size:0.5rem; color:var(--text-dimmer)">nog geen kalibraties — een zone verschuift pas na shadow-verificatie én live-bevestiging</div>';
+        const html = `<div style="font-size:0.54rem; color:var(--text-dimmer); margin-bottom:4px;">De |-markers zijn de live drempels op de 0–0.6 stress-schaal; de balk is de huidige stress. Zones bewegen alleen na strikte verificatie.</div>` + rows +
+            `<div style="border-top:1px solid rgba(255,255,255,0.06); margin-top:6px; padding-top:5px;"><div style="font-size:0.52rem; color:var(--text-dimmer); margin-bottom:2px;">recente kalibraties</div>${chTxt}</div>`;
+        els.forEach(e => { e.innerHTML = html; });
+    } catch (e) {}
+}
+window.renderFSOCalPanel = renderFSOCalPanel;
+
 function osirisMetaBundle() {
     return { exportedAt: new Date().toISOString(), governor: { weights: OsirisGovernor.weights, metrics: OsirisGovernor.metrics(), log: OsirisGovernor.log }, predict: { huidig: OsirisPredict.state, metrieken: OsirisPredict.metrics(), open: OsirisPredict.open, afgerond: OsirisPredict.resolved.slice(0, 300) }, selfReview: (typeof OsirisSelfReview !== 'undefined') ? OsirisSelfReview.bundle() : null, timing: (typeof OsirisTiming !== 'undefined') ? { live: OsirisTiming.bundle(), schaduw: (typeof OsirisTimingShadow !== 'undefined' ? OsirisTimingShadow.bundle() : null), scenario_backtest: (typeof OsirisTimingBacktest !== 'undefined' ? OsirisTimingBacktest.bundle() : null) } : null, opportunity: (typeof osirisState !== 'undefined') ? (osirisState.opportunity || null) : null, guardian: { paused: OsirisGuardian.paused, alerts: OsirisGuardian.alerts, log: OsirisGuardian.log }, risk: OsirisRisk.state, uitleg: 'Governor stelt trust-gewichten autonoom bij op out-of-sample hit-rate + Brier; Predict levert gekalibreerde richting/breakpoint per munt; Timing-Agent bundelt alle timing-tools tot een readiness-score (soft-gate) met live+schaduw; Guardian bewaakt data-integriteit; Risk bewaakt drawdown/dagverlies/exposure. Halt-vlag pauzeert entries in alle engines.' };
 }
@@ -10146,7 +10269,7 @@ function osirisMasterBundle() {
     C.market_charts_en_historie = {
         btc_candles: g(() => (typeof rawData !== 'undefined' ? rawData.slice(-720).map(d => ({ t: d[0], o: +d[1], h: +d[2], l: +d[3], c: +d[4], v: +d[5] })) : null)),
         multiMarkt: g(() => (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? Object.fromEntries(mkts.map(k => { const m = neoMultiState.markets[k]; return [k, m ? { lastPrice: m.lastPrice, ema: m.ema, emaSlow: m.emaSlow, rsi: m.rsi, vfm: m.vfm, chaos: m.chaos, bestProb: m.bestProb, bestSide: m.bestSide, candles: m.candles || m.klines || null } : null]; })) : null),
-        fso: g(() => (typeof osirisStress !== 'undefined' ? { huidig: osirisStress, historie: (typeof osirisFSOLog !== 'undefined' ? osirisFSOLog.slice(0, 300) : null) } : null))
+        fso: g(() => (typeof osirisStress !== 'undefined' ? { huidig: osirisStress, historie: (typeof osirisFSOLog !== 'undefined' ? osirisFSOLog.slice(0, 300) : null), kalibratie: (typeof OsirisFSOCal !== 'undefined' ? OsirisFSOCal.bundle() : null) } : null))
     };
 
     // 4b) NN + NODE DATA (Osiris neuraal net + UOTAM node-grid/timing) — expliciet reviewbaar
@@ -15143,10 +15266,10 @@ function buildNeoNet() {
     // laag 3 = Osiris mainbrain-integratie (vergelijkt de sub-breinen)
     // laag 4 = output: LONG / NEUTRAAL / SHORT + equity-keuze
     // laag 5 = HET ENE EINDPUNT (alle 3 outputs convergeren tot 1 beslissing)
-    // (23-08) FSO-laag (BTC/ETH/SOL/ALL) + TIMING-AGENT-laag (BTC/ETH/SOL) tussen de
-    // integratie en de sub-breinen: 0=inputs 1=integratie 2=FSO(4) 3=TA(3) 4=cores(3)
-    // 5=osiris(4) 6=decision(3) 7=output(1).
-    const layerSizes = [NEONET_INPUTS.length, 14, 4, 3, 3, 4, 3, 1];
+    // (23-08) FSO-laag (BTC/ETH/SOL/ALL + σ²-variance + corr-break) + TIMING-AGENT-laag
+    // (BTC/ETH/SOL) tussen integratie en de sub-breinen: 0=inputs 1=integratie 2=FSO(6)
+    // 3=TA(3) 4=cores(3) 5=osiris(4) 6=decision(3) 7=output(1). Alles data-true.
+    const layerSizes = [NEONET_INPUTS.length, 14, 6, 3, 3, 4, 3, 1];
     const layers = layerSizes.map((n, li) => {
         const nodes = [];
         for (let i = 0; i < n; i++) nodes.push({ li, i, act: 0, tw: Math.random() * 6.28 });
@@ -15240,7 +15363,7 @@ function _neoNetDraw(now, canvasId, outId) {
     // de punten), en cores/osiris/beslissing compacter EN gecentreerd zodat die punten
     // dichter bij elkaar staan. Alles blijft binnen het canvas zichtbaar.
     const colH = h - padTop - padBot, cyMid = padTop + colH / 2;
-    const _SPREAD = [1.0, 0.98, 0.62, 0.52, 0.52, 0.60, 0.52, 0.40];
+    const _SPREAD = [1.0, 0.98, 0.80, 0.52, 0.52, 0.60, 0.52, 0.40];
     const _spreadOf = li => (_SPREAD[li] != null ? _SPREAD[li] : 1.0);
     const pos = layers.map((nodes, li) => {
         const h2 = colH * _spreadOf(li), top = cyMid - h2 / 2, gap = h2 / Math.max(1, nodes.length - 1);
@@ -15280,17 +15403,25 @@ function _neoNetDraw(now, canvasId, outId) {
         nd.act = Math.max(0, Math.min(1, wsum ? Math.abs(s) / wsum : 0));
         nd.sign = Math.sign(sgn);
     });
-    // laag 2 (FSO): BTC/ETH/SOL = per-markt stress-opportunity, ALL = globale systeem-stress
+    // laag 2 (FSO): BTC/ETH/SOL = per-markt stress-opportunity, ALL = globale systeem-stress,
+    // σ² = system-variance (asynchronie), corr = correlatie-breuk. Alles DATA-TRUE.
     try {
         const fsym = ['BTC', 'ETH', 'SOL'];
+        const meso = (typeof OsirisFSO !== 'undefined' && OsirisFSO.scales) ? (OsirisFSO.scales.meso || OsirisFSO.scales.micro) : null;
         layers[2].forEach((nd, i) => {
             if (i < 3) {
                 let opp = 0; try { opp = (typeof osirisMarketOpportunity === 'function') ? osirisMarketOpportunity(fsym[i]) : 0; } catch (e) {}
-                nd.act = Math.max(0.1, Math.min(1, 0.12 + opp)); nd.sign = 1; nd.label = 'FSO ' + fsym[i]; nd.fsoAll = false;
-            } else {
+                nd.act = Math.max(0.1, Math.min(1, 0.12 + opp)); nd.sign = 1; nd.label = 'FSO ' + fsym[i]; nd.labelCol = ({ BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' })[fsym[i]];
+            } else if (i === 3) {
                 const lvl = (typeof osirisStress !== 'undefined' && osirisStress.level != null) ? osirisStress.level : 0;
                 const crisis = (typeof osirisStress !== 'undefined' && osirisStress.regime === 'CRISIS');
-                nd.act = Math.max(0.1, Math.min(1, 0.12 + lvl)); nd.sign = crisis ? -1 : 1; nd.label = 'FSO ALL'; nd.fsoAll = true;
+                nd.act = Math.max(0.1, Math.min(1, 0.12 + lvl)); nd.sign = crisis ? -1 : 1; nd.label = 'FSO ALL'; nd.labelCol = '#ff5f7e';
+            } else if (i === 4) {
+                let v = 0; try { v = (meso && meso.variance) ? meso.variance[meso.variance.length - 1] : (typeof osirisStress !== 'undefined' ? (osirisStress.variance || 0) : 0); } catch (e) {}
+                nd.act = Math.max(0.08, Math.min(1, v * 20)); nd.sign = 1; nd.label = 'FSO σ²'; nd.labelCol = '#7fb4ff';
+            } else {
+                let cb = 0; try { if (meso && meso.names) { const ci = meso.names.indexOf('X·corr-break'); if (ci >= 0) cb = meso.osc[ci][meso.osc[ci].length - 1]; } } catch (e) {}
+                nd.act = Math.max(0.08, Math.min(1, cb)); nd.sign = 1; nd.label = 'FSO corr'; nd.labelCol = '#c792ea';
             }
         });
     } catch (e) {}
@@ -15557,9 +15688,9 @@ function _neoNetDraw(now, canvasId, outId) {
     layers[0].forEach((nd, i) => { ctx.fillStyle = NEONET_INPUTS[i].c; ctx.fillText(NEONET_INPUTS[i].label, pos[0][i].x - 9, pos[0][i].y + 2.5); });
     const brainCols = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
     ctx.textAlign = 'center'; ctx.font = "bold 6.5px 'JetBrains Mono', monospace";
-    // FSO labels (laag 2): FSO BTC/ETH/SOL/ALL
+    // FSO labels (laag 2): FSO BTC/ETH/SOL/ALL/σ²/corr
     if (layers[2]) layers[2].forEach((nd) => {
-        if (nd.label) { ctx.fillStyle = nd.fsoAll ? '#ffb627' : (brainCols[nd.label.replace('FSO ', '')] || '#8b95a5'); ctx.fillText(nd.label, pos[2][nd.i].x, pos[2][nd.i].y - 8); }
+        if (nd.label) { ctx.fillStyle = nd.labelCol || (brainCols[nd.label.replace('FSO ', '')] || '#8b95a5'); ctx.fillText(nd.label, pos[2][nd.i].x, pos[2][nd.i].y - 8); }
     });
     // TIMING-AGENT labels (laag 3): TA BTC/ETH/SOL
     if (layers[3]) layers[3].forEach((nd) => {
