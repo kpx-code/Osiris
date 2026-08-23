@@ -1694,28 +1694,77 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
     <!-- DOWNLOADS -->
     <section class="tab" id="tab-downloads">
-      <div class="eyebrow">Alles op &eacute;&eacute;n plek</div><h1 class="h">DOWNLOADS</h1>
-      <div class="grid g-3 mb">
-        <div class="panel"><div class="plabel">Leren &amp; modellen</div>
-          <div class="flex gap wrap"><button class="btn" type="button" onclick="downloadAdaptiveLearning()">&#8681; Adaptive learning (JSON)</button><button class="btn" type="button" onclick="downloadDeepNetModels()">&#8681; DeepNet-modellen</button><button class="btn" type="button" onclick="exportOsirisData()">&#8681; Kalibratie-log (CSV)</button></div></div>
-        <div class="panel"><div class="plabel">Trades &amp; wallet</div>
-          <div class="flex gap wrap"><button class="btn" type="button" onclick="exportBotTradeLog()">&#8681; Trade-historie (CSV)</button><button class="btn" type="button" onclick="downloadAdaptationLog()">&#8681; Autonome aanpassingen</button><button class="btn" type="button" onclick="downloadAllMarketData()">&#8681; Multi-markt data</button></div></div>
-        <div class="panel"><div class="plabel">Markt &amp; config</div>
-          <div class="flex gap wrap"><button class="btn" type="button" onclick="downloadPriceVolumeHistory()">&#8681; Prijs &amp; volume historie</button><button class="btn" type="button" onclick="downloadBotSettings()">&#8681; Instellingen</button><button class="btn" type="button" onclick="osirisFullBackup()">&#8681; Volledige backup</button></div></div>
+      <div class="eyebrow">Everything in one place</div><h1 class="h">DOWNLOADS</h1>
+      <div class="note" style="margin-bottom:12px;">All exports are local and <b>never</b> contain your API keys (testnet or LLM). Each category below has its own <b>Download all</b> button and a description of exactly what is inside. <b>Everything</b> is downloadable &mdash; including the raw indicator inputs (vfm, er, db, chaos, momentum, volume, &hellip;).
+        <span style="display:inline-flex; gap:8px; align-items:center; margin-left:8px;"><button class="btn btn-ghost btn-mini" type="button" onclick="(function(){try{var s=osirisExportSizes();var el=document.getElementById('dl-sizes');el.innerHTML='<b>Estimated sizes &mdash;</b> total '+(s.TOTAL||'?')+' MB &middot; '+Object.keys(s).filter(function(k){return k!=='TOTAL';}).map(function(k){return k+' '+s[k]+' MB';}).join(' &middot; ');}catch(e){}})()" style="color:#7fd8ff; border-color:rgba(127,216,255,0.4);">&#8635; Estimate sizes</button></span>
+        <div id="dl-sizes" style="margin-top:6px; font-family:'JetBrains Mono',monospace; font-size:0.54rem; color:var(--dim);"></div>
+        <div style="margin-top:6px; color:#ffb627;">&#9888; Size note: downloading any single file works fine. A file above ~50 MB can briefly slow the tab while the JSON is built (you'll get a confirm), and anything above ~5 MB is too large for cloud-sync / localStorage &mdash; the biggest contributors are candle history (market data) and the logs.</div>
       </div>
+
+      <!-- MASTER EXPORTS -->
       <div class="panel" style="border-color:rgba(0,217,255,0.45); background:rgba(0,217,255,0.05);">
-        <div class="plabel" style="color:#00d9ff;">&#11088; ALLES in &eacute;&eacute;n bestand &middot; gecategoriseerd</div>
-        <div class="flex gap wrap center"><button class="btn go" type="button" onclick="downloadEverything()" style="background:rgba(0,217,255,0.15); color:#00d9ff; border-color:rgba(0,217,255,0.5);">&#8681; Download ALLES (1 bestand, per categorie)</button><span class="muted">&eacute;&eacute;n JSON, netjes verdeeld in: <b>engine</b> &middot; <b>wallets</b> (spot+margin) &middot; <b>kalibratie-logs</b> &middot; <b>market charts + historie 3 markten</b> &middot; <b>learnings L1/L2/L3 + modellen</b> &middot; <b>overige tools</b> &middot; <b>rest</b>. Bevat nooit je keys.</span></div>
-      </div>
-      <div class="panel">
-        <div class="plabel">Alles in &eacute;&eacute;n (plat)</div>
-        <div class="flex gap wrap center"><button class="btn go" type="button" onclick="downloadAllData()">&#8681; Download ALL data</button><span class="muted">bundelt wallet, trades, learningLog, DeepNet-modellen, kalibratie, instellingen en de volledige backup in &eacute;&eacute;n export.</span></div>
+        <div class="plabel" style="color:#00d9ff;">&#11088; Everything in one file &middot; categorized</div>
+        <div class="flex gap wrap center"><button class="btn go" type="button" data-dl="all_categorized" data-dl-label="Everything (categorized)" onclick="downloadEverything()" style="background:rgba(0,217,255,0.15); color:#00d9ff; border-color:rgba(0,217,255,0.5);">&#8681; Download EVERYTHING (1 file, per category)</button><span class="muted">One JSON, split into: <b>engine</b> &middot; <b>wallets</b> (spot+margin) &middot; <b>calibration logs</b> &middot; <b>market data + history</b> &middot; <b>neural net + nodes</b> &middot; <b>learnings</b> &middot; <b>reasonings</b> &middot; <b>exit contribution + equity</b> &middot; <b>timing-agent</b> &middot; <b>other tools</b> &middot; <b>rest</b>.</span></div>
         <div class="flex gap wrap center" style="margin-top:10px;">
-          <button class="btn btn-ghost btn-mini" type="button" onclick="downloadKineticData()" style="color:#14f195; border-color:rgba(20,241,149,0.4);">&#8681; Kinetic-dataset</button>
-          <button class="btn btn-ghost btn-mini" type="button" onclick="downloadMetaData()" style="color:#7fd8ff; border-color:rgba(127,216,255,0.4);">&#8681; Meta-laag (predict + governor + guardian + risk)</button>
-          <button class="btn btn-ghost btn-mini" type="button" onclick="if(typeof OsirisKinetic!=='undefined'){OsirisKinetic._save&&OsirisKinetic._save();} if(typeof _osirisMetaSave==='function'){_osirisMetaSave();} alert('Meta/kinetic-state opgeslagen in localStorage.');" style="color:var(--dim);">&#8635; Snapshot naar localStorage</button>
+          <button class="btn btn-ghost btn-mini" type="button" data-dl="all_lite" data-dl-label="Everything (lite)" onclick="downloadEverythingLite()" style="color:#ffd54a; border-color:rgba(255,213,74,0.5);">&#8681; Download EVERYTHING (lite &mdash; trims candles &amp; long logs)</button>
+          <button class="btn btn-ghost btn-mini" type="button" data-dl="all_flat" data-dl-label="Everything (flat)" onclick="downloadAllData()" style="color:#14f195; border-color:rgba(20,241,149,0.4);">&#8681; Everything (flat file)</button>
+          <button class="btn btn-ghost btn-mini" type="button" data-dl="meta" data-dl-label="Meta layer" onclick="downloadMetaData()" style="color:#7fd8ff; border-color:rgba(127,216,255,0.4);">&#8681; Meta layer (predict + governor + guardian + risk + timing)</button>
+          <button class="btn btn-ghost btn-mini" type="button" onclick="if(typeof OsirisKinetic!=='undefined'){OsirisKinetic._save&&OsirisKinetic._save();} if(typeof _osirisMetaSave==='function'){_osirisMetaSave();} alert('Meta / kinetic state saved to localStorage.');" style="color:var(--dim);">&#8635; Snapshot to localStorage</button>
         </div>
-        <div class="note">Alle exports zijn lokaal &middot; bevatten nooit je testnet-keys. De meta-laag (voorspellingen, out-of-sample scoring, trust-gewichten, guardian &amp; risk) zit ook in de volledige export onder <b>meta</b>.</div>
+        <div class="dl-when-box" style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.5rem; line-height:1.7; border-top:1px solid rgba(255,255,255,0.06); padding-top:6px;"></div>
+        <div class="muted" style="margin-top:6px;">&#128161; If the full file is too large, use <b>lite</b> (always small), a single <b>category</b> below, or the <b>Raw inputs</b> export &mdash; each is a fraction of the size.</div>
+      </div>
+
+      <!-- PER-CATEGORY -->
+      <div class="grid g-2 mb" style="margin-top:14px;">
+        <div class="panel"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>Engine &amp; live state</span><button class="btn btn-mini" type="button" data-dl="cat_engine" data-dl-label="Engine (all)" onclick="downloadCategory('engine')">&#8681; Download all</button></div>
+          <div class="note">Bot settings &amp; tuning, last decision, HMM regime, shadow-backtest, system log, session log (START/STOP/settings), metrics history and the live snapshot &mdash; includes the live core indicators <b>vfm / er / db / chaos / momentum</b>.</div>
+          <div class="flex gap wrap" style="margin-top:8px;"><button class="btn btn-ghost btn-mini" type="button" data-dl="settings" data-dl-label="Settings" onclick="downloadBotSettings()">&#8681; Settings</button><button class="btn btn-ghost btn-mini" type="button" data-dl="raw_inputs" data-dl-label="Raw inputs" onclick="downloadRawInputs()" style="color:#ffd54a; border-color:rgba(255,213,74,0.4);">&#8681; Raw indicator inputs</button></div></div>
+
+        <div class="panel"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>Wallets (spot + margin)</span><button class="btn btn-mini" type="button" data-dl="cat_wallets" data-dl-label="Wallets (all)" onclick="downloadCategory('wallets')">&#8681; Download all</button></div>
+          <div class="note">Balances, equity, realized/unrealized P/L, wins/losses, open &amp; closed positions and pending orders for both spot and margin, plus the margin reasoning/adaptation log.</div>
+          <div class="flex gap wrap" style="margin-top:8px;"><button class="btn btn-ghost btn-mini" type="button" data-dl="trades_csv" data-dl-label="Trade history CSV" onclick="exportBotTradeLog()">&#8681; Trade history (CSV)</button><button class="btn btn-ghost btn-mini" type="button" data-dl="full_backup" data-dl-label="Full backup" onclick="osirisFullBackup()">&#8681; Full backup</button></div></div>
+
+        <div class="panel"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>Calibration logs</span><button class="btn btn-mini" type="button" data-dl="cat_calibration" data-dl-label="Calibration (all)" onclick="downloadCategory('kalibratie_logs')">&#8681; Download all</button></div>
+          <div class="note">Governor trust weights &amp; metrics, Predict metrics + inversion + raw hit-rates, Kinetic metrics, DeepNet walk-forward / reliability curves / dual-track inversion, and the LLM verification log.</div>
+          <div class="flex gap wrap" style="margin-top:8px;"><button class="btn btn-ghost btn-mini" type="button" data-dl="calib_csv" data-dl-label="Calibration CSV" onclick="exportOsirisData()">&#8681; Calibration log (CSV)</button><button class="btn btn-ghost btn-mini" type="button" data-dl="kinetic" data-dl-label="Kinetic dataset" onclick="downloadKineticData()">&#8681; Kinetic dataset</button></div></div>
+
+        <div class="panel"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>Market data &amp; history (3 markets)</span><button class="btn btn-mini" type="button" data-dl="cat_market" data-dl-label="Market data (all)" onclick="downloadCategory('market_charts_en_historie')">&#8681; Download all</button></div>
+          <div class="note">BTC candles, per-market OHLC + indicators (BTC/ETH/SOL) and the FSO stress series. <span style="color:#ffb627;">Largest category</span> &mdash; contains candle history.</div>
+          <div class="flex gap wrap" style="margin-top:8px;"><button class="btn btn-ghost btn-mini" type="button" data-dl="price_vol" data-dl-label="Price &amp; volume" onclick="downloadPriceVolumeHistory()">&#8681; Price &amp; volume history</button><button class="btn btn-ghost btn-mini" type="button" data-dl="multi_market" data-dl-label="Multi-market" onclick="downloadAllMarketData()">&#8681; Multi-market data</button></div></div>
+
+        <div class="panel"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>Neural net &amp; nodes</span><button class="btn btn-mini" type="button" data-dl="cat_nn" data-dl-label="Neural net+nodes (all)" onclick="downloadCategory('nn_en_nodes')">&#8681; Download all</button></div>
+          <div class="note">UOTAM node grid, node context/influence, fib levels, the live NN input vector, per-market NN state and the live DeepNet output (side / calibrated prob / meta / proven / inverted).</div></div>
+
+        <div class="panel"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>Learnings (L1/L2/L3 + models + RL)</span><button class="btn btn-mini" type="button" data-dl="cat_learnings" data-dl-label="Learnings (all)" onclick="downloadCategory('learnings')">&#8681; Download all</button></div>
+          <div class="note">Adaptive weights (global + per brain), Level-2 &amp; Level-3 nets, DeepNet models per market, the RL model (Q-table, action-dist, history), self-review and the full learning log.</div>
+          <div class="flex gap wrap" style="margin-top:8px;"><button class="btn btn-ghost btn-mini" type="button" data-dl="adaptive" data-dl-label="Adaptive learning" onclick="downloadAdaptiveLearning()">&#8681; Adaptive learning (JSON)</button><button class="btn btn-ghost btn-mini" type="button" data-dl="deepnet" data-dl-label="DeepNet models" onclick="downloadDeepNetModels()">&#8681; DeepNet models</button></div></div>
+
+        <div class="panel"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>Reasonings (why-log)</span><button class="btn btn-mini" type="button" data-dl="cat_reasonings" data-dl-label="Reasonings (all)" onclick="downloadCategory('reasonings')">&#8681; Download all</button></div>
+          <div class="note">Every &ldquo;why&rdquo; behind Osiris' actions: engine adaptations, margin reasoning/adaptation and last action (incl. DeepNet &amp; Timing-Agent gating), session events and self-review.</div>
+          <div class="flex gap wrap" style="margin-top:8px;"><button class="btn btn-ghost btn-mini" type="button" data-dl="adaptations" data-dl-label="Autonomous adaptations" onclick="downloadAdaptationLog()">&#8681; Autonomous adaptations</button></div></div>
+
+        <div class="panel"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>Exit contribution &amp; equity split</span><button class="btn btn-mini" type="button" data-dl="cat_exit" data-dl-label="Exit+equity (all)" onclick="downloadCategory('exit_bijdrage_en_equity')">&#8681; Download all</button></div>
+          <div class="note">Cumulative P/L per exit reason (spot + margin), computed from the persistent learning log so it survives a wallet reset, plus the current equity allocation across markets/positions.</div></div>
+
+        <div class="panel" style="border-color:rgba(127,216,255,0.35);"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center; color:#7fd8ff;"><span>Timing-Agent (live + shadow + backtest)</span><button class="btn btn-mini" type="button" data-dl="cat_timing" data-dl-label="Timing-Agent (all)" onclick="downloadCategory('timing_agent')">&#8681; Download all</button></div>
+          <div class="note">The Timing-Agent: component weights &amp; out-of-sample hit-rates (NN, node, FSO, RL, confluence, volume, fib, funding, predict), live vs shadow, the scenario-backtest results and the latest per-market component values.</div></div>
+
+        <div class="panel"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>Other tools</span><button class="btn btn-mini" type="button" data-dl="cat_other" data-dl-label="Other tools (all)" onclick="downloadCategory('overige_tools')">&#8681; Download all</button></div>
+          <div class="note">Kinetic engine, LLM context, journal, next-steps, Guardian (data integrity), Risk (drawdown/exposure) and the per-market circuit breaker.</div></div>
+
+        <div class="panel"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center;"><span>Rest / misc</span><button class="btn btn-mini" type="button" data-dl="cat_rest" data-dl-label="Rest (all)" onclick="downloadCategory('rest')">&#8681; Download all</button></div>
+          <div class="note">Full trade action log, network errors and the dataset schema (field descriptions for the logs).</div></div>
+
+        <div class="panel" style="border-color:rgba(255,213,74,0.4);"><div class="plabel" style="display:flex; justify-content:space-between; align-items:center; color:#ffd54a;"><span>Raw indicator inputs</span><button class="btn btn-mini" type="button" data-dl="raw_inputs" data-dl-label="Raw inputs (all)" onclick="downloadRawInputs()" style="color:#ffd54a; border-color:rgba(255,213,74,0.5);">&#8681; Download all</button></div>
+          <div class="note">The raw signals Osiris reasons on, explicit: the <b>metricsHistory</b> time series (vfm / er / db / chaos / volume / momentum &hellip; one sample per ~10s), the live 16-input NN vector and the raw per-market indicator snapshots.</div></div>
+      </div>
+
+      <!-- TAM BACKTEST -->
+      <div class="panel" style="border-color:rgba(199,146,234,0.5); background:rgba(199,146,234,0.05);">
+        <div class="plabel" style="color:#c792ea;">&#9673; Temporal Attractor Model &mdash; backtest data (BTC / ETH / SOL)</div>
+        <div class="flex gap wrap center"><button class="btn go" type="button" data-dl="tam" data-dl-label="TAM backtest" onclick="downloadTAMData()" style="background:rgba(199,146,234,0.15); color:#c792ea; border-color:rgba(199,146,234,0.55);">&#8681; Download all TAM backtest data</button>
+          <span class="muted">Everything needed to test the TAM/UOTAM hypothesis on the crypto market. Per market: the full candle history <b>aligned to the temporal node grid</b> (nearest node, node type, minutes-to-node) with forward returns (+1/+3/+6 candles) &mdash; so you can measure whether price reacts around the &pi;-cycle nodes. Plus the model constants (&pi;-cycle 188.66 min, anchor, node types, weights), the FSO stress series, kinetic breakpoints/ETA, calibrated prediction outcomes and the timing scenario-backtest.</span></div>
       </div>
     </section>
 
