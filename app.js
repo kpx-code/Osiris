@@ -2187,6 +2187,7 @@ function stopAutonomousBot() {
     // 1. Stop de bot-logica
     botSettings.isRunning = false;
     recordSessionEvent('STOP');
+    try { OsirisSessions.archive('stop', 'both'); } catch (e) {}   // sessie archiveren vóór runtime-reset
     expandConfigPanel();
     
     // 2. Stop de 'hartslag' van de bot (belangrijk!)
@@ -2298,6 +2299,7 @@ function setText(id, text) {
 
 function resetWallet() {
     if (!confirm("Weet je zeker dat je de wallet wilt resetten? Alle open posities, pending orders en logs worden gewist.")) return;
+    try { OsirisSessions.archive('reset', 'spot'); } catch (e) {}   // bewaar de sessie voordat de spot-logs gewist worden
 
     const capitalInput = document.getElementById('start-capital');
     const newCapital = capitalInput ? parseFloat(capitalInput.value) : 1000;
@@ -10193,6 +10195,7 @@ function osirisMasterBundle() {
             timing_agent: 'Timing-Agent: component weights & out-of-sample hit-rates (NN, node, FSO, RL, confluence, volume, fib, funding, predict), live vs shadow, the scenario-backtest results and the latest per-market component values.',
             overige_tools: 'Kinetic engine export, LLM context, journal, next-steps queue, Guardian (data integrity), Risk (drawdown/day P/L/exposure) and the per-market circuit breaker.',
             beveiliging: 'Access/security log: device-ID + label, IP + coarse location (if enabled), precise location (if consented), engagement time per device and the click log with sensitive actions flagged. (Webhook URL / email keys are NOT included.)',
+            sessies: 'Per-wallet session archive (saved on Stop bot / Reset): net P/L, gains/losses, runtime, trades/wins/losses, winrate, end equity, session cost (fees/slippage) and BTC/ETH/SOL positions opened — plus the live current-session metrics for spot and margin.',
             rest: 'Full trade action log (every ENTRY/EXIT/PENDING/CANCELLED/SKIPPED with € amounts + timestamps), network errors and the dataset schema (field descriptions).'
         },
         nietInbegrepen: { tam_backtest: 'De Temporal Attractor Model backtest-data zit hier bewust NIET in — dat is een aparte download (knop "Download all TAM backtest data").', geheime_sleutels: 'API-keys (testnet + LLM) en de audit webhook/e-mail-sleutels worden NOOIT geëxporteerd of gesynct.' },
@@ -10363,6 +10366,13 @@ function osirisMasterBundle() {
         uitleg: 'Access/security log: device-ID + label (OS/browser/type), IP + coarse location (if enabled), precise location (if consented), engagement time per device and the click log with sensitive actions flagged. Webhook URL / email keys are intentionally NOT included.'
     };
 
+    // 6f) SESSIE-ARCHIEF (per wallet: p/l, runtime, trades/wins/losses, eind-equity, kosten, posities per munt)
+    C.sessies = {
+        archief: g(() => (typeof OsirisSessions !== 'undefined' ? OsirisSessions.bundle() : null)),
+        huidige_sessie: g(() => ({ spot: (typeof osirisSpotSessionMetrics === 'function' ? osirisSpotSessionMetrics() : null), margin: (typeof osirisMarginSessionMetrics === 'function' ? osirisMarginSessionMetrics() : null) })),
+        uitleg: 'Per afgesloten sessie (bij Stop bot of Reset) een snapshot per wallet: net P/L, gains/losses, runtime, trades/wins/losses, winrate, eind-equity, sessiekosten (fees/slippage) en aantal geopende posities per munt (BTC/ETH/SOL). Plus de live huidige-sessie metrics.'
+    };
+
     // 7) OVERIGE / REST
     C.rest = {
         tradeLog: g(() => (typeof botTradeLog !== 'undefined' ? botTradeLog : null)),
@@ -10370,7 +10380,7 @@ function osirisMasterBundle() {
         datasetSchema: {
             learningLog: 'timestampMs, side, market, outcome, pnlPct, exitReason, entryProbabilityPct, regimeAtEntry',
             tradeLog: 'action, price, side, pnlPct, amount, reason, notional, market, timestamp',
-            uitleg: 'Categorieën: engine (incl. liveSnapshot + sessionLog), wallets(spot+margin), kalibratie_logs, market_charts_en_historie, nn_en_nodes, learnings(L1/L2/L3+modellen+RL), overige_tools, reasonings, exit_bijdrage_en_equity, timing_agent (TA live+schaduw), beveiliging (toegangslog), rest. TAM-backtest is een APARTE download (niet hierin). Zie ook het "manifest"-veld bovenaan voor een uitgebreide beschrijving per categorie.'
+            uitleg: 'Categorieën: engine (incl. liveSnapshot + sessionLog), wallets(spot+margin), kalibratie_logs, market_charts_en_historie, nn_en_nodes, learnings(L1/L2/L3+modellen+RL), overige_tools, reasonings, exit_bijdrage_en_equity, timing_agent (TA live+schaduw), beveiliging (toegangslog), sessies (sessie-archief), rest. TAM-backtest is een APARTE download (niet hierin). Zie ook het "manifest"-veld bovenaan voor een uitgebreide beschrijving per categorie.'
         }
     };
     return B;
@@ -11615,6 +11625,7 @@ function resetMarginWallet() {
             if (!confirm('De margin-engine staat AAN met ' + marginState.positions.length + ' open positie(s). Reset wist de lokale wallet-boekhouding (niet je futures-testnet-saldo). Doorgaan?')) return;
         } else if (!confirm('Weet je zeker dat je de margin-wallet wilt resetten? Alle lokale margin-posities, gesloten trades en logs worden gewist.')) return;
     } catch (e) { return; }
+    try { OsirisSessions.archive('reset', 'margin'); } catch (e) {}   // bewaar de margin-sessie voor de wipe
     const inp = (typeof document !== 'undefined') ? document.getElementById('margin-start-equity') : null;
     let start = inp ? parseFloat(inp.value) : NaN; if (!(start > 0)) start = 1000;
     marginState = {
@@ -13994,7 +14005,150 @@ function updateKpiStrip() {
         badge.innerHTML = `&#9673; ${aan ? (botSettings.executionMode === 'TESTNET' ? 'TESTNET · live' : 'SIMULATIE · live') : 'STANDBY'}`;
         badge.style.color = aan ? '#00d9ff' : '#5b7a90';
     }
+    try { renderSpotSessionMetrics(); } catch (e) {}
+    try { renderMarginSessionMetrics(); } catch (e) {}
+    try { renderSessionsPanels(); } catch (e) {}
 }
+
+// ============================================================
+// SESSIE-METRICS + SESSIE-ARCHIEF (23-08) — per wallet, downloadbaar
+// ============================================================
+function _fmtCur(v) { try { return (typeof formatMoney === 'function') ? formatMoney(v) : (+v).toFixed(2); } catch (e) { return String(v); } }
+function _fmtRuntime(ms) { if (ms == null) return '—'; const s = Math.floor(ms / 1000); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60; const p = n => n < 10 ? '0' + n : '' + n; return `${p(h)}:${p(m)}:${p(ss)}`; }
+function _osirisSessionStartMs() { try { return (typeof botStartTime !== 'undefined' && botStartTime) ? botStartTime : null; } catch (e) { return null; } }
+function _mkPerMkt() { return { BTC: { opened: 0, pnl: 0, wins: 0, losses: 0 }, ETH: { opened: 0, pnl: 0, wins: 0, losses: 0 }, SOL: { opened: 0, pnl: 0, wins: 0, losses: 0 } }; }
+
+function osirisSpotSessionMetrics() {
+    const startMs = _osirisSessionStartMs(); const cost = roundTripCostPct() / 100;
+    const log = (typeof botTradeLog !== 'undefined') ? botTradeLog : [];
+    const inWin = t => startMs ? ((t.timestampMs || 0) >= startMs) : true;
+    const exits = log.filter(t => t.action === 'EXIT' && inWin(t));
+    const entries = log.filter(t => t.action === 'ENTRY' && inWin(t));
+    const perMkt = _mkPerMkt(); let gains = 0, losses = 0, net = 0, wins = 0, lose = 0, feeSum = 0;
+    entries.forEach(e => { const m = perMkt[e.market] ? e.market : 'BTC'; perMkt[m].opened++; feeSum += Math.abs(e.notionalEUR || 0) * cost / 2; });
+    exits.forEach(t => { const pa = (typeof t.pnlAmount === 'number') ? t.pnlAmount : 0; net += pa; if (pa >= 0) { gains += pa; wins++; } else { losses += pa; lose++; } const m = perMkt[t.market] ? t.market : 'BTC'; perMkt[m].pnl += pa; pa >= 0 ? perMkt[m].wins++ : perMkt[m].losses++; feeSum += Math.abs(t.notionalEUR || 0) * cost / 2; });
+    return {
+        wallet: 'spot', trades: exits.length, wins, losses: lose, winratePct: exits.length ? +(wins / exits.length * 100).toFixed(1) : null,
+        sessionGains: +gains.toFixed(2), sessionLosses: +losses.toFixed(2), sessionNet: +net.toFixed(2),
+        realisedPnL: +(walletState.realizedPnL || 0).toFixed(2), unrealisedPnL: +(((typeof getUnrealizedPnL === 'function') ? getUnrealizedPnL() : 0)).toFixed(2),
+        sessionCost: +feeSum.toFixed(2), equity: (typeof getEquity === 'function') ? +getEquity().toFixed(2) : null, startEquity: walletState.startingCapital,
+        runtimeMs: startMs ? Date.now() - startMs : null, perMarkt: perMkt
+    };
+}
+function osirisMarginSessionMetrics() {
+    const startMs = _osirisSessionStartMs(); const cost = roundTripCostPct() / 100;
+    const closed = (typeof marginState !== 'undefined' && marginState.closed) ? marginState.closed : [];
+    const tlog = (typeof marginState !== 'undefined' && marginState.tradeLog) ? marginState.tradeLog : [];
+    const inWin = t => startMs ? ((t.ts || 0) >= startMs) : true;
+    const cl = closed.filter(inWin); const entries = tlog.filter(t => t.action === 'ENTRY' && inWin(t));
+    const perMkt = _mkPerMkt(); let gains = 0, losses = 0, net = 0, wins = 0, lose = 0, feeSum = 0;
+    entries.forEach(e => { const m = perMkt[e.sym] ? e.sym : 'BTC'; perMkt[m].opened++; feeSum += Math.abs(e.notional || 0) * cost / 2; });
+    cl.forEach(t => { const pa = (typeof t.pnlUSD === 'number') ? t.pnlUSD : 0; net += pa; if (pa >= 0) { gains += pa; wins++; } else { losses += pa; lose++; } const m = perMkt[t.sym] ? t.sym : 'BTC'; perMkt[m].pnl += pa; pa >= 0 ? perMkt[m].wins++ : perMkt[m].losses++; const notional = (t.entryPrice && t.qty) ? t.entryPrice * t.qty : 0; feeSum += Math.abs(notional) * cost / 2; });
+    const openUnreal = (typeof marginState !== 'undefined' && marginState.positions) ? marginState.positions.reduce((a, p) => a + (p.uPnl || 0), 0) : 0;
+    const eq = (typeof marginEquity === 'function') ? marginEquity() : ((typeof marginState !== 'undefined') ? marginState.equity : 0);
+    return {
+        wallet: 'margin', trades: cl.length, wins, losses: lose, winratePct: cl.length ? +(wins / cl.length * 100).toFixed(1) : null,
+        sessionGains: +gains.toFixed(2), sessionLosses: +losses.toFixed(2), sessionNet: +net.toFixed(2),
+        realisedPnL: +((typeof marginState !== 'undefined' ? marginState.realizedPnL : 0) || 0).toFixed(2), unrealisedPnL: +openUnreal.toFixed(2),
+        sessionCost: +feeSum.toFixed(2), equity: +(+eq).toFixed(2), startEquity: (typeof marginState !== 'undefined' ? (marginState.walletBalance || marginState.equity) : null),
+        runtimeMs: startMs ? Date.now() - startMs : null, perMarkt: perMkt
+    };
+}
+const OsirisSessions = {
+    DISPLAY_CAP: 200,
+    list: [],
+    // LIFETIME-totalen per wallet — blijven kloppen ook nadat oude kaarten uit `list` vallen.
+    totals: { spot: null, margin: null },
+    _zero() { return { count: 0, net: 0, gains: 0, losses: 0, cost: 0, trades: 0, wins: 0, lossesN: 0, runtimeMs: 0, bestNet: null, worstNet: null, firstAt: null, lastAt: null }; },
+    _restore() {
+        try { const d = JSON.parse(localStorage.getItem('osirisSessions') || '[]'); if (Array.isArray(d)) this.list = d; } catch (e) {}
+        try { const t = JSON.parse(localStorage.getItem('osirisSessionsTotals') || 'null'); if (t) this.totals = t; } catch (e) {}
+    },
+    _save() {
+        try { localStorage.setItem('osirisSessions', JSON.stringify(this.list.slice(0, this.DISPLAY_CAP))); } catch (e) {}
+        try { localStorage.setItem('osirisSessionsTotals', JSON.stringify(this.totals)); } catch (e) {}
+    },
+    _accum(w, s) {
+        const t = this.totals[w] || (this.totals[w] = this._zero());
+        t.count++; t.net += s.sessionNet || 0; t.gains += s.sessionGains || 0; t.losses += s.sessionLosses || 0; t.cost += s.sessionCost || 0;
+        t.trades += s.trades || 0; t.wins += s.wins || 0; t.lossesN += s.losses || 0; t.runtimeMs += s.runtimeMs || 0;
+        if (s.sessionNet != null) { if (t.bestNet == null || s.sessionNet > t.bestNet) t.bestNet = s.sessionNet; if (t.worstNet == null || s.sessionNet < t.worstNet) t.worstNet = s.sessionNet; }
+        if (t.firstAt == null) t.firstAt = s.endedAt || Date.now(); t.lastAt = s.endedAt || Date.now();
+    },
+    archive(reason, which) {
+        try {
+            which = which || 'both'; const startMs = _osirisSessionStartMs(); const now = Date.now();
+            const base = { endedAt: now, endedISO: new Date(now).toISOString(), startedAt: startMs || null, startedISO: startMs ? new Date(startMs).toISOString() : null, reason: reason || 'stop' };
+            if (which === 'both' || which === 'spot') { const s = osirisSpotSessionMetrics(); if (s.trades > 0 || (s.perMarkt && (s.perMarkt.BTC.opened + s.perMarkt.ETH.opened + s.perMarkt.SOL.opened) > 0)) { const rec = Object.assign({ id: 'ses-' + now + '-spot' }, base, s); this.list.unshift(rec); this._accum('spot', rec); } }
+            if (which === 'both' || which === 'margin') { const mm = osirisMarginSessionMetrics(); if (mm.trades > 0 || (mm.perMarkt && (mm.perMarkt.BTC.opened + mm.perMarkt.ETH.opened + mm.perMarkt.SOL.opened) > 0)) { const rec = Object.assign({ id: 'ses-' + now + '-margin' }, base, mm); this.list.unshift(rec); this._accum('margin', rec); } }
+            if (this.list.length > this.DISPLAY_CAP) this.list.length = this.DISPLAY_CAP;
+            this._save(); try { renderSessionsPanels(); } catch (e) {}
+        } catch (e) {}
+    },
+    bundle() { return { shown: this.list.length, displayCap: this.DISPLAY_CAP, lifetimeTotals: this.totals, exportedAt: new Date().toISOString(), sessions: this.list, uitleg: 'sessions = de laatste ' + this.DISPLAY_CAP + ' gearchiveerde sessies (nieuwste eerst). lifetimeTotals = cumulatieve totalen over ALLE sessies ooit (blijven kloppen ook nadat oude kaarten uit de lijst vallen).' }; },
+    download() { try { _dlSized(this.bundle(), `osiris_sessions_${Date.now()}.json`); } catch (e) {} }
+};
+window.OsirisSessions = OsirisSessions; try { OsirisSessions._restore(); } catch (e) {}
+function downloadSessions() { try { OsirisSessions.download(); } catch (e) {} }
+window.downloadSessions = downloadSessions;
+
+function _setMetric(id, txt, c) { const e = document.getElementById(id); if (!e) return; e.textContent = txt; if (c) e.style.color = c; }
+function renderSpotSessionMetrics() {
+    try {
+        const m = osirisSpotSessionMetrics();
+        _setMetric('sp-ses-net', (m.sessionNet >= 0 ? '+' : '') + _fmtCur(m.sessionNet), m.sessionNet >= 0 ? '#00d9ff' : '#ff5f7e');
+        _setMetric('sp-ses-gains', '+' + _fmtCur(m.sessionGains), '#14f195');
+        _setMetric('sp-ses-losses', _fmtCur(m.sessionLosses), '#ff8a94');
+        _setMetric('sp-eq-real', _fmtCur(m.realisedPnL), m.realisedPnL >= 0 ? '#00d9ff' : '#ff5f7e');
+        _setMetric('sp-eq-unreal', (m.unrealisedPnL >= 0 ? '+' : '') + _fmtCur(m.unrealisedPnL), m.unrealisedPnL >= 0 ? '#14f195' : '#ff8a94');
+        _setMetric('sp-ses-cost', _fmtCur(m.sessionCost), '#ffb627');
+    } catch (e) {}
+}
+function renderMarginSessionMetrics() {
+    try {
+        const m = osirisMarginSessionMetrics();
+        _setMetric('m-ses-net', (m.sessionNet >= 0 ? '+' : '') + _fmtCur(m.sessionNet), m.sessionNet >= 0 ? '#c792ea' : '#ff5f7e');
+        _setMetric('m-ses-gains', '+' + _fmtCur(m.sessionGains), '#14f195');
+        _setMetric('m-ses-losses', _fmtCur(m.sessionLosses), '#ff8a94');
+        _setMetric('m-eq-real', _fmtCur(m.realisedPnL), m.realisedPnL >= 0 ? '#c792ea' : '#ff5f7e');
+        _setMetric('m-eq-unreal', (m.unrealisedPnL >= 0 ? '+' : '') + _fmtCur(m.unrealisedPnL), m.unrealisedPnL >= 0 ? '#14f195' : '#ff8a94');
+        _setMetric('m-ses-cost', _fmtCur(m.sessionCost), '#ffb627');
+    } catch (e) {}
+}
+function renderSessionsPanels() {
+    try {
+        const render = (elId, wallet, col) => {
+            const el = document.getElementById(elId); if (!el) return;
+            const rows = OsirisSessions.list.filter(s => s.wallet === wallet);
+            const t = (OsirisSessions.totals && OsirisSessions.totals[wallet]) ? OsirisSessions.totals[wallet] : null;
+            let summary = '';
+            if (t && t.count) {
+                const nc = t.net >= 0 ? '#14f195' : '#ff8a94'; const wr = t.trades ? (t.wins / t.trades * 100) : 0;
+                summary = `<div style="position:sticky; top:0; background:#0a0f1a; border-bottom:1px solid rgba(255,255,255,0.1); padding:4px 2px 6px; margin:-8px -10px 4px; font-size:0.55rem; z-index:2;">
+                    <span style="color:${col}; font-weight:700;">ALL-TIME (${t.count} sessions)</span> &middot;
+                    net <b style="color:${nc}">${t.net >= 0 ? '+' : ''}${_fmtCur(t.net)}</b> &middot;
+                    avg winrate <b>${wr.toFixed(0)}%</b> (${t.wins}/${t.trades}) &middot;
+                    cost <span style="color:#ffb627">${_fmtCur(t.cost)}</span> &middot;
+                    best <span style="color:#14f195">+${_fmtCur(t.bestNet || 0)}</span> / worst <span style="color:#ff8a94">${_fmtCur(t.worstNet || 0)}</span> &middot;
+                    runtime ${_fmtRuntime(t.runtimeMs)}${rows.length < t.count ? ` &middot; <span style="color:var(--text-dimmer)">showing last ${rows.length} of ${t.count}</span>` : ''}
+                </div>`;
+            }
+            if (!rows.length) { el.innerHTML = summary + '<span style="color:var(--dim); font-size:0.6rem;">No archived sessions yet — a session is saved on Stop bot or Reset.</span>'; return; }
+            el.innerHTML = summary + rows.slice(0, 80).map(s => {
+                const pc = (s.sessionNet || 0) >= 0 ? '#14f195' : '#ff8a94'; let dt = ''; try { dt = new Date(s.endedAt).toLocaleString('en-GB'); } catch (e) {}
+                const pm = s.perMarkt || {}; const pmTxt = ['BTC', 'ETH', 'SOL'].map(mm => `${mm} ${pm[mm] ? pm[mm].opened : 0}`).join(' · ');
+                return `<div style="border-top:1px solid rgba(255,255,255,0.06); padding:6px 0; font-size:0.56rem;">
+                    <div style="display:flex; justify-content:space-between;"><span style="color:${col}; font-weight:700;">${dt}${s.reason ? ' <span style=\"color:var(--text-dimmer)\">(' + s.reason + ')</span>' : ''}</span><span style="color:${pc};">net ${(s.sessionNet >= 0 ? '+' : '')}${_fmtCur(s.sessionNet)}</span></div>
+                    <div style="color:var(--dim); line-height:1.7;">runtime ${_fmtRuntime(s.runtimeMs)} · trades ${s.trades} (W ${s.wins}/L ${s.losses}${s.winratePct != null ? ', ' + s.winratePct + '%' : ''}) · end equity <b style="color:#eafcff">${_fmtCur(s.equity)}</b><br>
+                    gains <span style="color:#14f195">+${_fmtCur(s.sessionGains)}</span> · losses <span style="color:#ff8a94">${_fmtCur(s.sessionLosses)}</span> · cost <span style="color:#ffb627">${_fmtCur(s.sessionCost)}</span> · realised ${_fmtCur(s.realisedPnL)} · positions opened ${pmTxt}</div>
+                </div>`;
+            }).join('');
+        };
+        render('sessions-spot', 'spot', '#00d9ff');
+        render('sessions-margin', 'margin', '#c792ea');
+    } catch (e) {}
+}
+window.renderSessionsPanels = renderSessionsPanels;
 
 // ============================================================
 // HUB-PANELEN (17-07): kalibratiecurve, exit-bijdrage en positielijst.
@@ -15640,9 +15794,12 @@ function _neoNetDraw(now, canvasId, outId) {
             chips.push({ t: `☁ CLOUD ${cs.signedIn ? 'gesynct' : cs.connected ? 'verbonden' : 'offline'}`, c: cs.signedIn ? '#14f195' : cs.connected ? '#ffb627' : '#5c7488' });
             let running = false; try { running = (typeof isBotRunning !== 'undefined' && isBotRunning) || (typeof botState !== 'undefined' && botState && botState.isRunning) || (typeof multiEngineRunning !== 'undefined' && multiEngineRunning) || false; } catch (e) {}
             chips.push({ t: `⚙ WORKER ${running ? 'actief' : 'gepauzeerd'}`, c: running ? '#14f195' : '#5c7488' });
-            ctx.textAlign = 'left'; ctx.font = "7.5px 'JetBrains Mono',monospace";
-            let sx = 12;
-            for (const ch of chips) { ctx.fillStyle = ch.c; ctx.fillText(ch.t, sx, 14); sx += ctx.measureText(ch.t).width + 14; }
+            // onderin gecentreerd (net boven de feedback-regel) zodat de chips NIET de
+            // HTML-titel 'OSIRIS DEEPNET' linksboven overlappen.
+            ctx.font = "7.5px 'JetBrains Mono',monospace"; ctx.textAlign = 'left';
+            const gap = 16; let total = 0; for (const ch of chips) total += ctx.measureText(ch.t).width + gap; total -= gap;
+            let sx = Math.max(10, (w - total) / 2); const sy = h - 33;
+            for (const ch of chips) { ctx.fillStyle = ch.c; ctx.fillText(ch.t, sx, sy); sx += ctx.measureText(ch.t).width + gap; }
         } catch (e) {}
         if (typeof OsirisRegimeHMM !== 'undefined') {
             const H = OsirisRegimeHMM;
