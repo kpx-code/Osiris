@@ -806,12 +806,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           </div>
           <div style="color:#9fb2c4; font-weight:700; margin:6px 0 3px; letter-spacing:0.5px;">KRITIEKE LEVELS &middot; wat de cijfers betekenen</div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:2px 16px;">
-            <span><span style="color:#14f195;">RUST</span> &mdash; stress &lt; <b>0.15</b>: kalm, normaal traden</span>
-            <span><span style="color:#ffb627;">SPANNING-drempel 0.15</span> &mdash; energie bouwt op, strenger traden</span>
-            <span><span style="color:#ff4f6d;">CRISIS-drempel 0.30</span> &mdash; grote beweging op komst (kans of gevaar)</span>
-            <span><span style="color:#ff8a94;">GEVARENZONE</span> &mdash; stress &gt; <b>0.30</b>: het rode gearceerde vlak</span>
+            <span><span style="color:#14f195;">RUST</span> &mdash; onder de SPANNING-drempel: kalm, normaal traden</span>
+            <span><span style="color:#ffb627;">SPANNING-drempel (start 0.15)</span> &mdash; energie bouwt op, strenger traden</span>
+            <span><span style="color:#ff4f6d;">CRISIS-drempel (start 0.30)</span> &mdash; grote beweging op komst (kans of gevaar)</span>
+            <span><span style="color:#ff8a94;">GEVARENZONE</span> &mdash; boven de CRISIS-drempel: het rode gearceerde vlak</span>
           </div>
-          <div style="color:var(--text-dimmer); margin-top:5px;">Schaal 0&ndash;0.60. De rechter mini-legenda in elke grafiek toont de huidige eindwaarde per munt. Data-true (Binance BTC/ETH/SOL).</div>
+          <div style="color:var(--text-dimmer); margin-top:5px;">Schaal 0&ndash;0.60. De rechter mini-legenda toont de huidige eindwaarde per munt. Data-true (Binance BTC/ETH/SOL). <span style="color:#14f195;">&#9881; De drempels (spanning/crisis/variance/correlatie) zijn startwaarden die Osiris zelf kalibreert &mdash; alleen na shadow-backtest-verificatie &eacute;n live-bevestiging, in kleine stappen. De gestippelde lijnen in de grafiek bewegen dus mee; onderin staat of de zones gekalibreerd zijn.</span></div>
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
           <div><div style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:#7fd8ff; letter-spacing:1px; margin-bottom:3px;">MICRO &middot; 1m (~6u) &mdash; acute schokken</div><canvas id="fso-micro" width="620" height="200" style="width:100%; height:200px; display:block; background:rgba(0,0,0,0.25); border-radius:6px;"></canvas></div>
@@ -879,6 +879,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
       <div class="panel" style="margin-top:14px;"><div class="plabel" style="color:#7fd8ff; display:flex; justify-content:space-between; align-items:center;"><span>TIMING-AGENT &middot; wanneer long/short openen &middot; live vs schaduw &middot; scenario-backtest</span><button type="button" onclick="try{_downloadJSON({live:OsirisTiming.bundle(),schaduw:OsirisTimingShadow.bundle(),backtest:OsirisTimingBacktest.bundle(),componenten:Object.fromEntries((typeof MULTI_SYMBOLS!=='undefined'?MULTI_SYMBOLS:['BTC','ETH','SOL']).map(function(s){return [s,_taComponents(s)];}))},'osiris_timing_agent_'+Date.now()+'.json');}catch(e){alert('export mislukt: '+e.message);}" class="btn btn-ghost btn-mini" style="color:#7fd8ff; border-color:rgba(127,216,255,0.4); font-size:0.6rem;">download</button></div>
         <div id="ta-panel-nn" style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; line-height:1.6;"><span style="color:var(--dim);">Timing-Agent kalibreert&hellip; (verzamelt out-of-sample resolves + scenario-backtest)</span></div>
+      </div>
+      <div class="panel" style="margin-top:14px;"><div class="plabel" style="color:#ff8a94; display:flex; justify-content:space-between; align-items:center;"><span>FSO ZONE-KALIBRATIE &middot; shadow-backtest &amp; live-verificatie</span><button type="button" onclick="try{_dlSized(OsirisFSOCal.bundle(),'osiris_fso_kalibratie_'+Date.now()+'.json');}catch(e){alert('export mislukt: '+e.message);}" class="btn btn-ghost btn-mini" style="color:#ff8a94; border-color:rgba(255,138,148,0.4); font-size:0.6rem;">download</button></div>
+        <div id="fsocal-panel-nn" style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; line-height:1.6;"><span style="color:var(--dim);">FSO-kalibratie initialiseert&hellip;</span></div>
       </div>
       <div style="margin-top:14px; border:1px dashed rgba(20,241,149,0.55); border-radius:10px; padding:10px 14px; background:rgba(20,241,149,0.04); text-align:center; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#14f195; letter-spacing:0.5px;">&#8635; FEEDBACK-LUS &nbsp;&middot;&nbsp; L1/L2/L3 + auto-tuner + HMM + shadow-backtest &nbsp;&middot;&nbsp; elke trade / elke 5 min<div style="color:var(--dim); font-size:0.54rem; letter-spacing:0; margin-top:4px;">de uitkomst voedt continu de gewichten, kalibratie, drempels, exit-timing en target/stop terug het net in</div></div>
     </section>
@@ -1361,6 +1364,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
       <div class="rlabel" style="color:#7fd8ff; margin-top:22px; display:flex; justify-content:space-between; align-items:center;"><span>&#9679; Timing-Agent &mdash; wanneer long/short openen (NN + node-countdown + FSO + RL + confluenties + ETA), zelf-kalibrerend, live vs schaduw</span><button type="button" onclick="try{_downloadJSON({live:OsirisTiming.bundle(),schaduw:OsirisTimingShadow.bundle(),componenten:Object.fromEntries((typeof MULTI_SYMBOLS!=='undefined'?MULTI_SYMBOLS:['BTC','ETH','SOL']).map(function(s){return [s,_taComponents(s)];}))},'osiris_timing_agent_'+Date.now()+'.json');}catch(e){alert('export mislukt: '+e.message);}" class="btn btn-ghost btn-mini" style="color:#7fd8ff; border-color:rgba(127,216,255,0.4); font-size:0.6rem;">download</button></div>
       <div id="ta-panel" style="max-height:340px; overflow-y:auto; margin-top:8px; background:rgba(0,0,0,0.55); border:1px solid rgba(127,216,255,0.2); padding:10px 12px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; line-height:1.6;"><span style="color:var(--text-dim);">Timing-Agent kalibreert&hellip; (verzamelt out-of-sample resolves)</span></div>
+
+      <div class="rlabel" style="color:#ff8a94; margin-top:22px; display:flex; justify-content:space-between; align-items:center;"><span>&#9679; FSO zone-kalibratie &mdash; drempels (spanning/crisis/variance/correlatie) via shadow-backtest + live-verificatie</span><button type="button" onclick="try{_dlSized(OsirisFSOCal.bundle(),'osiris_fso_kalibratie_'+Date.now()+'.json');}catch(e){alert('export mislukt: '+e.message);}" class="btn btn-ghost btn-mini" style="color:#ff8a94; border-color:rgba(255,138,148,0.4); font-size:0.6rem;">download</button></div>
+      <div id="fsocal-panel" style="max-height:340px; overflow-y:auto; margin-top:8px; background:rgba(0,0,0,0.55); border:1px solid rgba(255,138,148,0.2); padding:10px 12px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; line-height:1.6;"><span style="color:var(--text-dim);">FSO-kalibratie initialiseert&hellip;</span></div>
     </section>
     <style>.tool-feed{max-height:220px; overflow-y:auto; margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.56rem; line-height:1.7; color:#ffd98a;}</style>
 
