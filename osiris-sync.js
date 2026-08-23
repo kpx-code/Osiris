@@ -32,7 +32,10 @@ const OSIRIS_STATE_KEYS = [
     'osirisJournal', 'osirisLLMfeed',              // G: journaal + LLM/vertaler-feed (leesbare neerslag)
     'osirisLiveEnabled', 'multiEngineRunning',
     'botIsRunning', 'botStartTime'
-    // BEWUST NIET gesynct: 'osirisTestnetKeys' EN 'osirisLLMcfg' - API-keys (futures + LLM) horen niet in de cloud-DB.
+    // BEWUST NIET gesynct: 'osirisTestnetKeys', 'osirisLLMcfg' EN 'osirisAuditCfg' - API-keys
+    // (futures + LLM) en de audit webhook/e-mail-sleutels horen niet in de cloud-DB. De audit-LOG
+    // zelf (osirisAuditLog / osirisDeviceId / osirisDeviceName) blijft lokaal + gaat naar de aparte
+    // osiris_access_log-tabel, niet via de state-sync.
 ];
 
 // Deze run-vlaggen worden wel gespiegeld (voor backup/Fase 2) maar NIET teruggezet bij
@@ -55,6 +58,33 @@ function osirisSyncInit() {
     _sb.auth.getSession();
 }
 window.osirisSyncInit = osirisSyncInit;
+
+// ------------------------------------------------------------------
+// AUDIT / ACCESS LOG — anon insert naar de tabel osiris_access_log.
+// Werkt OOK zonder ingelogd te zijn (juist bedoeld om onbevoegde toegang te
+// betrappen). Vereist eenmalig in Supabase een tabel + RLS-policy die anon
+// INSERT toestaat en SELECT alleen voor de eigenaar. Faalt stil als die ontbreekt.
+//
+//   create table public.osiris_access_log (
+//     id bigint generated always as identity primary key,
+//     device_id text, device_name text, event_type text, label text,
+//     sensitive boolean, ts timestamptz, ip text, geo jsonb, geo_precise jsonb,
+//     device jsonb, engagement_ms bigint, url text, extra jsonb,
+//     created_at timestamptz default now()
+//   );
+//   alter table public.osiris_access_log enable row level security;
+//   create policy "anon insert" on public.osiris_access_log for insert to anon with check (true);
+//   -- (SELECT bewust NIET aan anon geven; lees hem als eigenaar via de dashboard/service-role)
+//   -- E-mail gratis: zet een Database Webhook / trigger op deze tabel die een gratis
+//   --   mailprovider (bijv. Resend free tier) aanroept — sleutels blijven server-side in Supabase.
+// ------------------------------------------------------------------
+async function osirisAuditPush(rows) {
+    try {
+        if (!_sb || !Array.isArray(rows) || !rows.length) return;
+        await _sb.from('osiris_access_log').insert(rows);
+    } catch (e) { /* stil: tabel/policy nog niet aangemaakt, of offline */ }
+}
+window.osirisAuditPush = osirisAuditPush;
 
 async function osirisSignIn(email, pw) {
     if (!_sb) return;
