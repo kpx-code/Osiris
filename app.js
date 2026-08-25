@@ -15893,17 +15893,15 @@ function buildNeoNet() {
     // laag 3 = Osiris mainbrain-integratie (vergelijkt de sub-breinen)
     // laag 4 = output: LONG / NEUTRAAL / SHORT + equity-keuze
     // laag 5 = HET ENE EINDPUNT (alle 3 outputs convergeren tot 1 beslissing)
-    // (23-08 herzien) DATA-TRUE ARCHITECTUUR. Vorige versie toonde FSO en de Timing-Agent als
-    // aparte SEQUENTIËLE mid-lagen en herhaalde BTC/ETH/SOL in zowel CORES als OSIRIS. Dat klopte
-    // niet met de echte flow:
-    //   • FSO is een PARALLEL marktsignaal dat de beslissing voedt → nu een input-context (laag 0).
-    //   • CORES = de 3 sub-breinen (kans+richting per munt). OSIRIS = de mainbrain die diezelfde
-    //     3 cores SAMENVOEGT (kapitaal-allocatie) → nu ÉÉN mainbrain-knoop i.p.v. BTC/ETH/SOL nog eens.
-    //   • De Timing-Agent is een SOFT-GATE die bepaalt WANNEER op de mainbrain-richting gehandeld
-    //     wordt → nu een gate NÁ osiris, vlak vóór de beslissing.
-    // Lagen: 0=INPUTS(data+FSO) 1=INTEGRATIE 2=CORES(3) 3=OSIRIS(1 mainbrain) 4=TIMING-AGENT(gate:
-    // live+shadow) 5=DECISION(3) 6=CAPITAL(2) 7=OUTPUT(1). Elke betekenislaag krijgt échte waarden.
-    const layerSizes = [NEONET_INPUTS.length, 14, 3, 1, 2, 3, 2, 1];
+    // (23-08 v3) VOLLEDIG DATA-TRUE OSIRIS-ARCHITECTUUR. De integratie-laag (willekeurige gewichten)
+    // is vervangen door de ECHTE tussenstappen. Elke knoop leest live-state; de meta-/veiligheids-
+    // systemen zijn aparte knopen die MET de pijplijn verbonden zijn (geen losse tekst).
+    // Hoofdstroom:
+    //   0 INPUTS(22: data+FSO) → 1 PMV(3 predict/munt) → 2 DEEPNET(3 band/munt) → 3 CORES(3 sub-breinen)
+    //   → 4 TARGETS(3 kinetic prijs-target/munt) → 5 OSIRIS(mainbrain) → 6 TA(live+shadow gate)
+    //   → 7 DECISION(long/neut/short) → 8 CAPITAL(spot/margin) → 9 OUTPUT → 10 RL(leer-agent).
+    // Vanaf RL flitst de groene feedback-lus terug door het hele net.
+    const layerSizes = [NEONET_INPUTS.length, 3, 3, 3, 3, 1, 2, 3, 2, 1, 1];
     const layers = layerSizes.map((n, li) => {
         const nodes = [];
         for (let i = 0; i < n; i++) nodes.push({ li, i, act: 0, tw: Math.random() * 6.28 });
@@ -15918,13 +15916,24 @@ function buildNeoNet() {
         }
     }
     _neonet.layers = layers; _neonet.conns = conns; _neonet.built = true;
-    // labels: 0=inputs(data+FSO-context) 1=integratie 2=cores 3=osiris(mainbrain) 4=timing-gate
-    // 5=decision 6=capital 7=output.
-    _neonet.layerLabels = ['INPUTS', 'INTEGRATION', 'CORES', 'OSIRIS', 'TA', 'DECISION', 'CAPITAL', 'OUTPUT'];
+    _neonet.layerLabels = ['INPUTS', 'PMV', 'DEEPNET', 'CORES', 'TARGETS', 'OSIRIS', 'TA', 'DECISION', 'CAPITAL', 'OUTPUT', 'RL'];
     _neonet.subBrainLabels = ['BTC', 'ETH', 'SOL'];
     _neonet.outputLabels = ['LONG', 'NEUTRAAL', 'SHORT'];
-    _neonet.decisionLi = 5; _neonet.capitalLi = 6; _neonet.outputLi = 7;
-    _neonet.coresLi = 2; _neonet.osirisLi = 3; _neonet.timingLi = 4;
+    _neonet.pmvLi = 1; _neonet.deepLi = 2; _neonet.coresLi = 3; _neonet.targetsLi = 4; _neonet.osirisLi = 5;
+    _neonet.timingLi = 6; _neonet.decisionLi = 7; _neonet.capitalLi = 8; _neonet.outputLi = 9; _neonet.rlLi = 10;
+    // META-/VEILIGHEIDSKNOPEN — echte nodes die MET de pijplijn verbonden zijn (eigen connector-edges
+    // naar de laag waar ze ingrijpen). targetLi = de laag waarin ze ingrijpen.
+    _neonet.meta = [
+        { id: 'gov-pred', group: 'GOVERNOR', label: 'GOV·PRED', targetLi: 3, col: '#7fd8ff' },
+        { id: 'gov-kin', group: 'GOVERNOR', label: 'GOV·KIN', targetLi: 3, col: '#7fd8ff' },
+        { id: 'gov-eta', group: 'GOVERNOR', label: 'GOV·ETA', targetLi: 3, col: '#7fd8ff' },
+        { id: 'llm', group: 'LLM', label: 'LLM', targetLi: 5, col: '#c792ea' },
+        { id: 'fag-spot', group: 'FAG', label: 'FAG·SPOT', targetLi: 7, col: '#ffd24a' },
+        { id: 'fag-mar', group: 'FAG', label: 'FAG·MAR', targetLi: 7, col: '#ffb627' },
+        { id: 'guardian', group: 'GUARD', label: 'GUARDIAN', targetLi: 7, col: '#ff5f7e' },
+        { id: 'risk', group: 'RISK', label: 'RISK', targetLi: 7, col: '#ff8a94' },
+        { id: 'selfrev', group: 'SELF', label: 'SELF-REV', targetLi: 8, col: '#14f195' }
+    ];
 }
 
 // haal de echte, genormaliseerde input-activaties op uit Neo's live-state
@@ -16000,16 +16009,16 @@ function _neoNetDraw(now, canvasId, outId) {
     const _isBigNet = (canvasId === 'neo-net-canvas-big' || canvasId === 'neo-net-canvas-wal');
     // (22-08) padTop groter zodat de inputs ONDER de titel/subtitel beginnen (geen overlap);
     // padBot groter zodat de laag-labels + status-regel ruim boven de panel-hoeken/randen vallen.
-    const padX = w * 0.13, padTop = h * 0.135, padBot = h * 0.18, padY = padTop;
+    const padX = w * 0.13, padTop = h * 0.17, padBot = h * 0.16, padY = padTop;
     // horizontale posities per laag. De input-kant (INPUTS→INTEGRATION→CORES) krijgt ~1,5× méér
     // tussenruimte dan de rechterkant (CORES→OSIRIS→TA→…): eerste twee gaps 0.1875, de rest 0.125.
-    const _FX = [0, 0.1875, 0.375, 0.500, 0.625, 0.750, 0.875, 1.0];
+    const _FX = [0, 0.11, 0.21, 0.31, 0.41, 0.515, 0.62, 0.72, 0.82, 0.91, 1.0];
     const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
     // Per-laag verticale spreiding: inputs/integratie vol uitgespreid (meer ruimte tussen
     // de punten), en cores/osiris/beslissing compacter EN gecentreerd zodat die punten
     // dichter bij elkaar staan. Alles blijft binnen het canvas zichtbaar.
     const colH = h - padTop - padBot, cyMid = padTop + colH / 2;
-    const _SPREAD = [1.0, 0.98, 0.55, 0.34, 0.42, 0.52, 0.42, 0.40];
+    const _SPREAD = [1.0, 0.50, 0.50, 0.50, 0.50, 0.34, 0.42, 0.52, 0.42, 0.34, 0.34];
     const _spreadOf = li => (_SPREAD[li] != null ? _SPREAD[li] : 1.0);
     const pos = layers.map((nodes, li) => {
         const h2 = colH * _spreadOf(li), top = cyMid - h2 / 2, gap = h2 / Math.max(1, nodes.length - 1);
@@ -16037,94 +16046,116 @@ function _neoNetDraw(now, canvasId, outId) {
     const _fbActive = _fbCycle < 1.0;
     const _fbPos = _fbActive ? (1 - _fbCycle) * (layers.length - 1) : -1;   // hoog(output) -> laag(input)
 
-    // zet input-laag activaties
+    // ============ ECHTE, DATA-TRUE LAAG-ACTIVATIES ============
+    const allocMap = (typeof osirisState !== 'undefined' && osirisState.allocations) ? osirisState.allocations : {};
+    const _syms = ['BTC', 'ETH', 'SOL'];
+    // laag 0 (INPUTS): echte genormaliseerde inputwaarden (data + FSO-context)
     layers[0].forEach((nd, i) => { nd.act = Math.abs(inp[NEONET_INPUTS[i].key] || 0); nd.sign = Math.sign(inp[NEONET_INPUTS[i].key] || 0); });
-    // laag 1 (integratie): propageer uit de inputs
-    layers[1].forEach((nd, j) => {
-        let s = 0, wsum = 0, sgn = 0;
-        for (const a of layers[0]) {
-            const cn = conns.find(c => c.li === 0 && c.a === a.i && c.b === j);
-            if (cn) { s += a.act * cn.w; wsum += Math.abs(cn.w); sgn += a.act * a.sign * cn.w; }
-        }
-        nd.act = Math.max(0, Math.min(1, wsum ? Math.abs(s) / wsum : 0));
-        nd.sign = Math.sign(sgn);
-    });
-    // laag 2 (CORES): de 3 sub-breinen — elk knooppunt = een munt met zijn ECHTE kans + richting.
+    // laag 1 (PMV — per-markt voorspelling): OsirisPredict.state[sym] pShown + richting + inversie-badge
     try {
-        const syms = ['BTC', 'ETH', 'SOL'];
-        layers[2].forEach((nd, i) => {
-            const m = neoMultiState.markets[syms[i]];
-            const prob = m && m.bestProb != null ? m.bestProb : 0.5;
-            nd.act = Math.max(0.1, Math.min(1, prob));
-            nd.sign = (m && m.bestSide === 'SHORT') ? -1 : 1;
-            nd.label = syms[i];
+        layers[1].forEach((nd, i) => {
+            const p = (typeof OsirisPredict !== 'undefined' && OsirisPredict.state) ? OsirisPredict.state[_syms[i]] : null;
+            nd.act = Math.max(0.1, Math.min(1, (p && p.pShown != null) ? p.pShown : 0.5));
+            nd.sign = (p && p.dir < 0) ? -1 : 1; nd.label = _syms[i]; nd.inv = !!(p && p.inverted);
         });
     } catch (e) {}
-    // laag 3 (OSIRIS — MAINBRAIN): ÉÉN knoop die de 3 cores samenvoegt, gewogen naar de ECHTE
-    // kapitaal-allocatie. (Voorheen stond hier BTC/ETH/SOL nóg een keer — dat waren exact dezelfde
-    // drie markten als de cores. Nu is Osiris de mainbrain-integrator; de allocatie per munt zit in
-    // de dikte/flow van de cores→osiris-verbindingen.)
+    // laag 2 (DEEPNET band live): OsirisDeepNet.last[sym] calProb + side + meta-gate + inversie
     try {
-        const alloc = (typeof osirisState !== 'undefined' && osirisState.allocations) ? osirisState.allocations : {};
-        const syms = ['BTC', 'ETH', 'SOL']; let wsum = 0, asum = 0;
-        for (const s of syms) { const a = (alloc[s] || 0); const m = neoMultiState.markets[s]; const conv = (m && m.bestProb != null) ? Math.max(0, (m.bestProb - 0.5) * 2) : 0; asum += a * (0.3 + conv); wsum += a; }
-        if (layers[3][0]) { layers[3][0].act = wsum > 0 ? Math.max(0.15, Math.min(1, asum / wsum + 0.15)) : 0.2; layers[3][0].label = 'OSIRIS'; layers[3][0].sign = 1; }
-        // per-core allocatie (relatief t.o.v. de grootste) → dikte van de cores→osiris-verbindingen
-        const _mx = Math.max(...syms.map(s => alloc[s] || 0), 0.01); _neonet._coreAlloc = syms.map(s => Math.max(0.12, (alloc[s] || 0) / _mx));
-    } catch (e) { if (layers[3][0]) { layers[3][0].act = 0.2; layers[3][0].label = 'OSIRIS'; } }
-    // laag 4 (TIMING-AGENT — SOFT-GATE): readiness op de mainbrain-richting. 0=LIVE-TA, 1=SCHADUW-TA.
-    // De TA bepaalt WANNEER er op de beslissing gehandeld wordt (hij zit dus NÁ de mainbrain, vlak
-    // vóór de beslissing) — geen sequentiële verwerkingslaag. Data-true (OsirisTiming(.Shadow).readiness).
+        layers[2].forEach((nd, i) => {
+            let d = null; try { d = (typeof OsirisDeepNet !== 'undefined') ? (OsirisDeepNet.last[_syms[i]] || (OsirisDeepNet.predict ? OsirisDeepNet.predict(_syms[i]) : null)) : null; } catch (e) {}
+            nd.act = Math.max(0.1, Math.min(1, (d && d.calProb != null) ? d.calProb : 0.5));
+            nd.sign = (d && d.side === 'SHORT') ? -1 : 1; nd.label = _syms[i]; nd.inv = !!(d && d.inverted); nd.metagate = !!(d && d.meta);
+        });
+    } catch (e) {}
+    // laag 3 (CORES): de 3 sub-breinen (echte bestProb/bestSide) + allocatie-dikte voor de uitgaande edges
+    try {
+        layers[3].forEach((nd, i) => {
+            const m = neoMultiState.markets[_syms[i]];
+            nd.act = Math.max(0.1, Math.min(1, (m && m.bestProb != null) ? m.bestProb : 0.5));
+            nd.sign = (m && m.bestSide === 'SHORT') ? -1 : 1; nd.label = _syms[i];
+        });
+        const _mx = Math.max(..._syms.map(s => allocMap[s] || 0), 0.01); _neonet._coreAlloc = _syms.map(s => Math.max(0.12, (allocMap[s] || 0) / _mx));
+    } catch (e) {}
+    // laag 4 (TARGETS): per markt de ECHTE Kinetic prijs-target (afstand-% tot barrier + ETA). act = nabijheid.
+    try {
+        layers[4].forEach((nd, i) => {
+            const k = (typeof OsirisKinetic !== 'undefined' && OsirisKinetic.state) ? OsirisKinetic.state[_syms[i]] : null;
+            const dist = (k && k.distPct != null) ? Math.abs(k.distPct) : null;
+            nd.act = dist == null ? 0.3 : Math.max(0.1, Math.min(1, 1 - Math.min(1, dist / 3)));   // dichtbij target = hoog
+            nd.sign = (k && k.dir < 0) ? -1 : 1; nd.label = _syms[i]; nd.tgt = k ? { dist: k.distPct, eta: k.etaMin } : null;
+        });
+    } catch (e) {}
+    // laag 5 (OSIRIS — mainbrain): allocatie-gewogen aggregaat over de 3 cores
+    try {
+        let wsum = 0, asum = 0;
+        for (const s of _syms) { const a = (allocMap[s] || 0); const m = neoMultiState.markets[s]; const conv = (m && m.bestProb != null) ? Math.max(0, (m.bestProb - 0.5) * 2) : 0; asum += a * (0.3 + conv); wsum += a; }
+        if (layers[5][0]) { layers[5][0].act = wsum > 0 ? Math.max(0.15, Math.min(1, asum / wsum + 0.15)) : 0.2; layers[5][0].label = 'OSIRIS'; layers[5][0].sign = 1; }
+    } catch (e) { if (layers[5][0]) { layers[5][0].act = 0.2; layers[5][0].label = 'OSIRIS'; } }
+    // laag 6 (TA — soft-gate): live + shadow readiness op de mainbrain-richting
     try {
         const active = (typeof neoMultiState !== 'undefined') ? neoMultiState.active : 'BTC';
         const m = neoMultiState.markets[active]; const side = (m && m.bestSide) ? m.bestSide : 'LONG';
-        layers[4].forEach((nd, i) => {
+        layers[6].forEach((nd, i) => {
             const shadow = (i === 1); let rd = 0.3;
             try { const A = shadow ? (typeof OsirisTimingShadow !== 'undefined' ? OsirisTimingShadow : null) : (typeof OsirisTiming !== 'undefined' ? OsirisTiming : null); if (A) rd = A.readiness(active, side).readiness; } catch (e) {}
             nd.act = Math.max(0.1, Math.min(1, 0.1 + rd * 0.9)); nd.sign = (side === 'SHORT') ? -1 : 1; nd.label = (shadow ? 'TAˢ' : 'TA'); nd.shadow = shadow;
         });
     } catch (e) {}
-    // output-laag: LONG / NEUTRAAL / SHORT uit de laatste beslissing
-    // DATA-TRUE BESLISSING (16-08): de uitkomst weerspiegelt wat de bot ECHT doet -
-    // gewogen naar de open posities (zwaarst) + de core-allocatie (bestSide x conviction),
-    // niet BTC's ruwe momentum. Zo kan het net niet SHORT tonen terwijl hij LONG zit.
+    // laag 7 (DECISION): LONG / NEUT / SHORT uit wat de bot ECHT doet (posities + core-conviction)
     let decisionBias = 0;
     try {
         let wsum = 0, dsum = 0;
-        for (const p of (typeof openPositions !== 'undefined' ? openPositions : [])) {
-            const dir = p.side === 'SHORT' ? -1 : 1; const w = (p.sizePct || 0.1) * 2.2;
-            dsum += w * dir; wsum += w;
-        }
-        for (const sym of ['BTC', 'ETH', 'SOL']) {
-            const m = neoMultiState.markets[sym];
-            if (m && m.bestSide && m.bestProb != null) {
-                const w = ((typeof alloc !== 'undefined' && alloc[sym]) || 0.1) + 0.1;
-                const dir = m.bestSide === 'SHORT' ? -1 : 1; const conv = Math.min(1, Math.max(0, (m.bestProb - 0.5) * 3));
-                dsum += w * dir * conv; wsum += w;
-            }
-        }
+        for (const p of (typeof openPositions !== 'undefined' ? openPositions : [])) { const dir = p.side === 'SHORT' ? -1 : 1; const w = (p.sizePct || 0.1) * 2.2; dsum += w * dir; wsum += w; }
+        for (const sym of _syms) { const m = neoMultiState.markets[sym]; if (m && m.bestSide && m.bestProb != null) { const w = ((allocMap[sym]) || 0.1) + 0.1; const dir = m.bestSide === 'SHORT' ? -1 : 1; const conv = Math.min(1, Math.max(0, (m.bestProb - 0.5) * 3)); dsum += w * dir * conv; wsum += w; } }
         if (wsum > 0) decisionBias = Math.max(-1, Math.min(1, dsum / wsum));
     } catch (e) {}
-    // val terug op BTC-momentum + lastDecision alleen als de cores/posities niets zeggen
-    if (Math.abs(decisionBias) < 0.02) {
-        decisionBias = inp.momentum * 0.3 + inp.vfm * 0.2;
-        try { if (typeof lastDecision !== 'undefined' && lastDecision && typeof lastDecision.decision === 'string') {
-            if (/bull|long|stijg/i.test(lastDecision.decision)) decisionBias = Math.max(decisionBias, 0.3);
-            else if (/bear|short|crash|daal/i.test(lastDecision.decision)) decisionBias = Math.min(decisionBias, -0.3);
-        } } catch (e) {}
-    }
-    layers[5][0].act = Math.max(0, decisionBias);       // LONG
-    layers[5][1].act = Math.max(0.05, 1 - Math.abs(decisionBias)); // NEUTRAAL
-    layers[5][2].act = Math.max(0, -decisionBias);      // SHORT
-    // laag 6 (CAPITAL): SPOT + MARGIN — data-true benutting van beide wallets
+    if (Math.abs(decisionBias) < 0.02) { decisionBias = inp.momentum * 0.3 + inp.vfm * 0.2; try { if (typeof lastDecision !== 'undefined' && lastDecision && typeof lastDecision.decision === 'string') { if (/bull|long|stijg/i.test(lastDecision.decision)) decisionBias = Math.max(decisionBias, 0.3); else if (/bear|short|crash|daal/i.test(lastDecision.decision)) decisionBias = Math.min(decisionBias, -0.3); } } catch (e) {} }
+    layers[7][0].act = Math.max(0, decisionBias);
+    layers[7][1].act = Math.max(0.05, 1 - Math.abs(decisionBias));
+    layers[7][2].act = Math.max(0, -decisionBias);
+    // laag 8 (CAPITAL): SPOT + MARGIN benutting
     try {
         let spotUse = 0, marUse = 0;
         try { spotUse = (typeof getAllocatedPct === 'function') ? getAllocatedPct() : ((typeof openPositions !== 'undefined' && openPositions.length) ? Math.min(1, openPositions.length * 0.25) : 0); } catch (e) {}
         try { if (typeof marginState !== 'undefined' && marginState.positions) { const eq = (typeof marginEquity === 'function' ? marginEquity() : (marginState.equity || 0)) || 1; let notional = 0; for (const p of marginState.positions) notional += (p.notional || 0); marUse = Math.min(1, notional / eq); } } catch (e) {}
-        if (layers[6][0]) { layers[6][0].act = Math.max(0.1, Math.min(1, 0.1 + spotUse)); layers[6][0].label = 'SPOT'; layers[6][0].labelCol = '#00d9ff'; }
-        if (layers[6][1]) { layers[6][1].act = Math.max(0.1, Math.min(1, 0.1 + marUse)); layers[6][1].label = 'MARGIN'; layers[6][1].labelCol = '#ffb627'; }
+        if (layers[8][0]) { layers[8][0].act = Math.max(0.1, Math.min(1, 0.1 + spotUse)); layers[8][0].label = 'SPOT'; layers[8][0].labelCol = '#00d9ff'; }
+        if (layers[8][1]) { layers[8][1].act = Math.max(0.1, Math.min(1, 0.1 + marUse)); layers[8][1].label = 'MARGIN'; layers[8][1].labelCol = '#ffb627'; }
     } catch (e) {}
-    if (layers[7] && layers[7][0]) layers[7][0].act = Math.max(Math.abs(decisionBias), 0.2); // het ene eindpunt
+    // laag 9 (OUTPUT): het ene eindpunt
+    if (layers[9] && layers[9][0]) layers[9][0].act = Math.max(Math.abs(decisionBias), 0.2);
+    // laag 10 (RL — leer-agent): activatie ~ zekerheid/vooruitgang; vanaf hier flitst de feedback terug
+    try {
+        if (layers[10] && layers[10][0]) {
+            let rlAct = 0.25, rlSign = 1;
+            if (typeof OsirisRL !== 'undefined') { const conf = (OsirisRL.lastDecision && OsirisRL.lastDecision.conf != null) ? OsirisRL.lastDecision.conf : 0.3; const ar = OsirisRL.avgReward || 0; rlAct = Math.max(0.2, Math.min(1, 0.3 + conf * 0.5 + Math.max(-0.2, Math.min(0.2, ar)))); rlSign = ar >= 0 ? 1 : -1; }
+            layers[10][0].act = rlAct; layers[10][0].label = 'RL'; layers[10][0].sign = rlSign;
+        }
+    } catch (e) {}
+    // ============ META-/VEILIGHEIDSKNOPEN (echte waarden) ============
+    try {
+        const setM = (id, act, sign, val) => { const mn = _neonet.meta.find(x => x.id === id); if (mn) { mn.act = Math.max(0.12, Math.min(1, act)); mn.sign = sign; mn.val = val; } };
+        const gw = k => { try { return (typeof OsirisGovernor !== 'undefined') ? OsirisGovernor.weight(k) : 0.5; } catch (e) { return 0.5; } };
+        setM('gov-pred', gw('predict'), 1, Math.round(gw('predict') * 100) + '%');
+        setM('gov-kin', gw('kinetic'), 1, Math.round(gw('kinetic') * 100) + '%');
+        setM('gov-eta', gw('eta'), 1, Math.round(gw('eta') * 100) + '%');
+        try { const v = (typeof OsirisLLMVerify !== 'undefined') ? OsirisLLMVerify.log[0] : null; const tr = v ? (v.trust || 0) : 0; setM('llm', v ? (0.2 + tr * 0.8) : 0.15, (v && v.verdict === 'WANTROUW') ? -1 : 1, v ? (Math.round(tr * 100) + '%') : '—'); } catch (e) { setM('llm', 0.15, 1, '—'); }
+        const fag = wal => { try { const f = osirisFeeEdge(wal); if (!f || !f.ready) return { a: 0.2, s: 1, t: 'kalibr' }; return { a: f.edge ? 0.85 : Math.max(0.3, 0.3 + (f.deficit || 0)), s: f.edge ? 1 : -1, t: f.edge ? 'edge ok' : ('−' + Math.round((f.deficit || 0) * 100) + 'pt') }; } catch (e) { return { a: 0.2, s: 1, t: '—' }; } };
+        const fs = fag('spot'), fm = fag('margin'); setM('fag-spot', fs.a, fs.s, fs.t); setM('fag-mar', fm.a, fm.s, fm.t);
+        try { const paused = (typeof OsirisGuardian !== 'undefined') && OsirisGuardian.paused; setM('guardian', paused ? 1 : 0.2, paused ? -1 : 1, paused ? 'PAUZE' : 'ok'); } catch (e) { setM('guardian', 0.2, 1, 'ok'); }
+        try { const R = (typeof OsirisRisk !== 'undefined') ? OsirisRisk.state : null; const trip = R && (R.breaker || R.exposureBlock); setM('risk', trip ? 1 : Math.max(0.2, Math.min(1, (R ? (R.drawdownPct || 0) / 25 : 0))), trip ? -1 : 1, R ? ('DD ' + (R.drawdownPct || 0).toFixed(0) + '%') : '—'); } catch (e) { setM('risk', 0.2, 1, '—'); }
+        try { const sr = (typeof OsirisSelfReview !== 'undefined') ? OsirisSelfReview : null; const a = sr ? sr.aggr : 1; const wr = (sr && sr.history[0] && sr.history[0].winrate != null) ? sr.history[0].winrate : null; setM('selfrev', Math.max(0.2, Math.min(1, a / 1.4)), 1, 'x' + (a || 1).toFixed(2) + (wr != null ? ' ' + Math.round(wr * 100) + '%' : '')); } catch (e) { setM('selfrev', 0.3, 1, '—'); }
+    } catch (e) {}
+    // META-POSITIES: bovenband, horizontaal bij hun doellaag, verticaal licht gespreid als er meer op één laag zitten
+    const _metaPos = {};
+    try {
+        const byT = {}; _neonet.meta.forEach(mn => { (byT[mn.targetLi] = byT[mn.targetLi] || []).push(mn); });
+        const bandY = padTop * 0.46;
+        for (const tli in byT) {
+            const arr = byT[tli]; const baseX = padX + _fxOf(+tli) * (w - padX * 2);
+            const spanW = arr.length > 1 ? Math.min(0.20 * w, 30 * arr.length) : 0; const startX = baseX - spanW / 2;
+            arr.forEach((mn, k) => { const x = arr.length === 1 ? baseX : startX + (k + 0.5) * (spanW / arr.length); _metaPos[mn.id] = { x, y: bandY + (k % 2) * 11 }; });
+        }
+    } catch (e) {}
 
     // ---- verbindingen: swingen + oplichten waar de compute-golf is ----
     // Elke verbinding krijgt een duidelijke grondlaag (altijd zichtbaar, zodat de hele
@@ -16212,27 +16243,34 @@ function _neoNetDraw(now, canvasId, outId) {
     // ---- neuronen ----
     const outLabels = ['LONG', 'NEUT', 'SHORT'], outCols = ['#00ff9f', '#5c7488', '#ff4f6d'];
     const isBig = (canvasId === 'neo-net-canvas-big' || canvasId === 'neo-net-canvas-wal');   // meer detail op het grote canvas
+    const _outputLi = (_neonet.outputLi != null ? _neonet.outputLi : layers.length - 2);
+    const _rlLi = (_neonet.rlLi != null ? _neonet.rlLi : layers.length - 1);
+    const _decLi = (_neonet.decisionLi != null ? _neonet.decisionLi : -1);
     for (let li = 0; li < layers.length; li++) {
         for (let i = 0; i < layers[li].length; i++) {
             const p = pos[li][i], nd = layers[li][i];
             const puls = 0.5 + 0.5 * Math.sin(now / 620 + (nd.tw || 0));   // zachte eigen-puls
             const glow = nd.act * (0.55 + 0.45 * puls);                     // helderheid ~ echte activatie
-            const r = (li === layers.length - 1 ? 12 : 5) + nd.act * 4 + nd.act * puls * 1.6;
+            const r = ((li === _outputLi || li === _rlLi) ? 11 : 5) + nd.act * 4 + nd.act * puls * 1.6;
             // input-knopen krijgen hun eigen signaalkleur (rijker beeld)
             let baseCol = 'rgba(130,200,255,GLOW)';
             if (li === 0) { const c = NEONET_INPUTS[i].c; baseCol = _hexToRgba(c, '__A__'); }
             // ring
             ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283);
-            const _endLi = layers.length - 1, _outLi = (_neonet.decisionLi != null ? _neonet.decisionLi : layers.length - 2);
             if (li === 0) ctx.fillStyle = baseCol.replace('__A__', (0.15 + 0.6 * glow).toFixed(3));
-            else if (li === _endLi) ctx.fillStyle = `rgba(0,217,255,${(0.45 + 0.55 * nd.act).toFixed(3)})`;  // het ene eindpunt
-            else if (li === _outLi && layers[li].length === 3) ctx.fillStyle = outCols[i];   // DECISION: long/neut/short
+            else if (li === _outputLi) ctx.fillStyle = `rgba(0,217,255,${(0.45 + 0.55 * nd.act).toFixed(3)})`;   // OUTPUT eindpunt (cyaan)
+            else if (li === _rlLi) ctx.fillStyle = `rgba(20,241,149,${(0.4 + 0.55 * nd.act).toFixed(3)})`;        // RL leer-agent (groen)
+            else if (li === _decLi && layers[li].length === 3) ctx.fillStyle = outCols[i];   // DECISION: long/neut/short
             else ctx.fillStyle = `rgba(130,200,255,${0.12 + 0.6 * glow})`;
-            if (li === _outLi && layers[li].length === 3) ctx.globalAlpha = 0.3 + 0.7 * nd.act;
+            if (li === _decLi && layers[li].length === 3) ctx.globalAlpha = 0.3 + 0.7 * nd.act;
             else if (nd.shadow) ctx.globalAlpha = 0.5;   // SCHADUW-TA dimmer (parallel, stuurt niet direct)
             ctx.fill(); ctx.globalAlpha = 1;
-            if (li === _endLi) { ctx.save(); ctx.shadowColor = 'rgba(0,217,255,0.9)'; ctx.shadowBlur = 12 + 14 * nd.act; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.strokeStyle = 'rgba(0,217,255,0.8)'; ctx.lineWidth = 1.6; ctx.stroke(); ctx.restore(); }
+            if (li === _outputLi) { ctx.save(); ctx.shadowColor = 'rgba(0,217,255,0.9)'; ctx.shadowBlur = 12 + 14 * nd.act; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.strokeStyle = 'rgba(0,217,255,0.8)'; ctx.lineWidth = 1.6; ctx.stroke(); ctx.restore(); }
+            else if (li === _rlLi) { ctx.save(); ctx.shadowColor = 'rgba(20,241,149,0.9)'; ctx.shadowBlur = 10 + 12 * nd.act; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.strokeStyle = 'rgba(20,241,149,0.85)'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.restore(); }
             ctx.lineWidth = 1; ctx.strokeStyle = `rgba(200,235,255,${0.2 + 0.6 * glow})`; ctx.stroke();
+            // PMV/DEEPNET inversie-badge (rood ⇄-stipje) of DeepNet meta-gate-open (groen stipje)
+            if (nd.inv) { ctx.beginPath(); ctx.arc(p.x + r * 0.85, p.y - r * 0.85, 2.3, 0, 6.283); ctx.fillStyle = 'rgba(255,95,126,0.95)'; ctx.fill(); }
+            else if (nd.metagate) { ctx.beginPath(); ctx.arc(p.x + r * 0.85, p.y - r * 0.85, 2.0, 0, 6.283); ctx.fillStyle = 'rgba(20,241,149,0.9)'; ctx.fill(); }
             // kern-flits op sterk-actieve knopen (data-gedreven, niet golf)
             if (nd.act > 0.5) { ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.4, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${(0.5 * nd.act * puls).toFixed(3)})`; ctx.fill(); }
             // ACTIVATIE-WAARDE als percentage (alleen groot canvas, waar ruimte is)
@@ -16244,6 +16282,38 @@ function _neoNetDraw(now, canvasId, outId) {
             }
         }
     }
+
+    // ---- META-/VEILIGHEIDSKNOPEN: echte nodes die MET de pijplijn verbonden zijn ----
+    // Governor (trust), LLM (verificatie), FAG (fee-edge), Guardian (data-integriteit), Risk
+    // (breakers), Self-review — elk een knoop in de bovenband met connector-edges naar de laag
+    // waar hij ingrijpt. Rood + gloed als een guard/breaker getript is. Alles data-true.
+    try {
+        for (const mn of _neonet.meta) {
+            const mp = _metaPos[mn.id]; if (!mp) continue;
+            const act = mn.act != null ? mn.act : 0.2;
+            const _hx = mn.col.replace('#', ''); const rgb = `${parseInt(_hx.slice(0, 2), 16)},${parseInt(_hx.slice(2, 4), 16)},${parseInt(_hx.slice(4, 6), 16)}`;
+            const trip = (mn.sign != null && mn.sign < 0);        // getript/alarm → rood
+            const lineCol = trip ? '255,95,126' : rgb;
+            const tgt = pos[mn.targetLi] || [];
+            for (let ti = 0; ti < tgt.length; ti++) {
+                const B = tgt[ti]; const sig = Math.max(0, Math.min(1, act));
+                ctx.strokeStyle = `rgba(${lineCol},${(0.10 + 0.34 * sig).toFixed(3)})`; ctx.lineWidth = 0.6 + 1.0 * sig;
+                if (sig > 0.5 || trip) { ctx.save(); ctx.shadowColor = `rgb(${lineCol})`; ctx.shadowBlur = 4 + 6 * sig; ctx.beginPath(); ctx.moveTo(mp.x, mp.y); ctx.lineTo(B.x, B.y); ctx.stroke(); ctx.restore(); }
+                else { ctx.shadowBlur = 0; ctx.beginPath(); ctx.moveTo(mp.x, mp.y); ctx.lineTo(B.x, B.y); ctx.stroke(); }
+                const _mt = ((now / 720) + (mn.id.length * 0.11)) % 1; const _mx = mp.x + (B.x - mp.x) * _mt, _my = mp.y + (B.y - mp.y) * _mt;
+                ctx.beginPath(); ctx.arc(_mx, _my, 0.8 + 1.2 * sig, 0, 6.283); ctx.fillStyle = `rgba(${lineCol},${(0.2 + 0.5 * sig).toFixed(3)})`; ctx.fill();
+                if (_fbActive) { const _t = (Math.sin(now / 300 + ti) * 0.5 + 0.5); const gx = mp.x + (B.x - mp.x) * _t, gy = mp.y + (B.y - mp.y) * _t; ctx.beginPath(); ctx.arc(gx, gy, 0.5, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.4)'; ctx.fill(); }
+            }
+            const mr = 3.4 + act * 3;
+            ctx.beginPath(); ctx.arc(mp.x, mp.y, mr, 0, 6.283); ctx.fillStyle = `rgba(${lineCol},${(0.35 + 0.5 * act).toFixed(3)})`;
+            if (trip) { ctx.save(); ctx.shadowColor = 'rgba(255,95,126,0.9)'; ctx.shadowBlur = 9; ctx.fill(); ctx.restore(); } else ctx.fill();
+            ctx.lineWidth = 0.9; ctx.strokeStyle = `rgba(${lineCol},0.8)`; ctx.stroke();
+            if (isBig) {
+                ctx.font = "bold 6px 'JetBrains Mono',monospace"; ctx.textAlign = 'center'; ctx.fillStyle = `rgba(${lineCol},0.95)`; ctx.fillText(mn.label, mp.x, mp.y - mr - 3);
+                if (mn.val) { ctx.font = "6px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(200,220,235,0.82)'; ctx.fillText(mn.val, mp.x, mp.y + mr + 7); }
+            }
+        }
+    } catch (e) {}
 
     // ---- laag-labels (in de ondermarge, boven de HTML-voettekst) ----
     ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = 'center';
@@ -16345,27 +16415,29 @@ function _neoNetDraw(now, canvasId, outId) {
     ctx.textAlign = 'right'; ctx.font = "7px 'JetBrains Mono', monospace";
     layers[0].forEach((nd, i) => { ctx.fillStyle = NEONET_INPUTS[i].c; ctx.fillText(NEONET_INPUTS[i].label, pos[0][i].x - 9, pos[0][i].y + 2.5); });
     const brainCols = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
-    ctx.textAlign = 'center'; ctx.font = "bold 6.5px 'JetBrains Mono', monospace";
-    // CORES labels (laag 2): BTC/ETH/SOL sub-breinen in hun eigen kleur
-    ctx.font = "bold 7px 'JetBrains Mono', monospace";
-    if (layers[2]) layers[2].forEach((nd) => {
-        if (nd.label) { ctx.fillStyle = brainCols[nd.label] || '#8b95a5'; ctx.fillText(nd.label, pos[2][nd.i].x, pos[2][nd.i].y - 8); }
-    });
-    // OSIRIS label (laag 3): de mainbrain-integrator (één knoop die de 3 cores samenvoegt)
-    if (layers[3]) layers[3].forEach((nd) => {
-        if (nd.label) { ctx.fillStyle = '#00d9ff'; ctx.fillText(nd.label, pos[3][nd.i].x, pos[3][nd.i].y - 9); }
-    });
-    // TIMING-AGENT labels (laag 4, soft-gate): TA live (cyaan) + TAˢ shadow (paars, dimmer)
-    ctx.font = "bold 6.5px 'JetBrains Mono', monospace";
-    if (layers[4]) layers[4].forEach((nd) => {
-        if (nd.label) { ctx.fillStyle = nd.shadow ? 'rgba(199,146,234,0.85)' : '#7fd8ff'; ctx.fillText(nd.label, pos[4][nd.i].x, pos[4][nd.i].y - 8); }
-    });
-    // DECISION-labels (laag 5): LONG/NEUT/SHORT
-    ctx.textAlign = 'left'; ctx.font = "7px 'JetBrains Mono', monospace";
-    layers[5].forEach((nd, i) => { ctx.fillStyle = outCols[i]; ctx.fillText(outLabels[i], pos[5][i].x + 9, pos[5][i].y + 2.5); });
-    // CAPITAL-labels (laag 6): SPOT / MARGIN op de knoop
     ctx.textAlign = 'center'; ctx.font = "bold 7px 'JetBrains Mono', monospace";
-    if (layers[6]) layers[6].forEach((nd) => { if (nd.label) { ctx.fillStyle = nd.labelCol || '#8b95a5'; ctx.fillText(nd.label, pos[6][nd.i].x, pos[6][nd.i].y - 9); } });
+    // PMV labels (laag 1): BTC/ETH/SOL predict-richting
+    if (layers[1]) layers[1].forEach((nd) => { if (nd.label) { ctx.fillStyle = brainCols[nd.label] || '#8b95a5'; ctx.fillText(nd.label, pos[1][nd.i].x, pos[1][nd.i].y - 8); } });
+    // DEEPNET labels (laag 2): BTC/ETH/SOL band
+    if (layers[2]) layers[2].forEach((nd) => { if (nd.label) { ctx.fillStyle = brainCols[nd.label] || '#8b95a5'; ctx.fillText(nd.label, pos[2][nd.i].x, pos[2][nd.i].y - 8); } });
+    // CORES labels (laag 3): BTC/ETH/SOL sub-breinen
+    if (layers[3]) layers[3].forEach((nd) => { if (nd.label) { ctx.fillStyle = brainCols[nd.label] || '#8b95a5'; ctx.fillText(nd.label, pos[3][nd.i].x, pos[3][nd.i].y - 8); } });
+    // TARGETS labels (laag 4): munt + afstand%/ETA tot de Kinetic-barrier
+    if (layers[4]) layers[4].forEach((nd) => { if (nd.label) { ctx.fillStyle = brainCols[nd.label] || '#8b95a5'; ctx.fillText(nd.label, pos[4][nd.i].x, pos[4][nd.i].y - 8);
+        if (isBig && nd.tgt && nd.tgt.dist != null) { ctx.font = "5.5px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(180,205,220,0.72)'; ctx.fillText(`${(+nd.tgt.dist).toFixed(1)}%${nd.tgt.eta != null ? ' ' + Math.round(nd.tgt.eta) + 'm' : ''}`, pos[4][nd.i].x, pos[4][nd.i].y + 13); ctx.font = "bold 7px 'JetBrains Mono', monospace"; } } });
+    // OSIRIS label (laag 5): mainbrain
+    if (layers[5]) layers[5].forEach((nd) => { if (nd.label) { ctx.fillStyle = '#00d9ff'; ctx.fillText(nd.label, pos[5][nd.i].x, pos[5][nd.i].y - 9); } });
+    // TA labels (laag 6, soft-gate): TA live (cyaan) + TAˢ shadow (paars)
+    ctx.font = "bold 6.5px 'JetBrains Mono', monospace";
+    if (layers[6]) layers[6].forEach((nd) => { if (nd.label) { ctx.fillStyle = nd.shadow ? 'rgba(199,146,234,0.85)' : '#7fd8ff'; ctx.fillText(nd.label, pos[6][nd.i].x, pos[6][nd.i].y - 8); } });
+    // DECISION labels (laag 7): LONG/NEUT/SHORT
+    ctx.textAlign = 'left'; ctx.font = "7px 'JetBrains Mono', monospace";
+    if (layers[7]) layers[7].forEach((nd, i) => { ctx.fillStyle = outCols[i]; ctx.fillText(outLabels[i], pos[7][i].x + 9, pos[7][i].y + 2.5); });
+    // CAPITAL labels (laag 8): SPOT / MARGIN
+    ctx.textAlign = 'center'; ctx.font = "bold 7px 'JetBrains Mono', monospace";
+    if (layers[8]) layers[8].forEach((nd) => { if (nd.label) { ctx.fillStyle = nd.labelCol || '#8b95a5'; ctx.fillText(nd.label, pos[8][nd.i].x, pos[8][nd.i].y - 9); } });
+    // RL label (laag 10)
+    if (layers[10] && layers[10][0]) { ctx.fillStyle = '#14f195'; ctx.fillText('RL', pos[10][0].x, pos[10][0].y - 13); }
 
     // beslissing-tekst onderin het paneel bijwerken (id hangt af van welk canvas rendert)
     const outEl = document.getElementById(_neonet._outId || 'neo-net-out');
