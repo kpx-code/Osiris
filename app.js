@@ -15904,35 +15904,63 @@ function buildNeoNet() {
     const layerSizes = [NEONET_INPUTS.length, 3, 3, 3, 3, 1, 2, 3, 2, 1, 1];
     const layers = layerSizes.map((n, li) => {
         const nodes = [];
-        for (let i = 0; i < n; i++) nodes.push({ li, i, act: 0, tw: Math.random() * 6.28 });
+        for (let i = 0; i < n; i++) nodes.push({ li, i, act: 0, tw: Math.random() * 6.28, row: 0 });
         return nodes;
     });
+    // (24-08 v4) LANE-DESIGN — ZUIVER HORIZONTALE DATAFLOW. Elke munt (BTC/ETH/SOL) krijgt een
+    // eigen horizontale baan. De per-markt-lagen PMV→DEEPNET→CORES→TARGETS liggen op DEZELFDE row
+    // en zijn ENKEL zelfde-baan verbonden (i→i) → schone rechte lijnen, geen diagonale spaghetti.
+    // De ruggengraat OSIRIS→TA→DECISION→CAPITAL→OUTPUT→RL loopt gecentreerd op de middenas (row 0).
+    // De INPUTS→PMV waaier blijft (data-true: features voeden alle 3 de munten) maar wordt subtiel
+    // (dim) getekend zodat hij als 'input-veld' leest i.p.v. spaghetti.
+    const marketRow = [-1, 0, 1];            // BTC boven · ETH midden · SOL onder
+    [1, 2, 3, 4].forEach(li => layers[li].forEach((nd, i) => { nd.row = (marketRow[i] != null ? marketRow[i] : 0); }));
+    layers[5][0].row = 0;                                                    // OSIRIS midden
+    layers[6][0].row = 0; if (layers[6][1]) layers[6][1].row = 0.62;         // TA live midden · shadow iets onder
+    layers[7][0].row = -0.72; layers[7][1].row = 0; layers[7][2].row = 0.72; // LONG / NEUT / SHORT
+    layers[8][0].row = -0.42; if (layers[8][1]) layers[8][1].row = 0.42;     // SPOT / MARGIN
+    layers[9][0].row = 0; layers[10][0].row = 0;                             // OUTPUT + RL midden
+
     const conns = [];
-    for (let li = 0; li < layers.length - 1; li++) {
-        for (const a of layers[li]) {
-            for (const b of layers[li + 1]) {
-                conns.push({ li, a: a.i, b: b.i, w: (Math.random() * 2 - 1), flow: Math.random(), sp: 0.5 + Math.random() });
-            }
-        }
-    }
+    const rnd = () => ({ flow: Math.random(), sp: 0.5 + Math.random() });
+    const addFan = (li, opt) => { for (const a of layers[li]) for (const b of layers[li + 1]) conns.push(Object.assign({ li, a: a.i, b: b.i, w: (Math.random() * 2 - 1) }, rnd(), opt || {})); };
+    const addLane = (li) => { const n = Math.min(layers[li].length, layers[li + 1].length); for (let i = 0; i < n; i++) conns.push(Object.assign({ li, a: i, b: i, w: 0.85 }, rnd(), { lane: true })); };
+    addFan(0, { dim: true });   // INPUTS→PMV : waaier, maar subtiel (input-veld, geen spaghetti)
+    addLane(1);                 // PMV→DEEPNET   : zelfde baan → horizontaal
+    addLane(2);                 // DEEPNET→CORES : zelfde baan → horizontaal
+    addLane(3);                 // CORES→TARGETS : zelfde baan → horizontaal (dikte = allocatie)
+    addFan(4);                  // TARGETS→OSIRIS: 3→1 merge in de mainbrain
+    addFan(5);                  // OSIRIS→TA
+    addFan(6);                  // TA→DECISION
+    addFan(7);                  // DECISION→CAPITAL
+    addFan(8);                  // CAPITAL→OUTPUT
+    addFan(9);                  // OUTPUT→RL
     _neonet.layers = layers; _neonet.conns = conns; _neonet.built = true;
     _neonet.layerLabels = ['INPUTS', 'PMV', 'DEEPNET', 'CORES', 'TARGETS', 'OSIRIS', 'TA', 'DECISION', 'CAPITAL', 'OUTPUT', 'RL'];
     _neonet.subBrainLabels = ['BTC', 'ETH', 'SOL'];
     _neonet.outputLabels = ['LONG', 'NEUTRAAL', 'SHORT'];
     _neonet.pmvLi = 1; _neonet.deepLi = 2; _neonet.coresLi = 3; _neonet.targetsLi = 4; _neonet.osirisLi = 5;
     _neonet.timingLi = 6; _neonet.decisionLi = 7; _neonet.capitalLi = 8; _neonet.outputLi = 9; _neonet.rlLi = 10;
-    // META-/VEILIGHEIDSKNOPEN — echte nodes die MET de pijplijn verbonden zijn (eigen connector-edges
-    // naar de laag waar ze ingrijpen). targetLi = de laag waarin ze ingrijpen.
+    // META-/VEILIGHEIDSKNOPEN — horizontale taps BUITEN de banen (boven/onder), zodat ze de dataflow
+    // niet kruisen. `conn` bepaalt de verbindingen:
+    //   'cores'    → alle 3 de CORES (Governor weegt de sub-breinen)
+    //   'decision' → LONG/NEUT/SHORT (FAG/Guardian/Risk gaten de beslissing)
+    //   'left'     → ALLEEN de dichtstbijzijnde knoop links (LLM → OSIRIS)
+    //   'right'    → ALLEEN de dichtstbijzijnde knoop rechts (Self-review → CAPITAL)
+    // Governor-cluster boven de CORES. De VEILIGHEIDSCLUSTER is SYMMETRISCH rond de middenas bij de
+    // beslissing: FAG-paar boven, Risk/Guardian-paar spiegelend eronder.
     _neonet.meta = [
-        { id: 'gov-pred', group: 'GOVERNOR', label: 'GOV·PRED', targetLi: 3, col: '#7fd8ff' },
-        { id: 'gov-kin', group: 'GOVERNOR', label: 'GOV·KIN', targetLi: 3, col: '#7fd8ff' },
-        { id: 'gov-eta', group: 'GOVERNOR', label: 'GOV·ETA', targetLi: 3, col: '#7fd8ff' },
-        { id: 'llm', group: 'LLM', label: 'LLM', targetLi: 5, col: '#c792ea' },
-        { id: 'fag-spot', group: 'FAG', label: 'FAG·SPOT', targetLi: 7, col: '#ffd24a' },
-        { id: 'fag-mar', group: 'FAG', label: 'FAG·MAR', targetLi: 7, col: '#ffb627' },
-        { id: 'guardian', group: 'GUARD', label: 'GUARDIAN', targetLi: 7, col: '#ff5f7e' },
-        { id: 'risk', group: 'RISK', label: 'RISK', targetLi: 7, col: '#ff8a94' },
-        { id: 'selfrev', group: 'SELF', label: 'SELF-REV', targetLi: 8, col: '#14f195' }
+        // Governor: elke gewicht-knoop op DEZELFDE hoogte maar in zijn eigen tussenruimte langs de
+        // markt-pijplijn → PRED tussen PMV/DEEPNET, KIN tussen DEEPNET/CORES, ETA tussen CORES/TARGETS.
+        { id: 'gov-pred', label: 'GOV·PRED', gap: 1, yoff: -0.31, conn: 'cores', col: '#7fd8ff' },
+        { id: 'gov-kin', label: 'GOV·KIN', gap: 2, yoff: -0.31, conn: 'cores', col: '#7fd8ff' },
+        { id: 'gov-eta', label: 'GOV·ETA', gap: 3, yoff: -0.31, conn: 'cores', col: '#7fd8ff' },
+        { id: 'llm', label: 'LLM', gap: 5, xoff: -0.05, yoff: -0.31, conn: 'left', col: '#c792ea' },   // gelijke hoogte als GOV/FAG·spot, ALLEEN → OSIRIS
+        { id: 'fag-spot', label: 'FAG·SPOT', gap: 6, yoff: -0.31, conn: 'decision', col: '#ffd24a' },  // symmetrisch: boven
+        { id: 'fag-mar', label: 'FAG·MAR', gap: 6, yoff: -0.21, conn: 'decision', col: '#ffb627' },
+        { id: 'risk', label: 'RISK', gap: 6, yoff: 0.21, conn: 'decision', col: '#ff8a94' },          // gespiegeld: onder
+        { id: 'guardian', label: 'GUARDIAN', gap: 6, yoff: 0.31, conn: 'decision', col: '#ff5f7e' },
+        { id: 'selfrev', label: 'SELF-REV', gap: 7, yoff: 0, conn: 'capital', col: '#14f195' }  // → SPOT + MARGIN (hele boek)
     ];
 }
 
@@ -16009,20 +16037,23 @@ function _neoNetDraw(now, canvasId, outId) {
     const _isBigNet = (canvasId === 'neo-net-canvas-big' || canvasId === 'neo-net-canvas-wal');
     // (22-08) padTop groter zodat de inputs ONDER de titel/subtitel beginnen (geen overlap);
     // padBot groter zodat de laag-labels + status-regel ruim boven de panel-hoeken/randen vallen.
-    const padX = w * 0.13, padTop = h * 0.17, padBot = h * 0.16, padY = padTop;
+    const padX = w * 0.13, padTop = h * 0.115, padBot = h * 0.15, padY = padTop;
     // horizontale posities per laag. De input-kant (INPUTS→INTEGRATION→CORES) krijgt ~1,5× méér
     // tussenruimte dan de rechterkant (CORES→OSIRIS→TA→…): eerste twee gaps 0.1875, de rest 0.125.
     const _FX = [0, 0.11, 0.21, 0.31, 0.41, 0.515, 0.62, 0.72, 0.82, 0.91, 1.0];
     const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
-    // Per-laag verticale spreiding: inputs/integratie vol uitgespreid (meer ruimte tussen
-    // de punten), en cores/osiris/beslissing compacter EN gecentreerd zodat die punten
-    // dichter bij elkaar staan. Alles blijft binnen het canvas zichtbaar.
+    // (24-08 v4) LANE-POSITIES: alleen de INPUT-kolom (laag 0) spreidt vol uit (input-pinnen links);
+    // ALLE diepere lagen krijgen hun y uit de vaste LANE-row (BTC/ETH/SOL-baan of de middenas) →
+    // de per-markt-stroom loopt in kaarsrechte horizontale banen, geen diagonale kruislijnen meer.
     const colH = h - padTop - padBot, cyMid = padTop + colH / 2;
-    const _SPREAD = [1.0, 0.50, 0.50, 0.50, 0.50, 0.34, 0.42, 0.52, 0.42, 0.34, 0.34];
-    const _spreadOf = li => (_SPREAD[li] != null ? _SPREAD[li] : 1.0);
+    const laneY = colH * 0.20;                 // verticale baan-afstand (BTC boven, SOL onder)
+    const _colX = li => padX + _fxOf(li) * (w - padX * 2);
     const pos = layers.map((nodes, li) => {
-        const h2 = colH * _spreadOf(li), top = cyMid - h2 / 2, gap = h2 / Math.max(1, nodes.length - 1);
-        return nodes.map((nd, i) => ({ x: padX + _fxOf(li) * (w - padX * 2), y: nodes.length === 1 ? cyMid : top + i * gap }));
+        if (li === 0) {
+            const top = cyMid - colH / 2, gap = colH / Math.max(1, nodes.length - 1);
+            return nodes.map((nd, i) => ({ x: _colX(li), y: nodes.length === 1 ? cyMid : top + i * gap }));
+        }
+        return nodes.map((nd) => ({ x: _colX(li), y: cyMid + (nd.row || 0) * laneY }));
     });
 
     // ---- echte input-activaties injecteren + forward-propagatie (visueel) ----
@@ -16145,16 +16176,13 @@ function _neoNetDraw(now, canvasId, outId) {
         try { const R = (typeof OsirisRisk !== 'undefined') ? OsirisRisk.state : null; const trip = R && (R.breaker || R.exposureBlock); setM('risk', trip ? 1 : Math.max(0.2, Math.min(1, (R ? (R.drawdownPct || 0) / 25 : 0))), trip ? -1 : 1, R ? ('DD ' + (R.drawdownPct || 0).toFixed(0) + '%') : '—'); } catch (e) { setM('risk', 0.2, 1, '—'); }
         try { const sr = (typeof OsirisSelfReview !== 'undefined') ? OsirisSelfReview : null; const a = sr ? sr.aggr : 1; const wr = (sr && sr.history[0] && sr.history[0].winrate != null) ? sr.history[0].winrate : null; setM('selfrev', Math.max(0.2, Math.min(1, a / 1.4)), 1, 'x' + (a || 1).toFixed(2) + (wr != null ? ' ' + Math.round(wr * 100) + '%' : '')); } catch (e) { setM('selfrev', 0.3, 1, '—'); }
     } catch (e) {}
-    // META-POSITIES: bovenband, horizontaal bij hun doellaag, verticaal licht gespreid als er meer op één laag zitten
+    // META-POSITIES: INLINE in de tussenruimte tussen kolom `gap` en `gap+1`, verticaal boven/onder de
+    // hoofdrij (yoff) zodat ze niets overlappen. Meerdere knopen in dezelfde tussenruimte/kant worden
+    // netjes van de rij weg gestapeld.
     const _metaPos = {};
     try {
-        const byT = {}; _neonet.meta.forEach(mn => { (byT[mn.targetLi] = byT[mn.targetLi] || []).push(mn); });
-        const bandY = padTop * 0.46;
-        for (const tli in byT) {
-            const arr = byT[tli]; const baseX = padX + _fxOf(+tli) * (w - padX * 2);
-            const spanW = arr.length > 1 ? Math.min(0.20 * w, 30 * arr.length) : 0; const startX = baseX - spanW / 2;
-            arr.forEach((mn, k) => { const x = arr.length === 1 ? baseX : startX + (k + 0.5) * (spanW / arr.length); _metaPos[mn.id] = { x, y: bandY + (k % 2) * 11 }; });
-        }
+        const colX = li => padX + _fxOf(li) * (w - padX * 2);
+        _neonet.meta.forEach(mn => { _metaPos[mn.id] = { x: (colX(mn.gap) + colX(mn.gap + 1)) / 2 + (mn.xoff || 0) * (w - padX * 2), y: cyMid + mn.yoff * colH, gap: mn.gap }; });
     } catch (e) {}
 
     // ---- verbindingen: swingen + oplichten waar de compute-golf is ----
@@ -16191,12 +16219,13 @@ function _neoNetDraw(now, canvasId, outId) {
         const bAct = layers[cn.li + 1][cn.b].act || 0;
         const signal = Math.max(0, Math.min(1, aAct * bAct));     // echte signaalsterkte over deze edge
         const baseCol = srcCol[cn.li][cn.a];
-        const hot = signal > 0.28;
+        const hot = signal > 0.28 && !cn.dim;     // dim input-waaier nooit 'heet' (geen dure gloed/spaghetti)
         const col = hot ? OSIRIS_NEON : baseCol;
-        // CORES → OSIRIS: lijn-dikte volgt de ECHTE kapitaal-allocatie naar die munt (data-true):
-        // dikkere lijn = meer equity naar dat sub-brein. Geeft in één oogopslag de allocatie weer.
+        // CORES → TARGETS: lijn-dikte volgt de ECHTE kapitaal-allocatie naar die munt (data-true):
+        // dikkere baan = meer equity naar dat sub-brein. Geeft in één oogopslag de allocatie weer.
         let _wMul = 1, _aFloor = 0;
         if (cn.li === (_neonet.coresLi != null ? _neonet.coresLi : 2) && _neonet._coreAlloc) { const al = _neonet._coreAlloc[cn.a] || 0.12; _wMul = 0.6 + 2.2 * al; _aFloor = 0.10 + 0.22 * al; }
+        if (cn.lane) _wMul *= 1.35;               // schone banen iets steviger/duidelijker
         // De LIJN zelf flasht: de verbinding tussen de parameters licht op, helderheid
         // pulseert (data bepaalt de basis + hoe fel). Geen los reizend deeltje meer.
         const flash = 0.5 + 0.5 * Math.sin(now / 340 * (0.7 + cn.sp) + cn.flow * 6.28);
@@ -16205,9 +16234,10 @@ function _neoNetDraw(now, canvasId, outId) {
         // ALLEEN nog op de weinige ACTIEVE (hete) edges getekend i.p.v. op elke lijn — dat scheelt
         // enorm in de render. De inactieve lijnen worden plat en goedkoop getekend. De data-true
         // dataflow-deeltjes hieronder lopen ongewijzigd over ELKE lijn.
-        const a = Math.max(_aFloor, 0.09 + 0.26 * signal + (0.07 + 0.28 * signal) * flash);
+        let a = Math.max(_aFloor + 0.04, 0.13 + 0.30 * signal + (0.08 + 0.30 * signal) * flash);   // iets feller
+        if (cn.dim) a *= 0.40;                     // INPUTS→PMV waaier subtiel (input-veld, geen spaghetti)
         ctx.strokeStyle = `rgba(${col},${a.toFixed(3)})`;
-        ctx.lineWidth = (0.5 + 0.7 * signal) * _wMul;
+        ctx.lineWidth = (0.65 + 0.85 * signal) * _wMul * (cn.dim ? 0.55 : 1);
         if (hot) {
             ctx.save();
             ctx.shadowColor = `rgb(${col})`;
@@ -16223,8 +16253,8 @@ function _neoNetDraw(now, canvasId, outId) {
         {
             const _ft = ((now / 760) + cn.li * 0.16 + (cn.flow || 0)) % 1;
             const _fx = A.x + (B.x - A.x) * _ft, _fy = A.y + (B.y - A.y) * _ft;
-            const _fa = 0.16 + 0.6 * signal;
-            ctx.beginPath(); ctx.arc(_fx, _fy, 0.7 + 1.5 * signal, 0, 6.283);
+            const _fa = (0.16 + 0.6 * signal) * (cn.dim ? 0.5 : 1);
+            ctx.beginPath(); ctx.arc(_fx, _fy, (0.7 + 1.5 * signal) * (cn.dim ? 0.6 : 1), 0, 6.283);
             ctx.fillStyle = `rgba(${hot ? OSIRIS_NEON : baseCol},${_fa.toFixed(3)})`;
             ctx.fill();
         }
@@ -16294,23 +16324,33 @@ function _neoNetDraw(now, canvasId, outId) {
             const _hx = mn.col.replace('#', ''); const rgb = `${parseInt(_hx.slice(0, 2), 16)},${parseInt(_hx.slice(2, 4), 16)},${parseInt(_hx.slice(4, 6), 16)}`;
             const trip = (mn.sign != null && mn.sign < 0);        // getript/alarm → rood
             const lineCol = trip ? '255,95,126' : rgb;
-            const tgt = pos[mn.targetLi] || [];
-            for (let ti = 0; ti < tgt.length; ti++) {
-                const B = tgt[ti]; const sig = Math.max(0, Math.min(1, act));
-                ctx.strokeStyle = `rgba(${lineCol},${(0.10 + 0.34 * sig).toFixed(3)})`; ctx.lineWidth = 0.6 + 1.0 * sig;
-                if (sig > 0.5 || trip) { ctx.save(); ctx.shadowColor = `rgb(${lineCol})`; ctx.shadowBlur = 4 + 6 * sig; ctx.beginPath(); ctx.moveTo(mp.x, mp.y); ctx.lineTo(B.x, B.y); ctx.stroke(); ctx.restore(); }
-                else { ctx.shadowBlur = 0; ctx.beginPath(); ctx.moveTo(mp.x, mp.y); ctx.lineTo(B.x, B.y); ctx.stroke(); }
-                const _mt = ((now / 720) + (mn.id.length * 0.11)) % 1; const _mx = mp.x + (B.x - mp.x) * _mt, _my = mp.y + (B.y - mp.y) * _mt;
-                ctx.beginPath(); ctx.arc(_mx, _my, 0.8 + 1.2 * sig, 0, 6.283); ctx.fillStyle = `rgba(${lineCol},${(0.2 + 0.5 * sig).toFixed(3)})`; ctx.fill();
-                if (_fbActive) { const _t = (Math.sin(now / 300 + ti) * 0.5 + 0.5); const gx = mp.x + (B.x - mp.x) * _t, gy = mp.y + (B.y - mp.y) * _t; ctx.beginPath(); ctx.arc(gx, gy, 0.5, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.4)'; ctx.fill(); }
+            const sig = Math.max(0, Math.min(1, act));
+            // verbindingen volgens conn: Governor→alle 3 cores, FAG/Guardian/Risk→LONG/NEUT/SHORT,
+            // en 'flank' (LLM, Self-review) → de dichtstbijzijnde knoop links & rechts (inline).
+            let targets = [];
+            const nearestIn = li => { const col = pos[li]; if (!col || !col.length) return null; let best = col[0], bd = 1e9; for (const q of col) { const d = Math.abs(q.y - mp.y); if (d < bd) { bd = d; best = q; } } return best; };
+            if (mn.conn === 'cores') { targets = (pos[_neonet.coresLi] || []).slice(); }
+            else if (mn.conn === 'decision') { targets = (pos[_neonet.decisionLi] || []).slice(); }
+            else if (mn.conn === 'capital') { targets = (pos[_neonet.capitalLi] || []).slice(); }   // SELF-REV → SPOT + MARGIN
+            else if (mn.conn === 'left') { const b = nearestIn(mp.gap); if (b) targets = [b]; }
+            else if (mn.conn === 'right') { const b = nearestIn(mp.gap + 1); if (b) targets = [b]; }
+            else { [mp.gap, mp.gap + 1].forEach(li => { const b = nearestIn(li); if (b) targets.push(b); }); }
+            for (let ti = 0; ti < targets.length; ti++) {
+                const B = targets[ti];
+                ctx.strokeStyle = `rgba(${lineCol},${(0.20 + 0.42 * sig).toFixed(3)})`; ctx.lineWidth = 0.9 + 1.2 * sig;   // feller
+                ctx.save(); ctx.shadowColor = `rgb(${lineCol})`; ctx.shadowBlur = (sig > 0.4 || trip) ? 5 + 6 * sig : 2; ctx.beginPath(); ctx.moveTo(mp.x, mp.y); ctx.lineTo(B.x, B.y); ctx.stroke(); ctx.restore();
+                const _mt = ((now / 720) + (mn.id.length * 0.11) + ti * 0.4) % 1; const _mx = mp.x + (B.x - mp.x) * _mt, _my = mp.y + (B.y - mp.y) * _mt;
+                ctx.beginPath(); ctx.arc(_mx, _my, 1.0 + 1.3 * sig, 0, 6.283); ctx.fillStyle = `rgba(${lineCol},${(0.3 + 0.5 * sig).toFixed(3)})`; ctx.fill();
+                if (_fbActive) { const _t = (Math.sin(now / 300 + ti) * 0.5 + 0.5); const gx = mp.x + (B.x - mp.x) * _t, gy = mp.y + (B.y - mp.y) * _t; ctx.beginPath(); ctx.arc(gx, gy, 0.6, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.45)'; ctx.fill(); }
             }
-            const mr = 3.4 + act * 3;
-            ctx.beginPath(); ctx.arc(mp.x, mp.y, mr, 0, 6.283); ctx.fillStyle = `rgba(${lineCol},${(0.35 + 0.5 * act).toFixed(3)})`;
-            if (trip) { ctx.save(); ctx.shadowColor = 'rgba(255,95,126,0.9)'; ctx.shadowBlur = 9; ctx.fill(); ctx.restore(); } else ctx.fill();
-            ctx.lineWidth = 0.9; ctx.strokeStyle = `rgba(${lineCol},0.8)`; ctx.stroke();
+            const mr = 3.6 + act * 3;
+            ctx.beginPath(); ctx.arc(mp.x, mp.y, mr, 0, 6.283); ctx.fillStyle = `rgba(${lineCol},${(0.4 + 0.5 * act).toFixed(3)})`;
+            ctx.save(); ctx.shadowColor = trip ? 'rgba(255,95,126,0.9)' : `rgb(${lineCol})`; ctx.shadowBlur = trip ? 10 : 5; ctx.fill(); ctx.restore();
+            ctx.lineWidth = 1; ctx.strokeStyle = `rgba(${lineCol},0.85)`; ctx.stroke();
             if (isBig) {
-                ctx.font = "bold 6px 'JetBrains Mono',monospace"; ctx.textAlign = 'center'; ctx.fillStyle = `rgba(${lineCol},0.95)`; ctx.fillText(mn.label, mp.x, mp.y - mr - 3);
-                if (mn.val) { ctx.font = "6px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(200,220,235,0.82)'; ctx.fillText(mn.val, mp.x, mp.y + mr + 7); }
+                ctx.font = "bold 6px 'JetBrains Mono',monospace"; ctx.textAlign = 'center'; ctx.fillStyle = `rgba(${lineCol},0.95)`;
+                ctx.fillText(mn.label, mp.x, mp.y - mr - 3);
+                if (mn.val) { ctx.font = "6px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(205,222,236,0.85)'; ctx.fillText(mn.val, mp.x, mp.y + mr + 8); }
             }
         }
     } catch (e) {}
