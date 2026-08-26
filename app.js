@@ -15916,7 +15916,7 @@ function buildNeoNet() {
     const marketRow = [-1, 0, 1];            // BTC boven · ETH midden · SOL onder
     [1, 2, 3, 4].forEach(li => layers[li].forEach((nd, i) => { nd.row = (marketRow[i] != null ? marketRow[i] : 0); }));
     layers[5][0].row = 0;                                                    // OSIRIS midden
-    layers[6][0].row = 0; if (layers[6][1]) layers[6][1].row = 0.62;         // TA live midden · shadow iets onder
+    layers[6][0].row = -0.72; if (layers[6][1]) layers[6][1].row = 0.72;     // TA live op LONG-hoogte · TAˢ op SHORT-hoogte
     layers[7][0].row = -0.72; layers[7][1].row = 0; layers[7][2].row = 0.72; // LONG / NEUT / SHORT
     layers[8][0].row = -0.42; if (layers[8][1]) layers[8][1].row = 0.42;     // SPOT / MARGIN
     layers[9][0].row = 0; layers[10][0].row = 0;                             // OUTPUT + RL midden
@@ -15950,12 +15950,14 @@ function buildNeoNet() {
     // Governor-cluster boven de CORES. De VEILIGHEIDSCLUSTER is SYMMETRISCH rond de middenas bij de
     // beslissing: FAG-paar boven, Risk/Guardian-paar spiegelend eronder.
     _neonet.meta = [
-        // Governor: elke gewicht-knoop op DEZELFDE hoogte maar in zijn eigen tussenruimte langs de
-        // markt-pijplijn → PRED tussen PMV/DEEPNET, KIN tussen DEEPNET/CORES, ETA tussen CORES/TARGETS.
-        { id: 'gov-pred', label: 'GOV·PRED', gap: 1, yoff: -0.31, conn: 'cores', col: '#7fd8ff' },
+        // Governor: bovenband KIN (DEEPNET/CORES) + ETA (CORES/TARGETS); onderband — spiegelend —
+        // PRED (DEEPNET/CORES) + AGG (CORES/TARGETS). AGG = aggregaat-trust (gemiddelde van de 3).
         { id: 'gov-kin', label: 'GOV·KIN', gap: 2, yoff: -0.31, conn: 'cores', col: '#7fd8ff' },
         { id: 'gov-eta', label: 'GOV·ETA', gap: 3, yoff: -0.31, conn: 'cores', col: '#7fd8ff' },
-        { id: 'llm', label: 'LLM', gap: 5, xoff: -0.05, yoff: -0.31, conn: 'left', col: '#c792ea' },   // gelijke hoogte als GOV/FAG·spot, ALLEEN → OSIRIS
+        { id: 'gov-pred', label: 'GOV·PRED', gap: 2, yoff: 0.31, conn: 'cores', col: '#7fd8ff' },   // onderband, gespiegeld t.o.v. GOV·KIN
+        { id: 'gov-agg', label: 'GOV·AGG', gap: 3, yoff: 0.31, conn: 'cores', col: '#7fd8ff' },      // aggregaat-trust, gespiegeld t.o.v. GOV·ETA
+        { id: 'llm', label: 'LLM', gap: 5, xoff: -0.0525, yoff: -0.31, conn: 'left', col: '#c792ea' },   // exact boven OSIRIS, gelijke hoogte als GOV/FAG·spot, ALLEEN → OSIRIS
+        { id: 'regime', label: 'REGIME', gap: 5, xoff: -0.0525, yoff: 0.31, conn: 'left', col: '#8aa0ff' },   // HMM-regime als dataflow-punt, ONDER OSIRIS op guardian-hoogte (kleur = actief regime)
         { id: 'fag-spot', label: 'FAG·SPOT', gap: 6, yoff: -0.31, conn: 'decision', col: '#ffd24a' },  // symmetrisch: boven
         { id: 'fag-mar', label: 'FAG·MAR', gap: 6, yoff: -0.21, conn: 'decision', col: '#ffb627' },
         { id: 'risk', label: 'RISK', gap: 6, yoff: 0.21, conn: 'decision', col: '#ff8a94' },          // gespiegeld: onder
@@ -16169,7 +16171,17 @@ function _neoNetDraw(now, canvasId, outId) {
         setM('gov-pred', gw('predict'), 1, Math.round(gw('predict') * 100) + '%');
         setM('gov-kin', gw('kinetic'), 1, Math.round(gw('kinetic') * 100) + '%');
         setM('gov-eta', gw('eta'), 1, Math.round(gw('eta') * 100) + '%');
+        const _gAgg = (gw('predict') + gw('kinetic') + gw('eta')) / 3; setM('gov-agg', _gAgg, 1, Math.round(_gAgg * 100) + '%');   // aggregaat governor-trust
         try { const v = (typeof OsirisLLMVerify !== 'undefined') ? OsirisLLMVerify.log[0] : null; const tr = v ? (v.trust || 0) : 0; setM('llm', v ? (0.2 + tr * 0.8) : 0.15, (v && v.verdict === 'WANTROUW') ? -1 : 1, v ? (Math.round(tr * 100) + '%') : '—'); } catch (e) { setM('llm', 0.15, 1, '—'); }
+        // REGIME (HMM) als dataflow-punt: activatie ~ zekerheid, kleur = actief regime, waarde = label + %
+        try {
+            const H = (typeof OsirisRegimeHMM !== 'undefined') ? OsirisRegimeHMM : null;
+            const rcm = { trending: '#14f195', volatiel: '#ffb627', compressie: '#7fd8ff', kalm: '#8aa0ff' };
+            const lab = H ? (H.trained ? (H.label || 'kalm') : 'kalibr') : '—';
+            const prob = (H && H.trained && H.prob != null) ? H.prob : 0.3;
+            const mn = _neonet.meta.find(x => x.id === 'regime'); if (mn) mn.col = rcm[lab] || '#8aa0ff';
+            setM('regime', (H && H.trained) ? Math.max(0.28, prob) : 0.2, 1, lab.toUpperCase() + ((H && H.trained && H.prob != null) ? ' ' + (prob * 100 | 0) + '%' : ''));
+        } catch (e) { setM('regime', 0.2, 1, '—'); }
         const fag = wal => { try { const f = osirisFeeEdge(wal); if (!f || !f.ready) return { a: 0.2, s: 1, t: 'kalibr' }; return { a: f.edge ? 0.85 : Math.max(0.3, 0.3 + (f.deficit || 0)), s: f.edge ? 1 : -1, t: f.edge ? 'edge ok' : ('−' + Math.round((f.deficit || 0) * 100) + 'pt') }; } catch (e) { return { a: 0.2, s: 1, t: '—' }; } };
         const fs = fag('spot'), fm = fag('margin'); setM('fag-spot', fs.a, fs.s, fs.t); setM('fag-mar', fm.a, fm.s, fm.t);
         try { const paused = (typeof OsirisGuardian !== 'undefined') && OsirisGuardian.paused; setM('guardian', paused ? 1 : 0.2, paused ? -1 : 1, paused ? 'PAUZE' : 'ok'); } catch (e) { setM('guardian', 0.2, 1, 'ok'); }
@@ -16225,7 +16237,7 @@ function _neoNetDraw(now, canvasId, outId) {
         // dikkere baan = meer equity naar dat sub-brein. Geeft in één oogopslag de allocatie weer.
         let _wMul = 1, _aFloor = 0;
         if (cn.li === (_neonet.coresLi != null ? _neonet.coresLi : 2) && _neonet._coreAlloc) { const al = _neonet._coreAlloc[cn.a] || 0.12; _wMul = 0.6 + 2.2 * al; _aFloor = 0.10 + 0.22 * al; }
-        if (cn.lane) _wMul *= 1.35;               // schone banen iets steviger/duidelijker
+        if (cn.lane || cn.dim) _wMul *= 1.35;     // banen + INPUTS→PMV even stevig/duidelijk
         // De LIJN zelf flasht: de verbinding tussen de parameters licht op, helderheid
         // pulseert (data bepaalt de basis + hoe fel). Geen los reizend deeltje meer.
         const flash = 0.5 + 0.5 * Math.sin(now / 340 * (0.7 + cn.sp) + cn.flow * 6.28);
@@ -16235,9 +16247,9 @@ function _neoNetDraw(now, canvasId, outId) {
         // enorm in de render. De inactieve lijnen worden plat en goedkoop getekend. De data-true
         // dataflow-deeltjes hieronder lopen ongewijzigd over ELKE lijn.
         let a = Math.max(_aFloor + 0.04, 0.13 + 0.30 * signal + (0.08 + 0.30 * signal) * flash);   // iets feller
-        if (cn.dim) a *= 0.40;                     // INPUTS→PMV waaier subtiel (input-veld, geen spaghetti)
+        if (cn.dim) a *= 0.82;                     // INPUTS→PMV: iets zachter dan de banen maar goed zichtbaar
         ctx.strokeStyle = `rgba(${col},${a.toFixed(3)})`;
-        ctx.lineWidth = (0.65 + 0.85 * signal) * _wMul * (cn.dim ? 0.55 : 1);
+        ctx.lineWidth = (0.65 + 0.85 * signal) * _wMul;
         if (hot) {
             ctx.save();
             ctx.shadowColor = `rgb(${col})`;
@@ -16253,8 +16265,8 @@ function _neoNetDraw(now, canvasId, outId) {
         {
             const _ft = ((now / 760) + cn.li * 0.16 + (cn.flow || 0)) % 1;
             const _fx = A.x + (B.x - A.x) * _ft, _fy = A.y + (B.y - A.y) * _ft;
-            const _fa = (0.16 + 0.6 * signal) * (cn.dim ? 0.5 : 1);
-            ctx.beginPath(); ctx.arc(_fx, _fy, (0.7 + 1.5 * signal) * (cn.dim ? 0.6 : 1), 0, 6.283);
+            const _fa = (0.16 + 0.6 * signal) * (cn.dim ? 0.85 : 1);
+            ctx.beginPath(); ctx.arc(_fx, _fy, (0.7 + 1.5 * signal) * (cn.dim ? 0.85 : 1), 0, 6.283);
             ctx.fillStyle = `rgba(${hot ? OSIRIS_NEON : baseCol},${_fa.toFixed(3)})`;
             ctx.fill();
         }
