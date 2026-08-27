@@ -2619,6 +2619,53 @@ function updateReasoningPanel() {
     ).join('');
 }
 
+// SPOT EQUITY-VERDELING (USDT, testnet): toont hoe de totale equity is opgedeeld over
+// USDT-cash en per munt (BTC/ETH/SOL), plus de SPOT-shortmechaniek. Op een spot-wallet
+// kun je niet echt shorten: een SHORT = de aangehouden munt terug naar USDT verkopen
+// (winst/verlies wordt bij die verkoop gerealiseerd); een LONG = USDT omgezet in de munt.
+function updateSpotEquityBreakdown() {
+    const el = document.getElementById('spot-equity-breakdown');
+    if (!el) return;
+    const equity = (typeof getEquity === 'function') ? getEquity() : (walletState.balance || 0);
+    const sym = (typeof walletSymbol === 'function') ? walletSymbol() : '₮';
+    const coins = ['BTC', 'ETH', 'SOL'];
+    const col = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
+    const per = {}; coins.forEach(c => per[c] = { val: 0, side: null });
+    for (const p of (openPositions || [])) {
+        let c = p.market || 'BTC';
+        try { if (p.symbol && typeof MULTI_BINANCE !== 'undefined') { const k = Object.keys(MULTI_BINANCE).find(x => MULTI_BINANCE[x] === p.symbol); if (k) c = k; } } catch (e) {}
+        if (!per[c]) continue;
+        const price = (typeof priceForPosition === 'function' ? priceForPosition(p) : null) || p.entryPrice;
+        const grossPct = p.side === 'LONG' ? (price - p.entryPrice) / p.entryPrice : (p.entryPrice - price) / p.entryPrice;
+        const curVal = (p.notional || 0) * (1 + (isFinite(grossPct) ? grossPct : 0));
+        per[c].val += curVal; per[c].side = p.side;
+    }
+    const inCoins = coins.reduce((a, c) => a + per[c].val, 0);
+    const freeUSDT = Math.max(0, equity - inCoins);
+    let h = `<div style="font-family:'JetBrains Mono',monospace; font-size:0.6rem;">`;
+    h += `<div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="color:var(--dim);">Totale equity (testnet)</span><b style="color:#eaffff;">${sym}${equity.toFixed(2)}</b></div>`;
+    // gestapelde verdeel-balk
+    const segs = [];
+    coins.forEach(c => { if (per[c].val > 0.005) segs.push({ pct: per[c].val / equity * 100, color: per[c].side === 'SHORT' ? '#ff5f7e' : col[c], label: c }); });
+    if (freeUSDT > 0.005) segs.push({ pct: freeUSDT / equity * 100, color: '#3a4a5a', label: 'USDT' });
+    h += `<div style="display:flex; height:14px; border-radius:7px; overflow:hidden; border:1px solid var(--line); margin-bottom:9px;">`;
+    segs.forEach(s => { h += `<div title="${s.label} ${s.pct.toFixed(1)}%" style="width:${s.pct}%; background:${s.color};"></div>`; });
+    h += `</div>`;
+    // regels per munt
+    coins.forEach(c => {
+        const v = per[c].val, pct = equity > 0 ? v / equity * 100 : 0;
+        const state = v <= 0.005 ? '<span style="color:#5c7488;">geen positie</span>'
+            : (per[c].side === 'SHORT'
+                ? '<span style="color:#ff5f7e;">SHORT &middot; verkocht &rarr; USDT</span>'
+                : '<span style="color:#14f195;">LONG &middot; munt aangehouden</span>');
+        h += `<div style="display:flex; align-items:center; padding:2px 0;"><span style="color:${col[c]}; font-weight:700; width:38px;">${c}</span><span style="flex:1;">${state}</span><span style="color:#cfe; width:78px; text-align:right;">${sym}${v.toFixed(2)}</span><span style="color:var(--dim); width:48px; text-align:right;">${pct.toFixed(1)}%</span></div>`;
+    });
+    h += `<div style="display:flex; align-items:center; padding:3px 0; border-top:1px solid var(--line); margin-top:3px;"><span style="color:#8fb3c9; font-weight:700; width:38px;">USDT</span><span style="flex:1; color:#8fb3c9;">vrij kapitaal (cash)</span><span style="color:#cfe; width:78px; text-align:right;">${sym}${freeUSDT.toFixed(2)}</span><span style="color:var(--dim); width:48px; text-align:right;">${equity > 0 ? (freeUSDT / equity * 100).toFixed(1) : '0.0'}%</span></div>`;
+    h += `<div style="margin-top:8px; color:#7d99ac; font-size:0.54rem; line-height:1.6; border-top:1px dashed var(--line); padding-top:6px;">Spot kan niet echt shorten. <b style="color:#14f195;">LONG</b> = USDT omgezet in de munt (je houdt de munt aan). <b style="color:#ff5f7e;">SHORT</b> = Osiris verkoopt de aangehouden munt terug naar USDT, zodat winst/verlies bij verkoop wordt gerealiseerd en de wallet-equity op peil blijft. Bij een vlakke wallet staat 100% in USDT.</div>`;
+    h += `</div>`;
+    el.innerHTML = h;
+}
+
 function updateWalletUI() {
     const equity = getEquity();
     const balance = getBalance();
@@ -2647,6 +2694,7 @@ function updateWalletUI() {
     setText('wallet-allocated-pct', `${allocatedPct.toFixed(1)}%`);
     setText('wallet-open-count', `${openPositions.length}`);
     setText('wallet-winrate', winRate !== null ? `${winRate}% (${walletState.wins}W / ${walletState.losses}L)` : '--');
+    try { updateSpotEquityBreakdown(); } catch (e) {}
 
     // Backwards-compatible aggregate P/L veld (bovenin de bot-monitor tegel) - nu met bedrag erbij
     const aggPct = equity !== 0 ? (unrealized / equity) * 100 : 0;
