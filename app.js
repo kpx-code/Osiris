@@ -130,6 +130,9 @@ let isBullish = true;
 let botSettings = {
     maxAllocationPct: 0.70,      // max 70% van de equity per trade
     stopLossPct: 0.02,           // -2% harde stop, niet onderhandelbaar
+    nodeFadeEnabled: true,       // (step 1) nodes als mean-reversion/fade i.p.v. breakout
+    spikeGuardEnabled: true,     // (step 1) verklein + strakkere stop bij spike/drop-risico
+    mtfEnabled: true,            // (step 2) multi-timeframe: 1m momentum + 4h richting
     profitHoldTriggerPct: 0.02,  // vanaf +2% winst mag Osiris zelf beslissen: houden of innen
     trailBufferPct: 0.01,        // trailing-marge zodra we boven de trigger houden
     minProjectedProfitPct: 1,    // alleen openen als het verwachte doel >1% winst oplevert
@@ -588,7 +591,7 @@ let lastOsirisDecision = null;
 // bewust traag en behoudend, om niet te "leren" van ruis bij te weinig data
 // (zie de node-correlatie-les eerder: te weinig samples geeft schijnpatronen).
 // ============================================================
-let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 2.0, nodeconf: 2.0 };
+let adaptiveWeights = { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 2.0, nodeconf: 2.0, mtfDir: 1.0, mtfMom: 1.0, nodeFade: 1.0 };
 let learningLog = []; // { timestampMs, side, factors: {confluence, nodeInfluence, momentumInfluence, fibConfluenceInfluence, probabilityPct}, outcome: 'win'|'loss', pnlPct }
 
 // NETWERK-FOUTEN LOG (18-08): legt elk moment vast waarop een netwerk/verbinding faalt
@@ -1622,7 +1625,7 @@ function loadPersistentState() {
         if (ll) learningLog = JSON.parse(ll);
         if (aw) adaptiveWeights = JSON.parse(aw);
         // migratie: oude opgeslagen gewichten misten rsi/ema/cnn - vul ze aan op 1.0
-        for (const k of ['confluence','nodeInfluence','momentumInfluence','fibConfluence','pattern','rsi','ema','cnn'])
+        for (const k of ['confluence','nodeInfluence','momentumInfluence','fibConfluence','pattern','rsi','ema','cnn','mtfDir','mtfMom','nodeFade'])
             if (adaptiveWeights[k] == null) adaptiveWeights[k] = 1.0;
         if (adaptiveWeights.nn == null) adaptiveWeights.nn = 2.0;
         if (adaptiveWeights.nodeconf == null) adaptiveWeights.nodeconf = 2.0;
@@ -2293,6 +2296,63 @@ function renderActiveSettingsPanel() {
 }
 
 
+// ============================================================
+// REDEN-POORT (reason gate): vóór het stoppen van de engine, resetten van een
+// wallet of handmatig sluiten van een positie MOET de gebruiker eerst een reden
+// kiezen. De actie gaat pas door nadat een reden is gekozen; de reden wordt gelogd
+// (sessie-events + adaptatie-log) zodat trades/sessies achteraf te duiden zijn.
+window._reasonGateOK = false;
+const REASON_GATE = {
+    stop:         { title: 'Engine stoppen', color: '#ffb627', reasons: ['Engine gestopt — nieuwe versie test', 'Engine gestopt — opkomende netwerk-loss', 'Engine gestopt — handmatige interventie', 'Engine gestopt — onderhoud / herstart'] },
+    reset_spot:   { title: 'Spot-wallet resetten', color: '#ff5f7e', reasons: ['Engine gestopt & wallet gereset — nieuwe versie', 'Wallet gereset — opkomende netwerk-loss', 'Wallet gereset — verse teststart', 'Wallet gereset — herkalibratie / schone start'] },
+    reset_margin: { title: 'Margin-wallet resetten', color: '#c792ea', reasons: ['Margin gereset — nieuwe versie test', 'Margin gereset — opkomende netwerk-loss', 'Margin gereset — verse teststart', 'Margin gereset — herkalibratie'] },
+    close:        { title: 'Positie handmatig sluiten', color: '#ff8fab', reasons: ['Handmatig gesloten — nieuwe versie test', 'Handmatig gesloten — opkomende netwerk-loss', 'Handmatig gesloten — risico afdekken', 'Handmatig gesloten — betere setup elders'] }
+};
+function osirisReasonGate(kind, onConfirm) {
+    const cfg = REASON_GATE[kind] || { title: 'Bevestig actie', color: '#00d9ff', reasons: [] };
+    // bestaande overlay opruimen
+    const old = document.getElementById('reason-gate-overlay'); if (old) old.remove();
+    const ov = document.createElement('div');
+    ov.id = 'reason-gate-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(4,10,18,0.78);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;font-family:\'JetBrains Mono\',monospace;';
+    const opts = cfg.reasons.map((r, i) => `<label style="display:flex;gap:9px;align-items:flex-start;padding:9px 11px;border:1px solid rgba(255,255,255,0.1);border-radius:8px;cursor:pointer;margin-bottom:7px;background:rgba(255,255,255,0.02);"><input type="radio" name="rg-reason" value="${r.replace(/"/g, '&quot;')}" style="margin-top:2px;accent-color:${cfg.color};"><span style="font-size:0.7rem;color:#dce8f0;line-height:1.4;">${r}</span></label>`).join('');
+    ov.innerHTML = `
+      <div style="width:min(92vw,440px);background:linear-gradient(160deg,#0d1a26,#0a121c);border:1px solid ${cfg.color}55;border-radius:14px;padding:20px 22px;box-shadow:0 0 40px ${cfg.color}22;">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px;"><span style="width:10px;height:10px;border-radius:50%;background:${cfg.color};box-shadow:0 0 12px ${cfg.color};"></span><span style="font-family:'Orbitron','JetBrains Mono',monospace;font-weight:800;letter-spacing:1px;color:${cfg.color};font-size:0.92rem;">${cfg.title}</span></div>
+        <div style="font-size:0.62rem;color:#7d99ac;margin-bottom:14px;line-height:1.5;">Kies een reden. De actie kan pas worden uitgevoerd nadat een reden is gekozen; deze wordt gelogd.</div>
+        <div id="rg-options">${opts}</div>
+        <label style="display:flex;gap:9px;align-items:center;padding:9px 11px;border:1px solid rgba(255,255,255,0.1);border-radius:8px;cursor:pointer;margin-bottom:10px;background:rgba(255,255,255,0.02);"><input type="radio" name="rg-reason" value="__custom__" style="accent-color:${cfg.color};"><span style="font-size:0.7rem;color:#dce8f0;">Anders&hellip;</span></label>
+        <input id="rg-custom" type="text" placeholder="eigen reden invoeren" disabled style="width:100%;box-sizing:border-box;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:9px 11px;color:#eaffff;font-family:'JetBrains Mono',monospace;font-size:0.7rem;margin-bottom:16px;">
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button id="rg-cancel" type="button" style="padding:9px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:#9aa7b4;font-family:inherit;font-size:0.7rem;cursor:pointer;">Annuleren</button>
+          <button id="rg-confirm" type="button" disabled style="padding:9px 18px;border-radius:8px;border:1px solid ${cfg.color};background:${cfg.color}22;color:${cfg.color};font-family:inherit;font-size:0.7rem;font-weight:700;cursor:not-allowed;opacity:0.5;">Bevestig &amp; voer uit</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    const custom = ov.querySelector('#rg-custom');
+    const confirmBtn = ov.querySelector('#rg-confirm');
+    const chosen = () => { const r = ov.querySelector('input[name="rg-reason"]:checked'); if (!r) return null; return r.value === '__custom__' ? (custom.value.trim() || null) : r.value; };
+    const refresh = () => { const ok = !!chosen(); confirmBtn.disabled = !ok; confirmBtn.style.cursor = ok ? 'pointer' : 'not-allowed'; confirmBtn.style.opacity = ok ? '1' : '0.5'; };
+    ov.querySelectorAll('input[name="rg-reason"]').forEach(el => el.addEventListener('change', () => { custom.disabled = el.value !== '__custom__' || !el.checked; if (!custom.disabled) custom.focus(); refresh(); }));
+    custom.addEventListener('input', refresh);
+    ov.querySelector('#rg-cancel').addEventListener('click', () => ov.remove());
+    confirmBtn.addEventListener('click', () => {
+        const reason = chosen(); if (!reason) return;
+        ov.remove();
+        try { if (typeof recordSessionEvent === 'function') recordSessionEvent('REASON', reason); } catch (e) {}
+        try { if (typeof logAdaptation === 'function') logAdaptation(`${cfg.title}: reden vastgelegd`, reason); } catch (e) {}
+        window._osirisLastReason = reason;
+        window._reasonGateOK = true;
+        try { onConfirm(reason); } finally { window._reasonGateOK = false; }
+    });
+}
+window.osirisReasonGate = osirisReasonGate;
+// publieke, gepoortte wrappers (aangeroepen vanuit de knoppen)
+function stopBotGate() { osirisReasonGate('stop', () => stopAutonomousBot()); }
+function resetWalletGate() { osirisReasonGate('reset_spot', () => resetWallet()); }
+function resetMarginGate() { osirisReasonGate('reset_margin', () => resetMarginWallet()); }
+window.stopBotGate = stopBotGate; window.resetWalletGate = resetWalletGate; window.resetMarginGate = resetMarginGate;
+
 function stopAutonomousBot() {
     const modeBadge = document.getElementById('engine-mode-badge');
     if (modeBadge) { modeBadge.textContent = ''; modeBadge.style.display = 'none'; }
@@ -2410,6 +2470,7 @@ function setText(id, text) {
 }
 
 function resetWallet() {
+    if (!window._reasonGateOK) { osirisReasonGate('reset_spot', () => resetWallet()); return; }
     if (!confirm("Weet je zeker dat je de wallet wilt resetten? Alle open posities, pending orders en logs worden gewist.")) return;
     try { OsirisSessions.archive('reset', 'spot'); } catch (e) {}   // bewaar de sessie voordat de spot-logs gewist worden
 
@@ -3067,7 +3128,12 @@ function calculateProbabilityScore(confluence, chaosVal, erVal, nodeInfluence = 
     if (chaosVal > 15) score -= 15;    // extreme volatiliteit = onbetrouwbaarder
     else if (chaosVal < 5) score += 5; // rustige markt = betrouwbaarder
     if (erVal > 1.5) score += 5;       // sterke volume-deelname = betrouwbaarder
-    score += nodeInfluence;            // node-timing: VOLA/CORE verhogen, RESET verlaagt (zie calculateNodeInfluence)
+    score += nodeInfluence;            // node-timing: conviction-amplifier (richting komt uit node-fade)
+    // (step 1) NODE-FADE: dicht bij een sterk reversal-node de FADE-richting belonen en de
+    // trend-voortzetting bestraffen — alleen als tradeable (sterk node-type + fib-confluentie).
+    // (step 1+2) ADAPTIEVE bijdragen: node-fade + 4h-richting + 1m-momentum, elk × zijn eigen
+    // out-of-sample geleerde gewicht (start 1.0×). Zie _advancedContribs / recalibrateAdaptiveWeights.
+    try { if (side) { const _ac = _advancedContribs(side, 'BTC'); score += _ac.total; } } catch (e) {}
     score += momentumInfluence;        // "geheugen": trend uit metricsHistory bevestigt of ontkracht het signaal
     score += fibConfluenceInfluence;   // MES/MAC fib-niveaus (dezelfde lijnen als op de chart) die de MIC-trigger bevestigen
     score += patternInfluence;         // candlestick-patronen (hamer/engulfing/etc.) + markt-structuur (HH/HL vs LH/LL)
@@ -3821,6 +3887,8 @@ function openManualPosition(side) {
 // fill, de boeking en de logging zijn identiek; alleen de reden verschilt
 // (MANUAL_CLOSE), zodat je hem in de exit-verdeling apart terugziet.
 function closePositionManually(id) {
+    if (!window._reasonGateOK) { osirisReasonGate('close', () => closePositionManually(id)); return; }
+    const _closeReason = window._osirisLastReason || null;
     const pos = openPositions.find(p => p.id === id);
     if (!pos) return;
     if (!livePrice) { alert('Nog geen live prijs - wacht tot de stream draait.'); return; }
@@ -3837,7 +3905,7 @@ function closePositionManually(id) {
         `Sluiten?`
     );
     if (!ok) return;
-    closePosition(pos, nettoPct + roundTripCostPct() / 100, `MANUAL_CLOSE (handmatig gesloten op ${(nettoPct * 100).toFixed(2)}% netto)`);
+    closePosition(pos, nettoPct + roundTripCostPct() / 100, `MANUAL_CLOSE (handmatig gesloten op ${(nettoPct * 100).toFixed(2)}% netto${_closeReason ? ' · ' + _closeReason : ''})`);
 }
 
 // REGIME-POORT: bepaalt of de markt op dit moment "dood" is - gerealiseerde
@@ -4279,6 +4347,10 @@ function openPositionFromOrder(order, entryTag = '') {
     // (23-08) Timing-Agent soft-gate: houd de order pending tot de timing gunstig staat (blokkeert
     // niets tot de TA zich bewezen heeft; de order blijft staan en wordt opnieuw geëvalueerd).
     try { if (typeof osirisTimingGate === 'function') { const _tg = osirisTimingGate('BTC', order.side); if (!_tg.allow) { logBotAction('SKIPPED', livePrice, order.side, 0, 0, 'TA: ' + _tg.reason); return; } } } catch (e) {}
+    // (step 1+2) leg de adaptieve multi-TF/node-fade bijdragen vast voor deze entry, zodat het
+    // leersysteem (out-of-sample) de gewichten mtfDir/mtfMom/nodeFade op- of afschaalt.
+    let _acEntry = { nodeFade: 0, mtfDir: 0, mtfMom: 0 };
+    try { _acEntry = _advancedContribs(order.side, 'BTC'); } catch (e) {}
     const price = livePrice;
     const confluence = lastOsirisDecision ? lastOsirisDecision.confluence : 0;
     const maxConfluence = 9; // zie getOrisisDecisionData: vfm(2)+db(1)+chaos(1)+er(1)+volumeScore(1)+MA(1)+crossover(1)+voorspelling(1)
@@ -4292,6 +4364,21 @@ function openPositionFromOrder(order, entryTag = '') {
     // op een manier die de bedoeling van die instelling ondermijnt.
     const sizeMultiplier = Math.max(0.5, Math.min(1.2, 1 + (order.nodeInfluence || 0) / 100));
     desiredSizePct = Math.min(desiredSizePct * sizeMultiplier, botSettings.maxAllocationPct);
+
+    // (step 1) SPIKE-GUARD: bij hoog spike/drop-risico (chaos + FSO-variantie, versterkt rond
+    // een node) de positie verkleinen en zo nodig een strakkere stop meegeven — zo worden de
+    // grote (>15 USDT) klappers voorzien i.p.v. ondergaan.
+    let _spikeCustomStop = null;
+    try {
+        if (botSettings.spikeGuardEnabled !== false && typeof OsirisSpikeGuard !== 'undefined') {
+            const sg = OsirisSpikeGuard.assess('BTC');
+            if (sg && sg.sizeMult < 1) {
+                desiredSizePct *= sg.sizeMult;
+                if (sg.tightenStop) _spikeCustomStop = +(botSettings.stopLossPct * 0.6).toFixed(4);
+                order._spikeNote = sg.note;
+            }
+        }
+    } catch (e) {}
 
     // Nooit meer dan 100% van de beschikbare allocatie, ook niet met hedging op beide kanten.
     // Reserveer daarbovenop ruimte voor een eventuele hedge: als de andere kant nog
@@ -4349,6 +4436,7 @@ function openPositionFromOrder(order, entryTag = '') {
         targetPrice: order.targetPrice,
         probabilityPct: order.probabilityPct,
         nodeInfluence: order.nodeInfluence || 0,
+        customStopLossPct: _spikeCustomStop != null ? _spikeCustomStop : undefined,   // spike-guard strakkere stop
         openTime: Date.now(),
         closeTime: null,
         peakPnlPct: 0,
@@ -4367,6 +4455,8 @@ function openPositionFromOrder(order, entryTag = '') {
             emaInfluence: order.emaInfluence ?? 0,
             cnnInfluence: order.cnnInfluence ?? 0,
             nnInfluence: order.nnInfluence ?? 0, nodeconfInfluence: order.nodeconfInfluence ?? 0,
+            // (step 1+2) adaptieve multi-TF / node-fade bijdragen — leerbaar out-of-sample
+            mtfDirInfluence: _acEntry.mtfDir ?? 0, mtfMomInfluence: _acEntry.mtfMom ?? 0, nodeFadeInfluence: _acEntry.nodeFade ?? 0,
             snapVfm: order.snapVfm ?? null,
             snapEr: order.snapEr ?? null,
             snapDb: order.snapDb ?? null,
@@ -5042,14 +5132,14 @@ window.autonomousEngineAdapt = autonomousEngineAdapt;
 // (oude BTC influence-keys EN de korte ETH/SOL/margin-keys), zodat alle trades meetellen.
 function _factorVal(factors, wKey) {
     if (!factors) return null;
-    const map = { confluence: ['confluence'], nodeInfluence: ['nodeInfluence'], momentumInfluence: ['momentumInfluence', 'vfm'], fibConfluence: ['fibConfluenceInfluence'], pattern: ['patternInfluence'], rsi: ['rsiInfluence', 'rsi'], ema: ['emaInfluence', 'ema'], cnn: ['cnnInfluence'], nn: ['nnInfluence', 'nn'], nodeconf: ['nodeconfInfluence'], fundamentals: ['fundamentals'] };
+    const map = { confluence: ['confluence'], nodeInfluence: ['nodeInfluence'], momentumInfluence: ['momentumInfluence', 'vfm'], fibConfluence: ['fibConfluenceInfluence'], pattern: ['patternInfluence'], rsi: ['rsiInfluence', 'rsi'], ema: ['emaInfluence', 'ema'], cnn: ['cnnInfluence'], nn: ['nnInfluence', 'nn'], nodeconf: ['nodeconfInfluence'], fundamentals: ['fundamentals'], mtfDir: ['mtfDirInfluence', 'mtfDir'], mtfMom: ['mtfMomInfluence', 'mtfMom'], nodeFade: ['nodeFadeInfluence', 'nodeFade'] };
     for (const k of (map[wKey] || [wKey])) { if (factors[k] != null && isFinite(factors[k])) return factors[k]; }
     return null;
 }
 // Herijkt de gewichten van EEN markt op basis van zijn eigen schone trades (contrafeitelijk,
 // mediaan-split). Retourneert het aantal bijgestelde factoren.
 function _recalibMarket(trades, weights, homeFor) {
-    const wKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluence', 'pattern', 'rsi', 'ema', 'cnn', 'nn', 'nodeconf', 'fundamentals'];
+    const wKeys = ['confluence', 'nodeInfluence', 'momentumInfluence', 'fibConfluence', 'pattern', 'rsi', 'ema', 'cnn', 'nn', 'nodeconf', 'fundamentals', 'mtfDir', 'mtfMom', 'nodeFade'];
     let adjusted = 0;
     for (const wKey of wKeys) {
         if (weights[wKey] == null) continue;
@@ -7187,7 +7277,7 @@ window.switchCoin = switchCoin;
 // BTC-loop dit met de volledige engine; dit is voor ETH/SOL (uit neoMultiState).
 function _fillSystemForCoin(m, sym) {
     try {
-        const C = m.candles; if (!C || !C.length) return;
+        const C = m.candles || m.klines; if (!C || !C.length) return;
         const price = m.lastPrice || parseFloat(C[C.length - 1][4]);
         const set = (id, txt, col) => { const e = document.getElementById(id); if (e) { e.innerText = txt; if (col) e.style.color = col; } };
         const vfm = m.vfm || 0, chaos = m.chaos || 0;
@@ -7228,9 +7318,148 @@ function _fillSystemForCoin(m, sym) {
 }
 window._fillSystemForCoin = _fillSystemForCoin;
 
+// ============================================================
+// SYSTEM DATA — MULTI-MARKT (BTC · ETH · SOL) futuristische weergave
+// Alle system-panelen tonen nu alle 3 de markten tegelijk (i.p.v. alleen de
+// gekozen munt). Leest headless uit neoMultiState.markets; node-countdown blijft
+// universeel (tijdraster). Volledig los van de verborgen legacy single-coin IDs.
+// ============================================================
+const SD_ACC = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
+function _sdMetrics(sym) {
+    const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
+    const C = m ? (m.candles || m.klines) : null;
+    if (!m || !C || !C.length) return null;
+    const N = C.length;
+    const price = m.lastPrice || parseFloat(C[N - 1][4]);
+    const closes = C.slice(-15).map(c => parseFloat(c[4]));
+    let er = 0;
+    if (closes.length > 2) { const net = Math.abs(closes[closes.length - 1] - closes[0]); let vol = 0; for (let i = 1; i < closes.length; i++) vol += Math.abs(closes[i] - closes[i - 1]); er = vol > 0 ? net / vol * 2 : 0; }
+    let db = 0; for (const c of C.slice(-10)) db += (parseFloat(c[4]) - parseFloat(c[1])); db = db / (price || 1) * 100;
+    const hiLo = nn => { const seg = C.slice(-nn); let hi = -Infinity, lo = Infinity; for (const c of seg) { const h = parseFloat(c[2]), l = parseFloat(c[3]); if (h > hi) hi = h; if (l < lo) lo = l; } return { hi, lo }; };
+    const lastVol = parseFloat(C[N - 1][5]) || 0;
+    const takerBuy = parseFloat(C[N - 1][9]);
+    const buyPct = (isFinite(takerBuy) && lastVol > 0) ? Math.max(0, Math.min(1, takerBuy / lastVol)) : (0.5 + Math.max(-0.4, Math.min(0.4, (m.vfm || 0) * 0.2)));
+    // patroon per markt
+    let pat = 'Geen duidelijk patroon', patBias = 'neutraal';
+    try { const sc = neoScanPatterns(C, 40); const nb = sc.netBias || 0; patBias = nb > 0.05 ? 'bullish' : (nb < -0.05 ? 'bearish' : 'neutraal'); if (sc.last && sc.last.type) { const st = (typeof PATTERN_MARKER_STYLE !== 'undefined' && PATTERN_MARKER_STYLE[sc.last.type]) ? PATTERN_MARKER_STYLE[sc.last.type].text : sc.last.type; pat = st; } } catch (e) {}
+    // structuur per markt (higher-highs / lower-lows over laatste 20)
+    let structure = 'range-bound / geen duidelijke structuur';
+    try { const seg = C.slice(-20).map(c => ({ h: parseFloat(c[2]), l: parseFloat(c[3]) })); const mid = Math.floor(seg.length / 2); const hh = Math.max(...seg.slice(mid).map(s => s.h)) > Math.max(...seg.slice(0, mid).map(s => s.h)); const ll = Math.min(...seg.slice(mid).map(s => s.l)) < Math.min(...seg.slice(0, mid).map(s => s.l)); structure = (hh && !ll) ? 'uptrend / higher highs' : ((ll && !hh) ? 'downtrend / lower lows' : 'range-bound / geen structuur'); } catch (e) {}
+    // NN + confluentie per markt
+    let nnTxt = 'verzamelt…', confTxt = '—';
+    try { const nn = (typeof _nnState !== 'undefined') ? _nnState[sym] : null; if (nn && nn.period) nnTxt = `~${Math.round(nn.period / 60000)}min ritme · ${nn.caps.length} caps`; else if (m.nnRitmeMin) nnTxt = `~${m.nnRitmeMin}min · ${m.nnCaps || 0} caps`; } catch (e) {}
+    return { m, sym, price, vfm: m.vfm || 0, chaos: m.chaos || 0, rsi: m.rsi, ema: m.ema, er, db, mic: hiLo(9), mes: hiLo(36), mac: hiLo(144), lastVol, buyPct, side: m.bestSide, prob: m.bestProb || 0.5, pat, patBias, structure, nnTxt, confTxt, upd: m.lastUpdate ? Math.round((Date.now() - m.lastUpdate) / 1000) : null };
+}
+
+function renderSystemDataAll() {
+    const host = document.getElementById('sd-overview'); if (!host) return;
+    const coins = ['BTC', 'ETH', 'SOL'];
+    const fmt = (typeof formatChartPrice === 'function') ? formatChartPrice : (v => '$' + Number(v).toLocaleString());
+    const acc = s => SD_ACC[s];
+    const data = {}; coins.forEach(s => data[s] = _sdMetrics(s));
+    let regLabel = '—', regProb = '';
+    try { const H = OsirisRegimeHMM; if (H) { regLabel = H.trained ? (H.label || 'kalm') : 'kalibreert'; regProb = (H.trained && H.prob != null) ? ' ' + (H.prob * 100 | 0) + '%' : ''; } } catch (e) {}
+
+    const card = (s, inner) => `<div class="sd-card ${s.toLowerCase()}">${inner}</div>`;
+    const na = s => `<div class="sd-card ${s.toLowerCase()}"><div class="sd-hd"><span class="sd-sym">${s}</span><span class="sd-mini">geen data</span></div></div>`;
+
+    // 1) OVERVIEW
+    document.getElementById('sd-overview').innerHTML = coins.map(s => {
+        const d = data[s]; if (!d) return na(s);
+        const bull = d.side === 'LONG', bear = d.side === 'SHORT';
+        const stCol = bear ? '#ff6d84' : (bull ? '#00ffcc' : '#9aa7b4');
+        const stTxt = bear ? '▼ BEARISH DRUK' : (bull ? '▲ BULLISH DRUK' : '● NEUTRAAL');
+        const conf = d.prob >= 0.6 ? 'zeer hoog' : (d.prob >= 0.55 ? 'hoog' : 'gemiddeld');
+        let mtfTxt = '<span style="color:#5c7488;">laadt…</span>';
+        try { const mtf = OsirisMTF.context(s); if (mtf.ready) { const dl = mtf.h4Dir > 0 ? '<span style="color:#00ffcc;">▲ up</span>' : (mtf.h4Dir < 0 ? '<span style="color:#ff6d84;">▼ down</span>' : 'vlak'); const mc = mtf.m1Mom > 0.1 ? '#00ffcc' : (mtf.m1Mom < -0.1 ? '#ff6d84' : '#9aa7b4'); mtfTxt = `4h ${dl} · 1m <span style="color:${mc};">${mtf.m1Mom >= 0 ? '+' : ''}${mtf.m1Mom.toFixed(2)}</span>`; } } catch (e) {}
+        return card(s, `
+            <div class="sd-hd"><span class="sd-sym">${s}</span><span class="sd-badge" style="color:${stCol};">${stTxt}</span></div>
+            <div class="sd-row"><span class="k">Prijs</span><span class="v">${fmt(d.price)}</span></div>
+            <div class="sd-row"><span class="k">Confidence</span><span class="v" style="color:${d.prob >= 0.55 ? '#00ffcc' : '#9aa7b4'};">${conf} (${(d.prob * 100).toFixed(0)}%)</span></div>
+            <div class="sd-row"><span class="k">Multi-TF</span><span class="v">${mtfTxt}</span></div>
+            <div class="sd-row"><span class="k">Regime (HMM)</span><span class="v" style="color:#c792ea;">${regLabel.toUpperCase()}${regProb}</span></div>
+            <div class="sd-row"><span class="k">RSI · EMA</span><span class="v">${d.rsi != null ? d.rsi.toFixed(0) : '–'} · ${d.ema != null ? fmt(d.ema) : '–'}</span></div>
+            <div class="sd-row"><span class="k">bijgewerkt</span><span class="v" style="color:${d.upd != null && d.upd < 90 ? '#8fffb0' : '#ffb627'};">${d.upd != null ? d.upd + 's' : '–'}</span></div>`);
+    }).join('');
+
+    // 2) MICRO / MESO / MACRO bull-bear
+    document.getElementById('sd-levels').innerHTML = coins.map(s => {
+        const d = data[s]; if (!d) return na(s);
+        const row = (lbl, o) => `<div class="sc">${lbl}</div><div class="bu">▲ ${fmt(o.hi)}</div><div class="be">▼ ${fmt(o.lo)}</div>`;
+        return card(s, `
+            <div class="sd-hd"><span class="sd-sym">${s}</span><span class="sd-mini">bull / bear</span></div>
+            <div class="sd-lvl"><div class="hdr">scale</div><div class="hdr" style="text-align:right;">bull</div><div class="hdr" style="text-align:right;">bear</div>
+            ${row('MICRO&nbsp;9', d.mic)}${row('MESO&nbsp;36', d.mes)}${row('MACRO&nbsp;144', d.mac)}</div>`);
+    }).join('');
+
+    // 3) VFM · ER · DB · CHAOS
+    document.getElementById('sd-meters').innerHTML = coins.map(s => {
+        const d = data[s]; if (!d) return na(s);
+        const vfmCol = Math.abs(d.vfm) < 0.1 ? '#9aa7b4' : (d.vfm > 0 ? '#00ffcc' : '#ff6d84');
+        const chaosCol = d.chaos > (typeof CONF_CHAOS_TH !== 'undefined' ? CONF_CHAOS_TH : 8) ? '#ff6d84' : '#00ffcc';
+        const met = (l, v, c) => `<div class="sd-metric"><span class="mv" style="color:${c};">${v}</span><span class="ml">${l}</span></div>`;
+        return card(s, `
+            <div class="sd-hd"><span class="sd-sym">${s}</span><span class="sd-mini">${Math.abs(d.vfm) < 0.1 ? 'neutraal' : (Math.abs(d.vfm) > 1.5 ? 'extreem' : 'significant')}</span></div>
+            <div class="sd-4">
+              ${met('VFM', d.vfm.toFixed(2), vfmCol)}
+              ${met('ER', d.er.toFixed(2), d.er > 1.2 ? '#00ffcc' : '#9aa7b4')}
+              ${met('DB', d.db.toFixed(2), d.db > 0 ? '#00ffcc' : '#ff6d84')}
+              ${met('CHAOS', d.chaos.toFixed(2) + '%', chaosCol)}
+            </div>`);
+    }).join('');
+
+    // 4) PATROON & STRUCTUUR
+    document.getElementById('sd-pattern').innerHTML = coins.map(s => {
+        const d = data[s]; if (!d) return na(s);
+        const bc = d.patBias === 'bullish' ? '#00ffcc' : (d.patBias === 'bearish' ? '#ff6d84' : '#9aa7b4');
+        return card(s, `
+            <div class="sd-hd"><span class="sd-sym">${s}</span><span class="sd-badge" style="color:${bc};">${d.patBias}</span></div>
+            <div class="sd-row"><span class="k">Patroon</span><span class="v" style="text-align:right;max-width:62%;">${d.pat}</span></div>
+            <div class="sd-row"><span class="k">Structuur</span><span class="v" style="text-align:right;max-width:62%;color:#c8d6e0;">${d.structure}</span></div>`);
+    }).join('');
+
+    // 5) NODE COUNTDOWN per markt (eigen geijkt anker/reset-punten) + NN-countdown
+    const nodesEl = document.getElementById('sd-nodes');
+    if (nodesEl) {
+        try { if (_nodeAnchors.ETH == null || _nodeAnchors.SOL == null) calibrateNodeAnchors(); } catch (e) {}
+        const now = Date.now();
+        const fmtCd = ms => { if (ms == null) return '—'; const s = Math.max(0, Math.floor(ms / 1000)); const h = Math.floor(s / 3600), mi = Math.floor((s % 3600) / 60), se = s % 60; return `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}:${String(se).padStart(2, '0')}`; };
+        const fmtNodeT = t => { const d = new Date(t); return `${String(d.getUTCDate()).padStart(2, '0')}-${String(d.getUTCMonth() + 1).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`; };
+        nodesEl.innerHTML = coins.map(s => {
+            const d = data[s]; if (!d) return na(s);
+            let nn = null; try { nn = _nextNodesFor(s); } catch (e) {}
+            const row = (lbl, o, col) => o ? `<div class="sd-row"><span class="k" style="color:${col};">${lbl}</span><span class="v">${fmtNodeT(o.time)} · <b style="color:${col};">${fmtCd(o.time - now)}</b></span></div>` : `<div class="sd-row"><span class="k" style="color:${col};">${lbl}</span><span class="v">—</span></div>`;
+            const fit = (d.m && d.m.nodeReversalFit != null) ? ` · fit ${(d.m.nodeReversalFit * 100 | 0)}%` : '';
+            const anchored = (s === 'BTC') ? 'globaal anker' : (_nodeAnchors[s] != null ? 'geijkt' + fit : 'ijkt…');
+            return card(s, `
+                <div class="sd-hd"><span class="sd-sym">${s}</span><span class="sd-mini">${anchored}</span></div>
+                ${row('RESET', nn && nn.RESET, '#ffffff')}
+                ${row('CORE', nn && nn.CORE, '#00ffcc')}
+                ${row('NEXT', nn && nn.NEXT, '#14f195')}
+                <div class="sd-row"><span class="k" style="color:#c792ea;">NN-countdown</span><span class="v" style="color:#c792ea;">${d.nnTxt}</span></div>`);
+        }).join('');
+    }
+
+    // 6) LIVE VOLUME & MARKET PRESSURE
+    document.getElementById('sd-volume').innerHTML = coins.map(s => {
+        const d = data[s]; if (!d) return na(s);
+        const score = Math.round(50 + Math.max(-50, Math.min(50, d.vfm * 30)));
+        const bp = Math.round(d.buyPct * 100), sp = 100 - bp;
+        return card(s, `
+            <div class="sd-hd"><span class="sd-sym">${s}</span><span class="sd-mini">score ${score}/100 · rate ${d.chaos.toFixed(1)}%</span></div>
+            <div class="sd-row"><span class="k">Live volume</span><span class="v" style="color:${acc(s)};">${d.lastVol.toFixed(4)}</span></div>
+            <div class="sd-press"><div style="width:${bp}%;background:#14f195;"></div><div style="width:${sp}%;background:#ff5f7e;"></div></div>
+            <div class="sd-row" style="margin-top:2px;"><span class="k" style="color:#14f195;">${bp}% buyers</span><span class="k" style="color:#ff5f7e;">${sp}% sellers</span></div>`);
+    }).join('');
+}
+window.renderSystemDataAll = renderSystemDataAll;
+// periodieke refresh van de multi-markt System Data (alleen als de tab zichtbaar is → spaart render)
+try { setInterval(function () { try { const t = document.getElementById('tab-system'); if (t && t.offsetParent !== null) renderSystemDataAll(); } catch (e) {} }, 3000); } catch (e) {}
+
 function renderSystemDataTab(sym) {
+    try { renderSystemDataAll(); } catch (e) {}   // multi-markt weergave (alle 3 markten tegelijk)
     const m = neoMultiState.markets[sym];
-    if (sym !== 'BTC') { try { _fillSystemForCoin(m, sym); } catch (e) {} }   // vul alle system-panelen per munt
+    if (sym !== 'BTC') { try { _fillSystemForCoin(m, sym); } catch (e) {} }   // vul alle (verborgen) legacy single-coin IDs per munt
     const el = document.getElementById('system-data-multi');
     if (!el) return;
     if (!m || m.lastPrice == null) { el.innerHTML = `<span style="color:var(--text-dim);">${sym}: nog geen data</span>`; return; }
@@ -7531,17 +7760,89 @@ function nodeTypeForHalfStepIndex(k) {
 // (nodig om sessie-overlap op het node-moment zelf te checken, niet op "nu").
 // Het venster tussen "last" en "next" is precies één halve T_PI-cyclus (~94.33
 // min) - dat is het volledige venster waarbinnen een node nog relevant is.
-function getNodeContext(now = Date.now()) {
+// (29-08) PER-MARKT node-anker. Het UOTAM-tijdraster is NIET universeel: elke munt
+// heeft zijn eigen reset-punten. Het anker (waar RESET op valt) wordt per markt geijkt
+// op de eigen omkeerpunten (calibrateNodeAnchors). BTC gebruikt de globale ANCHOR_TIME.
+let _nodeAnchors = {};
+function nodeAnchorFor(sym) { return (sym && _nodeAnchors[sym] != null) ? _nodeAnchors[sym] : ANCHOR_TIME; }
+
+function getNodeContext(now = Date.now(), sym = 'BTC') {
     const HALF_MS = T_PI_MS / 2;
-    const kRaw = (now - ANCHOR_TIME) / HALF_MS;
+    const anchor = nodeAnchorFor(sym);
+    const kRaw = (now - anchor) / HALF_MS;
     const kPrev = Math.floor(kRaw);
     const kNext = Math.ceil(kRaw);
-    const prevTime = ANCHOR_TIME + kPrev * HALF_MS;
-    const nextTime = ANCHOR_TIME + kNext * HALF_MS;
+    const prevTime = anchor + kPrev * HALF_MS;
+    const nextTime = anchor + kNext * HALF_MS;
     return {
+        sym, anchor,
         lastNode: { type: nodeTypeForHalfStepIndex(kPrev), time: prevTime, minutesAgo: Math.max(0, (now - prevTime) / 60000) },
         nextNode: { type: nodeTypeForHalfStepIndex(kNext), time: nextTime, minutesUntil: Math.max(0, (nextTime - now) / 60000) }
     };
+}
+
+// Kalibreert het node-anker per markt: kies de faseverschuiving (binnen één π-cyclus)
+// waarbij de "op-node" candles van DIE munt het vaakst omkeren — de reset-punten worden
+// zo op de eigen omkeerpunten van ETH/SOL gelegd i.p.v. op het BTC-raster.
+function calibrateNodeAnchors() {
+    try {
+        const HALF_MS = T_PI_MS / 2;
+        // reversal-fit van het raster voor een gegeven anker (aandeel op-node candles dat omkeert)
+        const fitFor = (C, anchor) => {
+            let rev = 0, tot = 0;
+            for (let i = 2; i < C.length - 6; i++) {
+                const kRaw = (C[i][0] - anchor) / HALF_MS;
+                const nearMin = Math.abs(kRaw - Math.round(kRaw)) * HALF_MS / 60000;
+                if (nearMin > 8) continue;
+                const body = parseFloat(C[i][4]) - parseFloat(C[i][1]);
+                const fwd = parseFloat(C[i + 6][4]) - parseFloat(C[i][4]);
+                if (body === 0 || fwd === 0) continue;
+                tot++; if (Math.sign(body) !== Math.sign(fwd)) rev++;
+            }
+            return tot >= 8 ? rev / tot : 0;
+        };
+        ['ETH', 'SOL'].forEach(sym => {
+            const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
+            const C = m ? (m.candles || m.klines) : null;
+            if (!m || !C || C.length < 80) return;
+            const W = 8;
+            // 1) kandidaat-ankers = de sterkste swing-pivots (echte omkeerpunten) van DEZE munt
+            const pivots = [];
+            for (let i = W; i < C.length - W; i++) {
+                const h = parseFloat(C[i][2]), l = parseFloat(C[i][3]), c = parseFloat(C[i][4]);
+                let isHigh = true, isLow = true, around = 0;
+                for (let j = i - W; j <= i + W; j++) { if (j === i) continue; if (parseFloat(C[j][2]) >= h) isHigh = false; if (parseFloat(C[j][3]) <= l) isLow = false; around = Math.max(around, Math.abs(parseFloat(C[j][4]) - c)); }
+                if (isHigh || isLow) pivots.push({ t: C[i][0], mag: around / (c || 1) });
+            }
+            pivots.sort((a, b) => b.mag - a.mag);
+            // 2) kies onder de top-pivots het anker waarvan het raster het best op de eigen omkeer past
+            let bestAnchor = C[C.length - 1][0], bestScore = -1;
+            const cands = pivots.slice(0, 12);
+            if (!cands.length) cands.push({ t: C[Math.floor(C.length / 2)][0] });
+            for (const pv of cands) { const sc = fitFor(C, pv.t); if (sc > bestScore) { bestScore = sc; bestAnchor = pv.t; } }
+            _nodeAnchors[sym] = bestAnchor;                    // RESET valt nu op deze munt zijn eigen pivot
+            m.nodeAnchor = bestAnchor; m.nodeReversalFit = +Math.max(0, bestScore).toFixed(3);
+        });
+    } catch (e) {}
+}
+window.calibrateNodeAnchors = calibrateNodeAnchors;
+try { setInterval(calibrateNodeAnchors, 30 * 60000); } catch (e) {}
+
+// De eerstvolgende node van elk type voor een markt (per-markt anker) — voor de countdown-UI.
+function _nextNodesFor(sym, now = Date.now()) {
+    const HALF_MS = T_PI_MS / 2; const anchor = nodeAnchorFor(sym);
+    const kStart = Math.ceil((now - anchor) / HALF_MS);
+    const out = { RESET: null, VOLA: null, CORE: null, OSC: null, MIDPULSE: null, NEXT: null };
+    const buckets = ['RESET', 'VOLA', 'CORE', 'OSC', 'MIDPULSE'];
+    for (let k = kStart; k < kStart + 800; k++) {
+        const t = anchor + k * HALF_MS; if (t <= now) continue;
+        const type = (nodeTypeForHalfStepIndex(k) || '').toUpperCase();
+        const bucket = (type === 'VORTEX3' || type === 'VORTEX6') ? 'CORE' : type;
+        if (out.NEXT == null) out.NEXT = { type, time: t };
+        if (buckets.includes(bucket) && out[bucket] == null) out[bucket] = { type, time: t };
+        if (buckets.every(b => out[b]) && out.NEXT) break;
+    }
+    return out;
 }
 
 // ============================================================
@@ -7682,11 +7983,16 @@ function calculateSessionInfluence(timestamp) {
 // dynamisch bepaald door de actuele volume-shift (calculateVolumeShift) rond
 // dat moment, zoals gevraagd - een OSC-node met een duidelijke volume-piek
 // telt wél mee, eentje zonder beweging blijft neutraal.
+// (29-08 · step 1) Herkalibreerd uit de TAM-backtest (reversal-kans per node-type:
+// RESET 67% · VOLA 62% · OSC 62% · MIDPULSE 61% · VORTEX3 50% · VORTEX6 43%=continuatie).
+// Dit gewicht is een NIET-directionele conviction-amplifier; de RICHTING komt nu uit de
+// node-fade (OsirisNodeFade). Bij sterke reversal-nodes DEMPEN we daarom de trend-conviction
+// (negatief), bij VORTEX (continuatie) laten we trend iets meelopen (positief).
 const NODE_INFLUENCE_WEIGHTS = {
-    RESET: -8,
-    VOLA: 10,
-    VORTEX3: 6,
-    VORTEX6: 6
+    RESET: -6,
+    VOLA: -3,
+    VORTEX3: 2,
+    VORTEX6: 4
 };
 
 // Berekent één samengestelde invloedswaarde op basis van: (1) het type en de
@@ -7731,6 +8037,208 @@ function calculateNodeInfluence(nodeContext) {
 
     return nextScore + lastScore + nextSessionScore + lastSessionScore;
 }
+
+// ============================================================
+// NODE-FADE + SPIKE-GUARD (step 1) — TAM-backtest: koers keert vaker om ROND de
+// tijd-nodes (59,8% reversal op de node vs 49% ver weg). Nodes worden daarom als
+// MEAN-REVERSION/FADE gebruikt (niet als breakout): dicht bij een sterk reversal-node
+// faden we de aanloop-richting. De edge is klein → alleen mét fib-confluentie. Per markt.
+const NODE_REVERSAL_QUALITY = { RESET: 1.0, MIDPULSE: 0.9, OSC: 0.9, VOLA: 0.85, VORTEX3: 0.3, VORTEX6: 0.15 };
+const NODEFADE_WINDOW_MIN = 12;   // "op de node" als de dichtstbijzijnde node < 12 min weg is
+let _lastNodeFade = null;
+function _recentDir(sym) {
+    try { const m = neoMultiState.markets[sym]; const C = m && (m.candles || m.klines); if (!C || C.length < 5) return 0; const cl = C.slice(-4).map(c => parseFloat(c[4])); const net = cl[cl.length - 1] - cl[0]; return net > 0 ? 1 : (net < 0 ? -1 : 0); } catch (e) { return 0; }
+}
+function _fibConfluenceNear(sym, price) {
+    try {
+        const m = neoMultiState.markets[sym]; const C = m && (m.candles || m.klines); if (!C) return 0;
+        const seg = C.slice(-36); let hi = -Infinity, lo = Infinity;
+        for (const c of seg) { const h = parseFloat(c[2]), l = parseFloat(c[3]); if (h > hi) hi = h; if (l < lo) lo = l; }
+        if (!(hi > lo)) return 0;
+        let best = 0;
+        for (const r of [0.236, 0.382, 0.5, 0.618, 0.786]) { const lvl = lo + (hi - lo) * r; const d = Math.abs(price - lvl) / price; if (d < 0.004) best = Math.max(best, 1 - d / 0.004); }
+        return best;
+    } catch (e) { return 0; }
+}
+const OsirisNodeFade = {
+    signal(sym) {
+        try {
+            const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
+            const C = m ? (m.candles || m.klines) : null;
+            if (!m || !C || C.length < 10) return { atNode: false };
+            const nc = getNodeContext(Date.now(), sym);
+            const nearMin = Math.min(nc.lastNode.minutesAgo, nc.nextNode.minutesUntil);
+            const which = nc.lastNode.minutesAgo <= nc.nextNode.minutesUntil ? nc.lastNode : nc.nextNode;
+            const nodeType = (which.type || '').toUpperCase();
+            const quality = NODE_REVERSAL_QUALITY[nodeType] != null ? NODE_REVERSAL_QUALITY[nodeType] : 0.4;
+            if (nearMin > NODEFADE_WINDOW_MIN) return { atNode: false, nearMin: +nearMin.toFixed(1), nodeType, quality };
+            const dir = _recentDir(sym);
+            const fadeSide = dir > 0 ? 'SHORT' : (dir < 0 ? 'LONG' : null);
+            const price = m.lastPrice || parseFloat(C[C.length - 1][4]);
+            const conf = _fibConfluenceNear(sym, price);
+            const proximity = Math.max(0, 1 - nearMin / NODEFADE_WINDOW_MIN);
+            const strength = quality * proximity * (0.4 + 0.6 * conf);
+            const tradeable = !!(fadeSide && quality >= 0.7 && conf > 0.34 && strength > 0.35);
+            const sig = { atNode: true, sym, nearMin: +nearMin.toFixed(1), nodeType, quality, fadeSide, approachDir: dir, confluence: +conf.toFixed(2), proximity: +proximity.toFixed(2), strength: +strength.toFixed(3), tradeable, note: `node-fade ${nodeType} → ${fadeSide || '-'} (kwal ${quality.toFixed(2)}, conf ${(conf * 100 | 0)}%, kracht ${(strength * 100 | 0)}%)` };
+            if (sym === 'BTC') _lastNodeFade = sig;
+            return sig;
+        } catch (e) { return { atNode: false }; }
+    }
+};
+window.OsirisNodeFade = OsirisNodeFade;
+// SPIKE-GUARD: bij hoge chaos + FSO-variantie (asynchronie), versterkt rond een node, is een
+// spike/drop waarschijnlijk → verklein de positie en zet zo nodig een strakkere stop.
+const OsirisSpikeGuard = {
+    assess(sym) {
+        try {
+            const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
+            const chaos = m ? (m.chaos || 0) : 0;
+            let fsoVar = 0, fsoLvl = 0; try { fsoVar = osirisStress.variance || 0; fsoLvl = osirisStress.level || 0; } catch (e) {}
+            const chTh = (typeof CONF_CHAOS_TH !== 'undefined') ? CONF_CHAOS_TH : 8;
+            let nearNode = false; try { const nc = getNodeContext(Date.now(), sym); nearNode = Math.min(nc.lastNode.minutesAgo, nc.nextNode.minutesUntil) < NODEFADE_WINDOW_MIN * 1.5; } catch (e) {}
+            let risk = Math.min(1, chaos / chTh) * 0.5 + Math.min(1, fsoVar / 0.05) * 0.35 + Math.min(1, fsoLvl / 0.4) * 0.15;
+            if (nearNode) risk *= 1.25;
+            risk = Math.max(0, Math.min(1, risk));
+            const sizeMult = +(1 - 0.5 * risk).toFixed(3);
+            return { spikeRisk: +risk.toFixed(3), sizeMult, tightenStop: risk > 0.6, nearNode, note: `spike-risk ${(risk * 100 | 0)}% (chaos ${chaos.toFixed(2)} · σ² ${fsoVar.toFixed(3)}${nearNode ? ' · node<18m' : ''})` };
+        } catch (e) { return { spikeRisk: 0, sizeMult: 1, tightenStop: false, note: '' }; }
+    }
+};
+window.OsirisSpikeGuard = OsirisSpikeGuard;
+
+// ============================================================
+// MULTI-TIMEFRAME (step 2) — 1m voor momentum, 15m voor targets (bestaande engine),
+// 4h voor overall richting. Per markt. De 15m-beslislus blijft leidend; 4h geeft een
+// richting-bias en 1m verfijnt de entry-timing (geen entry tegen een sterke 1m-spike in,
+// behalve bij een bewuste node-fade). Fetches lopen throttled mee in de round-robin.
+const OsirisMTF = {
+    cache: {}, _busy: {},
+    async _kl(sym, interval, limit) {
+        const pair = (typeof MULTI_BINANCE !== 'undefined' && MULTI_BINANCE[sym]) ? MULTI_BINANCE[sym] : (sym + 'USDT');
+        const r = await bFetch(`https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${interval}&limit=${limit}`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const j = await r.json(); if (!Array.isArray(j)) throw new Error('geen klines'); return j;
+    },
+    async refresh(sym) {
+        if (this._busy[sym]) return; this._busy[sym] = true;
+        const c = this.cache[sym] || (this.cache[sym] = {}); const now = Date.now();
+        try {
+            if (!c.m1ts || now - c.m1ts > 55 * 1000) { try { c.m1 = await this._kl(sym, '1m', 120); c.m1ts = now; } catch (e) { try { if (typeof logNetworkError === 'function') logNetworkError('MTF-1m', sym + ': ' + e.message); } catch (x) {} } }
+            if (!c.h4ts || now - c.h4ts > 15 * 60 * 1000) { try { c.h4 = await this._kl(sym, '4h', 120); c.h4ts = now; } catch (e) { try { if (typeof logNetworkError === 'function') logNetworkError('MTF-4h', sym + ': ' + e.message); } catch (x) {} } }
+        } finally { this._busy[sym] = false; }
+    },
+    direction(sym) {   // 4h overall richting (trend-gate)
+        try {
+            const c = this.cache[sym]; const K = c && c.h4; if (!K || K.length < 30) return { dir: 0, strength: 0, ready: false };
+            const cl = K.map(k => parseFloat(k[4]));
+            const sma = (a, n) => { if (a.length < n) return null; let s = 0; for (let i = a.length - n; i < a.length; i++) s += a[i]; return s / n; };
+            const f = sma(cl, 10), s = sma(cl, 30);
+            const slope = (cl[cl.length - 1] - cl[cl.length - 6]) / cl[cl.length - 6];   // ~1 dag (6×4h)
+            const dir = (f != null && s != null) ? (f > s ? 1 : -1) : 0;
+            const strength = Math.max(0, Math.min(1, Math.abs(slope) * 25 + (f != null && s != null ? Math.min(0.5, Math.abs(f - s) / s * 40) : 0)));
+            return { dir, strength: +strength.toFixed(3), slope: +(slope * 100).toFixed(2), ready: true };
+        } catch (e) { return { dir: 0, strength: 0, ready: false }; }
+    },
+    momentum(sym) {    // 1m korte-termijn momentum (entry-timing)
+        try {
+            const c = this.cache[sym]; const K = c && c.m1; if (!K || K.length < 20) return { mom: 0, ready: false };
+            const cl = K.map(k => parseFloat(k[4]));
+            const net = (cl[cl.length - 1] - cl[cl.length - 10]) / cl[cl.length - 10];   // laatste ~10 min
+            return { mom: +Math.max(-1, Math.min(1, net * 120)).toFixed(3), ready: true };
+        } catch (e) { return { mom: 0, ready: false }; }
+    },
+    context(sym) { const d = this.direction(sym), m = this.momentum(sym); return { h4Dir: d.dir, h4Strength: d.strength, h4Slope: d.slope, m1Mom: m.mom, ready: !!(d.ready || m.ready) }; }
+};
+window.OsirisMTF = OsirisMTF;
+
+// Gedeelde ADAPTIEVE score-bijdragen voor node-fade + 4h-richting + 1m-momentum. Elk start op
+// 1.0× (adaptiveWeights.nodeFade/mtfDir/mtfMom) en wordt door recalibrateAdaptiveWeights
+// out-of-sample op- of afgeschaald (0.5×–1.6×), net als elke andere factor. Wordt zowel in de
+// kansscore gebruikt als bij entry vastgelegd (factorsAtEntry) zodat het leerbaar is. Per markt.
+function _advancedContribs(side, sym = 'BTC', wts) {
+    let nodeFade = 0, mtfDir = 0, mtfMom = 0, fadeActive = false, dbg = {};
+    // gebruik meegegeven gewichten (per sub-brein) of de globale (BTC-hoofdengine)
+    const W = wts || (typeof adaptiveWeights !== 'undefined' ? adaptiveWeights : {});
+    const wF = (W && W.nodeFade != null) ? W.nodeFade : 1;
+    const wD = (W && W.mtfDir != null) ? W.mtfDir : 1;
+    const wM = (W && W.mtfMom != null) ? W.mtfMom : 1;
+    try {
+        if (typeof botSettings === 'undefined' || botSettings.nodeFadeEnabled !== false) {
+            const nf = (typeof OsirisNodeFade !== 'undefined') ? OsirisNodeFade.signal(sym) : null;
+            if (nf && nf.atNode && nf.tradeable && nf.fadeSide) { const base = 6 * nf.strength; nodeFade = (side === nf.fadeSide ? base : -base) * wF; fadeActive = true; dbg.nf = nf; }
+        }
+    } catch (e) {}
+    try {
+        if (typeof botSettings === 'undefined' || botSettings.mtfEnabled !== false) {
+            const mtf = (typeof OsirisMTF !== 'undefined') ? OsirisMTF.context(sym) : null;
+            if (mtf && mtf.ready) {
+                if (!fadeActive && mtf.h4Dir !== 0) { const base = 5 * mtf.h4Strength; const dirSide = mtf.h4Dir > 0 ? 'LONG' : 'SHORT'; mtfDir = (side === dirSide ? base : -base) * wD; }
+                mtfMom = ((side === 'LONG' ? mtf.m1Mom : -mtf.m1Mom) * 4) * wM;
+                dbg.mtf = mtf;
+            }
+        }
+    } catch (e) {}
+    return { nodeFade: +nodeFade.toFixed(3), mtfDir: +mtfDir.toFixed(3), mtfMom: +mtfMom.toFixed(3), total: nodeFade + mtfDir + mtfMom, fadeActive, dbg };
+}
+window._advancedContribs = _advancedContribs;
+
+// Live status-snapshot van multi-TF + node-fade + spike-guard per markt (voor UI + export).
+function mtfStatusSnapshot() {
+    const coins = ['BTC', 'ETH', 'SOL']; const out = {};
+    for (const s of coins) {
+        let mtf = { ready: false }, nf = { atNode: false }, sg = { spikeRisk: 0 };
+        try { mtf = OsirisMTF.context(s); } catch (e) {}
+        try { nf = OsirisNodeFade.signal(s); } catch (e) {}
+        try { sg = OsirisSpikeGuard.assess(s); } catch (e) {}
+        out[s] = { mtf, nodeFade: nf, spikeGuard: sg };
+    }
+    return {
+        ts: Date.now(),
+        weights: { mtfDir: adaptiveWeights.mtfDir, mtfMom: adaptiveWeights.mtfMom, nodeFade: adaptiveWeights.nodeFade },
+        settings: { nodeFadeEnabled: botSettings.nodeFadeEnabled !== false, spikeGuardEnabled: botSettings.spikeGuardEnabled !== false, mtfEnabled: botSettings.mtfEnabled !== false },
+        nodeAnchors: (typeof _nodeAnchors !== 'undefined') ? _nodeAnchors : {},
+        markets: out
+    };
+}
+window.mtfStatusSnapshot = mtfStatusSnapshot;
+
+function downloadMtfBundle() {
+    const snap = mtfStatusSnapshot();
+    const uitleg = 'Multi-timeframe (1m momentum / 15m targets / 4h richting), node-fade (nodes als mean-reversion) en spike-guard per markt, plus de out-of-sample geleerde gewichten (mtfDir/mtfMom/nodeFade, start 1.0×) en de per-markt node-ankers. Alles wordt headless op de achtergrond berekend, ongeacht welke tab/tijdframe zichtbaar is.';
+    try { _downloadJSON({ title: 'Osiris multi-timeframe / node-fade / spike-guard', uitleg, ...snap }, 'osiris_multitf_' + Date.now() + '.json'); }
+    catch (e) { const blob = new Blob([JSON.stringify({ uitleg, ...snap }, null, 2)], { type: 'application/json' }); const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = 'osiris_multitf_' + Date.now() + '.json'; document.body.appendChild(a); a.click(); setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(u); }, 100); }
+}
+window.downloadMtfBundle = downloadMtfBundle;
+
+function renderMtfStatusPanel() {
+    const host = document.getElementById('mtf-status-panel'); if (!host) return;
+    const snap = mtfStatusSnapshot();
+    const wEl = document.getElementById('mtf-adaptive-weights');
+    if (wEl) {
+        const w = snap.weights; const bar = (v) => { const pct = Math.max(0, Math.min(100, (v - 0.5) / 1.1 * 100)); const col = v > 1.05 ? '#14f195' : (v < 0.95 ? '#ff6d84' : '#7fd8ff'); return `<span style="color:${col};">${v != null ? v.toFixed(2) : '1.00'}×</span>`; };
+        wEl.innerHTML = `adaptieve gewichten (out-of-sample geleerd, start 1.0×): 4h-richting <b>${bar(w.mtfDir)}</b> &middot; 1m-momentum <b>${bar(w.mtfMom)}</b> &middot; node-fade <b>${bar(w.nodeFade)}</b>`;
+    }
+    const acc = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
+    host.innerHTML = ['BTC', 'ETH', 'SOL'].map(s => {
+        const d = snap.markets[s]; const a = acc[s];
+        const mtf = d.mtf, nf = d.nodeFade, sg = d.spikeGuard;
+        const dl = mtf.ready ? (mtf.h4Dir > 0 ? '<span style="color:#00ffcc;">▲ up</span>' : (mtf.h4Dir < 0 ? '<span style="color:#ff6d84;">▼ down</span>' : 'vlak')) : '<span style="color:#5c7488;">laadt…</span>';
+        const mc = mtf.ready ? (mtf.m1Mom > 0.1 ? '#00ffcc' : (mtf.m1Mom < -0.1 ? '#ff6d84' : '#9aa7b4')) : '#5c7488';
+        const fadeTxt = nf.atNode ? (nf.tradeable ? `<span style="color:#ffb627;">FADE ${nf.fadeSide} (${(nf.strength * 100 | 0)}%)</span>` : `<span style="color:#9aa7b4;">op node ${nf.nodeType} (geen setup)</span>`) : '<span style="color:#5c7488;">geen node dichtbij</span>';
+        const spikeCol = sg.spikeRisk > 0.6 ? '#ff5f7e' : (sg.spikeRisk > 0.3 ? '#ffb627' : '#14f195');
+        return `<div style="position:relative; background:linear-gradient(160deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01)); border:1px solid rgba(255,255,255,0.09); border-left:3px solid ${a}; border-radius:9px; padding:11px 13px; font-family:'JetBrains Mono',monospace; font-size:0.6rem;">
+            <div style="font-family:'Orbitron','JetBrains Mono',monospace; font-weight:800; letter-spacing:1px; color:${a}; margin-bottom:8px;">${s}</div>
+            <div style="display:flex; justify-content:space-between; padding:2px 0;"><span style="color:var(--dim);">4h richting</span><span>${dl} <span style="color:var(--dim);">${mtf.ready ? '(' + (mtf.h4Strength * 100 | 0) + '%)' : ''}</span></span></div>
+            <div style="display:flex; justify-content:space-between; padding:2px 0;"><span style="color:var(--dim);">1m momentum</span><span style="color:${mc};">${mtf.ready ? (mtf.m1Mom >= 0 ? '+' : '') + mtf.m1Mom.toFixed(2) : '–'}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:2px 0;"><span style="color:var(--dim);">node-fade</span><span>${fadeTxt}</span></div>
+            <div style="display:flex; justify-content:space-between; padding:2px 0;"><span style="color:var(--dim);">spike-guard</span><span style="color:${spikeCol};">${(sg.spikeRisk * 100 | 0)}% · size×${sg.sizeMult != null ? sg.sizeMult.toFixed(2) : '1.00'}${sg.tightenStop ? ' · stop↓' : ''}</span></div>
+        </div>`;
+    }).join('');
+    const feed = document.getElementById('feed-mtf'); if (feed) feed.innerHTML = host.innerHTML;   // Live-feed tab spiegelt hetzelfde
+}
+window.renderMtfStatusPanel = renderMtfStatusPanel;
+// refresh wanneer de Neural Net- of Live-feed-tab zichtbaar is (de data draait sowieso headless door)
+try { setInterval(function () { try { const a = document.getElementById('tab-net'), b = document.getElementById('tab-feed'); if ((a && a.offsetParent !== null) || (b && b.offsetParent !== null)) renderMtfStatusPanel(); } catch (e) {} }, 2500); } catch (e) {}
 
 function applyUOTAMGrid(chartData, opts = {}) {
     if (chartData.length === 0) return;
@@ -7958,7 +8466,7 @@ function _emptySubBrain(sym) {
         label: preset.label,
         preset: Object.assign({}, preset),
         // eigen adaptieve gewichten (start als kopie van de globale defaults)
-        weights: { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 2.0, nodeconf: 2.0, fundamentals: 1.0 },
+        weights: { confluence: 1.0, nodeInfluence: 1.0, momentumInfluence: 1.0, fibConfluence: 1.0, pattern: 1.0, rsi: 1.0, ema: 1.0, cnn: 1.0, nn: 2.0, nodeconf: 2.0, fundamentals: 1.0, mtfDir: 1.0, mtfMom: 1.0, nodeFade: 1.0 },
         learningLog: [],           // eigen trade-historie voor kalibratie
         lastProb: 0.5, lastSide: null,
         wins: 0, losses: 0, calibratedAt: 0
@@ -7981,6 +8489,8 @@ function ensureSubBrain(sym) {
             if (saved[sym] && m.brain.weights) Object.assign(m.brain.weights, saved[sym]);
         } catch (e) {}
     }
+    // migratie: oudere opgeslagen sub-breinen misten de multi-TF/node-fade gewichten → vul op 1.0
+    if (m.brain.weights) for (const k of ['mtfDir', 'mtfMom', 'nodeFade']) if (m.brain.weights[k] == null) m.brain.weights[k] = 1.0;
     return m.brain;
 }
 
@@ -8086,6 +8596,15 @@ function subBrainEvaluate(sym) {
         // chaos-rem: te veel chaos -> lagere zekerheid
         factors.chaos = -Math.min(15, m.chaos * 2);
         score += factors.chaos;
+        // (29-08) MULTI-TF (4h richting + 1m momentum) + NODE-FADE met de EIGEN out-of-sample
+        // geleerde gewichten van DIT sub-brein (mtfDir/mtfMom/nodeFade, start 1.0×). Zo geldt de
+        // adaptieve weging voor alle drie de engines (BTC-hoofd + ETH/SOL sub-breinen).
+        factors.mtfDir = 0; factors.mtfMom = 0; factors.nodeFade = 0;
+        try {
+            const _ac = _advancedContribs(side, sym, w);
+            factors.mtfDir = _ac.mtfDir; factors.mtfMom = _ac.mtfMom; factors.nodeFade = _ac.nodeFade;
+            score += _ac.total;
+        } catch (e) {}
         const prob = Math.max(0, Math.min(100, score)) / 100;
         b.lastProb = prob; b.lastSide = side; b.lastFactors = factors;
         m.bestProb = prob; m.bestSide = side; m.bestFactors = factors;
@@ -10721,7 +11240,9 @@ function osirisMasterBundle() {
         nn_per_markt: g(() => (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? Object.fromEntries(mkts.map(k => { const m = neoMultiState.markets[k]; return [k, m ? { subBrainLabel: m.subBrainLabel, nnRitmeMin: m.nnRitmeMin, nnCaps: m.nnCaps, nodeInfluence: m.nodeInfluence, bestSide: m.bestSide, bestProb: m.bestProb, brainWeights: (m.brain ? m.brain.weights : null) } : null]; })) : null),
         deepnet_nn_output_live: g(() => (typeof OsirisDeepNet !== 'undefined' ? OsirisDeepNet.last : null)),   // live NN-uitkomst per markt (side/calProb/meta/proven/inverted)
         neuralnet_decision: g(() => { const el = (typeof document !== 'undefined') ? document.getElementById('neo-net-out') : null; return el ? el.textContent : null; }),
-        uitleg: 'Osiris NN (Neo-net + DeepNet) inputs/outputs én de UOTAM node-grid/timing. De L1-gewichten nn/nodeconf/nodeInfluence staan onder learnings; de DeepNet-modellen onder learnings.deepnet_modellen.'
+        node_anchors_per_markt: g(() => (typeof _nodeAnchors !== 'undefined' ? _nodeAnchors : null)),          // per-markt geijkte node-ankers (eigen reset-punten ETH/SOL)
+        multi_timeframe: g(() => (typeof mtfStatusSnapshot === 'function' ? mtfStatusSnapshot() : null)),      // 1m/15m/4h + node-fade + spike-guard + adaptieve gewichten per markt
+        uitleg: 'Osiris NN (Neo-net + DeepNet) inputs/outputs én de UOTAM node-grid/timing (per markt geijkt). Multi-timeframe (1m/4h), node-fade en spike-guard staan onder multi_timeframe met hun out-of-sample geleerde gewichten (mtfDir/mtfMom/nodeFade). De L1-gewichten staan onder learnings.'
     };
 
     // 5) LEARNINGS L1/L2/L3 + MODELLEN
@@ -11877,6 +12398,24 @@ async function marginTick() {
                     if (!_tg.allow) { marginState.lastAction = `${sym} ${m.bestSide}: ${_tg.reason}`; try { _marginLog('reasoning', `${sym} ${m.bestSide} uitgesteld — Timing-Agent: ${_tg.reason}`); } catch (e) {} continue; }
                 }
             } catch (e) {}
+            // (step 3) MARGIN-OVERHAUL: 4h-richting-gate + spike-bewuste hefboom/size/stop.
+            let _sgSizeMul = 1, _spikeTighten = false;
+            try {
+                let _isFade = false; try { const nf = OsirisNodeFade.signal(sym); _isFade = !!(nf && nf.tradeable && nf.fadeSide === m.bestSide); } catch (e) {}
+                // 4h overall richting: geen counter-4h margin-entry bij een sterke 4h-trend (behalve node-fade)
+                if (!_isFade && botSettings.mtfEnabled !== false && typeof OsirisMTF !== 'undefined') {
+                    const _mtf = OsirisMTF.context(sym);
+                    if (_mtf.ready && _mtf.h4Dir !== 0 && _mtf.h4Strength > 0.35) {
+                        const _dirSide = _mtf.h4Dir > 0 ? 'LONG' : 'SHORT';
+                        if (m.bestSide !== _dirSide) { marginState.lastAction = `${sym} overgeslagen: tegen sterke 4h-trend (${_dirSide}, kracht ${(_mtf.h4Strength * 100 | 0)}%)`; try { _marginLog('reasoning', `${sym} ${m.bestSide} overgeslagen — 4h-richting is ${_dirSide} (multi-timeframe)`); } catch (e) {} continue; }
+                    }
+                }
+                // spike-guard: size/hefboom/stop bijstellen bij spike/drop-risico (koppelt de >15 USDT drops af)
+                if (botSettings.spikeGuardEnabled !== false && typeof OsirisSpikeGuard !== 'undefined') {
+                    const _sg = OsirisSpikeGuard.assess(sym);
+                    if (_sg) { _sgSizeMul = _sg.sizeMult; _spikeTighten = _sg.tightenStop; if (_sg.spikeRisk > 0.25) { marginState.lastAction = `${sym} ${m.bestSide}: ${_sg.note}`; } }
+                }
+            } catch (e) {}
             // FIX (20-08, runaway-P/L): size op de GEREALISEERDE equity (marginState.equity).
             const sizingBase = (marginState.equity != null && marginState.equity > 0) ? marginState.equity : marginEquity();
             // FIX (22-08, alloc-bug): begrens de totale NOTIONAL-EXPOSURE, niet de marge-fractie.
@@ -11890,10 +12429,11 @@ async function marginTick() {
             // FSO-OPPORTUNITY-TILT: meer notional naar de munt met de echte bliksem-kans.
             const _opp = (typeof osirisMarketOpportunity === 'function') ? osirisMarketOpportunity(sym) : 0;
             const perCap = MARGIN_PER_TRADE_EXPO * (0.6 + 0.9 * _opp);                             // 0.6×..1.5× de basis afhankelijk van opportunity
-            const perTradeExpo = Math.min(perCap * _taSizeMul, availExpo);                          // per trade max notional (× equity), licht bijgesteld door Timing-Agent
+            const perTradeExpo = Math.min(perCap * _taSizeMul * _sgSizeMul, availExpo);              // per trade max notional (× equity), bijgesteld door Timing-Agent + spike-guard
             // CHOP: verlaag de hefboom voor DEZE entry naar het minimum (minder gevoelig voor ruis).
             let entryLev = _chopReg ? (typeof MARGIN_LEV_MIN !== 'undefined' ? Math.min(marginLeverage, MARGIN_LEV_MIN) : Math.min(marginLeverage, 2)) : marginLeverage;
             if (_feeNoEdge) entryLev = Math.min(entryLev, (typeof MARGIN_LEV_MIN !== 'undefined' ? MARGIN_LEV_MIN : 2));   // fee-guard: lagere hefboom = minder notional = minder fees
+            if (_spikeTighten) entryLev = Math.min(entryLev, (typeof MARGIN_LEV_MIN !== 'undefined' ? MARGIN_LEV_MIN : 2));  // (step 3) spike-risico: hefboom omlaag = kleinere absolute klap
             const sizePct = perTradeExpo / entryLev;                                               // bijhorende marge-fractie
             if (sizePct < 0.03) { marginState.lastAction = `exposure-cap bereikt (${(curNotionalPct * 100 | 0)}% / ${(effMaxExpo * 100 | 0)}% notional)`; continue; }
             const marginUSD = sizingBase * sizePct;
@@ -11922,9 +12462,10 @@ async function marginTick() {
             const marginReal = notionalReal / entryLev;
             const preset = (typeof MARKET_PRESETS !== 'undefined' && MARKET_PRESETS[sym]) ? MARKET_PRESETS[sym] : { stopLossPct: 0.5, microTargetPct: 0.4 };
             // CHOP: verbreed de stop ~1.6× zodat ruis 'm niet triggert (lagere hefboom houdt het risico gelijk).
-            const _stopMul = _chopReg ? 1.6 : 1;
+            // SPIKE: bij spike-risico juist een strakkere stop (×0.7) — samen met lagere hefboom/size kapt dat de grote drops af.
+            const _stopMul = (_chopReg ? 1.6 : 1) * (_spikeTighten ? 0.7 : 1);
             const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, entryFillPrice: entryPrice, entryFilled, qty, notional: notionalReal, marginUSD: marginReal, sizePct, leverage: entryLev, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100 * _stopMul, chop: _chopReg, targetPct: ((typeof OsirisAutoCal !== 'undefined') ? OsirisAutoCal.marginTargetFrac((preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT) : (preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT), entryProb: (m.bestProb * 100), regimeAtEntry: ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null),
-                factorsAtEntry: (() => { try { return { vfm: m.vfm || 0, rsi: (m.rsi != null ? (m.rsi - 50) / 10 : 0), ema: (m.ema != null && m.emaSlow) ? ((m.ema - m.emaSlow) / m.emaSlow * 100) : 0, nn: 0, fundamentals: (m.fund && m.fund.fundingRate != null ? -Math.tanh(m.fund.fundingRate * 2000) * 3 : 0), chaos: m.chaos || 0 }; } catch (e) { return null; } })() };
+                factorsAtEntry: (() => { try { const bf = m.bestFactors || {}; return { vfm: m.vfm || 0, rsi: (m.rsi != null ? (m.rsi - 50) / 10 : 0), ema: (m.ema != null && m.emaSlow) ? ((m.ema - m.emaSlow) / m.emaSlow * 100) : 0, nn: 0, fundamentals: (m.fund && m.fund.fundingRate != null ? -Math.tanh(m.fund.fundingRate * 2000) * 3 : 0), chaos: m.chaos || 0, mtfDirInfluence: bf.mtfDir || 0, mtfMomInfluence: bf.mtfMom || 0, nodeFadeInfluence: bf.nodeFade || 0 }; } catch (e) { return null; } })() };
             marginState.positions.push(pos);
             marginState.tradeLog.unshift({ action: 'ENTRY', ts: now, sym, side: m.bestSide, price: entryPrice, notional: notionalReal, leverage: entryLev, filled: entryFilled });
             marginState.lastAction = `ENTRY ${sym} ${m.bestSide} ${entryLev}x @ ${entryPrice}${_chopReg ? ' [chop-modus]' : ''}${entryFilled ? ' [fill]' : ' [sim]'}`;
@@ -12096,6 +12637,7 @@ window.marginCloseManual = marginCloseManual;
 // zet de starttijd opnieuw. Laat de learningLog met opzet staan (kalibratie-/leerhistorie).
 // Een optioneel invoerveld 'margin-start-equity' bepaalt het startkapitaal (default 1000).
 function resetMarginWallet() {
+    if (!window._reasonGateOK) { osirisReasonGate('reset_margin', () => resetMarginWallet()); return; }
     try {
         if (marginEngineEnabled && marginState.positions.length) {
             if (!confirm('De margin-engine staat AAN met ' + marginState.positions.length + ' open positie(s). Reset wist de lokale wallet-boekhouding (niet je futures-testnet-saldo). Doorgaan?')) return;
@@ -12983,6 +13525,7 @@ async function multiRefreshSymbol(sym) {
 function multiRoundRobinTick() {
     const sym = MULTI_SYMBOLS[neoMultiState.rrIndex % MULTI_SYMBOLS.length];
     neoMultiState.rrIndex++;
+    try { if (typeof OsirisMTF !== 'undefined') OsirisMTF.refresh(sym); } catch (e) {}   // (step 2) 1m/4h per markt bijhouden (throttled)
     multiRefreshSymbol(sym).then(() => {
         // als de zojuist ververste munt de actieve tab is, werk de weergave bij
         try { if (neoMultiState.active === sym && typeof renderSystemDataTab === 'function') renderSystemDataTab(sym); } catch (e) {}
@@ -16010,7 +16553,11 @@ function buildNeoNet() {
         { id: 'fag-mar', label: 'FAG·MAR', gap: 6, yoff: -0.21, conn: 'decision', col: '#ffb627' },
         { id: 'risk', label: 'RISK', gap: 6, yoff: 0.21, conn: 'decision', col: '#ff8a94' },          // gespiegeld: onder
         { id: 'guardian', label: 'GUARDIAN', gap: 6, yoff: 0.31, conn: 'decision', col: '#ff5f7e' },
-        { id: 'selfrev', label: 'SELF-REV', gap: 7, yoff: 0, conn: 'capital', col: '#14f195' }  // → SPOT + MARGIN (hele boek)
+        { id: 'selfrev', label: 'SELF-REV', gap: 7, yoff: 0, conn: 'capital', col: '#14f195' },  // → SPOT + MARGIN (hele boek)
+        // (29-08) Multi-TF + node-fade + spike-guard als dataflow-punten:
+        { id: 'mtf', label: 'MULTI-TF', gap: 5, xoff: 0.055, yoff: -0.16, conn: 'right', col: '#38bdf8' },   // 1m/4h → TA (timing)
+        { id: 'nodefade', label: 'NODE-FADE', gap: 5, xoff: 0.055, yoff: 0.16, conn: 'right', col: '#ffb627' }, // node-mean-reversion → TA
+        { id: 'spike', label: 'SPIKE-GUARD', gap: 7, yoff: -0.2, conn: 'capital', col: '#ff8a5b' }   // spike-risico → size/stop (capital)
     ];
 }
 
@@ -16235,6 +16782,10 @@ function _neoNetDraw(now, canvasId, outId) {
         try { const paused = (typeof OsirisGuardian !== 'undefined') && OsirisGuardian.paused; setM('guardian', paused ? 1 : 0.2, paused ? -1 : 1, paused ? 'PAUZE' : 'ok'); } catch (e) { setM('guardian', 0.2, 1, 'ok'); }
         try { const R = (typeof OsirisRisk !== 'undefined') ? OsirisRisk.state : null; const trip = R && (R.breaker || R.exposureBlock); setM('risk', trip ? 1 : Math.max(0.2, Math.min(1, (R ? (R.drawdownPct || 0) / 25 : 0))), trip ? -1 : 1, R ? ('DD ' + (R.drawdownPct || 0).toFixed(0) + '%') : '—'); } catch (e) { setM('risk', 0.2, 1, '—'); }
         try { const sr = (typeof OsirisSelfReview !== 'undefined') ? OsirisSelfReview : null; const a = sr ? sr.aggr : 1; const wr = (sr && sr.history[0] && sr.history[0].winrate != null) ? sr.history[0].winrate : null; setM('selfrev', Math.max(0.2, Math.min(1, a / 1.4)), 1, 'x' + (a || 1).toFixed(2) + (wr != null ? ' ' + Math.round(wr * 100) + '%' : '')); } catch (e) { setM('selfrev', 0.3, 1, '—'); }
+        // MULTI-TF (4h richting + 1m momentum) · NODE-FADE · SPIKE-GUARD — live, per BTC-hoofdengine
+        try { const mtf = (typeof OsirisMTF !== 'undefined') ? OsirisMTF.context('BTC') : null; if (mtf && mtf.ready) { setM('mtf', Math.max(0.2, Math.min(1, 0.2 + mtf.h4Strength)), mtf.h4Dir >= 0 ? 1 : -1, `4h ${mtf.h4Dir > 0 ? '↑' : (mtf.h4Dir < 0 ? '↓' : '·')} 1m ${mtf.m1Mom >= 0 ? '+' : ''}${mtf.m1Mom.toFixed(2)}`); } else setM('mtf', 0.18, 1, 'laadt'); } catch (e) { setM('mtf', 0.18, 1, '—'); }
+        try { const nf = (typeof OsirisNodeFade !== 'undefined') ? OsirisNodeFade.signal('BTC') : null; if (nf && nf.atNode && nf.tradeable) setM('nodefade', Math.max(0.25, Math.min(1, nf.strength)), nf.fadeSide === 'SHORT' ? -1 : 1, `${nf.nodeType}→${nf.fadeSide}`); else if (nf && nf.atNode) setM('nodefade', 0.3, 1, `${nf.nodeType} (geen setup)`); else setM('nodefade', 0.15, 1, 'geen node'); } catch (e) { setM('nodefade', 0.15, 1, '—'); }
+        try { const sg = (typeof OsirisSpikeGuard !== 'undefined') ? OsirisSpikeGuard.assess('BTC') : null; if (sg) setM('spike', Math.max(0.2, Math.min(1, sg.spikeRisk)), sg.spikeRisk > 0.6 ? -1 : 1, `${(sg.spikeRisk * 100 | 0)}% ×${sg.sizeMult.toFixed(2)}`); else setM('spike', 0.15, 1, '—'); } catch (e) { setM('spike', 0.15, 1, '—'); }
     } catch (e) {}
     // META-POSITIES: INLINE in de tussenruimte tussen kolom `gap` en `gap+1`, verticaal boven/onder de
     // hoofdrij (yoff) zodat ze niets overlappen. Meerdere knopen in dezelfde tussenruimte/kant worden
