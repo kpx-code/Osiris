@@ -16779,34 +16779,50 @@ function _neoNetDraw(now, canvasId, outId) {
     // ---- 1. LAYOUT (organisch, gecachet; herbouwt alleen bij resize / net-herbouw) ----
     const _okey = Math.round(w) + 'x' + Math.round(h) + '#' + layers.length + '#' + (_neonet.meta ? _neonet.meta.length : 0);
     if (!_neonet._org || _neonet._org.key !== _okey) {
-        const MX = (bx) => w * (0.15 + bx * 0.83), MY = (by) => h * (0.05 + by * 0.90);
+        const MX = (bx) => w * (0.15 + bx * 0.83), MY = (by) => h * (0.11 + by * 0.85);   // top-marge zodat cellen ONDER de titel/subtitel starten
         const specs = [];
-        const inN = layers[0].length, rows = Math.ceil(inN / 2);
-        for (let i = 0; i < inN; i++) { const col = i % 2, row = Math.floor(i / 2); specs.push({ ref: ['n', 0, i], bx: 0.015 + col * 0.05, by: 0.05 + (row / Math.max(1, rows - 1)) * 0.88, imp: 0.13, grp: 'in' }); }
+        const inN = layers[0].length;
+        // INPUTS in ÉÉN nette kolom links → hun lijnen lopen niet door andere input-cirkels
+        for (let i = 0; i < inN; i++) specs.push({ ref: ['n', 0, i], bx: 0.012, by: 0.02 + (i / Math.max(1, inN - 1)) * 0.96, imp: 0.12, grp: 'in' });
         const mkY = [0.28, 0.52, 0.74], tyX = [0.235, 0.335, 0.435], tyImp = [0.34, 0.44, 0.74];
-        for (let mk = 0; mk < 3; mk++) for (let ty = 0; ty < 3; ty++) { const idx = mk * 3 + ty; specs.push({ ref: ['n', 1, idx], bx: tyX[ty], by: mkY[mk] + (ty - 1) * 0.02, imp: tyImp[ty], grp: ['pmv', 'dn', 'mc'][ty] }); }
-        specs.push({ ref: ['n', 2, 0], bx: 0.55, by: 0.47, imp: 1.0, grp: 'osiris' });
-        specs.push({ ref: ['n', 3, 0], bx: 0.655, by: 0.37, imp: 0.42, grp: 'ta' });
-        specs.push({ ref: ['n', 3, 1], bx: 0.655, by: 0.58, imp: 0.40, grp: 'ta' });
-        specs.push({ ref: ['n', 4, 0], bx: 0.755, by: 0.32, imp: 0.5, grp: 'dec' });
-        specs.push({ ref: ['n', 4, 1], bx: 0.765, by: 0.49, imp: 0.46, grp: 'dec' });
-        specs.push({ ref: ['n', 4, 2], bx: 0.755, by: 0.66, imp: 0.5, grp: 'dec' });
-        specs.push({ ref: ['n', 5, 0], bx: 0.85, by: 0.47, imp: 0.8, grp: 'out' });
-        specs.push({ ref: ['n', 6, 0], bx: 0.93, by: 0.46, imp: 0.74, grp: 'rl' });
-        const metaAnchor = { 'gov-pred': [0.28, 0.15], 'gov-kin': [0.37, 0.10], 'gov-eta': [0.46, 0.14], 'gov-agg': [0.40, 0.92], 'llm': [0.55, 0.22], 'regime': [0.485, 0.71], 'cloud': [0.62, 0.66], 'mtf': [0.64, 0.23], 'nodefade': [0.66, 0.74], 'spike': [0.735, 0.16], 'fag-spot': [0.815, 0.18], 'fag-mar': [0.86, 0.29], 'risk': [0.83, 0.76], 'guardian': [0.775, 0.86], 'selfrev': [0.905, 0.26] };
+        for (let mk = 0; mk < 3; mk++) for (let ty = 0; ty < 3; ty++) { const idx = mk * 3 + ty; specs.push({ ref: ['n', 1, idx], bx: tyX[ty], by: mkY[mk] + (ty - 1) * 0.02, imp: tyImp[ty], grp: ['pmv', 'dn', 'mc'][ty], mk }); }
+        // TARGETS (Kinetic prijs-target per munt) tussen de cores en OSIRIS
+        const tgtA = [[0.49, 0.31], [0.50, 0.52], [0.485, 0.71]];
+        for (let mk = 0; mk < 3; mk++) specs.push({ ref: ['x', 'tgt-' + _syms[mk]], bx: tgtA[mk][0], by: tgtA[mk][1], imp: 0.36, grp: 'tgt', mk });
+        specs.push({ ref: ['n', 2, 0], bx: 0.56, by: 0.47, imp: 1.0, grp: 'osiris' });
+        specs.push({ ref: ['n', 3, 0], bx: 0.66, by: 0.37, imp: 0.42, grp: 'ta' });
+        specs.push({ ref: ['n', 3, 1], bx: 0.66, by: 0.58, imp: 0.40, grp: 'ta' });
+        // CAPITAL (spot + margin benutting) — zit onder OSIRIS maar krijgt nu weer een zichtbaar punt
+        specs.push({ ref: ['x', 'cap-spot'], bx: 0.705, by: 0.44, imp: 0.42, grp: 'cap' });
+        specs.push({ ref: ['x', 'cap-mar'], bx: 0.705, by: 0.55, imp: 0.42, grp: 'cap' });
+        specs.push({ ref: ['n', 4, 0], bx: 0.77, by: 0.31, imp: 0.5, grp: 'dec' });
+        specs.push({ ref: ['n', 4, 1], bx: 0.78, by: 0.49, imp: 0.46, grp: 'dec' });
+        specs.push({ ref: ['n', 4, 2], bx: 0.77, by: 0.67, imp: 0.5, grp: 'dec' });
+        specs.push({ ref: ['n', 5, 0], bx: 0.86, by: 0.47, imp: 0.8, grp: 'out' });
+        specs.push({ ref: ['n', 6, 0], bx: 0.94, by: 0.46, imp: 0.74, grp: 'rl' });
+        const metaAnchor = { 'gov-pred': [0.28, 0.15], 'gov-kin': [0.37, 0.10], 'gov-eta': [0.46, 0.14], 'gov-agg': [0.40, 0.92], 'llm': [0.56, 0.22], 'regime': [0.49, 0.71], 'cloud': [0.63, 0.66], 'mtf': [0.645, 0.23], 'nodefade': [0.665, 0.74], 'spike': [0.745, 0.15], 'fag-spot': [0.825, 0.17], 'fag-mar': [0.87, 0.28], 'risk': [0.84, 0.77], 'guardian': [0.785, 0.87], 'selfrev': [0.915, 0.26] };
         const grpMeta = { 'gov-pred': 'gov', 'gov-kin': 'gov', 'gov-eta': 'gov', 'gov-agg': 'gov', 'llm': 'sys', 'regime': 'sys', 'cloud': 'sys', 'mtf': 'time', 'nodefade': 'time', 'spike': 'safe', 'fag-spot': 'safe', 'fag-mar': 'safe', 'risk': 'safe', 'guardian': 'safe', 'selfrev': 'rl' };
         (_neonet.meta || []).forEach(mn => { const a = metaAnchor[mn.id]; if (a) specs.push({ ref: ['m', mn.id], bx: a[0], by: a[1], imp: 0.3, grp: grpMeta[mn.id] || 'sys' }); });
         const cells = specs.map((sp, k) => {
-            const jx = (SR(k * 2 + 1) - 0.5) * 0.02, jy = (SR(k * 2 + 7) - 0.5) * 0.028;
-            return { ref: sp.ref, grp: sp.grp, imp: sp.imp, x: MX(sp.bx + jx), y: MY(sp.by + jy), baseR: (6 + sp.imp * 72) * S, k, key: sp.ref.join(':') };
+            const jx = (SR(k * 2 + 1) - 0.5) * (sp.grp === 'in' ? 0 : 0.02), jy = (SR(k * 2 + 7) - 0.5) * (sp.grp === 'in' ? 0 : 0.028);
+            return { ref: sp.ref, grp: sp.grp, imp: sp.imp, mk: sp.mk, x: MX(sp.bx + jx), y: MY(sp.by + jy), baseR: (6 + sp.imp * 72) * S, k, key: sp.ref.join(':') };
         });
         const idxOf = {}; cells.forEach((c, i) => idxOf[c.key] = i);
         const edgeSet = new Set(), edges = [];
-        const addEdge = (ai, bi) => { if (ai == null || bi == null || ai === bi) return; const kk = ai < bi ? ai + '_' + bi : bi + '_' + ai; if (edgeSet.has(kk)) return; edgeSet.add(kk); edges.push({ a: ai, b: bi, bow: (SR(ai * 13 + bi * 7) - 0.5) * 0.5, sp: 0.6 + SR(ai + bi) }); };
-        for (const cn of (_neonet.conns || [])) { const tli = cn.tLi != null ? cn.tLi : cn.li + 1; addEdge(idxOf['n:' + cn.li + ':' + cn.a], idxOf['n:' + tli + ':' + cn.b]); }
+        const addEdge = (ai, bi, opt) => { if (ai == null || bi == null || ai === bi) return; const kk = ai < bi ? ai + '_' + bi : bi + '_' + ai; if (edgeSet.has(kk)) return; edgeSet.add(kk); edges.push(Object.assign({ a: ai, b: bi, bow: (SR(ai * 13 + bi * 7) - 0.5) * 0.5, sp: 0.6 + SR(ai + bi) }, opt || {})); };
+        // echte conns (behalve INPUTS→PMV: die routeren we netjes hieronder)
+        for (const cn of (_neonet.conns || [])) { if (cn.li === 0) continue; const tli = cn.tLi != null ? cn.tLi : cn.li + 1; addEdge(idxOf['n:' + cn.li + ':' + cn.a], idxOf['n:' + tli + ':' + cn.b]); }
+        // INPUTS → ALLEEN de dichtstbijzijnde PMV-knoop (1 lijn per input, geen kruisingen door input-cirkels)
+        const pmvIdx = [idxOf['n:1:0'], idxOf['n:1:3'], idxOf['n:1:6']].filter(x => x != null);
+        for (let i = 0; i < inN; i++) { const ci = idxOf['n:0:' + i]; if (ci == null || !pmvIdx.length) continue; let bj = -1, bd = 1e9; for (const pj of pmvIdx) { const d = Math.hypot(cells[ci].x - cells[pj].x, cells[ci].y - cells[pj].y); if (d < bd) { bd = d; bj = pj; } } addEdge(ci, bj, { input: true }); }
+        // TARGETS: MC-core → target → OSIRIS ; CAPITAL: OSIRIS → capital → decision
+        for (let mk = 0; mk < 3; mk++) { const ti = idxOf['x:tgt-' + _syms[mk]]; addEdge(ti, idxOf['n:1:' + (mk * 3 + 2)]); addEdge(ti, idxOf['n:2:0']); }
+        addEdge(idxOf['x:cap-spot'], idxOf['n:2:0']); addEdge(idxOf['x:cap-spot'], idxOf['n:4:1']);
+        addEdge(idxOf['x:cap-mar'], idxOf['n:2:0']); addEdge(idxOf['x:cap-mar'], idxOf['n:4:2']);
         const metaTargets = { 'cores': ['n:1:2', 'n:1:5', 'n:1:8'], 'decision': ['n:4:0', 'n:4:1', 'n:4:2'], 'ta': ['n:3:0', 'n:3:1'], 'osiris': ['n:2:0'], 'rl': ['n:6:0'] };
         (_neonet.meta || []).forEach(mn => { const mi = idxOf['m:' + mn.id]; const tg = metaTargets[mn.conn]; if (mi != null && tg) tg.forEach(t => addEdge(mi, idxOf[t])); });
-        for (let i = 0; i < cells.length; i++) { let bj = -1, bd = 1e9; for (let j = 0; j < cells.length; j++) { if (i === j) continue; const kk = i < j ? i + '_' + j : j + '_' + i; if (edgeSet.has(kk)) continue; const d = Math.hypot(cells[i].x - cells[j].x, cells[i].y - cells[j].y); if (d < bd) { bd = d; bj = j; } } if (bj >= 0) addEdge(i, bj); }
+        // nabijheids-dichtheid — maar NOOIT naar/vanaf een input (geen lijnen door input-cirkels)
+        for (let i = 0; i < cells.length; i++) { if (cells[i].grp === 'in') continue; let bj = -1, bd = 1e9; for (let j = 0; j < cells.length; j++) { if (i === j || cells[j].grp === 'in') continue; const kk = i < j ? i + '_' + j : j + '_' + i; if (edgeSet.has(kk)) continue; const d = Math.hypot(cells[i].x - cells[j].x, cells[i].y - cells[j].y); if (d < bd) { bd = d; bj = j; } } if (bj >= 0) addEdge(i, bj); }
         const bursts = [];
         cells.forEach((c, ci) => { if (c.imp < 0.7) return; const n = 10 + Math.round(SR(ci) * 8), pts = []; for (let r = 0; r < n; r++) { const ang = SR(ci * 40 + r) * 6.283, len = 0.25 + SR(ci * 40 + r + 3) * 0.7; pts.push([c.x + Math.cos(ang) * len * w * 0.5, c.y + Math.sin(ang) * len * h * 0.5]); } bursts.push({ ci, pts }); });
         const bg = []; for (let i = 0; i < 24; i++) bg.push({ cx: SR(i * 3 + 1) * w, cy: SR(i * 3 + 2) * h, r: (0.05 + SR(i * 3 + 3) * 0.28) * Math.min(w, h) });
@@ -16825,14 +16841,31 @@ function _neoNetDraw(now, canvasId, outId) {
             const nd = layers[r[1]] && layers[r[1]][r[2]]; if (!nd) return { act, big, ring, tag: null, tagBg, dot };
             act = nd.act || 0.3;
             if (c.grp === 'in') { ring = _hex2(NEONET_INPUTS[r[2]].c); }
-            else if (c.grp === 'pmv') { ring = _hex2(MKCOL[nd.mkt]); tagBg = nd.sign < 0 ? GREEN : CYAN; if (act > 0.55) tag = _syms[nd.mkt] + ' PMV ' + Math.round(act * 100) + '%'; if (nd.inv) dot = '#ff5f7e'; }
-            else if (c.grp === 'dn') { ring = _hex2(MKCOL[nd.mkt]); tagBg = CYAN; if (act > 0.55) tag = _syms[nd.mkt] + ' DN ' + Math.round(act * 100) + '%'; if (nd.metagate) dot = '#14f195'; else if (nd.inv) dot = '#ff5f7e'; }
-            else if (c.grp === 'mc') { ring = _hex2(MKCOL[nd.mkt]); tagBg = nd.sign < 0 ? '#ff5f7e' : GREEN; tag = _syms[nd.mkt] + ' ' + (nd.sign < 0 ? '▼' : '▲') + Math.round(act * 100) + '%'; }
+            else if (c.grp === 'pmv') { ring = _hex2(MKCOL[nd.mkt]); tagBg = nd.sign < 0 ? '#ff5f7e' : CYAN; tag = _syms[nd.mkt] + '·PMV ' + Math.round(act * 100) + '%'; if (nd.inv) dot = '#ff5f7e'; }
+            else if (c.grp === 'dn') { ring = _hex2(MKCOL[nd.mkt]); tagBg = nd.sign < 0 ? '#ff5f7e' : CYAN; tag = _syms[nd.mkt] + '·DN ' + Math.round(act * 100) + '%'; if (nd.metagate) dot = '#14f195'; else if (nd.inv) dot = '#ff5f7e'; }
+            else if (c.grp === 'mc') { ring = _hex2(MKCOL[nd.mkt]); tagBg = nd.sign < 0 ? '#ff5f7e' : GREEN; tag = _syms[nd.mkt] + '·MC ' + (nd.sign < 0 ? '▼' : '▲') + Math.round(act * 100) + '%'; }
             else if (c.grp === 'osiris') { ring = '0,217,255'; tagBg = CYAN; tag = 'OSIRIS ' + Math.round(act * 100) + '%'; }
             else if (c.grp === 'ta') { ring = r[2] === 1 ? '199,146,234' : '127,216,255'; tagBg = CYAN; tag = (r[2] === 1 ? 'TAˢ ' : 'TA ') + Math.round(act * 100) + '%'; }
             else if (c.grp === 'dec') { const dc = ['#00ff9f', '#5c7488', '#ff4f6d'][r[2]]; ring = _hex2(dc); tagBg = r[2] === 0 ? GREEN : (r[2] === 2 ? '#ff4f6d' : CYAN); tag = ['LONG', 'NEUT', 'SHORT'][r[2]] + ' ' + Math.round(act * 100) + '%'; }
             else if (c.grp === 'out') { ring = '0,217,255'; tagBg = _db >= 0 ? GREEN : '#ff4f6d'; tag = 'OUT ' + Math.round(Math.abs(_db) * 100) + '%'; }
             else if (c.grp === 'rl') { ring = '20,241,149'; tagBg = GREEN; let adv = '—'; try { if (typeof OsirisRL !== 'undefined' && OsirisRL.lastDecision) adv = OsirisRL.ACTIONS[OsirisRL.lastDecision.action] + ' ' + (OsirisRL.lastDecision.conf * 100 | 0) + '%'; } catch (e) {} tag = 'RL ' + adv; }
+        } else if (r[0] === 'x') {
+            // TARGETS (Kinetic) en CAPITAL (spot/margin) — data-true extra punten
+            const id = r[1];
+            if (id.indexOf('tgt-') === 0) {
+                const s = id.slice(4), mk = _syms.indexOf(s); let k = null;
+                try { k = (typeof OsirisKinetic !== 'undefined' && OsirisKinetic.state) ? OsirisKinetic.state[s] : null; } catch (e) {}
+                const dist = (k && k.distPct != null) ? Math.abs(k.distPct) : null;
+                act = dist == null ? 0.3 : Math.max(0.15, Math.min(1, 1 - Math.min(1, dist / 3)));
+                ring = _hex2(MKCOL[mk < 0 ? 0 : mk]); tagBg = (k && k.dir < 0) ? '#ff5f7e' : CYAN;
+                tag = s + '·TGT ' + (k && k.distPct != null ? (+k.distPct).toFixed(1) + '%' + (k.etaMin != null ? ' ' + Math.round(k.etaMin) + 'm' : '') : '—');
+            } else if (id === 'cap-spot') {
+                let u = 0; try { u = (typeof getAllocatedPct === 'function') ? getAllocatedPct() : ((typeof openPositions !== 'undefined' && openPositions.length) ? Math.min(1, openPositions.length * 0.25) : 0); } catch (e) {}
+                act = Math.max(0.15, Math.min(1, 0.1 + u)); ring = '0,217,255'; tagBg = CYAN; tag = 'CAP·SPOT ' + Math.round(u * 100) + '%';
+            } else if (id === 'cap-mar') {
+                let u = 0; try { if (typeof marginState !== 'undefined' && marginState.positions) { const eq = (typeof marginEquity === 'function' ? marginEquity() : (marginState.equity || 0)) || 1; let notional = 0; for (const p of marginState.positions) notional += (p.notional || 0); u = Math.min(1, notional / eq); } } catch (e) {}
+                act = Math.max(0.15, Math.min(1, 0.1 + u)); ring = '255,182,39'; tagBg = '#ffb627'; tag = 'CAP·MAR ' + Math.round(u * 100) + '%';
+            }
         } else {
             const mn = (_neonet.meta || []).find(x => x.id === r[1]); if (!mn) return { act, big, ring, tag: null, tagBg, dot };
             act = mn.act != null ? mn.act : 0.3; ring = _hex2(mn.col);
@@ -16855,15 +16888,17 @@ function _neoNetDraw(now, canvasId, outId) {
     // 3c. filament-web (witte gebogen bundels; helderheid ~ echte co-activatie)
     for (const e of ORG.edges) {
         const A = cells[e.a], B = cells[e.b];
-        const sig = Math.max(0, Math.min(1, (LV[e.a].act || 0.3) * (LV[e.b].act || 0.3)));
+        const la = LV[e.a].act || 0.3, lb = LV[e.b].act || 0.3;
+        const sig = Math.max(0, Math.min(1, la * lb)), emph = Math.max(la, lb);   // emph = de sterkst-actieve cel op deze edge
+        const eb = Math.max(0, emph - 0.72) * 1.6;                                  // extra oplichten voor de meest-actieve elementen
         const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
         const flow = 0.5 + 0.5 * Math.sin(now / 1200 + e.a * 0.7);
         const cx0 = (A.x + B.x) / 2 + nx * e.bow * len, cy0 = (A.y + B.y) / 2 + ny * e.bow * len;
-        const hot = sig > 0.3, baseA = 0.05 + 0.10 * flow;
+        const hot = sig > 0.28 || emph > 0.74, baseA = (e.input ? 0.035 : 0.05) + 0.10 * flow;   // input-lijnen extra ijl
         for (let s = 0; s < 3; s++) {
-            const off = (s - 1) * (1.6 + 2 * sig), a2 = (s === 0 ? (baseA + 0.30 * sig) : baseA * 0.6);
-            ctx.strokeStyle = hot ? `rgba(120,225,255,${(a2 + 0.12 * sig).toFixed(3)})` : `rgba(228,238,248,${a2.toFixed(3)})`;
-            ctx.lineWidth = (s === 0 ? 0.9 + 1.3 * sig : 0.4);
+            const off = (s - 1) * (1.6 + 2 * sig), a2 = (s === 0 ? (baseA + 0.30 * sig + 0.18 * eb) : baseA * 0.6);
+            ctx.strokeStyle = hot ? `rgba(120,225,255,${(a2 + 0.12 * sig + 0.10 * eb).toFixed(3)})` : `rgba(228,238,248,${a2.toFixed(3)})`;
+            ctx.lineWidth = (s === 0 ? 0.9 + 1.3 * sig + 0.5 * eb : 0.4);
             ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0 + nx * off, cy0 + ny * off, B.x, B.y); ctx.stroke();
         }
         if (sig > 0.12) { const t = ((now / 900) + e.sp) % 1, u = 1 - t; const px = u * u * A.x + 2 * u * t * cx0 + t * t * B.x, py = u * u * A.y + 2 * u * t * cy0 + t * t * B.y; ctx.beginPath(); ctx.arc(px, py, 0.8 + 1.4 * sig, 0, 6.283); ctx.fillStyle = `rgba(${hot ? '120,225,255' : '150,190,230'},${(0.3 + 0.5 * sig).toFixed(3)})`; ctx.fill(); }
@@ -16875,7 +16910,8 @@ function _neoNetDraw(now, canvasId, outId) {
         ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.fillStyle = `rgba(3,7,14,${(0.42 + 0.3 * glow).toFixed(3)})`; ctx.fill();
         ctx.save();
         if (glow > 0.45 || c.imp >= 0.7) { ctx.shadowColor = `rgb(${L.ring})`; ctx.shadowBlur = (c.imp >= 0.7 ? 8 : 3) + 10 * glow; }
-        ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = c.imp >= 0.7 ? 1.6 : 1.05; ctx.strokeStyle = `rgba(${L.ring},${(0.34 + 0.55 * glow).toFixed(3)})`; ctx.stroke();
+        ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = (c.imp >= 0.7 ? 1.6 : 1.05) + glow * 0.9; ctx.strokeStyle = `rgba(${L.ring},${(0.30 + 0.70 * glow).toFixed(3)})`; ctx.stroke();
+        if (glow > 0.62) { ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = 0.8; ctx.strokeStyle = `rgba(255,255,255,${((glow - 0.62) * 0.9).toFixed(3)})`; ctx.stroke(); }   // meest-actieve cellen lichten hun rand extra op
         ctx.restore();
         if (c.imp >= 0.55) { for (let k = 1; k <= 3; k++) { const rr = r * (1 + k * 0.14), a0 = SR(c.k * 9 + k) * 6.28, a1 = a0 + 1.2 + SR(c.k * 9 + k + 2) * 2.5; ctx.beginPath(); ctx.arc(c.x, c.y, rr, a0, a1); ctx.lineWidth = 0.5; ctx.strokeStyle = `rgba(228,238,248,${(0.10 * (1 - k * 0.22)).toFixed(3)})`; ctx.stroke(); } }
         if (c.imp >= 0.7) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.62, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(${L.ring},${(0.2 + 0.35 * glow).toFixed(3)})`; ctx.stroke(); }
@@ -16886,18 +16922,32 @@ function _neoNetDraw(now, canvasId, outId) {
     if (_fbActive) { for (const e of ORG.edges) { if (SR(e.a * 3 + e.b) > 0.4) continue; const A = cells[e.a], B = cells[e.b], tt = (Math.sin(now / 400 + e.a) * 0.5 + 0.5); ctx.beginPath(); ctx.arc(A.x + (B.x - A.x) * tt, A.y + (B.y - A.y) * tt, 0.8, 0, 6.283); ctx.fillStyle = 'rgba(150,255,210,0.45)'; ctx.fill(); } }
     // 3f. data-tags (echte cijfers) — filled accent-rechthoekjes zoals de referentie
     ctx.textBaseline = 'middle';
-    for (let ci = 0; ci < cells.length; ci++) {
-        const c = cells[ci], L = LV[ci];
-        if (c.grp === 'in') { const nd = layers[0][c.ref[2]]; if (isBig && (nd.act || 0) > 0.42) { ctx.font = "6px 'JetBrains Mono',monospace"; ctx.textAlign = 'right'; ctx.fillStyle = `rgba(${L.ring},0.9)`; ctx.fillText(NEONET_INPUTS[c.ref[2]].label, c.x - 6, c.y); } continue; }
-        if (!L.tag) continue;
-        if (!isBig && c.imp < 0.55) continue;
-        const ang = SR(c.k * 3 + 1) * 6.283, rr = c.baseR * (c.imp >= 0.7 ? 0.62 : 0.5) + 10;
-        let tx = c.x + Math.cos(ang) * rr, ty = c.y + Math.sin(ang) * rr;
+    // input-mini-labels (links van hun cirkel)
+    for (let ci = 0; ci < cells.length; ci++) { const c = cells[ci], L = LV[ci]; if (c.grp !== 'in') continue; const nd = layers[0][c.ref[2]]; if (isBig && (nd.act || 0) > 0.42) { ctx.font = "6px 'JetBrains Mono',monospace"; ctx.textAlign = 'right'; ctx.fillStyle = `rgba(${L.ring},0.9)`; ctx.fillText(NEONET_INPUTS[c.ref[2]].label, c.x - 6, c.y); } }
+    // data-tags met botsing-vermijding — belangrijkste cellen krijgen voorrang, de rest wijkt uit
+    const placedTags = [];
+    const _tagHit = (x, y, ww, hh) => { for (const p of placedTags) { if (x < p.x + p.w + 2 && x + ww + 2 > p.x && y < p.y + p.h + 2 && y + hh + 2 > p.y) return true; } return false; };
+    const tagCells = [];
+    for (let ci = 0; ci < cells.length; ci++) { const c = cells[ci], L = LV[ci]; if (c.grp === 'in' || !L.tag) continue; if (!isBig && c.imp < 0.55) continue; tagCells.push({ c, L }); }
+    tagCells.sort((a, b) => b.c.imp - a.c.imp);
+    for (const o of tagCells) {
+        const c = o.c, L = o.L;
         ctx.font = (c.imp >= 0.7 ? "bold 7px 'JetBrains Mono',monospace" : "6.5px 'JetBrains Mono',monospace");
         const tw = ctx.measureText(L.tag).width, ph = 9, pw = tw + 7;
-        tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(10, Math.min(h - 12, ty));
-        ctx.fillStyle = L.tagBg; ctx.globalAlpha = 0.9; _roundRect(ctx, tx, ty - ph / 2, pw, ph, 1.5); ctx.fill(); ctx.globalAlpha = 1;
-        ctx.fillStyle = '#04121a'; ctx.textAlign = 'left'; ctx.fillText(L.tag, tx + 3.5, ty + 0.5);
+        const baseAng = SR(c.k * 3 + 1) * 6.283; let best = null;
+        for (let att = 0; att < 8 && !best; att++) {
+            const ang = baseAng + att * 0.85 * (att % 2 ? 1 : -1);
+            for (const rf of [1.16, 1.5, 1.9, 2.35]) {
+                const rr = c.baseR * rf + 7 * S;
+                let tx = c.x + Math.cos(ang) * rr, ty = c.y + Math.sin(ang) * rr;
+                tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(isBig ? 46 : 12, Math.min(h - 12, ty));
+                if (!_tagHit(tx, ty - ph / 2, pw, ph)) { best = { tx, ty }; break; }
+            }
+        }
+        if (!best) { const rr = c.baseR * 1.16 + 7 * S; let tx = c.x + Math.cos(baseAng) * rr, ty = c.y + Math.sin(baseAng) * rr; tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(isBig ? 46 : 12, Math.min(h - 12, ty)); best = { tx, ty }; }
+        placedTags.push({ x: best.tx, y: best.ty - ph / 2, w: pw, h: ph });
+        ctx.fillStyle = L.tagBg; ctx.globalAlpha = 0.92; _roundRect(ctx, best.tx, best.ty - ph / 2, pw, ph, 1.5); ctx.fill(); ctx.globalAlpha = 1;
+        ctx.fillStyle = '#04121a'; ctx.textAlign = 'left'; ctx.fillText(L.tag, best.tx + 3.5, best.ty + 0.5);
     }
     // 3g. verspreide ECHTE readouts (prijzen, FSO, ETA, node-countdown, kinetic, RL, equity)
     if (isBig) {
@@ -16912,11 +16962,15 @@ function _neoNetDraw(now, canvasId, outId) {
         const seen = new Set(), upool = []; for (const rd of pool) { if (seen.has(rd.t)) continue; seen.add(rd.t); upool.push(rd); }
         let _rc = 0;
         ORG.decs.forEach((d, i) => {
-            if (d.x < w * 0.135) return;
+            if (d.x < w * 0.135 || d.y < 48 || d.y > h - 10) return;   // niet in de titel/subtitel-strook of onder de rand
             const rd = upool.length ? upool[_rc++ % upool.length] : null;
             const txt = rd ? rd.t : (10 + SR(i * 11 + 3) * 60).toFixed(4);
-            if (d.big && rd) { ctx.font = "6.5px 'JetBrains Mono',monospace"; const tw = ctx.measureText(txt).width; ctx.fillStyle = rd.g ? GREEN : CYAN; ctx.globalAlpha = 0.85; _roundRect(ctx, d.x, d.y - 4.5, tw + 6, 9, 1.5); ctx.fill(); ctx.globalAlpha = 1; ctx.fillStyle = '#04121a'; ctx.textAlign = 'left'; ctx.fillText(txt, d.x + 3, d.y + 0.5); }
-            else { ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillStyle = rd ? 'rgba(150,170,190,0.55)' : 'rgba(140,160,180,0.45)'; ctx.textAlign = 'left'; ctx.fillText(txt, d.x, d.y); }
+            ctx.font = d.big && rd ? "6.5px 'JetBrains Mono',monospace" : "7px 'JetBrains Mono',monospace";
+            const tw = ctx.measureText(txt).width, ww = (d.big && rd ? tw + 6 : tw), hh = 9;
+            if (_tagHit(d.x, d.y - hh / 2, ww, hh)) return;   // niet over een data-tag heen
+            placedTags.push({ x: d.x, y: d.y - hh / 2, w: ww, h: hh });
+            if (d.big && rd) { ctx.fillStyle = rd.g ? GREEN : CYAN; ctx.globalAlpha = 0.85; _roundRect(ctx, d.x, d.y - 4.5, tw + 6, 9, 1.5); ctx.fill(); ctx.globalAlpha = 1; ctx.fillStyle = '#04121a'; ctx.textAlign = 'left'; ctx.fillText(txt, d.x + 3, d.y + 0.5); }
+            else { ctx.fillStyle = rd ? 'rgba(150,170,190,0.55)' : 'rgba(140,160,180,0.45)'; ctx.textAlign = 'left'; ctx.fillText(txt, d.x, d.y); }
         });
     }
     // 3h. deco: X-markers + vierkantjes
@@ -16935,15 +16989,17 @@ function _neoNetDraw(now, canvasId, outId) {
     if (isBig) {
         ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
         const px0 = w * 0.02; let py0 = h * 0.235;
-        let confPct = 0, wrPct = null;
+        let confPct = 0, wrPct = null, wrN = 0;
         try { confPct = Math.round((layers[2][0].act || 0) * 100); } catch (e) {}
-        try { const sr = (typeof OsirisSelfReview !== 'undefined') ? OsirisSelfReview : null; if (sr && sr.history && sr.history[0] && sr.history[0].winrate != null) wrPct = Math.round(sr.history[0].winrate * 100); } catch (e) {}
+        // WIN-RATE = de door zelf-review GEMETEN winrate over de laatste gesloten trades (bruto).
+        // Alleen tonen bij ≥5 trades (anders misleidend), mét het aantal trades erbij.
+        try { const sr = (typeof OsirisSelfReview !== 'undefined') ? OsirisSelfReview : null; const rec = sr && sr.history && sr.history[0]; if (rec && rec.winrate != null && (rec.window || 0) >= 5) { wrPct = Math.round(rec.winrate * 100); wrN = rec.window || 0; } } catch (e) {}
         ctx.font = "600 18px 'Orbitron','JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(220,235,250,0.85)';
         ctx.fillText(confPct + '%', px0 + 4, py0);
         ctx.strokeStyle = 'rgba(160,180,200,0.4)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px0 + 4, py0 + 14); ctx.lineTo(px0 + 58, py0 + 14); ctx.stroke();
         if (wrPct != null) ctx.fillText(wrPct + '%', px0 + 4, py0 + 28);
         ctx.font = "6px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(120,140,160,0.7)';
-        ctx.fillText('CONFIDENCE', px0 + 66, py0 - 4); if (wrPct != null) ctx.fillText('WIN-RATE', px0 + 66, py0 + 28);
+        ctx.fillText('CONFIDENCE', px0 + 66, py0 - 4); if (wrPct != null) ctx.fillText('WIN-RATE · n=' + wrN, px0 + 66, py0 + 28);
         py0 += 54; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(150,175,195,0.55)';
         const bitCells = [layers[2][0], layers[1][2], layers[1][5], layers[1][8], layers[4][0], layers[6][0]];
         for (let b = 0; b < 6; b++) { const v = Math.round((bitCells[b] ? bitCells[b].act : 0.5) * 31); ctx.fillText(v.toString(2).padStart(5, '0'), px0 + 4, py0 + b * 11); }
