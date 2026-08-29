@@ -788,8 +788,17 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="hudframe mb" style="margin-top:18px;">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
         <canvas id="neo-net-canvas-big" style="width:100%; height:740px; display:block; position:relative; z-index:1;"></canvas>
-        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">3 banen (BTC·ETH·SOL): PMV &rarr; deepnet &rarr; cores &rarr; targets &rarr; osiris &rarr; TA &rarr; decision &rarr; capital &rarr; output &rarr; RL &nbsp;·&nbsp; meta: governor · LLM · FAG · guardian · risk · self-review</div></div>
+        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">3 banen (BTC·ETH·SOL): PMV &rarr; deepnet &rarr; cores &rarr; targets &rarr; osiris &rarr; TA &rarr; decision &rarr; capital &rarr; output &rarr; RL &nbsp;·&nbsp; meta: governor · LLM · regime · multi-TF · node-fade · FAG · guardian · risk · spike-guard · self-review</div></div>
         <div class="net-out"><div class="l">Osiris decision</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
+      </div>
+
+      <div class="panel" style="margin-top:14px;">
+        <div class="plabel" style="color:#7fd8ff; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <span>&#9678; MULTI-TIMEFRAME &middot; NODE-FADE &middot; SPIKE-GUARD <span style="color:var(--dim); font-weight:normal;">&mdash; 1m momentum &middot; 15m targets &middot; 4h richting &middot; alles headless op de achtergrond, gewichten leren out-of-sample (start 1.0&times;)</span></span>
+          <button type="button" onclick="try{downloadMtfBundle()}catch(e){alert('export mislukt: '+e.message)}" class="btn btn-ghost btn-mini" style="color:#7fd8ff; border-color:rgba(127,216,255,0.4); font-size:0.6rem;">&#8681; download</button>
+        </div>
+        <div id="mtf-adaptive-weights" style="font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--dim); margin:6px 0 10px;">gewichten laden&hellip;</div>
+        <div id="mtf-status-panel" style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px;"><span style="color:var(--dim); font-size:0.62rem;">Multi-TF initialiseert&hellip;</span></div>
       </div>
 
       <div class="panel" style="margin-top:14px;"><div class="plabel" style="color:#14f195;">OSIRIS &middot; VOORSPELLING &amp; ZELF-GOVERNANCE <span style="color:var(--dim); font-weight:normal;">&mdash; gekalibreerde richting per munt, breakpoint/ETA, en trust-gewicht dat autonoom meebeweegt met out-of-sample validatie</span></div>
@@ -924,8 +933,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           </div>
           <span id="wallet-realized-pnl" style="display:none;"></span><span id="wallet-unrealized-pnl" style="display:none;"></span>
           <div class="flex gap wrap" style="margin-top:12px;">
-            <button type="button" onclick="stopAutonomousBot()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);">&#9632; Stop bot</button>
-            <button type="button" onclick="resetWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button>
+            <button type="button" onclick="stopBotGate()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);">&#9632; Stop bot</button>
+            <button type="button" onclick="resetWalletGate()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset wallet</button>
           </div>
           <div style="display:grid; grid-template-columns:auto 1fr; gap:8px 14px; align-items:baseline; font-family:'JetBrains Mono',monospace; font-size:0.62rem; margin-top:14px;">
             <span style="color:var(--dim);">Runtime</span><b id="wallet-runtime" style="color:var(--cyan); letter-spacing:1px;">--:--:--</b>
@@ -1028,7 +1037,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <span class="mono" id="m-ws" style="font-size:0.62rem;"><span style="color:#7d99ac;">◌ geen futures-keys (sim)</span></span>
           <button type="button" id="m-toggle" onclick="setMarginEngine(!marginEngineEnabled); this.textContent = marginEngineEnabled ? 'MARGIN AAN' : 'MARGIN UIT'; this.style.color = marginEngineEnabled ? '#14f195' : '#7d99ac';" class="btn btn-ghost" style="font-size:0.68rem; color:#7d99ac;">MARGIN UIT</button>
           <span class="mono" style="font-size:0.62rem; color:var(--dim);">start <input type="number" id="margin-start-equity" value="1000" min="1" step="100" style="width:74px; background:#0a0f16; border:1px solid rgba(199,146,234,0.3); border-radius:5px; color:#eaffff; font:inherit; padding:3px 6px;"></span>
-          <button type="button" onclick="resetMarginWallet()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset margin wallet</button>
+          <button type="button" onclick="resetMarginGate()" class="btn btn-ghost btn-mini" style="color:var(--red); border-color:rgba(255,95,126,0.4);">&#8635; Reset margin wallet</button>
         </div>
         <div class="mono" style="font-size:0.56rem; color:#7d6a99; margin-top:4px;">Aparte engine, dezelfde 3 markten &amp; brein-signalen &mdash; echte long &eacute;n short met leverage. Vereist futures-testnet-keys.</div>
 
@@ -1374,6 +1383,13 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         </div>
       </div>
 
+      <!-- MULTI-TIMEFRAME · NODE-FADE · SPIKE-GUARD (live, per markt) -->
+      <div class="rlabel" style="color:#7fd8ff; margin-top:22px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <span>&#9679; Multi-timeframe &middot; node-fade &middot; spike-guard &mdash; 1m/15m/4h headless per markt, gewichten leren out-of-sample</span>
+        <button type="button" onclick="try{downloadMtfBundle()}catch(e){}" class="btn btn-ghost btn-mini" style="color:#7fd8ff; border-color:rgba(127,216,255,0.4); font-size:0.58rem;">&#8681; download</button>
+      </div>
+      <div id="feed-mtf" style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:10px;"><span style="color:var(--text-dim); font-size:0.62rem;">Multi-TF laadt&hellip;</span></div>
+
       <!-- AUTONOME TOOL-AANPASSINGEN: elke tool zijn eigen feed -->
       <div class="rlabel" style="color:#ffb627; margin-top:22px;"><span>&#9679; Autonome tool-aanpassingen &mdash; elke tool die Osiris zelf bijstelt heeft zijn eigen feed</span></div>
       <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:10px;">
@@ -1614,7 +1630,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
             <div style="display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap:wrap;">
                 <button id="btn-start-bot" onclick="startAutonomousBot()" class="btn btn-primary">Start Bot</button>
-                <button id="btn-stop-bot" onclick="stopAutonomousBot()" class="btn btn-danger" style="display:none;">Stop Bot</button>
+                <button id="btn-stop-bot" onclick="stopBotGate()" class="btn btn-danger" style="display:none;">Stop Bot</button>
                 <button onclick="updateLiveSettings()" class="btn btn-ghost btn-mini" style="color:var(--amber); border-color:rgba(255,182,39,0.4);" title="Werkt de instellingen van de draaiende bot live bij. Let op: raakt ook al open posities. Voor schone data-evaluatie is Stop → Reset Wallet → Start meestal beter.">&#8635; Instellingen Live Bijwerken</button>
                 <span style="flex:1;"></span>
                 <button onclick="downloadBotSettings()" class="btn btn-ghost btn-mini">&#9881; Download Instellingen</button>
@@ -1665,80 +1681,59 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
                 <button class="coin-tab" data-coin="ETH" onclick="switchCoin('ETH')">ETH</button>
                 <button class="coin-tab" data-coin="SOL" onclick="switchCoin('SOL')">SOL</button>
             </div>
-            <div id="system-data-multi" style="background:rgba(199,146,234,0.05); border:1px solid rgba(199,146,234,0.2); border-radius:6px; padding:10px 12px; margin-bottom:12px;">
-                <span style="color:var(--text-dim); font-size:0.62rem;">Multi-markt data laadt bij botstart...</span>
+            <style>
+              #tab-system .sd-wrap{--btc:#f7931a;--eth:#627eea;--sol:#14f195;}
+              #tab-system .sd-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:6px 0 4px;}
+              @media(max-width:900px){#tab-system .sd-grid3{grid-template-columns:1fr;}}
+              #tab-system .sd-card{position:relative;background:linear-gradient(160deg,rgba(255,255,255,0.045),rgba(255,255,255,0.008));border:1px solid rgba(255,255,255,0.09);border-radius:10px;padding:12px 13px 11px;overflow:hidden;}
+              #tab-system .sd-card::before{content:'';position:absolute;left:0;top:0;height:100%;width:3px;background:var(--acc,#00d9ff);box-shadow:0 0 14px var(--acc,#00d9ff);}
+              #tab-system .sd-card::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,0.012) 3px 4px);pointer-events:none;}
+              #tab-system .sd-card.btc{--acc:var(--btc);} #tab-system .sd-card.eth{--acc:var(--eth);} #tab-system .sd-card.sol{--acc:var(--sol);}
+              #tab-system .sd-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;position:relative;z-index:1;}
+              #tab-system .sd-sym{font-family:'Orbitron','JetBrains Mono',monospace;font-weight:800;letter-spacing:1.5px;font-size:0.82rem;color:var(--acc);text-shadow:0 0 10px var(--acc);}
+              #tab-system .sd-badge{font-family:'JetBrains Mono',monospace;font-size:0.55rem;font-weight:700;letter-spacing:0.06em;padding:2px 8px;border-radius:20px;border:1px solid currentColor;white-space:nowrap;}
+              #tab-system .sd-row{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:0.62rem;padding:2px 0;position:relative;z-index:1;}
+              #tab-system .sd-row .k{color:var(--text-dim);} #tab-system .sd-row .v{color:#eaffff;font-weight:600;}
+              #tab-system .sd-mini{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--text-dimmer);letter-spacing:0.04em;}
+              #tab-system .sd-lvl{display:grid;grid-template-columns:auto 1fr 1fr;gap:5px 10px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;align-items:center;position:relative;z-index:1;}
+              #tab-system .sd-lvl .sc{color:var(--acc);font-weight:700;letter-spacing:0.04em;} #tab-system .sd-lvl .bu{color:#00ffcc;text-align:right;} #tab-system .sd-lvl .be{color:#ff6d84;text-align:right;}
+              #tab-system .sd-lvl .hdr{color:var(--text-dimmer);font-size:0.5rem;letter-spacing:0.1em;text-transform:uppercase;}
+              #tab-system .sd-press{height:8px;border-radius:5px;overflow:hidden;display:flex;border:1px solid rgba(255,255,255,0.1);margin-top:7px;position:relative;z-index:1;}
+              #tab-system .sd-metric{display:flex;flex-direction:column;gap:1px;}
+              #tab-system .sd-metric .mv{font-family:'JetBrains Mono',monospace;font-size:1.05rem;font-weight:800;line-height:1;}
+              #tab-system .sd-metric .ml{font-family:'JetBrains Mono',monospace;font-size:0.5rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-dimmer);}
+              #tab-system .sd-4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;position:relative;z-index:1;margin-top:2px;}
+            </style>
+            <div class="sd-wrap">
+              <div class="subhead" style="margin-top:6px;">Osiris Market Status &middot; alle markten <span class="sd-mini" style="text-transform:none;letter-spacing:0;">(Neo &middot; UOTAM-nodes &middot; live)</span></div>
+              <div class="sd-grid3" id="sd-overview"><span class="sd-mini">Multi-markt data laadt bij botstart&hellip;</span></div>
+
+              <div class="subhead">Micro / Meso / Macro &middot; bull &amp; bear per markt</div>
+              <div class="sd-grid3" id="sd-levels"><span class="sd-mini">&hellip;</span></div>
+
+              <div class="subhead">VFM &middot; ER &middot; DB &middot; Chaos Index &middot; alle markten</div>
+              <div class="sd-grid3" id="sd-meters"><span class="sd-mini">&hellip;</span></div>
+
+              <div class="subhead">Patroon &amp; Structuur &middot; alle markten</div>
+              <div class="sd-grid3" id="sd-pattern"><span class="sd-mini">&hellip;</span></div>
+
+              <div class="subhead">Node Countdown &middot; UOTAM-tijdraster <span class="sd-mini" style="text-transform:none;letter-spacing:0;">(per markt ge&iuml;jkt &mdash; elke munt heeft eigen reset-punten &amp; NN-countdown)</span></div>
+              <div class="sd-grid3" id="sd-nodes"><span class="sd-mini">&hellip;</span></div>
+
+              <div class="subhead">Live Volume &amp; Market Pressure &middot; alle markten</div>
+              <div class="sd-grid3" id="sd-volume"><span class="sd-mini">&hellip;</span></div>
             </div>
 
-            <div class="subhead" style="margin-top:0;">VFM &middot; ER &middot; DB &middot; Chaos Index <span style="font-weight:400; color:var(--dimmer); font-size:0.8em; text-transform:none; letter-spacing:0;">(volgt de gekozen munt-tab)</span></div>
-            <div class="data-grid">
-                <div class="meter-card"><h3>VFM</h3><p id="vfm-display">0.00</p><small id="vfm-status">Wachten...</small></div>
-                <div class="meter-card"><h3>ER (Energy Ratio)</h3><p id="er-display">0.00</p><small id="er-status">Ref: 1.0</small></div>
-                <div class="meter-card"><h3>DB (Delta Balance)</h3><p id="db-display">0.00</p><small id="db-status">Bereik: -1 tot 1</small></div>
-                <div class="meter-card"><h3>Chaos Index</h3><p id="chaos-display">0.00%</p><small id="chaos-status">Limit: 8% / 15%</small></div>
-            </div>
-
-            <div class="subhead">Osiris Market Status <span style="font-weight:400; color:var(--dimmer); font-size:0.8em; text-transform:none; letter-spacing:0;">(Neo BTC · UOTAM-nodes)</span></div>
-            <div class="status-banner">
-                <p id="market-status-main">--</p>
-                <p id="sys-hmm-regime" style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:#c792ea; margin-top:4px;">Regime (HMM): kalibreert&hellip;</p>
-                <p id="probability-score">Confidence: --</p>
-            </div>
-            <div class="target-grid">
-                <div class="target-card" style="border-color:var(--teal);">
-                    <h4 style="color:var(--teal);">Micro (9)</h4>
-                    <small>Bull: <span id="mic-bull">--</span></small>
-                    <small>Bear: <span id="mic-bear">--</span></small>
-                </div>
-                <div class="target-card" style="border-color:var(--amber);">
-                    <h4 style="color:var(--amber);">Meso (36)</h4>
-                    <small>Bull: <span id="mes-bull">--</span></small>
-                    <small>Bear: <span id="mes-bear">--</span></small>
-                </div>
-                <div class="target-card" style="border-color:var(--violet);">
-                    <h4 style="color:var(--violet);">Macro (144)</h4>
-                    <small>Bull: <span id="mac-bull">--</span></small>
-                    <small>Bear: <span id="mac-bear">--</span></small>
-                </div>
-            </div>
-
-            <div class="subhead">Patroon &amp; Structuur</div>
-            <div class="target-grid" style="grid-template-columns: 1fr 1fr;">
-                <div class="target-card" style="border-color:rgba(20,241,149,0.3);">
-                    <h4 style="color:var(--teal);">Candlestick-patroon</h4>
-                    <div id="current-pattern" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
-                </div>
-                <div class="target-card" style="border-color:rgba(153,69,255,0.3);">
-                    <h4 style="color:var(--violet);">Markt-structuur</h4>
-                    <div id="current-structure" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-primary);">Berekenen...</div>
-                </div>
-            </div>
-
-            <div class="subhead">Node Countdown</div>
-            <div id="info-panel" class="node-grid">
-                <div class="node-card" style="border-color:rgba(255,255,255,0.3);"><h4 style="color:#ffffff;">RESET [Vortex 9]</h4><p id="next-reset">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(255,255,0,0.4);"><h4 style="color:#ffff00;">VOLA [Node 1]</h4><p id="next-vola">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(0,255,204,0.4);"><h4 style="color:#00ffcc;">CORE [Vortex 3/6]</h4><p id="next-core">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(136,136,136,0.4);"><h4 style="color:#888888;">OSC [Node 2/4/5/7]</h4><p id="next-osc">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(255,204,0,0.4);"><h4 style="color:#ffcc00;">MID PULSE</h4><p id="mid-pulse-display">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(20,241,149,0.4);"><h4 style="color:var(--teal);">NEXT NODE</h4><p id="next-node-display">Berekenen...</p></div>
-                <div class="node-card" style="border-color:rgba(199,146,234,0.5);"><h4 style="color:#c792ea;">NEO'S NODE (NN) &middot; exp.</h4><p id="nn-display" style="font-size:0.82em;">Zet NN zichtbaar op de chart om te meten...</p></div>
-                <div class="node-card" style="border-color:rgba(255,182,39,0.5);"><h4 style="color:#ffb627;">NODE-CONFLUENTIE &middot; exp.</h4><p id="nodeconf-display" style="font-size:0.82em;">standaard-node &times; NN samenval...</p></div>
-            </div>
-
-            <div class="subhead">Live Volume &amp; Market Pressure</div>
-            <div class="volrow">
-                <div class="meter-card">
-                    <h3>Live Volume (BTC)</h3>
-                    <p id="live-volume" style="color:var(--amber);">Wachten...</p>
-                </div>
-                <div class="meter-card">
-                    <h3>Volume Rate / Score</h3>
-                    <p style="font-size:0.95rem;">Rate: <span id="vol-rate">0%</span> &middot; Score: <span id="vol-score" style="color:var(--amber);">0/100</span></p>
-                </div>
-            </div>
-            <div id="sentiment-bar-container">
-                <div id="sentiment-bar-green" style="width: 50%; height: 100%; background: var(--teal); transition: width 0.3s ease;"></div>
-                <div id="sentiment-bar-red" style="width: 50%; height: 100%; background: var(--red); transition: width 0.3s ease;"></div>
+            <!-- LEGACY data-sink (verborgen): oude single-coin IDs blijven bestaan zodat bestaande engine-loops niet crashen -->
+            <div id="sd-legacy" style="display:none;">
+              <div id="system-data-multi"></div>
+              <span id="vfm-display"></span><span id="vfm-status"></span><span id="er-display"></span><span id="er-status"></span><span id="db-display"></span><span id="db-status"></span><span id="chaos-display"></span><span id="chaos-status"></span>
+              <p id="market-status-main"></p><p id="sys-hmm-regime"></p><p id="probability-score"></p>
+              <span id="mic-bull"></span><span id="mic-bear"></span><span id="mes-bull"></span><span id="mes-bear"></span><span id="mac-bull"></span><span id="mac-bear"></span>
+              <div id="current-pattern"></div><div id="current-structure"></div>
+              <span id="live-volume"></span><span id="vol-rate"></span><span id="vol-score"></span>
+              <div id="sentiment-bar-container"><div id="sentiment-bar-green"></div><div id="sentiment-bar-red"></div></div>
+              <div id="info-panel"><p id="next-reset"></p><p id="next-vola"></p><p id="next-core"></p><p id="next-osc"></p><p id="mid-pulse-display"></p><p id="next-node-display"></p><p id="nn-display"></p><p id="nodeconf-display"></p></div>
             </div>
             <div style="display: flex; justify-content: space-between; font-family:'JetBrains Mono',monospace; font-size: 0.62rem; margin-top: 6px; color: var(--text-dim);">
                 <span>BUYERS</span><span>SELLERS</span>
@@ -1976,7 +1971,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260827-jarvis17-spoteq"></script>
+<script src="app.js?v=20260829-jarvis22-subbrain-mtf"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
