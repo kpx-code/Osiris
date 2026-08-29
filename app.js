@@ -16820,6 +16820,28 @@ function _neoNetDraw(now, canvasId, outId) {
         _neonet._srcCol = src;
     }
     const srcCol = _neonet._srcCol;
+    // (29-08 · ORGANISCH) faint 'NEURAL NETWORK' watermerk + achtergrond-tendrils = biologische diepte
+    if (_isBigNet) {
+        ctx.save();
+        ctx.font = "800 62px 'Orbitron','JetBrains Mono',monospace"; ctx.textAlign = 'left';
+        ctx.fillStyle = 'rgba(120,150,175,0.045)';
+        ctx.fillText('NEURAL', padX * 0.15, h - 74);
+        ctx.fillText('NETWORK', padX * 0.15, h - 16);
+        ctx.restore();
+        if (!_neonet._organicBg) {
+            const rnd = s => { const x = Math.sin(s * 99.13) * 4371.3; return x - Math.floor(x); };
+            const arr = []; for (let i = 0; i < 26; i++) arr.push({ x1: rnd(i + 1), y1: rnd(i + 7), x2: rnd(i + 13), y2: rnd(i + 19), b: (rnd(i + 23) - 0.5) * 0.6, ph: rnd(i + 29) * 6.28 });
+            _neonet._organicBg = arr;
+        }
+        ctx.lineWidth = 0.5; ctx.strokeStyle = 'rgba(210,225,240,0.045)';
+        for (const t of _neonet._organicBg) {
+            const ax = padX + t.x1 * (w - 2 * padX), ay = padTop + t.y1 * colH, bx = padX + t.x2 * (w - 2 * padX), by = padTop + t.y2 * colH;
+            const dx = bx - ax, dy = by - ay, ln = Math.hypot(dx, dy) || 1, nx = -dy / ln, ny = dx / ln;
+            const bw = (t.b + 0.12 * Math.sin(now / 1600 + t.ph)) * ln;
+            const cx = (ax + bx) / 2 + nx * bw, cy = (ay + by) / 2 + ny * bw;
+            ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(cx, cy, bx, by); ctx.stroke();
+        }
+    }
     // DATA-WARE VERBINDINGEN (12-08): helderheid + dikte volgen de ECHTE co-activatie
     // (bron-activatie x doel-activatie). Inactieve edges blijven een zwakke structuurlijn;
     // actieve edges dragen een gerichte data-puls die van bron -> doel reist (links -> rechts),
@@ -16837,46 +16859,45 @@ function _neoNetDraw(now, canvasId, outId) {
         let _wMul = 1, _aFloor = 0;
         if (cn.li === (_neonet.coresLi != null ? _neonet.coresLi : 2) && _neonet._coreAlloc) { const al = _neonet._coreAlloc[cn.a] || 0.12; _wMul = 0.6 + 2.2 * al; _aFloor = 0.10 + 0.22 * al; }
         if (cn.lane || cn.dim) _wMul *= 1.35;     // banen + INPUTS→PMV even stevig/duidelijk
-        // De LIJN zelf flasht: de verbinding tussen de parameters licht op, helderheid
-        // pulseert (data bepaalt de basis + hoe fel). Geen los reizend deeltje meer.
+        // (29-08 · ORGANISCH) De verbinding is nu een GEBOGEN WITTE FILAMENT-BUNDEL (biologische
+        // neurale-web look) i.p.v. een rechte lijn. Helderheid/dikte volgen nog steeds de ECHTE
+        // co-activatie; hete edges kleuren cyaan met gloed. Kleur-basis wit i.p.v. herkomst-kleur.
         const flash = 0.5 + 0.5 * Math.sin(now / 340 * (0.7 + cn.sp) + cn.flow * 6.28);
-        // (22-08e) LICHTERE LIJNEN + LICHTERE RENDER op verzoek: de verbindingslijnen zijn nu
-        // subtieler (lagere basis-helderheid/-dikte) en de dure blauwe gloed (shadowBlur) wordt
-        // ALLEEN nog op de weinige ACTIEVE (hete) edges getekend i.p.v. op elke lijn — dat scheelt
-        // enorm in de render. De inactieve lijnen worden plat en goedkoop getekend. De data-true
-        // dataflow-deeltjes hieronder lopen ongewijzigd over ELKE lijn.
-        let a = Math.max(_aFloor + 0.04, 0.13 + 0.30 * signal + (0.08 + 0.30 * signal) * flash);   // iets feller
-        if (cn.dim) a *= 0.82;                     // INPUTS→PMV: iets zachter dan de banen maar goed zichtbaar
-        ctx.strokeStyle = `rgba(${col},${a.toFixed(3)})`;
-        ctx.lineWidth = (0.65 + 0.85 * signal) * _wMul;
+        const strand = hot ? OSIRIS_NEON : '228,238,248';    // wit filament, cyaan als 'heet'
+        // controle-punt: loodrecht op A→B, organische boog die zacht meebeweegt
+        const _dx = B.x - A.x, _dy = B.y - A.y, _len = Math.hypot(_dx, _dy) || 1;
+        const _nx = -_dy / _len, _ny = _dx / _len;
+        const _bow = ((cn.flow || 0.5) - 0.5) * 0.55 + 0.14 * Math.sin(now / 1100 + (cn.flow || 0) * 6.28);
+        const _cx = (A.x + B.x) / 2 + _nx * _bow * _len, _cy = (A.y + B.y) / 2 + _ny * _bow * _len;
+        const _qpt = t => { const u = 1 - t; return [u * u * A.x + 2 * u * t * _cx + t * t * B.x, u * u * A.y + 2 * u * t * _cy + t * t * B.y]; };
+        let a = Math.max(_aFloor + 0.03, 0.10 + 0.26 * signal + (0.06 + 0.26 * signal) * flash);
+        if (cn.dim) a *= 0.55;                     // INPUTS→PMV zachter (achtergrond-web)
+        const bw = (0.5 + 0.85 * signal) * _wMul;
+        const curve = (offMul) => { const cx2 = _cx + _nx * offMul, cy2 = _cy + _ny * offMul; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx2, cy2, B.x, B.y); ctx.stroke(); };
         if (hot) {
-            ctx.save();
-            ctx.shadowColor = `rgb(${col})`;
-            ctx.shadowBlur = 4 + 7 * signal;                 // blauwe jarvis-gloed enkel op actieve lijnen
-            ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+            ctx.save(); ctx.shadowColor = `rgb(${strand})`; ctx.shadowBlur = 4 + 8 * signal;
+            ctx.strokeStyle = `rgba(${strand},${a.toFixed(3)})`; ctx.lineWidth = bw; curve(0);
             ctx.restore();
         } else {
-            ctx.shadowBlur = 0;                              // geen dure gloed op de vele inactieve lijnen
-            ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = `rgba(${strand},${a.toFixed(3)})`; ctx.lineWidth = bw; curve(0);
         }
-        // CONTINUE DATA-FLOW: klein deeltje reist voorwaarts (A -> B) langs ELKE lijn, zodat de
-        // hele stroom van inputs naar uitkomst continu zichtbaar beweegt (kleur = herkomst).
+        // tweede, ijlere streng ernaast → filament-bundel (biologische dichtheid)
+        ctx.shadowBlur = 0; ctx.strokeStyle = `rgba(${strand},${(a * 0.45).toFixed(3)})`; ctx.lineWidth = Math.max(0.4, bw * 0.6); curve(2.2 + 2 * signal);
+        // CONTINUE DATA-FLOW: cyaan deeltje reist voorwaarts langs de kromme (kleur = cyaan tag-stijl)
         {
             const _ft = ((now / 760) + cn.li * 0.16 + (cn.flow || 0)) % 1;
-            const _fx = A.x + (B.x - A.x) * _ft, _fy = A.y + (B.y - A.y) * _ft;
-            const _fa = (0.16 + 0.6 * signal) * (cn.dim ? 0.85 : 1);
-            ctx.beginPath(); ctx.arc(_fx, _fy, (0.7 + 1.5 * signal) * (cn.dim ? 0.85 : 1), 0, 6.283);
-            ctx.fillStyle = `rgba(${hot ? OSIRIS_NEON : baseCol},${_fa.toFixed(3)})`;
+            const [_fx, _fy] = _qpt(_ft);
+            const _fa = (0.16 + 0.6 * signal) * (cn.dim ? 0.7 : 1);
+            ctx.beginPath(); ctx.arc(_fx, _fy, (0.7 + 1.5 * signal) * (cn.dim ? 0.8 : 1), 0, 6.283);
+            ctx.fillStyle = `rgba(${hot ? OSIRIS_NEON : '120,215,255'},${_fa.toFixed(3)})`;
             ctx.fill();
         }
-        // FEEDBACK-FLITS: groen deeltje reist achterwaarts (B -> A) langs deze bestaande lijn
-        // wanneer de feedback-golf door deze laag trekt - de uitkomst die terugvloeit.
+        // FEEDBACK-FLITS: groen deeltje reist achterwaarts langs dezelfde kromme
         if (_fbActive && _fbPos >= cn.li && _fbPos <= cn.li + 1) {
-            const _t = _fbPos - cn.li;
-            const _px = A.x + (B.x - A.x) * _t, _py = A.y + (B.y - A.y) * _t;
-            ctx.strokeStyle = `rgba(20,241,149,${(0.14 * (1 - Math.abs(_t - 0.5))).toFixed(3)})`;
-            ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
-            // (22-08b) geen gloed meer + terugflits-deeltje HEEL klein op verzoek
+            const _t = _fbPos - cn.li; const [_px, _py] = _qpt(_t);
+            ctx.strokeStyle = `rgba(20,241,149,${(0.12 * (1 - Math.abs(_t - 0.5))).toFixed(3)})`;
+            ctx.lineWidth = 0.5; curve(0);
             ctx.beginPath(); ctx.arc(_px, _py, 0.35, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.65)'; ctx.fill();
         }
     }
@@ -16892,23 +16913,24 @@ function _neoNetDraw(now, canvasId, outId) {
             const p = pos[li][i], nd = layers[li][i];
             const puls = 0.5 + 0.5 * Math.sin(now / 620 + (nd.tw || 0));   // zachte eigen-puls
             const glow = nd.act * (0.55 + 0.45 * puls);                     // helderheid ~ echte activatie
-            const r = ((li === _outputLi || li === _rlLi) ? 11 : 5) + nd.act * 4 + nd.act * puls * 1.6;
+            const _bigNode = (li === _outputLi || li === _rlLi || li === (_neonet.osirisLi != null ? _neonet.osirisLi : -1) || li === (_neonet.coresLi != null ? _neonet.coresLi : -1));
+            const r = (_bigNode ? 13 : 5.5) + nd.act * 4 + nd.act * puls * 1.6;
             // input-knopen krijgen hun eigen signaalkleur (rijker beeld)
             let baseCol = 'rgba(130,200,255,GLOW)';
             if (li === 0) { const c = NEONET_INPUTS[i].c; baseCol = _hexToRgba(c, '__A__'); }
-            // ring
-            ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283);
-            if (li === 0) ctx.fillStyle = baseCol.replace('__A__', (0.15 + 0.6 * glow).toFixed(3));
-            else if (li === _outputLi) ctx.fillStyle = `rgba(0,217,255,${(0.45 + 0.55 * nd.act).toFixed(3)})`;   // OUTPUT eindpunt (cyaan)
-            else if (li === _rlLi) ctx.fillStyle = `rgba(20,241,149,${(0.4 + 0.55 * nd.act).toFixed(3)})`;        // RL leer-agent (groen)
-            else if (li === _decLi && layers[li].length === 3) ctx.fillStyle = outCols[i];   // DECISION: long/neut/short
-            else ctx.fillStyle = `rgba(130,200,255,${0.12 + 0.6 * glow})`;
-            if (li === _decLi && layers[li].length === 3) ctx.globalAlpha = 0.3 + 0.7 * nd.act;
-            else if (nd.shadow) ctx.globalAlpha = 0.5;   // SCHADUW-TA dimmer (parallel, stuurt niet direct)
-            ctx.fill(); ctx.globalAlpha = 1;
-            if (li === _outputLi) { ctx.save(); ctx.shadowColor = 'rgba(0,217,255,0.9)'; ctx.shadowBlur = 12 + 14 * nd.act; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.strokeStyle = 'rgba(0,217,255,0.8)'; ctx.lineWidth = 1.6; ctx.stroke(); ctx.restore(); }
-            else if (li === _rlLi) { ctx.save(); ctx.shadowColor = 'rgba(20,241,149,0.9)'; ctx.shadowBlur = 10 + 12 * nd.act; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.strokeStyle = 'rgba(20,241,149,0.85)'; ctx.lineWidth = 1.5; ctx.stroke(); ctx.restore(); }
-            ctx.lineWidth = 1; ctx.strokeStyle = `rgba(200,235,255,${0.2 + 0.6 * glow})`; ctx.stroke();
+            // ORGANISCHE CEL: donkere kern + heldere ring (accent), dubbele celwand op de grote cellen
+            let ringCol = '228,238,248';   // wit standaard (filament-look)
+            if (li === 0) { const c = NEONET_INPUTS[i].c; const n = parseInt(c.slice(1), 16); ringCol = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; }
+            else if (li === _outputLi) ringCol = '0,217,255';
+            else if (li === _rlLi) ringCol = '20,241,149';
+            else if (li === _decLi && layers[li].length === 3) { const dc = outCols[i]; const n = parseInt(dc.slice(1), 16); ringCol = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; }
+            const _dimNode = nd.shadow ? 0.55 : 1;
+            ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.fillStyle = `rgba(3,7,14,${(0.5 + 0.28 * glow).toFixed(3)})`; ctx.fill();   // donkere kern (punch)
+            ctx.save();
+            if (_bigNode || nd.act > 0.45) { ctx.shadowColor = `rgb(${ringCol})`; ctx.shadowBlur = (_bigNode ? 8 : 4) + 10 * nd.act; }
+            ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.lineWidth = _bigNode ? 1.8 : 1.1; ctx.strokeStyle = `rgba(${ringCol},${(_dimNode * (0.34 + 0.6 * glow)).toFixed(3)})`; ctx.stroke();
+            ctx.restore();
+            if (_bigNode) { ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.6, 0, 6.283); ctx.lineWidth = 0.8; ctx.strokeStyle = `rgba(${ringCol},${(0.22 + 0.4 * nd.act).toFixed(3)})`; ctx.stroke(); }
             // PMV/DEEPNET inversie-badge (rood ⇄-stipje) of DeepNet meta-gate-open (groen stipje)
             if (nd.inv) { ctx.beginPath(); ctx.arc(p.x + r * 0.85, p.y - r * 0.85, 2.3, 0, 6.283); ctx.fillStyle = 'rgba(255,95,126,0.95)'; ctx.fill(); }
             else if (nd.metagate) { ctx.beginPath(); ctx.arc(p.x + r * 0.85, p.y - r * 0.85, 2.0, 0, 6.283); ctx.fillStyle = 'rgba(20,241,149,0.9)'; ctx.fill(); }
