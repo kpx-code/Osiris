@@ -18671,3 +18671,1128 @@ window._deepnetOverlayBig = _deepnetOverlayBig;
 // Start de achtergrond-service NU pas - na de const _dnviz/_DN_COL en de viz-functies,
 // zodat startDeepNetViz() niet in hun temporal-dead-zone valt (dat brak de canvas-render).
 try { OsirisDeepNet.startService(); } catch (e) {}
+
+
+/* ==================================================================================
+   TRINITY · FX — ported into Osiris (added below Osiris Crypto; Crypto code untouched).
+   Engine + UI from the standalone Trinity app. Runs on its own DOM ids (tr-* tabs).
+   ================================================================================== */
+/* ============================================================
+   OSIRIS INTEL FOREX — preview engine (mock data)
+   ============================================================ */
+'use strict';
+
+const CCY_META = {
+  USD:{lng:-98,lat:39,c:'United States of America',rate:4.5}, EUR:{lng:10,lat:51,c:'Germany',rate:2.5},
+  JPY:{lng:138,lat:36,c:'Japan',rate:0.5}, GBP:{lng:-2,lat:54,c:'United Kingdom',rate:4.0},
+  CHF:{lng:8,lat:47,c:'Switzerland',rate:1.0}, AUD:{lng:134,lat:-25,c:'Australia',rate:3.8},
+  CAD:{lng:-106,lat:56,c:'Canada',rate:3.0}, NZD:{lng:172,lat:-41,c:'New Zealand',rate:3.5},
+  SEK:{lng:16,lat:62,c:'Sweden',rate:2.0}, NOK:{lng:9,lat:61,c:'Norway',rate:4.0},
+  THB:{lng:100,lat:15,c:'Thailand',rate:2.0}, CNH:{lng:104,lat:35,c:'China',rate:3.0},
+  MXN:{lng:-102,lat:23,c:'Mexico',rate:8.0}, ZAR:{lng:24,lat:-29,c:'South Africa',rate:7.5},
+  SGD:{lng:104,lat:1.3,c:'Singapore',rate:3.0}, INR:{lng:79,lat:22,c:'India',rate:6.0},
+  BRL:{lng:-52,lat:-10,c:'Brazil',rate:10.5}, TRY:{lng:35,lat:39,c:'Turkey',rate:40.0}
+};
+const CCY = Object.keys(CCY_META);
+const BASE_RATE = {
+  'EUR/USD':1.140,'GBP/USD':1.332,'USD/JPY':164.0,'USD/CHF':0.812,'AUD/USD':0.698,'USD/CAD':1.418,
+  'NZD/USD':0.579,'EUR/JPY':187.0,'GBP/JPY':218.3,'EUR/GBP':0.855,'EUR/CHF':0.926,'AUD/JPY':114.5,
+  'EUR/AUD':1.633,'GBP/CHF':1.082,'AUD/NZD':1.206,'CAD/JPY':115.7,'CHF/JPY':202.0,'EUR/CAD':1.616,
+  'USD/THB':32.5,'USD/CNH':7.15,'USD/MXN':17.4,'USD/ZAR':16.8,'USD/SGD':1.29,'USD/INR':96.5,
+  'USD/TRY':34.0,'USD/BRL':5.4,'EUR/SEK':11.05,'EUR/NOK':11.6
+};
+const PAIRS = Object.keys(BASE_RATE);
+const splitPair = p => p.split('/');
+// Round-trip trading cost model (spread + avg slippage + commission), as % of price.
+// Illustrative estimates by pair category — not official OANDA figures; used to test net profitability.
+const MAJORS=['EUR/USD','GBP/USD','USD/JPY','USD/CHF','AUD/USD','USD/CAD','NZD/USD'];
+const EXOTICS=['USD/THB','USD/CNH','USD/MXN','USD/ZAR','USD/SGD','USD/INR','USD/TRY','USD/BRL'];
+function pairCategory(p){ if(MAJORS.includes(p))return 'major'; if(EXOTICS.includes(p))return 'exotic'; return 'cross'; }
+const COST_PCT={major:0.010,cross:0.018,exotic:0.070};        // round-trip spread+slippage+commission
+const STOP_SLIP_PCT={major:0.004,cross:0.007,exotic:0.030};   // extra adverse slippage specifically on stop fills
+function costPct(p){ return COST_PCT[pairCategory(p)]; }
+
+// ---------- FX sessions (UTC) — forex is far more predictable by session ----------
+function getSession(){
+  const d=new Date(), hUTC=d.getUTCHours()+d.getUTCMinutes()/60;
+  if(hUTC>=13 && hUTC<16) return {key:'overlap',name:'London–NY Overlap',window:'13:00–16:00 UTC',end:16,
+    pairs:['EUR/USD','GBP/USD','USD/JPY','USD/CAD','USD/CHF'], desc:'peak liquidity — majors move most'};
+  if(hUTC>=7 && hUTC<13) return {key:'eu',name:'London / European',window:'07:00–16:00 UTC',end:16,
+    pairs:['EUR/USD','GBP/USD','EUR/GBP','EUR/CHF','GBP/CHF','EUR/JPY','GBP/JPY','EUR/SEK','EUR/NOK'], desc:'EUR · GBP · CHF most active'};
+  if(hUTC>=16 && hUTC<21) return {key:'us',name:'New York / US',window:'13:00–22:00 UTC',end:21,
+    pairs:['EUR/USD','USD/JPY','USD/CAD','USD/CHF','USD/MXN','USD/BRL'], desc:'USD & Americas in focus'};
+  return {key:'asia',name:'Tokyo / Asian',window:'00:00–09:00 UTC',end:(hUTC>=21?33:9),
+    pairs:['USD/JPY','AUD/USD','NZD/USD','AUD/JPY','AUD/NZD','EUR/JPY','USD/CNH','USD/SGD','USD/THB'], desc:'JPY · AUD · NZD most predictable'};
+}
+
+// ---------- state ----------
+let strength={}, flow={}, news={}, trend={}, cdrift={};
+CCY.forEach(c=>{ strength[c]=(Math.random()*2-1)*0.4; flow[c]=0; news[c]=(Math.random()*2-1)*0.3; trend[c]=0; cdrift[c]=(Math.random()*2-1)*0.0004; });
+let pair={};
+PAIRS.forEach(p=>{ pair[p]={rate:BASE_RATE[p],base:BASE_RATE[p],chg:0,chgPct:0,m15:0,h1:0,day:(Math.random()*2-1)*0.6,
+  mom:0,vol:0.4+Math.random()*0.5,score:0,side:'LONG',pred:0,fib:0,spark:new Array(20).fill(0),
+  _minSize:100,_sizeStep:100,_minStopPct:0.01}; });   // safe Capital.com FX defaults until real rules load
+let flowMode='capital', biasMode='auto', brainBias=0, brainTarget=0;
+let topLong=null, topShort=null, ranked=[];
+let predictive={ p:null, side:'LONG', score:0, horizon:4, lockUntil:0, session:'', sessionName:'', sessionWindow:'', sessionDesc:'', factors:{} };
+let mockClock=0; const MOCK_H_PER_TICK=0.03;                 // slower clock: gives trades real ticks to develop before TIME
+let position=null;                                          // active predictive trade (followable, resolves)
+let trinity={ trades:[], byS:{overlap:{n:0,w:0},eu:{n:0,w:0},us:{n:0,w:0},asia:{n:0,w:0}}, mult:1, wr:0, avgR:0 };
+let reasonLog=[];                    // live reasoning feed
+let trinityAdj=[];                   // autonomous self-tuning adjustments feed
+let autoAdj={minConfDelta:0,tgtMult:1,maxPosDelta:0,disabledSessions:{}};
+let customPreset=null;               // manual override, null = use selected preset baseline
+let lastTuneAt=0, scanTick=0;
+function pushReason(msg){ reasonLog.unshift({t:new Date(),msg}); if(reasonLog.length>150)reasonLog.pop(); renderReasoning(); }
+function pushAdj(field,from,to,reason){ trinityAdj.unshift({t:new Date(),field,from,to,reason}); if(trinityAdj.length>60)trinityAdj.pop(); renderAdjustments(); lastUpdated.learning=new Date(); }
+const PRESETS={
+  conservative:{label:'Conservative',riskPct:0.5,maxAllocPct:20,maxPos:2,stopPct:0.25,tgtPct:0.40,minConf:70,sessions:['eu','us','overlap']},
+  balanced:{label:'Balanced',riskPct:1.0,maxAllocPct:40,maxPos:3,stopPct:0.30,tgtPct:0.45,minConf:58,sessions:['eu','us','overlap','asia']},
+  aggressive:{label:'Aggressive',riskPct:2.0,maxAllocPct:70,maxPos:5,stopPct:0.35,tgtPct:0.70,minConf:46,sessions:['eu','us','overlap','asia']}
+};
+const SESSION_TUNE={asia:{label:'Asian',volMult:0.7},eu:{label:'EU',volMult:1.0},us:{label:'US',volMult:1.05},overlap:{label:'Overlap',volMult:1.2}};
+let preset='balanced';
+let opts={ict:true,svp:true,meters:true,news:true};
+let wallet={start:1000,balance:1000,equity:1000,realized:0,realizedGross:0,costPaid:0,wins:0,losses:0,peak:1000,maxDD:0};
+let tradeLog=[];                     // full closed-position history (scrollable + exportable)
+let trinityOn=false;                 // the bot: OFF until you press Start
+let positions=[];                    // live portfolio (best long+short micro-margin trades)
+const CALIB_BANDS=[[50,60],[60,70],[70,80],[80,90],[90,100]];
+let calibB={}; CALIB_BANDS.forEach(([a,b])=>calibB[a+'-'+b]={lo:a,hi:b,n:0,w:0});
+let lastUpdated={trinity:null,calib:null,wallet:null,learning:null};
+let oanda={connected:false,env:'practice',mode:'mock',account:'',proxy:''};
+// ---------- LIVE DATA FEED ----------
+// Two providers: OANDA (browser-direct pricing; orders via proxy) and Capital.com
+// (EU-friendly; BOTH pricing and orders go through a proxy because its auth needs a password).
+let feed={mode:'mock',provider:'capital',token:'',account:'',env:'practice',ok:false,lastMsg:'',lastAt:null,livePairs:0,timer:null,dealIds:{}};
+const OANDA_REST={practice:'https://api-fxpractice.oanda.com',live:'https://api-fxtrade.oanda.com'};
+const toOandaInstrument=p=>p.replace('/','_');                     // EUR/USD -> EUR_USD
+const fromOandaInstrument=i=>i.replace('_','/');
+// Capital.com uses "epics". Most FX epics are just the concatenated pair (EURUSD).
+// Exotics/CNH sometimes differ; the dashboard resolves unknowns via the proxy /prices probe and caches them.
+let capProxy='';
+let liveSigAvg=8e-5;                                               // rolling avg of |sig| on live data, for adaptive confidence scaling
+let walletMode='mock';                                            // 'mock' = Trinity's own 1000 sim; 'live' = mirror Capital.com
+let livePositions=[];                                             // positions as reported by Capital.com (the source of truth)
+let liveAccount=null;                                             // {balance,available,profitLoss,currency}
+let syncTimer=null, seenClosed={};                               // dedupe broker-settled deals we've already logged
+let trinityWasRunning=false;                                     // persisted: was Trinity trading before the tab closed?
+let trinityStartedAt=null;                                       // ms timestamp when Trinity was last started (for runtime display)
+const toEpic=p=>p.replace('/','');                                 // EUR/USD -> EURUSD
+const fromEpic=e=>e.length===6?e.slice(0,3)+'/'+e.slice(3):e;      // EURUSD -> EUR/USD
+function fmtTime(d){ if(!d)return '—'; const p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); }
+
+// ---------- active engine config: baseline preset (or manual override) + Trinity's autonomous adjustments ----------
+function presetLabel(){ return customPreset?'Custom':PRESETS[preset].label; }
+function activePreset(){
+  const base=customPreset||PRESETS[preset];
+  const minConf=Math.min(95,base.minConf+autoAdj.minConfDelta);
+  const tgtPct=+(base.tgtPct*autoAdj.tgtMult).toFixed(3);
+  const maxPos=Math.max(1,base.maxPos+autoAdj.maxPosDelta);
+  const sessions=base.sessions.filter(s=>!autoAdj.disabledSessions[s]);
+  return {...base,minConf,tgtPct,maxPos,sessions};
+}
+function applyCustomSettings(){
+  const g=id=>document.getElementById(id);
+  const sessions=['asia','eu','us','overlap'].filter(s=>g('cs-'+s)&&g('cs-'+s).checked);
+  customPreset={ label:'Custom', riskPct:+(g('cs-risk')&&g('cs-risk').value)||1, maxAllocPct:+(g('cs-alloc')&&g('cs-alloc').value)||40,
+    maxPos:+(g('cs-maxpos')&&g('cs-maxpos').value)||3, stopPct:+(g('cs-stop')&&g('cs-stop').value)||0.4, tgtPct:+(g('cs-tgt')&&g('cs-tgt').value)||0.9,
+    minConf:+(g('cs-minconf')&&g('cs-minconf').value)||52, sessions: sessions.length?sessions:['eu','us','overlap','asia'] };
+  renderSettings();
+}
+function resetCustomSettings(){ customPreset=null; renderSettings(); }
+window.applyCustomSettings=applyCustomSettings; window.resetCustomSettings=resetCustomSettings;
+
+// ---------- Trinity's autonomous self-tuning (separate from the manual preset/custom baseline) ----------
+function autoTune(){
+  const recent=trinity.trades.slice(-30); if(recent.length<20)return;
+  const wr=recent.filter(t=>t.win).length/recent.length, avgR=recent.reduce((a,t)=>a+t.R,0)/recent.length;
+  if(avgR<-0.15 && autoAdj.minConfDelta<20){ const from=autoAdj.minConfDelta; autoAdj.minConfDelta+=4;
+    pushAdj('min confidence (all sessions)','+'+from+'pp','+'+autoAdj.minConfDelta+'pp',`recent avg R ${avgR.toFixed(2)} over ${recent.length} trades \u2192 raising the confidence bar`); }
+  else if(avgR>0.15 && autoAdj.minConfDelta>0){ const from=autoAdj.minConfDelta; autoAdj.minConfDelta=Math.max(0,autoAdj.minConfDelta-3);
+    pushAdj('min confidence (all sessions)','+'+from+'pp','+'+autoAdj.minConfDelta+'pp',`recent avg R ${avgR.toFixed(2)} \u2192 easing back toward baseline`); }
+  Object.keys(trinity.byS).forEach(k=>{ const b=trinity.byS[k]; if(b.n>=15){ const swr=b.w/b.n;
+    if(swr<0.30 && !autoAdj.disabledSessions[k]){ autoAdj.disabledSessions[k]=true; pushAdj('session filter','enabled','disabled: '+SESSION_TUNE[k].label,`${SESSION_TUNE[k].label} win-rate ${Math.round(swr*100)}% over ${b.n} trades \u2014 pausing this session`); }
+    else if(swr>=0.42 && autoAdj.disabledSessions[k]){ delete autoAdj.disabledSessions[k]; pushAdj('session filter','disabled','re-enabled: '+SESSION_TUNE[k].label,`${SESSION_TUNE[k].label} win-rate recovered to ${Math.round(swr*100)}%`); } }});
+  const stopShare=recent.filter(t=>!t.win).length/recent.length;
+  if(stopShare>0.68 && autoAdj.tgtMult<1.6){ const from=autoAdj.tgtMult; autoAdj.tgtMult=+(autoAdj.tgtMult+0.15).toFixed(2);
+    pushAdj('target distance','×'+from,'×'+autoAdj.tgtMult,`${Math.round(stopShare*100)}% of recent trades were losses \u2014 widening targets relative to stop`); }
+  if(wallet.maxDD>6 && autoAdj.maxPosDelta>-2){ const from=autoAdj.maxPosDelta; autoAdj.maxPosDelta=Math.max(-2,autoAdj.maxPosDelta-1);
+    pushAdj('max open positions',from+' vs preset',autoAdj.maxPosDelta+' vs preset',`drawdown ${wallet.maxDD.toFixed(1)}% \u2192 trading smaller`); }
+  else if(wallet.maxDD<3 && autoAdj.maxPosDelta<0){ const from=autoAdj.maxPosDelta; autoAdj.maxPosDelta=Math.min(0,autoAdj.maxPosDelta+1);
+    pushAdj('max open positions',from+' vs preset',autoAdj.maxPosDelta+' vs preset',`drawdown recovered to ${wallet.maxDD.toFixed(1)}%`); }
+}
+function renderAdjustments(){ const el=document.getElementById('adj-feed'); if(!el)return;
+  if(!trinityAdj.length){ el.innerHTML='<div class="rline" style="color:var(--dimmer)">no autonomous adjustments yet — Trinity needs ~20 closed trades before it starts tuning</div>'; return; }
+  el.innerHTML=trinityAdj.slice(0,40).map(a=>`<div class="rline"><span class="rt">${fmtTime(a.t).slice(0,16)}</span> <b>${a.field}</b>: ${a.from} → ${a.to} <span style="color:var(--dimmer)">— ${a.reason}</span></div>`).join('');
+}
+function renderReasoning(){ const el=document.getElementById('reason-feed'); if(!el)return;
+  el.innerHTML=reasonLog.slice(0,60).map(r=>`<div class="rline"><span class="rt">${fmtTime(r.t).slice(11)}</span> ${r.msg}</div>`).join('')||'<div class="rline" style="color:var(--dimmer)">awaiting scan output…</div>';
+}
+
+function tick(){
+  CCY.forEach(c=>{
+    // drift regime (AR(1), ~15-tick half-life) with frequent shocks — trends real but can reverse mid-trade
+    cdrift[c]=cdrift[c]*0.955+(Math.random()*2-1)*0.00013;
+    if(Math.random()<0.012) cdrift[c]=(Math.random()*2-1)*0.0007;      // regime shift
+    cdrift[c]=Math.max(-0.0009,Math.min(0.0009,cdrift[c]));
+    strength[c]+=cdrift[c]*4-strength[c]*0.004; strength[c]=Math.max(-1,Math.min(1,strength[c]));
+    flow[c]+=((strength[c])-flow[c])*0.12+(Math.random()*2-1)*0.02; flow[c]=Math.max(-1,Math.min(1,flow[c]));
+    news[c]+=(Math.random()*2-1)*0.05-news[c]*0.03; news[c]=Math.max(-1,Math.min(1,news[c]));
+  });
+  const maxRate=Math.max(...CCY.map(c=>CCY_META[c].rate));
+  const live=feed.mode==='live'&&feed.ok;
+  PAIRS.forEach(p=>{ const [b,q]=splitPair(p),diff=strength[b]-strength[q],st=pair[p],prev=st.rate;
+    let step, changed=true;
+    if(live){
+      // REAL market: price is updated by the live feed. Only compute a return when the price
+      // actually moved (feed polls slower than tick), so the signal isn't diluted by zero-steps.
+      if(st._lastPx===undefined) st._lastPx=st.rate;
+      if(st.rate!==st._lastPx){ step=st._lastPx>0?(st.rate/st._lastPx-1):0; st._lastPx=st.rate; }
+      else { step=0; changed=false; }
+    } else {
+      // MOCK: synthetic drift + noise (labelled clearly in the UI as simulated)
+      const pd=cdrift[b]-cdrift[q], noise=(Math.random()*2-1)*0.0019;
+      step=pd+noise; st.rate=st.rate*(1+step);
+    }
+    st.chg=st.rate-prev; st.chgPct=prev>0?((st.rate/prev)-1)*100:0;
+    // SIGNAL: EMA of returns estimates recent drift — same logic on mock or live; hold between live price updates
+    if(changed) st.sig=(st.sig||0)*0.80+step*0.20;
+    // rolling realized volatility (EMA of |step|), used to size stops/targets to the market's actual movement
+    if(changed) st._vol=(st._vol||Math.abs(step)||0.0005)*0.97+Math.abs(step)*0.03;
+    st.mom=st.mom*0.85+diff*0.15; st.m15=st.m15*0.7+st.chgPct*0.3; st.h1=st.h1*0.92+st.chgPct*0.08; st.day=st.day*0.995+st.chgPct*0.02;
+    st.spark.push(st.sig); if(st.spark.length>20)st.spark.shift();
+    const sp=st.spark, hi=Math.max.apply(null,sp), lo=Math.min.apply(null,sp), rng=(hi-lo)||1e-6, posInRange=(sp[sp.length-1]-lo)/rng;
+    const fibLevels=[0.236,0.382,0.5,0.618,0.786]; st.fib=Math.max(0,1-Math.min.apply(null,fibLevels.map(f=>Math.abs(posInRange-f)))*4); st._posInRange=posInRange;
+    const long=st.sig>=0; st.side=long?'LONG':'SHORT';
+    // Normalisation: mock uses a fixed scale; LIVE self-calibrates to the market's actual signal
+    // magnitude (adaptive), so confidence reflects "strong relative to current conditions" honestly.
+    let sigNorm;
+    if(live){ if(st._live) liveSigAvg=liveSigAvg*0.995+Math.abs(st.sig)*0.005; sigNorm=Math.max(2.5e-5,liveSigAvg*2.4); }
+    else sigNorm=0.00085;
+    const sigMag=Math.min(1,Math.abs(st.sig)/sigNorm);
+    const carry=(CCY_META[b].rate-CCY_META[q].rate)/maxRate, carryAlign=Math.sign(carry)===Math.sign(st.sig||1)?Math.min(1,Math.abs(carry)):0;
+    const newsAlign=Math.max(0,(news[b]-news[q])*(long?1:-1));
+    st.score=Math.round(Math.min(100,sigMag*80+st.fib*12));
+    // confidence spread across bands; higher = stronger estimated drift + confluence
+    const predRaw=Math.min(97, 34 + sigMag*52 + st.fib*7 + carryAlign*5 + newsAlign*4);
+    st.pred=st.pred*0.8+predRaw*0.2; st._carry=carry; st._news=news[b]-news[q]; st._gap=diff; st._sigMag=sigMag;
+  });
+  ranked=PAIRS.map(p=>({p,...pair[p]})).sort((a,b)=>b.score-a.score);
+  topLong =ranked.filter(r=>r.side==='LONG').sort((a,b)=>b.score-a.score)[0]||ranked[0];
+  topShort=ranked.filter(r=>r.side==='SHORT').sort((a,b)=>b.score-a.score)[0]||ranked[0];
+  manageTrinity();
+}
+
+function manageTrinity(){
+  mockClock+=MOCK_H_PER_TICK; scanTick++;
+  const S=getSession(), pr=activePreset();
+  const liveMode=feed.mode==='live'&&feed.ok&&feed.provider==='capital';
+  // manage every open position. On LIVE, Trinity now actively guards exits (breakeven/horizon/stop/target)
+  // and closes via the proxy. A broker-side stop/target is ALSO attached at open as a safety net for when
+  // Trinity is inactive (tab closed / network down). On MOCK, Trinity guards its simulated positions.
+  for(const p of positions){ if(p.status!=='open')continue; const st=pair[p.pair], price=st.rate, long=p.side==='LONG';
+    p.current=price;
+    const rawPnlPct=(long?(price/p.entry-1):(1-price/p.entry))*100;
+    p.pnlPctGross=rawPnlPct; p.pnlPct=rawPnlPct-costPct(p.pair);
+    p.ageH = (liveMode && p.openedAt) ? (Date.now()-p.openedAt.getTime())/3600000 : (mockClock-p.openClock);
+    if(liveMode && p.brokerDealId && brokerMeta[p.brokerDealId]) brokerMeta[p.brokerDealId].lastPnlPct=p.pnlPct;
+    // breakeven lock: once well on the way to target, protect the trade
+    if(!p.beMoved){ const prog=long?(price-p.entry)/(p.target-p.entry):(p.entry-price)/(p.entry-p.target);
+      if(prog>=0.55){ p.stop=p.entry; p.beMoved=true; pushReason(`${p.pair} — past 55% to target, Trinity moves stop to breakeven`);
+        if(liveMode&&p.brokerDealId) updateBrokerStop(p.brokerDealId,p.entry); } }   // move the broker safety-net stop up too
+    let exit=null;
+    if(long? price>=p.target : price<=p.target) exit='TARGET';
+    else if(long? price<=p.stop : price>=p.stop) exit='STOP';
+    else if(p.ageH>=p.horizonH){
+      const aligned=Math.sign(st.sig||0)===(long?1:-1) && Math.abs(st.sig)>(liveSigAvg*1.2);
+      if(!p.extended && aligned){ p.horizonH*=1.4; p.extended=true;
+        pushReason(`${p.pair} — horizon reached but still trending → Trinity extends the hold once`); }
+      else exit='TIME';
+    }
+    if(exit){
+      if(liveMode && p.brokerDealId){ closeLivePosition(p.brokerDealId); }   // Trinity closes the real position
+      closeTrade(p,exit);   // record outcome in Trinity's books/calibration
+    }
+  }
+  positions=positions.filter(p=>p.status==='open' || (mockClock-p.closedClock<0.3));   // keep closed briefly
+  const openPs=positions.filter(p=>p.status==='open');
+  // On live, the broker positions are the truth, but freshly-opened trades take a few seconds to appear in
+  // the sync. Count the UNION (by pair) of broker positions and Trinity's own just-opened ones, so we never
+  // overshoot the max while the sync catches up.
+  const heldSet=new Set(liveMode ? [...livePositions.map(p=>p.pair),...openPs.map(p=>p.pair)] : openPs.map(p=>p.pair));
+  const heldPairs=heldSet;
+  const live=liveMode;
+  const now=Date.now();
+  const tradablePairs=PAIRS.filter(p=>!heldPairs.has(p) && (!live || (pair[p]._live && pair[p].tradeable && pair[p]._liveAt && (now-pair[p]._liveAt<30000))));
+  // open the best long/short micro-margin opportunities across ALL pairs (only when Trinity is ON)
+  if(trinityOn && pr.sessions.includes(S.key)){
+    const liveOpenCount = liveMode ? heldSet.size : openPs.length;   // union count = true concurrent exposure
+    const cands=tradablePairs.map(p=>({p,...pair[p]}))
+      .filter(r=>Math.round(Math.min(99,r.pred*trinity.mult))>=pr.minConf).sort((a,b)=>b.pred-a.pred);
+    let slots=Math.max(0,pr.maxPos-liveOpenCount);
+    for(const c of cands){ if(slots<=0)break; openTrade(c,S,pr); slots--; }
+    if(scanTick%6===0){ const top=tradablePairs.map(p=>({p,...pair[p]})).sort((a,b)=>b.pred-a.pred)[0];
+      if(top) pushReason(`scan · ${S.name} · best unheld candidate ${top.p} conf ${Math.round(Math.min(99,top.pred*trinity.mult))}% (need ${pr.minConf}%) · fib ${Math.round(top.fib*100)}% · scanned ${tradablePairs.length}${live?' live':''} pairs · ${liveOpenCount}/${pr.maxPos} open`);
+    }
+  } else if(scanTick%10===0){
+    pushReason(trinityOn?`session ${S.name} not in the active session list \u2014 standing by`:'Trinity idle — press Start to trade');
+  }
+  // equity = balance + unrealised P/L of the open portfolio (net of cost)
+  let unreal=0; for(const p of positions){ if(p.status==='open') unreal+=p.alloc*(p.pnlPct/100); }
+  wallet.equity=wallet.balance+unreal;
+  const best=ranked[0]; if(best){ predictive.p=best.p; predictive.side=best.side; predictive.score=Math.round(Math.min(99,best.pred*trinity.mult)); }
+}
+function openTrade(c,S,pr){
+  pr=pr||activePreset(); const tune=SESSION_TUNE[S.key]||{volMult:1}, st=pair[c.p], long=st.sig>=0, entry=st.rate;
+  const conf=Math.round(Math.min(99,Math.max(5,st.pred*trinity.mult)));
+  const live=feed.mode==='live'&&feed.ok;
+  // STOP/TARGET: on live data, scale to the pair's actual realized volatility so trades can actually
+  // reach them within a sensible time; on mock, use the preset percentages. Respect Capital's min stop %.
+  let stopPctUsed, tgtPctUsed;
+  if(live){
+    const volPct=Math.max(0.03,(st._vol||0.0005)*100);            // recent per-update move, in %
+    stopPctUsed=Math.max(st._minStopPct||0, volPct*6);            // ~6 updates of adverse move to stop out
+    // asymmetric: target is 2× the stop distance, so a win pays double a loss. The only honest way to
+    // beat break-even without a stronger signal is to let winners run further than losers.
+    const rr=Math.max(1.6, pr.tgtPct/pr.stopPct*1.3);
+    tgtPctUsed =Math.max(st._minStopPct||0, stopPctUsed*rr);
+  } else {
+    stopPctUsed=pr.stopPct*tune.volMult; tgtPctUsed=pr.tgtPct*tune.volMult;
+  }
+  const stop=long?entry*(1-stopPctUsed/100):entry*(1+stopPctUsed/100), target=long?entry*(1+tgtPctUsed/100):entry*(1-tgtPctUsed/100);
+  // HORIZON: on live, give trades enough real time to actually reach stop/target (not TIME-close near zero).
+  // Longer horizon + asymmetric target:stop is what moves results away from break-even — winners get room to run.
+  const horizonH = live ? 1.5 : Math.min(6,Math.max(2.5,(()=>{let hUTC=new Date().getUTCHours()+new Date().getUTCMinutes()/60,toEnd=S.end-hUTC;if(toEnd<0)toEnd+=24;return toEnd;})()));
+  const alloc=wallet.balance*(pr.maxAllocPct/100)/pr.maxPos;              // micro-margin: spread across the portfolio
+  const localId='t'+(Date.now())+Math.floor(Math.random()*1000);
+  positions.push({localId,pair:c.p,side:long?'LONG':'SHORT',entry,current:entry,stop,target,horizonH,ageH:0,openClock:mockClock,openedAt:new Date(),
+    status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,extended:false,session:S.key,sessionName:S.name,sessionWindow:S.window,sessionDesc:S.desc,conf,stopPctUsed,alloc,
+    factors:{liquidity:Math.min(100,60+st.vol*40),strength:Math.min(100,Math.abs(st._gap)*90),carry:Math.min(100,Math.abs(st._carry)*120),news:Math.min(100,Math.max(0,(st._news)*Math.sign(st.mom||1))*90+40),fib:Math.round(st.fib*100)}});
+  pushReason(`OPEN ${long?'LONG':'SHORT'} ${c.p} · conf ${conf}% · stop ${stopPctUsed.toFixed(3)}% · target ${tgtPctUsed.toFixed(3)}% · session ${S.name} · size $${alloc.toFixed(2)}`);
+  // relay to a real DEMO order when a live provider is connected
+  if(live&&feed.provider==='capital'){
+    // Capital wants size as a clean multiple of sizeStep, at or above minSize. Compute target notional
+    // in contracts, then snap UP to the next step multiple and enforce the minimum. Round to kill float noise.
+    const minSz=st._minSize||100, step=st._sizeStep||100;
+    const wantContracts=(wallet.balance*(pr.maxAllocPct/100)/pr.maxPos)/entry;   // notional → contracts
+    let steps=Math.max(1,Math.round(wantContracts/step));                        // whole number of steps
+    let sz=steps*step; if(sz<minSz) sz=Math.ceil(minSz/step)*step;               // never below minimum
+    sz=Math.round(sz*1e6)/1e6;                                                    // strip float noise
+    placeOrderCapital({instrument:c.p,side:long?'BUY':'SELL',size:sz,entry,stopDistancePct:stopPctUsed,tgtDistancePct:tgtPctUsed,localId});
+  } else if(oanda.mode!=='mock'){ placeOrderOANDA({instrument:c.p,side:long?'BUY':'SELL',units:Math.round(alloc)}); }
+}
+function closeTrade(p,reason){
+  p.status=reason; p.closedClock=mockClock;
+  // NOTE: on live, manageTrinity already called closeLivePosition(brokerDealId) before this — don't double-close.
+  if(feed.mode==='live'&&feed.provider==='capital'&&p.localId&&!p.brokerDealId) closeOrderCapital(p.localId);
+  if(reason==='STOP') p.pnlPct-=STOP_SLIP_PCT[pairCategory(p.pair)];       // extra adverse slippage realized on stop fills
+  const win = reason==='TARGET' || (reason==='TIME'&&p.pnlPct>0), R=p.pnlPct/(p.stopPctUsed||0.4);
+  const b=trinity.byS[p.session]; if(b){b.n++; if(win)b.w++;}
+  trinity.trades.push({win,R,session:p.session,conf:p.conf});
+  const recent=trinity.trades.slice(-60), wr=recent.length?recent.filter(t=>t.win).length/recent.length:0.5;
+  trinity.wr=wr; trinity.mult=0.8+wr*0.5; trinity.avgR=recent.length?recent.reduce((a,t)=>a+t.R,0)/recent.length:0;
+  for(const k in calibB){ const cb=calibB[k]; if(p.conf>=cb.lo && p.conf<cb.hi){ cb.n++; if(win)cb.w++; break; } }   // predicted vs measured
+  const grossPl=p.alloc*(p.pnlPctGross/100), netPl=p.alloc*(p.pnlPct/100);
+  wallet.balance+=netPl; wallet.realized+=netPl; wallet.realizedGross+=grossPl; wallet.costPaid+=(grossPl-netPl); wallet.equity=wallet.balance;
+  if(netPl>=0)wallet.wins++; else wallet.losses++;
+  wallet.peak=Math.max(wallet.peak,wallet.balance); wallet.maxDD=Math.max(wallet.maxDD,(wallet.peak-wallet.balance)/wallet.peak*100);
+  const now=new Date(); lastUpdated.trinity=now; lastUpdated.calib=now; lastUpdated.wallet=now; lastUpdated.learning=now;
+  tradeLog.unshift({pair:p.pair,side:p.side,openedAt:p.openedAt||now,closedAt:now,entry:p.entry,exit:p.current,size:p.alloc,
+    plCur:netPl,plPct:p.pnlPct,plPctGross:p.pnlPctGross,costPct:costPct(p.pair),reason,conf:p.conf});
+  if(tradeLog.length>500)tradeLog.pop();
+  pushReason(`CLOSE ${p.pair} ${p.side} · ${reason} · net ${p.pnlPct>=0?'+':''}${p.pnlPct.toFixed(2)}% (gross ${p.pnlPctGross>=0?'+':''}${p.pnlPctGross.toFixed(2)}%)`);
+  if(trinity.trades.length-lastTuneAt>=10){ lastTuneAt=trinity.trades.length; autoTune(); }
+  persistState&&persistState();
+  renderTrinity(); renderWallet(); renderCalib(); renderPositions(); renderClosed(); renderSettings();
+}
+function setStartEquity(){
+  const g=document.getElementById('start-equity'); let v=g?parseFloat(g.value):1000; if(!(v>0))v=1000;
+  wallet={start:v,balance:v,equity:v,realized:0,realizedGross:0,costPaid:0,wins:0,losses:0,peak:v,maxDD:0};
+  positions=[]; tradeLog=[]; trinity={trades:[],byS:{overlap:{n:0,w:0},eu:{n:0,w:0},us:{n:0,w:0},asia:{n:0,w:0}},mult:1,wr:0,avgR:0};
+  calibB={}; CALIB_BANDS.forEach(([a,b])=>calibB[a+'-'+b]={lo:a,hi:b,n:0,w:0});
+  autoAdj={minConfDelta:0,tgtMult:1,maxPosDelta:0,disabledSessions:{}}; trinityAdj=[]; reasonLog=[]; lastTuneAt=0;
+  lastUpdated.wallet=new Date();
+  renderWallet(); renderTrinity(); renderCalib(); renderClosed(); renderPositions(); renderAdjustments(); renderReasoning();
+  pushReason('wallet reset — starting equity $'+v.toLocaleString('en-US'));
+}
+window.setStartEquity=setStartEquity;
+function toggleTrinity(){
+  // stopping with live positions open → warn and offer to close all or let them run
+  if(trinityOn && feed.mode==='live' && feed.provider==='capital' && livePositions.length){
+    const closeAll=confirm(`Trinity has ${livePositions.length} open position(s) at Capital.com.\n\nOK = stop Trinity AND close all positions now.\nCancel = stop opening new trades, but LEAVE positions open (Capital.com keeps guarding their stops/targets; Trinity keeps syncing them).`);
+    if(closeAll){ closeAllLive(); pushReason('Trinity stopped — closing all open positions at Capital.com'); }
+    else pushReason('Trinity stopped — no new trades; '+livePositions.length+' position(s) left running at Capital.com, still synced');
+  }
+  trinityOn=!trinityOn;
+  trinityWasRunning=trinityOn;
+  if(trinityOn && !trinityStartedAt) trinityStartedAt=Date.now();
+  if(!trinityOn) trinityStartedAt=null;
+  const b=document.getElementById('trinity-toggle'); if(b){ b.textContent=trinityOn?'\u25A0  STOP TRINITY':'\u25B6  START TRINITY'; b.className='bigbtn'+(trinityOn?' on':''); }
+  const s=document.getElementById('trinity-state'); if(s){ s.textContent=trinityOn?'RUNNING':'STOPPED'; s.style.color=trinityOn?'var(--bull2)':'var(--dim)'; }
+  lastUpdated.trinity=new Date(); persistState(); renderTrinity();
+}
+window.toggleTrinity=toggleTrinity;
+// ---------- OANDA connection: LIVE PRICES (browser-direct, read-only) + ORDER RELAY (proxy) ----------
+function feedStatus(msg,color){ feed.lastMsg=msg; const st=document.getElementById('oa-status'); if(st){st.textContent=msg; st.style.color=color||'var(--amber)';} }
+function connectOanda(){
+  const g=id=>document.getElementById(id);
+  feed.env=(g('oa-env')||{value:'practice'}).value;
+  feed.account=(g('oa-account')||{value:''}).value.trim();
+  feed.token=(g('oa-token')||{value:''}).value.trim();
+  oanda.proxy=(g('oa-proxy')||{value:''}).value.trim();
+  oanda.env=feed.env; oanda.account=feed.account;
+  if(feed.timer){ clearInterval(feed.timer); feed.timer=null; }
+  if(!feed.token || !feed.account){
+    feed.mode='mock'; feed.ok=false; oanda.mode='mock';
+    feedStatus('MOCK data (simulated). Enter your OANDA practice Account ID + API token above and press Connect to run Trinity on REAL market prices.','var(--amber)');
+    return;
+  }
+  feed.mode='live'; oanda.mode=feed.env;
+  feedStatus('Connecting to OANDA '+feed.env.toUpperCase()+' pricing…','var(--cyan)');
+  fetchLivePrices(true);
+  feed.timer=setInterval(()=>fetchLivePrices(false), 2500);   // poll pricing every 2.5s
+}
+window.connectOanda=connectOanda;
+function disconnectOanda(){
+  if(feed.timer){ clearInterval(feed.timer); feed.timer=null; }
+  feed.mode='mock'; feed.ok=false; oanda.mode='mock';
+  feedStatus('Disconnected — back on MOCK (simulated) data.','var(--amber)');
+  pushReason('live feed disconnected — reverted to mock data');
+}
+window.disconnectOanda=disconnectOanda;
+function fetchLivePrices(first){
+  const base=OANDA_REST[feed.env]||OANDA_REST.practice;
+  const instruments=PAIRS.map(toOandaInstrument).join(',');
+  const url=base+'/v3/accounts/'+encodeURIComponent(feed.account)+'/pricing?instruments='+instruments;
+  fetch(url,{headers:{'Authorization':'Bearer '+feed.token,'Accept-Datetime-Format':'RFC3339'}})
+    .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status+(r.status===401?' (bad token)':r.status===400?' (bad account/instrument)':'')); return r.json(); })
+    .then(data=>{
+      let n=0;
+      (data.prices||[]).forEach(pr=>{
+        const pairName=fromOandaInstrument(pr.instrument); const st=pair[pairName]; if(!st)return;
+        const bid=pr.bids&&pr.bids[0]&&+pr.bids[0].price, ask=pr.asks&&pr.asks[0]&&+pr.asks[0].price;
+        const mid=(bid&&ask)?(bid+ask)/2:(pr.closeoutBid&&pr.closeoutAsk?(+pr.closeoutBid+ +pr.closeoutAsk)/2:null);
+        if(mid){ st.rate=mid; st.base=st.base||mid; st.tradeable=(pr.status==='tradeable'); st._spread=(bid&&ask)?(ask-bid)/mid:0; n++; }
+      });
+      feed.ok=n>0; feed.livePairs=n; feed.lastAt=new Date();
+      if(feed.ok){ feedStatus('LIVE · OANDA '+feed.env.toUpperCase()+' · '+n+'/'+PAIRS.length+' pairs streaming (mid-price, real spread) · updated '+fmtTime(feed.lastAt),'var(--bull2)');
+        if(first){ pushReason('LIVE feed connected — OANDA '+feed.env.toUpperCase()+', '+n+' pairs. Trinity now trades REAL market prices; results are no longer simulated.'); } }
+      else feedStatus('Connected but no tradeable prices returned (market may be closed — forex is shut over the weekend). Retrying…','var(--amber)');
+    })
+    .catch(e=>{ feed.ok=false;
+      const cors=/Failed to fetch/i.test(e.message);
+      feedStatus('Live feed error: '+e.message+(cors?' — this can be a token/account problem or a browser CORS/network block. Verify credentials; if it persists, route pricing through your proxy too.':'')+' Staying on last good data.','var(--bear)');
+    });
+}
+// ORDER RELAY — always via your proxy; the token must never sit in this public page for order placement.
+function placeOrderOANDA(order){
+  if(feed.mode!=='live') return;                      // mock: no real orders
+  if(!oanda.proxy){ pushReason('order NOT sent — live pricing is on, but no proxy URL set for order execution (token can\'t be exposed client-side)'); return; }
+  try{ fetch(oanda.proxy.replace(/\/$/,'')+'/order',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({env:feed.env,account:feed.account,instrument:toOandaInstrument(order.instrument),units:order.side==='BUY'?order.units:-order.units})})
+    .then(r=>r.json()).then(()=>pushReason('order relayed to proxy: '+order.side+' '+order.instrument+' '+order.units+' units'))
+    .catch(e=>pushReason('order relay failed: '+e.message)); }catch(e){}
+}
+
+// ---------- Capital.com connection: prices + demo orders, ALL via your proxy ----------
+function connectCapital(){
+  const g=id=>document.getElementById(id);
+  capProxy=(g('cap-proxy')||{value:''}).value.trim().replace(/\/$/,'');
+  feed.env=(g('cap-env')||{value:'demo'}).value;
+  if(feed.timer){ clearInterval(feed.timer); feed.timer=null; }
+  if(!capProxy){ feed.mode='mock'; feed.ok=false;
+    capStatus('No proxy URL set. Deploy capital-proxy-worker.js (holds your API key + password server-side), then paste its URL here. Running on MOCK until then.','var(--amber)');
+    return;
+  }
+  feed.provider='capital'; feed.mode='live';
+  capStatus('Connecting to Capital.com '+feed.env.toUpperCase()+' via proxy…','var(--cyan)');
+  // health check first
+  fetch(capProxy+'/health').then(r=>r.json()).then(h=>{
+    if(!h.ok||!h.session){ feed.mode='mock'; feed.ok=false; capStatus('Proxy reachable but no Capital.com session — check CAP_API_KEY / CAP_IDENTIFIER / CAP_PASSWORD secrets on the worker.','var(--bear)'); return; }
+    fetchCapitalPrices(true); fetchCapitalAccount(); fetchCapitalRules(); startCapitalSync();
+    // after a reconnect / tab reopen: if Trinity was running before, resume syncing its open positions
+    if(trinityWasRunning && !trinityOn){ pushReason('reconnected — Trinity was running before; resuming sync with Capital.com (open positions restored from broker)'); }
+    feed.timer=setInterval(()=>{ fetchCapitalPrices(false); },5000);        // poll every 5s (proxy throttles internally)
+    setInterval(()=>{ if(feed.mode==='live') fetchCapitalAccount(); },20000);
+  }).catch(e=>{ feed.mode='mock'; feed.ok=false; capStatus('Cannot reach proxy: '+e.message+' — verify the worker URL and that it is deployed.','var(--bear)'); });
+}
+window.connectCapital=connectCapital;
+function capStatus(msg,color){ const st=document.getElementById('cap-status'); if(st){st.textContent=msg; st.style.color=color||'var(--amber)';} }
+function fetchCapitalRules(){
+  const epics=PAIRS.map(toEpic).join(',');
+  fetch(capProxy+'/rules?epics='+encodeURIComponent(epics)).then(r=>r.json()).then(d=>{
+    if(!d.rules)return; let n=0;
+    d.rules.forEach(ru=>{ const name=fromEpic(ru.epic); const st=pair[name]; if(!st)return;
+      st._minSize=ru.minSize||0.1; st._sizeStep=ru.sizeStep||0.01; st._minStopPct=ru.minStopPct; st._maxStopPct=ru.maxStopPct; st._ccy=ru.currency; n++; });
+    pushReason('dealing rules loaded for '+n+' pairs — order sizes now match each market\u2019s minimum');
+  }).catch(()=>{});
+}
+function fetchCapitalPrices(first){
+  const epics=PAIRS.map(toEpic).join(',');
+  fetch(capProxy+'/prices?epics='+encodeURIComponent(epics)).then(r=>r.json()).then(d=>{
+    if(d.error){ capStatus('Price error: '+d.error,'var(--bear)'); return; }
+    let n=0,tradeable=0;
+    (d.prices||[]).forEach(pr=>{ const name=fromEpic(pr.epic); const st=pair[name]; if(!st||pr.mid==null)return;
+      st.rate=pr.mid; st.base=st.base||pr.mid; st._live=true; st._liveAt=Date.now(); st.tradeable=(pr.status==='TRADEABLE'); st._spread=(pr.bid&&pr.ask)?(pr.ask-pr.bid)/pr.mid:0; n++; if(st.tradeable)tradeable++; });
+    feed.ok=n>0; feed.livePairs=n; feed.lastAt=new Date();
+    if(feed.ok){ capStatus('LIVE · Capital.com '+feed.env.toUpperCase()+' · '+n+'/'+PAIRS.length+' pairs · '+tradeable+' tradeable · real spread · '+fmtTime(feed.lastAt),'var(--bull2)');
+      if(first) pushReason('LIVE feed connected — Capital.com '+feed.env.toUpperCase()+', '+n+' pairs via proxy. Trinity now trades REAL market prices; results are no longer simulated.'); }
+    else capStatus('Connected but no prices returned (market may be closed — forex is shut on weekends).','var(--amber)');
+  }).catch(e=>{ capStatus('Price fetch failed: '+e.message,'var(--bear)'); });
+}
+function fetchCapitalAccount(){
+  fetch(capProxy+'/account').then(r=>r.json()).then(a=>{
+    if(a&&a.balance!=null){ feed.accountBalance=a.balance; feed.accountCurrency=a.currency;
+      const el=document.getElementById('cap-account-bal'); if(el)el.textContent='Demo account: '+a.balance.toLocaleString('en-US',{style:'currency',currency:a.currency||'USD'})+' · available '+(a.available!=null?a.available.toLocaleString('en-US',{style:'currency',currency:a.currency||'USD'}):'—'); }
+  }).catch(()=>{});
+}
+function disconnectCapital(){
+  if(feed.timer){ clearInterval(feed.timer); feed.timer=null; }
+  feed.mode='mock'; feed.ok=false;
+  capStatus('Disconnected — back on MOCK (simulated) data.','var(--amber)');
+  pushReason('live feed disconnected — reverted to mock data');
+}
+window.disconnectCapital=disconnectCapital;
+
+// ============================================================
+// CAPITAL.COM AS SOURCE OF TRUTH — position + wallet + closed-trade sync
+// The browser holds no authoritative state: on every poll (and on reconnect
+// after a network drop or tab reopen) we pull the real open positions, account
+// balance, and recently-settled deals from Capital.com and mirror them.
+// ============================================================
+function startCapitalSync(){
+  if(syncTimer) clearInterval(syncTimer);
+  syncCapitalPositions(); syncCapitalActivity();
+  syncTimer=setInterval(()=>{ if(feed.mode==='live'&&feed.provider==='capital'){ syncCapitalPositions(); } },4000);
+  setInterval(()=>{ if(feed.mode==='live'&&feed.provider==='capital') syncCapitalActivity(); },12000);
+}
+function stopCapitalSync(){ if(syncTimer){ clearInterval(syncTimer); syncTimer=null; } }
+
+// Pull real open positions and rebuild the mirrored view + wallet
+function syncCapitalPositions(){
+  if(!capProxy) return;
+  Promise.all([
+    fetch(capProxy+'/positions').then(r=>r.json()).catch(e=>({error:e.message})),
+    fetch(capProxy+'/account').then(r=>r.json()).catch(e=>({error:e.message})),
+  ]).then(([pos,acc])=>{
+    if(acc&&acc.balance!=null){ liveAccount=acc; }
+    if(pos&&pos.positions){
+      livePositions=pos.positions.map(p=>{
+        const name=fromEpic(p.epic), long=p.direction==='BUY';
+        const mid=(p.bid&&p.offer)?(p.bid+p.offer)/2:p.entry;
+        const pnlPct=p.entry?((long?(mid/p.entry-1):(1-mid/p.entry))*100):0;
+        return {dealId:p.dealId,pair:name,side:long?'LONG':'SHORT',size:p.size,entry:p.entry,current:mid,
+          upl:p.upl,pnlPct,currency:p.currency,stopLevel:p.stopLevel,profitLevel:p.profitLevel,createdUTC:p.createdUTC,
+          conf:(brokerMeta[p.dealId]&&brokerMeta[p.dealId].conf)||null,
+          session:(brokerMeta[p.dealId]&&brokerMeta[p.dealId].session)||null};
+      });
+      // reconcile: link any internal Trinity position to its broker dealId by epic+side
+      reconcileInternalWithBroker();
+      renderLivePositions();
+    }
+    if(walletMode==='live') renderWallet();
+    const el=document.getElementById('cap-account-bal');
+    if(el&&liveAccount) el.textContent='Demo account: '+ (liveAccount.balance!=null?liveAccount.balance.toLocaleString('en-US',{style:'currency',currency:liveAccount.currency||'USD'}):'—')+' · available '+(liveAccount.available!=null?liveAccount.available.toLocaleString('en-US',{style:'currency',currency:liveAccount.currency||'USD'}):'—')+' · open P/L '+(liveAccount.profitLoss!=null?(liveAccount.profitLoss>=0?'+':'')+liveAccount.profitLoss.toFixed(2):'—');
+  });
+}
+// map internal open positions → broker dealIds so a Trinity-side close hits the right position after a reload
+let brokerMeta={};   // dealId -> {conf,session,pair,side} remembered when Trinity opened it
+function reconcileInternalWithBroker(){
+  positions.forEach(ip=>{ if(ip.status!=='open'||ip.brokerDealId)return;
+    const match=livePositions.find(lp=>lp.pair===ip.pair && lp.side===ip.side && !Object.values(positions).some(x=>x.brokerDealId===lp.dealId));
+    if(match) ip.brokerDealId=match.dealId;
+  });
+}
+// Read broker-settled deals so Trinity learns outcomes even when Capital.com guards the stop/target
+function syncCapitalActivity(){
+  if(!capProxy) return;
+  fetch(capProxy+'/activity?seconds=3600').then(r=>r.json()).then(d=>{
+    if(!d.activities)return;
+    d.activities.forEach(a=>{
+      if(a.type!=='POSITION' || (a.status!=='CLOSED'&&a.status!=='DELETED'&&a.status!=='ACCEPTED'))return;
+      const key=a.dealId+'|'+a.date; if(seenClosed[key])return;
+      // only log a close we haven't already recorded, and only if we have meta (Trinity opened it)
+      const meta=brokerMeta[a.dealId];
+      if(a.status==='CLOSED' || a.status==='DELETED'){
+        seenClosed[key]=true;
+        if(meta && !meta.logged){ meta.logged=true; recordBrokerClose(a,meta); }
+      }
+    });
+  }).catch(()=>{});
+}
+function recordBrokerClose(a,meta){
+  // Trinity didn't see the tick-by-tick exit (broker did), so we log the outcome from activity + last known P/L.
+  const now=new Date();
+  const lp=livePositions.find(x=>x.dealId===a.dealId);
+  const pnlPct=meta.lastPnlPct!=null?meta.lastPnlPct:(lp?lp.pnlPct:0);
+  const win=pnlPct>=0, reason='BROKER';
+  const b=trinity.byS[meta.session]; if(b){b.n++; if(win)b.w++;}
+  trinity.trades.push({win,R:pnlPct/(meta.stopPctUsed||0.4),session:meta.session,conf:meta.conf});
+  const recent=trinity.trades.slice(-60), wr=recent.length?recent.filter(t=>t.win).length/recent.length:0.5;
+  trinity.wr=wr; trinity.mult=0.8+wr*0.5; trinity.avgR=recent.length?recent.reduce((x,t)=>x+t.R,0)/recent.length:0;
+  if(meta.conf!=null) for(const k in calibB){ const cb=calibB[k]; if(meta.conf>=cb.lo&&meta.conf<cb.hi){ cb.n++; if(win)cb.w++; break; } }
+  tradeLog.unshift({pair:meta.pair,side:meta.side,openedAt:meta.openedAt||now,closedAt:now,entry:meta.entry||0,exit:lp?lp.current:0,
+    size:meta.size||0,plCur:0,plPct:pnlPct,plPctGross:pnlPct,costPct:0,reason,conf:meta.conf});
+  if(tradeLog.length>500)tradeLog.pop();
+  pushReason(`SYNCED close · ${meta.pair} ${meta.side} · settled by Capital.com · ${pnlPct>=0?'+':''}${pnlPct.toFixed(2)}% · logged to Trinity's data`);
+  persistState(); renderTrinity(); renderCalib(); renderClosed();
+}
+// close a real Capital.com position from Trinity (manual button or Trinity logic)
+function closeLivePosition(dealId){
+  if(!capProxy||!dealId)return;
+  fetch(capProxy+'/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dealId})})
+    .then(r=>r.json()).then(res=>{
+      if(res.error){ pushReason('close failed: '+res.error); return; }
+      pushReason('position closed via Trinity → Capital.com'); syncCapitalPositions();
+    }).catch(e=>pushReason('close failed: '+e.message));
+}
+window.closeLivePosition=closeLivePosition;
+// raise/lower the broker safety-net stop (e.g. to breakeven) so it protects the position if Trinity goes inactive
+function updateBrokerStop(dealId,stopLevel){
+  if(!capProxy||!dealId)return;
+  fetch(capProxy+'/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dealId,stopLevel:+stopLevel.toFixed(5)})})
+    .then(r=>r.json()).then(()=>{}).catch(()=>{});
+}
+function closeAllLive(){ livePositions.forEach(p=>closeLivePosition(p.dealId)); }
+window.closeAllLive=closeAllLive;
+
+// ---- localStorage persistence (learning/calibration + running flag), NOT positions (those come from Capital) ----
+function persistState(){
+  try{ localStorage.setItem('oif_state', JSON.stringify({
+    v:1, trinityWasRunning:trinityOn, walletMode, preset, customPreset, autoAdj,
+    capProxy, capEnv:feed.env,
+    trinity:{trades:trinity.trades.slice(-300),byS:trinity.byS,wr:trinity.wr,avgR:trinity.avgR,mult:trinity.mult},
+    calibB, trinityAdj:trinityAdj.slice(0,60), tradeLog:tradeLog.slice(0,200),
+    brokerMeta, trinityStartedAt, savedAt:Date.now()
+  })); }catch(e){}
+}
+function restoreState(){
+  try{ const raw=localStorage.getItem('oif_state'); if(!raw)return null; const s=JSON.parse(raw);
+    if(s.walletMode) walletMode=s.walletMode;
+    if(s.preset) preset=s.preset; if('customPreset' in s) customPreset=s.customPreset;
+    if(s.autoAdj) autoAdj=s.autoAdj;
+    if(s.capProxy) capProxy=s.capProxy;
+    if(s.trinityStartedAt) trinityStartedAt=s.trinityStartedAt;
+    if(s.trinity){ trinity.trades=s.trinity.trades||[]; trinity.byS=s.trinity.byS||trinity.byS; trinity.wr=s.trinity.wr||0; trinity.avgR=s.trinity.avgR||0; trinity.mult=s.trinity.mult||1; }
+    if(s.calibB) calibB=s.calibB;
+    if(s.trinityAdj) trinityAdj=s.trinityAdj;
+    if(s.tradeLog) tradeLog=s.tradeLog.map(t=>({...t,openedAt:new Date(t.openedAt),closedAt:new Date(t.closedAt)}));
+    if(s.brokerMeta) brokerMeta=s.brokerMeta;
+    trinityWasRunning=!!s.trinityWasRunning;
+    return s;
+  }catch(e){ return null; }
+}
+// place a REAL demo order through the proxy, with broker-side stop/target as % distance
+function placeOrderCapital(order){
+  if(feed.mode!=='live'||feed.provider!=='capital'||!capProxy) return;
+  const body={epic:toEpic(order.instrument),direction:order.side,size:order.size,
+    stopDistance:order.stopDistancePct!=null?+(order.entry*order.stopDistancePct/100).toFixed(5):undefined,
+    profitDistance:order.tgtDistancePct!=null?+(order.entry*order.tgtDistancePct/100).toFixed(5):undefined};
+  fetch(capProxy+'/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(r=>r.json()).then(res=>{
+      if(res.error){
+        pushReason('LIVE order rejected: '+res.error+(res.detail?' — '+res.detail:'')+' · removing phantom position');
+        // broker refused → drop the internal position so the wallet matches reality
+        const idx=positions.findIndex(p=>p.localId===order.localId);
+        if(idx>=0) positions.splice(idx,1);
+        renderPositions&&renderPositions(); renderWallet&&renderWallet();
+        return;
+      }
+      const st=res.confirm&&res.confirm.dealStatus||'SUBMITTED';
+      const pos=positions.find(p=>p.localId===order.localId);
+      if(res.confirm&&res.confirm.dealId){ if(pos)pos.brokerDealId=res.confirm.dealId; feed.dealIds[order.localId]=res.confirm.dealId;
+        // remember meta so Trinity can log the outcome even if Capital.com settles it while the tab was closed
+        brokerMeta[res.confirm.dealId]={conf:pos&&pos.conf,session:pos&&pos.session,pair:order.instrument,side:order.side==='BUY'?'LONG':'SHORT',
+          entry:order.entry,size:order.size,stopPctUsed:pos&&pos.stopPctUsed,openedAt:pos&&pos.openedAt,logged:false,lastPnlPct:0};
+        persistState();
+      }
+      if(st!=='ACCEPTED'){ // broker didn't accept → also drop it
+        const idx=positions.findIndex(p=>p.localId===order.localId);
+        if(idx>=0) positions.splice(idx,1);
+        pushReason('LIVE order '+st+' (not accepted) · '+order.side+' '+order.instrument+' · removed');
+        renderPositions&&renderPositions(); return;
+      }
+      pushReason('LIVE order ACCEPTED · '+order.side+' '+order.instrument+' size '+order.size+(res.confirm&&res.confirm.level?' @ '+res.confirm.level:''));
+    })
+    .catch(e=>{ pushReason('LIVE order failed: '+e.message+' · removing phantom position');
+      const idx=positions.findIndex(p=>p.localId===order.localId); if(idx>=0) positions.splice(idx,1); });
+}
+function closeOrderCapital(localId){
+  const dealId=feed.dealIds[localId]; if(!dealId||!capProxy||feed.provider!=='capital')return;
+  fetch(capProxy+'/close',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dealId})})
+    .then(r=>r.json()).then(()=>{ pushReason('LIVE position closed via proxy'); delete feed.dealIds[localId]; }).catch(()=>{});
+}
+
+// ---------- table ----------
+const fmtRate=v=>v>=50?v.toFixed(2):v.toFixed(4);
+function sparkSVG(arr){const w=52,h=14,n=arr.length,max=Math.max(0.15,...arr.map(Math.abs));let d='';
+  arr.forEach((v,i)=>{const x=(i/(n-1))*w,y=h/2-(v/max)*(h/2-1);d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';});
+  const up=arr[arr.length-1]>=0;return `<svg class="spark" viewBox="0 0 ${w} ${h}"><path d="${d}" fill="none" stroke="${up?'#00ff9f':'#ff4f6d'}" stroke-width="1"/></svg>`;}
+function buildTable(){document.getElementById('pairs-body').innerHTML=PAIRS.map(p=>`<tr id="row-${p.replace('/','')}"><td>${p}</td><td class="c-rate"></td><td class="c-chg"></td><td class="c-pct"></td><td class="c-15"></td><td class="c-1h"></td><td class="c-day"></td><td class="c-sp"></td></tr>`).join('');}
+function renderTable(){PAIRS.forEach(p=>{const st=pair[p],row=document.getElementById('row-'+p.replace('/',''));if(!row)return;const up=st.chgPct>=0,cls=up?'up':'down',ar=up?'u':'d';
+  row.querySelector('.c-rate').textContent=fmtRate(st.rate);
+  row.querySelector('.c-chg').innerHTML=`<span class="${cls}">${st.chg>=0?'+':''}${st.chg.toFixed(st.rate>50?2:4)}</span>`;
+  row.querySelector('.c-pct').innerHTML=`<span class="${cls}"><span class="arrow ${ar}"></span>${st.chgPct>=0?'+':''}${st.chgPct.toFixed(2)}%</span>`;
+  row.querySelector('.c-15').innerHTML=`<span class="${st.m15>=0?'up':'down'}">${st.m15>=0?'+':''}${st.m15.toFixed(2)}%</span>`;
+  row.querySelector('.c-1h').innerHTML=`<span class="${st.h1>=0?'up':'down'}">${st.h1>=0?'+':''}${st.h1.toFixed(2)}%</span>`;
+  row.querySelector('.c-day').innerHTML=`<span class="${st.day>=0?'up':'down'}">${st.day>=0?'+':''}${st.day.toFixed(2)}%</span>`;
+  row.querySelector('.c-sp').innerHTML=sparkSVG(st.spark);
+  row.classList.remove('best-long','best-short'); if(topLong&&p===topLong.p)row.classList.add('best-long'); if(topShort&&p===topShort.p)row.classList.add('best-short');});}
+
+// ---------- opportunity engine ----------
+function renderOpp(){
+  const longs=ranked.filter(r=>r.side==='LONG').slice(0,5), shorts=ranked.filter(r=>r.side==='SHORT').slice(0,5);
+  const row=r=>`<div class="rrow"><b>${r.p}</b><span>${Math.round(r.score)}%</span></div>`;
+  const rl=document.getElementById('rank-long'),rs=document.getElementById('rank-short');
+  if(rl)rl.innerHTML=longs.map(row).join('')||'<div class="rrow" style="color:var(--dimmer)">\u2014</div>';
+  if(rs)rs.innerHTML=shorts.map(row).join('')||'<div class="rrow" style="color:var(--dimmer)">\u2014</div>';
+  const pe=document.getElementById('pred');
+  const openPs=positions.filter(p=>p.status==='open').sort((a,b)=>b.conf-a.conf), P=openPs[0];
+  if(!P){
+    const best=ranked[0], long=best.side==='LONG';
+    pe.classList.toggle('long',long);pe.classList.toggle('short',!long);
+    document.getElementById('pred-crown').innerHTML='\u2605 Top pick \u00b7 <span style="color:var(--tx)">'+(trinityOn?'scanning':'Trinity off')+'</span>';
+    const s=document.getElementById('pred-status'); s.textContent=trinityOn?'FLAT':'IDLE'; s.className='status';
+    document.getElementById('pred-pair').textContent=best.p;
+    document.getElementById('pred-side').innerHTML=`${long?'best LONG':'best SHORT'} \u00b7 conf <b style="color:${long?'#00ff9f':'#ff4f6d'}">${Math.round(Math.min(99,best.pred*trinity.mult))}%</b>`;
+    document.getElementById('pred-horizon').textContent=getSession().window;
+    document.getElementById('pred-entry').textContent=fmtRate(best.rate);
+    document.getElementById('pred-current').textContent=fmtRate(best.rate);
+    document.getElementById('pred-pnl').textContent='\u2014'; document.getElementById('pred-pnl').style.color='var(--dim)';
+    document.getElementById('pred-age').textContent='\u2014';
+    predFactors(best);
+    document.getElementById('pred-plan').innerHTML= trinityOn?`Waiting for a qualifying setup this session under <b>${presetLabel()}</b> (min conf ${activePreset().minConf}%).`:`Press <b>Start Trinity</b> to trade the best long/short opportunities.`;
+    return;
+  }
+  const long=P.side==='LONG';
+  pe.classList.toggle('long',long);pe.classList.toggle('short',!long);
+  document.getElementById('pred-crown').innerHTML=`\u2605 Best open \u00b7 <span style="color:var(--tx)">${P.sessionName}</span>`;
+  const stEl=document.getElementById('pred-status'); stEl.textContent='OPEN'; stEl.className='status';
+  document.getElementById('pred-pair').textContent=P.pair;
+  document.getElementById('pred-side').innerHTML=`${long?'LONG':'SHORT'} \u00b7 conf <b style="color:${long?'#00ff9f':'#ff4f6d'}">${P.conf}%</b>`;
+  document.getElementById('pred-horizon').textContent=P.sessionWindow;
+  document.getElementById('pred-entry').textContent=fmtRate(P.entry);
+  document.getElementById('pred-current').textContent=fmtRate(P.current);
+  const pnlEl=document.getElementById('pred-pnl');pnlEl.textContent=(P.pnlPct>=0?'+':'')+P.pnlPct.toFixed(3)+'%';pnlEl.style.color=P.pnlPct>=0?'#00ff9f':'#ff4f6d';
+  document.getElementById('pred-age').textContent=P.ageH.toFixed(1)+'h / '+P.horizonH.toFixed(1)+'h';
+  let frac=long?(P.current-P.stop)/(P.target-P.stop):(P.stop-P.current)/(P.stop-P.target);frac=Math.max(0,Math.min(1,frac));
+  document.getElementById('pred-progdot').style.left=(frac*100)+'%';
+  predFactorsObj(P.factors);
+  document.getElementById('pred-plan').innerHTML=`${P.sessionDesc}<br>entry <b>${fmtRate(P.entry)}</b> \u00b7 stop <b>${fmtRate(P.stop)}</b> \u00b7 target <b>${fmtRate(P.target)}</b> \u00b7 R:R <b>1:${(activePreset().tgtPct/activePreset().stopPct).toFixed(1)}</b> \u00b7 fib <b>${P.factors.fib}%</b><br>P/L net of ~${costPct(P.pair).toFixed(2)}% round-trip cost \u00b7 one of ${openPs.length} open trade(s) \u2014 Trinity manages the portfolio`;
+}
+function predFactors(best){ predFactorsObj({liquidity:Math.min(100,60+best.vol*40),strength:Math.min(100,Math.abs(best._gap)*90),carry:Math.min(100,Math.abs(best._carry)*120),news:Math.min(100,Math.max(0,(best._news)*Math.sign(best.mom||1))*90+40),fib:Math.round(best.fib*100)}); }
+function predFactorsObj(f){ document.getElementById('pred-factors').innerHTML=[['session liquidity',f.liquidity],['strength gap',f.strength],['carry / rate diff',f.carry],['fib confluence',f.fib],['news sentiment',f.news]].map(([n,v])=>`<div class="frow"><span>${n}</span><div class="fbar"><i style="width:${Math.round(v)}%"></i></div><span style="text-align:right;color:var(--tx)">${Math.round(v)}</span></div>`).join(''); }
+function renderPositions(){
+  const el=document.getElementById('positions-body'); if(!el)return;
+  const openPs=positions.filter(p=>p.status==='open');
+  if(!openPs.length){ el.innerHTML='<div class="prow" style="color:var(--dimmer)">'+(trinityOn?'no open trades \u2014 scanning all pairs':'Trinity stopped')+'</div>'; return; }
+  el.innerHTML=openPs.map(p=>{const long=p.side==='LONG';return `<div class="prow"><b>${p.pair}</b><span style="color:${long?'var(--bull2)':'var(--bear)'}">${p.side}</span><span>${p.conf}%</span><span style="color:${p.pnlPct>=0?'var(--bull2)':'var(--bear)'}">${p.pnlPct>=0?'+':''}${p.pnlPct.toFixed(2)}%</span><span style="color:var(--dimmer)">${p.ageH.toFixed(1)}h</span></div>`;}).join('');
+}
+function renderClosed(){
+  const el=document.getElementById('closed-body'); if(!el)return;
+  if(!tradeLog.length){ el.innerHTML='<div class="crow" style="color:var(--dimmer)">no closed trades yet — press Start Trinity</div>'; return; }
+  el.innerHTML=tradeLog.map(t=>{const win=t.plCur>=0;return `<div class="crow">
+    <span><b>${t.pair}</b> <small style="color:${t.side==='LONG'?'var(--bull2)':'var(--bear)'}">${t.side}</small></span>
+    <span>${fmtTime(t.openedAt)}</span><span>${fmtTime(t.closedAt)}</span>
+    <span>${fmtRate(t.entry)} → ${fmtRate(t.exit)}</span>
+    <span>$${t.size.toFixed(2)}</span>
+    <span style="color:${win?'var(--bull2)':'var(--bear)'}">${win?'+':''}$${t.plCur.toFixed(2)} · ${t.plPct>=0?'+':''}${t.plPct.toFixed(2)}%</span>
+    <span style="color:var(--dimmer)">${t.reason}</span></div>`;}).join('');
+}
+function downloadFile(name,content,mime){ try{ const blob=new Blob([content],{type:mime||'text/plain'}), url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }catch(e){ console.error('download failed',e); } }
+function exportReasoning(){ const lines=reasonLog.map(r=>fmtTime(r.t)+'  '+r.msg); downloadFile('oif-reasoning-feed.txt',lines.join('\n'),'text/plain'); }
+window.exportReasoning=exportReasoning;
+function exportTrades(){ const h=['pair','side','opened','closed','entry','exit','size_usd','pl_usd_net','pl_pct_net','pl_pct_gross','cost_pct','result','conf'];
+  const rows=tradeLog.map(t=>[t.pair,t.side,fmtTime(t.openedAt),fmtTime(t.closedAt),t.entry,t.exit,t.size.toFixed(2),t.plCur.toFixed(2),t.plPct.toFixed(3),(t.plPctGross!==undefined?t.plPctGross:t.plPct).toFixed(3),(t.costPct!==undefined?t.costPct:0).toFixed(3),t.reason,t.conf]);
+  downloadFile('oif-trades.csv',[h.join(','),...rows.map(r=>r.join(','))].join('\n'),'text/csv'); }
+function exportWallet(){ downloadFile('oif-wallet.json',JSON.stringify({...wallet,openPositions:positions.filter(p=>p.status==='open').length,trades:trinity.trades.length,winRate:trinity.wr,avgR:trinity.avgR,adaptiveMult:trinity.mult,bySession:trinity.byS,calibration:calibB,autoAdjustments:trinityAdj.slice(0,30),exportedAt:fmtTime(new Date())},null,2),'application/json'); }
+function exportPairs(){ const h=['pair','rate','chg_pct','m15','h1','day','mom','pred','fib_pct','side','score'];
+  const rows=PAIRS.map(p=>{const s=pair[p];return [p,s.rate,s.chgPct.toFixed(3),s.m15.toFixed(3),s.h1.toFixed(3),s.day.toFixed(3),s.mom.toFixed(3),s.pred.toFixed(1),(s.fib*100).toFixed(0),s.side,s.score.toFixed(1)];});
+  downloadFile('oif-pairs.csv',[h.join(','),...rows.map(r=>r.join(','))].join('\n'),'text/csv'); }
+function exportEngine(){ downloadFile('oif-engine.json',JSON.stringify({preset,customPreset,activePreset:activePreset(),presets:PRESETS,sessionTune:SESSION_TUNE,options:opts,oanda:{env:oanda.env,mode:oanda.mode,connected:oanda.connected},trinity:{adaptiveMult:trinity.mult,winRate:trinity.wr,avgR:trinity.avgR,bySession:trinity.byS},autoAdj,autoAdjustments:trinityAdj.slice(0,30),calibration:calibB,costModel:{COST_PCT,STOP_SLIP_PCT},exportedAt:fmtTime(new Date())},null,2),'application/json'); }
+window.exportTrades=exportTrades; window.exportWallet=exportWallet; window.exportPairs=exportPairs; window.exportEngine=exportEngine;
+function renderCalib(){
+  const cv=document.getElementById('calib-canvas'); if(!cv)return;
+  const r=cv.getBoundingClientRect(),dpr=Math.min(2,devicePixelRatio||1); if(r.width<10)return;
+  cv.width=Math.max(2,r.width*dpr); cv.height=Math.max(2,r.height*dpr);
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); const w=r.width,h=r.height; ctx.clearRect(0,0,w,h);
+  const pad=24,x0=pad,y0=h-20,x1=w-6,y1=6,bw=(x1-x0)/CALIB_BANDS.length;
+  ctx.strokeStyle='rgba(255,255,255,0.12)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x0,y1);ctx.lineTo(x0,y0);ctx.lineTo(x1,y0);ctx.stroke();
+  ctx.strokeStyle='rgba(0,217,255,0.35)';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(x0,y0);ctx.lineTo(x1,y1);ctx.stroke();ctx.setLineDash([]);
+  ctx.font='8px JetBrains Mono, monospace';ctx.textAlign='center';
+  CALIB_BANDS.forEach(([a,b],i)=>{const cb=calibB[a+'-'+b],cx=x0+bw*i+bw/2;
+    ctx.fillStyle='#5c7488';ctx.fillText(a+'-'+b,cx,y0+12);
+    if(cb.n){const wr=cb.w/cb.n,bh=(y0-y1)*wr,by=y0-bh,predMid=(a+b)/2/100,diff=Math.abs(wr-predMid);
+      ctx.fillStyle=diff<0.12?'#00ff9f':diff<0.25?'#ffb627':'#ff4f6d';ctx.fillRect(cx-bw*0.28,by,bw*0.56,bh);
+      ctx.fillStyle='#e3f6ff';ctx.fillText(Math.round(wr*100)+'%',cx,by-3);}
+    else{ctx.fillStyle='#37485a';ctx.fillText('\u2014',cx,y0-4);}});
+  ctx.save();ctx.translate(9,(y0+y1)/2);ctx.rotate(-Math.PI/2);ctx.fillStyle='#5c7488';ctx.fillText('measured win%',0,0);ctx.restore();
+  const lu=document.getElementById('tr-calib-updated'); if(lu)lu.textContent='updated '+fmtTime(lastUpdated.calib||new Date());
+}
+function renderTrinity(){
+  const t=trinity, total=t.trades.length;
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  set('tr-trades',total); set('tr-wr',total?Math.round(t.wr*100)+'%':'—');
+  set('tr-r',total?((t.avgR>=0?'+':'')+t.avgR.toFixed(2)):'—'); set('tr-mult',t.mult.toFixed(2)+'×');
+  // runtime since Trinity started (survives refresh while running), like NEO's uptime
+  const rt=document.getElementById('tr-runtime');
+  if(rt){ if(trinityOn&&trinityStartedAt){ const s=Math.floor((Date.now()-trinityStartedAt)/1000), h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
+      rt.textContent=(h?h+'h ':'')+m+'m '+sec+'s'; } else rt.textContent='stopped'; }
+  const names={overlap:'London–NY',eu:'London / EU',us:'New York / US',asia:'Tokyo / Asian'};
+  const el=document.getElementById('tr-sessions'); if(!el)return;
+  el.innerHTML=Object.keys(names).map(k=>{const b=t.byS[k],wr=b.n?Math.round(b.w/b.n*100):0;
+    return `<div class="tsrow"><span>${names[k]}</span><div class="tsbar"><i style="width:${wr}%"></i></div><span style="text-align:right;color:var(--tx)">${b.n?wr+'%':'—'} <small style="color:var(--dimmer)">(${b.n})</small></span></div>`;}).join('');
+  const lu=document.getElementById('tr-updated'); if(lu)lu.textContent='updated '+fmtTime(lastUpdated.trinity||new Date());
+}
+// ---------- wallet + settings ----------
+function renderWallet(){
+  const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  const fmt=v=>'$'+Math.round(v).toLocaleString('en-US'), fmt2=v=>(v>=0?'+':'-')+'$'+Math.abs(v).toLocaleString('en-US',{maximumFractionDigits:1});
+  if(walletMode==='live' && liveAccount){
+    // MIRROR Capital.com: balance, available, open P/L come straight from the broker
+    const cur=liveAccount.currency||'USD', cfmt=v=>v==null?'—':v.toLocaleString('en-US',{style:'currency',currency:cur,maximumFractionDigits:0});
+    set('w-balance',cfmt(liveAccount.balance)); set('w-equity',cfmt((liveAccount.balance||0)+(liveAccount.profitLoss||0)));
+    const openPl=liveAccount.profitLoss||0, oe=document.getElementById('w-open'); if(oe){oe.textContent=(openPl>=0?'+':'')+openPl.toFixed(2);oe.style.color=openPl>=0?'var(--bull2)':'var(--bear)';}
+    const re=document.getElementById('w-realized'); if(re){re.textContent='live';re.style.color='var(--dim)';}
+    const rg=document.getElementById('w-realized-gross'); if(rg)rg.textContent='—';
+    const cp=document.getElementById('w-cost'); if(cp)cp.textContent='—';
+    set('w-alloc',livePositions.length+' pos'); set('w-avail',cfmt(liveAccount.available));
+    const wins=trinity.trades.filter(t=>t.win).length, losses=trinity.trades.length-wins;
+    set('w-wl',wins+' / '+losses); set('w-dd','live');
+    const lu=document.getElementById('w-updated'); if(lu)lu.textContent='live sync '+fmtTime(new Date());
+    renderLivePositions(); return;
+  }
+  // MOCK: Trinity's own simulated wallet
+  const openPs=positions.filter(p=>p.status==='open');
+  const alloc=openPs.reduce((a,p)=>a+p.alloc,0), openPl=openPs.reduce((a,p)=>a+p.alloc*(p.pnlPct/100),0);
+  set('w-balance',fmt(wallet.balance)); set('w-equity',fmt(wallet.equity));
+  const oe=document.getElementById('w-open'); if(oe){oe.textContent=fmt2(openPl);oe.style.color=openPl>=0?'var(--bull2)':'var(--bear)';}
+  const re=document.getElementById('w-realized'); if(re){re.textContent=fmt2(wallet.realized);re.style.color=wallet.realized>=0?'var(--bull2)':'var(--bear)';}
+  const rg=document.getElementById('w-realized-gross'); if(rg){rg.textContent=fmt2(wallet.realizedGross);rg.style.color='var(--dim)';}
+  const cp=document.getElementById('w-cost'); if(cp)cp.textContent='-$'+wallet.costPaid.toFixed(2);
+  set('w-alloc',openPs.length+' pos · '+fmt(alloc)); set('w-avail',fmt(wallet.balance-alloc));
+  set('w-wl',wallet.wins+' / '+wallet.losses); set('w-dd','-'+wallet.maxDD.toFixed(1)+'%');
+  const lu=document.getElementById('w-updated'); if(lu)lu.textContent='updated '+fmtTime(lastUpdated.wallet||new Date());
+  renderPositions();
+}
+// live positions (source of truth = Capital.com), each with a manual close button
+function renderLivePositions(){
+  const el=document.getElementById('positions-body'); if(!el)return;
+  if(!livePositions.length){ el.innerHTML='<div class="prow" style="color:var(--dimmer)">no open positions at Capital.com'+(trinityOn?' — scanning':'')+'</div>'; return; }
+  el.innerHTML=livePositions.map(p=>{const long=p.side==='LONG';return `<div class="prow"><b>${p.pair}</b><span style="color:${long?'var(--bull2)':'var(--bear)'}">${p.side}</span><span>${p.conf!=null?p.conf+'%':'·'}</span><span style="color:${p.pnlPct>=0?'var(--bull2)':'var(--bear)'}">${p.pnlPct>=0?'+':''}${p.pnlPct.toFixed(2)}%</span><span>${p.upl!=null?((p.upl>=0?'+':'')+p.upl.toFixed(2)):''}</span><button class="xbtn" onclick="closeLivePosition('${p.dealId}')" title="close at Capital.com">✕</button></div>`;}).join('');
+}
+function setWalletMode(m){ walletMode=m; const lm=document.getElementById('wm-live'),mm=document.getElementById('wm-mock');
+  if(lm)lm.className='tog'+(m==='live'?' on':''); if(mm)mm.className='tog'+(m==='mock'?' on':'');
+  persistState(); renderWallet(); }
+window.setWalletMode=setWalletMode;
+function setPreset(p){ preset=p; customPreset=null; renderSettings(); }
+window.setPreset=setPreset;
+function toggleOpt(k){ opts[k]=!opts[k]; const el=document.getElementById('tg-'+k); if(el)el.className='tog'+(opts[k]?' on':''); renderInternals(); }
+window.toggleOpt=toggleOpt;
+function renderSettings(){
+  const basePr=customPreset||PRESETS[preset], pr=activePreset(), S=getSession(), tune=SESSION_TUNE[S.key]||{volMult:1,label:S.name};
+  const topPair=ranked[0]?ranked[0].p:'EUR/USD';
+  const rows=[['Risk per trade',basePr.riskPct+'%'],['Max allocation',basePr.maxAllocPct+'%'],
+    ['Max open positions',basePr.maxPos+(autoAdj.maxPosDelta?` → ${pr.maxPos} (auto ${autoAdj.maxPosDelta>0?'+':''}${autoAdj.maxPosDelta})`:'')],
+    ['Stop (base)',basePr.stopPct+'%'],['Target (base)',basePr.tgtPct+'%'+(autoAdj.tgtMult!==1?` → ${pr.tgtPct.toFixed(2)}% (auto ×${autoAdj.tgtMult})`:'')],
+    ['R:R','1:'+(pr.tgtPct/pr.stopPct).toFixed(1)],
+    ['Min confidence',basePr.minConf+'%'+(autoAdj.minConfDelta?` → ${pr.minConf}% (auto +${autoAdj.minConfDelta}pp)`:'')],
+    ['Sessions traded',pr.sessions.length?pr.sessions.map(s=>SESSION_TUNE[s].label).join(' · '):'none — all auto-paused'],
+    ['Session tuning',tune.label+' · stop/target ×'+tune.volMult],
+    ['Round-trip cost (est.)',costPct(topPair).toFixed(3)+'% for '+topPair+' — varies by pair category (major/cross/exotic)']];
+  const sb=document.getElementById('settings-body'); if(sb)sb.innerHTML=rows.map(([k,v])=>`<div class="setrow"><span>${k}</span><b>${v}</b></div>`).join('');
+  const ss=document.getElementById('set-session'); if(ss)ss.textContent=S.name+' — '+(pr.sessions.includes(S.key)?'trading':'filtered out');
+  ['conservative','balanced','aggressive'].forEach(k=>{const el=document.getElementById('p-'+k); if(el)el.className=(!customPreset&&k===preset)?'on':'';});
+  const ae=document.activeElement, setv=(id,v)=>{const el=document.getElementById(id); if(el&&ae!==el)el.value=v;}, setc=(id,v)=>{const el=document.getElementById(id); if(el&&ae!==el)el.checked=v;};
+  setv('cs-risk',basePr.riskPct); setv('cs-alloc',basePr.maxAllocPct); setv('cs-maxpos',basePr.maxPos);
+  setv('cs-stop',basePr.stopPct); setv('cs-tgt',basePr.tgtPct); setv('cs-minconf',basePr.minConf);
+  ['asia','eu','us','overlap'].forEach(s=>setc('cs-'+s,basePr.sessions.includes(s)));
+}
+// ---------- engine internals: meters / SVP / ICT ----------
+function meters(pn){ const st=pair[pn], sp=st.spark; let net=Math.abs(sp[sp.length-1]-sp[0]), path=0; for(let i=1;i<sp.length;i++)path+=Math.abs(sp[i]-sp[i-1]);
+  const ER=path>0?Math.min(1,net/path):0;
+  return { VFM:Math.round(Math.max(0,Math.min(100,Math.abs(st.mom)*70*st.vol))), ER:Math.round(ER*100), DB:Math.round(Math.max(-100,Math.min(100,st.mom*80))),
+    CHAOS:Math.round((1-ER)*100), SENT:Math.round((st._news||0)*45+50), VOL:Math.round(st.vol*100) }; }
+function svp(pn){ const st=pair[pn], poc=st.rate*(1+st.mom*0.0004); return {poc,vah:st.rate*1.0016,val:st.rate*0.9984,above:st.rate>=poc}; }
+function ict(pn){ const st=pair[pn], long=st.mom>=0, hUTC=new Date().getUTCHours(); const kz=(hUTC>=7&&hUTC<10)?'London killzone':(hUTC>=12&&hUTC<15)?'New York killzone':'outside killzone';
+  return {long,bias:long?'bullish':'bearish',fvg:st.rate*(1+(long?-0.0009:0.0009)),sweep:long?'swept sell-side liquidity':'swept buy-side liquidity',kz}; }
+function renderInternals(){
+  const activePair = position?position.pair : (ranked[0]&&ranked[0].p); if(!activePair)return;
+  const mp=document.getElementById('meters-pair'); if(mp)mp.textContent=activePair;
+  const mb=document.getElementById('meters-body');
+  if(mb){ if(!opts.meters)mb.innerHTML='<span style="color:var(--dimmer);font-family:JetBrains Mono,monospace;font-size:0.6rem;">meters disabled</span>';
+    else { const m=meters(activePair), cfg=[['VFM','volume-flow momentum',m.VFM,0,'#00d9ff'],['ER','efficiency ratio',m.ER,0,'#4fc3f7'],['DB','directional bias',m.DB,1,m.DB>=0?'#00ff9f':'#ff4f6d'],['CHAOS','market entropy',m.CHAOS,0,'#ffb627'],['SENT','news sentiment',m.SENT,0,'#c792ea'],['VOL','session volatility',m.VOL,0,'#7fd4ff']];
+      mb.innerHTML=cfg.map(([k,l,v,center,col])=>{const left=center?(v>=0?50:50-Math.abs(v)/2):0, wdt=center?Math.abs(v)/2:v;
+        return `<div class="meter"><div class="mh"><span>${k} · ${l}</span><b>${center?((v>=0?'+':'')+v):v+'%'}</b></div><div class="mbar ${center?'center':''}"><i style="width:${Math.min(100,Math.max(0,wdt))}%;margin-left:${left}%;background:${col};"></i></div></div>`;}).join(''); } }
+  const sb=document.getElementById('svp-body');
+  if(sb){ if(!opts.svp)sb.innerHTML='<tr><td colspan="5" style="color:var(--dimmer)">SVP scan disabled</td></tr>';
+    else sb.innerHTML=ranked.slice(0,6).map(r=>{const s=svp(r.p);return `<tr><td>${r.p}</td><td>${fmtRate(s.poc)}</td><td>${fmtRate(s.vah)}</td><td>${fmtRate(s.val)}</td><td style="color:${s.above?'var(--bull2)':'var(--bear)'}">${s.above?'above value':'below value'}</td></tr>`;}).join(''); }
+  const ib=document.getElementById('ict-body');
+  if(ib){ if(!opts.ict)ib.innerHTML='<div class="ictline" style="color:var(--dimmer)">ICT disabled</div>';
+    else ib.innerHTML=ranked.slice(0,4).map(r=>{const c=ict(r.p);return `<div class="ictline"><b>${r.p}</b> · HTF <span class="${c.long?'bull':'bear'}">${c.bias}</span> · ${c.sweep} · FVG @ <b>${fmtRate(c.fvg)}</b> · ${c.kz}</div>`;}).join(''); }
+}
+
+// ======================================================
+// WORLD FLOW MAP — real countries (d3) + 11 commodities
+// Two canvas targets: main map (toggle capital/commodity) + ocular
+// capital-flow mini map (forced capital, ALL currencies incl. THB)
+// ======================================================
+const COMMODITIES=[
+  {name:'Crude oil',color:'#ff6b35',routes:[[[45,24],[104,35]],[[90,62],[79,22]],[[-98,39],[10,51]]]},
+  {name:'Natural gas',color:'#7fd4ff',routes:[[[-95,30],[138,36]],[[90,62],[104,35]],[[51,25],[10,51]]]},
+  {name:'Gold',color:'#ffd54a',routes:[[[134,-25],[104,35]],[[24,-29],[-2,51]],[[8,47],[79,22]]]},
+  {name:'Silver',color:'#c6d0da',routes:[[[-102,23],[-98,39]],[[-75,-10],[104,35]]]},
+  {name:'Copper',color:'#e07b53',routes:[[[-70,-30],[104,35]],[[-75,-10],[-98,39]]]},
+  {name:'Aluminium',color:'#9fb4c4',routes:[[[104,35],[10,51]],[[90,62],[-98,39]]]},
+  {name:'Soybeans',color:'#8fe38f',routes:[[[-52,-10],[104,35]],[[-90,40],[104,35]],[[-64,-34],[10,51]]]},
+  {name:'Corn',color:'#ffe08a',routes:[[[-95,40],[-102,23]],[[-52,-10],[138,36]],[[31,49],[10,51]]]},
+  {name:'Wheat',color:'#d9b382',routes:[[[55,55],[30,26]],[[-100,40],[104,35]],[[134,-25],[113,-2]]]},
+  {name:'Coffee',color:'#8a5a3c',routes:[[[-45,-15],[-90,38]],[[106,16],[10,51]],[[-74,4],[-98,39]]]},
+  {name:'Rice',color:'#eadfc8',routes:[[[100,15],[8,9]],[[79,22],[45,24]],[[106,16],[122,13]]]}
+];
+COMMODITIES.forEach(cm=>cm.routes.forEach(r=>r.parts=Array.from({length:3},()=>Math.random())));
+let capArcs=[];
+function rebuildCapArcs(){const list=CCY.map(c=>({c,v:flow[c]}));const outs=list.filter(o=>o.v<-0.12).sort((a,b)=>a.v-b.v).slice(0,3);const ins=list.filter(o=>o.v>0.12).sort((a,b)=>b.v-a.v).slice(0,3);
+  capArcs=[];outs.forEach(o=>ins.forEach(i=>capArcs.push({from:o.c,to:i.c,parts:Array.from({length:4},()=>Math.random())})));}
+
+let WORLD=null;
+function makeMapTarget(cv){ return { cv, ctx:cv.getContext('2d'), projection:null, geoPath:null, baseCanvas:null, ready:false, w:0, h:0 }; }
+const mapMain=makeMapTarget(document.getElementById('map-canvas'));
+const mapOcular=makeMapTarget(document.getElementById('ocular-map-canvas'));
+function setupProjectionFor(t){ const r=t.cv.getBoundingClientRect(); t.w=r.width; t.h=r.height; if(t.w<10||!WORLD)return;
+  t.projection=d3.geoNaturalEarth1().fitExtent([[8,8],[t.w-8,t.h-8]],{type:'Sphere'});
+  t.baseCanvas=document.createElement('canvas'); t.baseCanvas.width=t.w; t.baseCanvas.height=t.h;
+  const bx=t.baseCanvas.getContext('2d'); t.geoPath=d3.geoPath(t.projection,bx);
+  bx.clearRect(0,0,t.w,t.h); bx.beginPath(); t.geoPath({type:'Sphere'}); bx.fillStyle='#020a12'; bx.fill();
+  bx.beginPath(); t.geoPath(d3.geoGraticule10()); bx.strokeStyle='rgba(40,90,120,0.12)'; bx.lineWidth=0.4; bx.stroke();
+  WORLD.forEach(f=>{ bx.beginPath(); t.geoPath(f); bx.fillStyle='#0a1a26'; bx.fill(); bx.strokeStyle='rgba(0,217,255,0.22)'; bx.lineWidth=0.5; bx.stroke(); });
+  t.ready=true; }
+function initMap(){ if(typeof d3==='undefined'||typeof topojson==='undefined'){ setTimeout(initMap,1500); return; }
+  const CDNS=['https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json',
+              'https://unpkg.com/world-atlas@2/countries-110m.json',
+              'https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json'];
+  let i=0;
+  const tryLoad=()=>{ if(i>=CDNS.length){ WORLD=null; return; }   // all failed → fallback dotted map is used
+    fetch(CDNS[i]).then(r=>{if(!r.ok)throw 0;return r.json();}).then(topo=>{
+      WORLD=topojson.feature(topo,topo.objects.countries).features; setupProjectionFor(mapMain); setupProjectionFor(mapOcular);
+    }).catch(()=>{ i++; tryLoad(); }); };
+  tryLoad();
+}
+// keep trying to build the projection until the canvases actually have dimensions (section may render late)
+function ensureMapReady(){ if(WORLD){ if(!mapMain.ready)setupProjectionFor(mapMain); if(!mapOcular.ready)setupProjectionFor(mapOcular);
+  if(mapMain.ready&&mapOcular.ready)return; } setTimeout(ensureMapReady,1200); }
+function resizeMapTarget(t){ const r=t.cv.getBoundingClientRect(), dpr=Math.min(2,devicePixelRatio||1);
+  t.cv.width=Math.max(2,r.width*dpr); t.cv.height=Math.max(2,r.height*dpr);
+  if(WORLD&&(Math.abs(r.width-t.w)>2||Math.abs(r.height-t.h)>2))setupProjectionFor(t); }
+function resizeMaps(){ resizeMapTarget(mapMain); resizeMapTarget(mapOcular); }
+addEventListener('resize',resizeMaps);
+function projFor(t,lng,lat){ return t.projection?t.projection([lng,lat]):null; }
+function renderMapTarget(t,now,dt,mode){
+  const r=t.cv.getBoundingClientRect(); if(r.width<10)return; const dpr=Math.min(2,devicePixelRatio||1); if(Math.abs(t.cv.width-r.width*dpr)>2)resizeMapTarget(t);
+  const ctx=t.ctx,w=r.width,h=r.height; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+  if(t.ready&&t.baseCanvas)ctx.drawImage(t.baseCanvas,0,0,w,h); else drawFallbackLand(ctx,w,h);
+  const pp=(lng,lat)=>t.ready?projFor(t,lng,lat):fallbackPt(lng,lat,w,h);
+  if(mode==='capital'){
+    CCY.map(c=>({c,v:flow[c]})).sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)).slice(0,6).forEach(o=>{if(Math.abs(o.v)<0.15)return;const m=CCY_META[o.c],pt=pp(m.lng,m.lat);if(!pt)return;
+      const col=o.v>=0?'20,241,149':'255,79,109',R=16+Math.abs(o.v)*26,g=ctx.createRadialGradient(pt[0],pt[1],0,pt[0],pt[1],R);
+      g.addColorStop(0,`rgba(${col},${0.35+0.4*Math.abs(o.v)})`);g.addColorStop(1,`rgba(${col},0)`);ctx.fillStyle=g;ctx.beginPath();ctx.arc(pt[0],pt[1],R,0,6.28);ctx.fill();});
+    capArcs.forEach(a=>{const p1=pp(CCY_META[a.from].lng,CCY_META[a.from].lat),p2=pp(CCY_META[a.to].lng,CCY_META[a.to].lat);if(p1&&p2)drawArc(ctx,p1,p2,a,dt,'127,233,255','rgba(0,217,255,0.12)');});
+    CCY.forEach(c=>{const m=CCY_META[c],pt=pp(m.lng,m.lat);if(!pt)return;const v=flow[c],mag=Math.abs(v),top=mag>=0.15,col=v>=0?'20,241,149':'255,79,109';
+      ctx.fillStyle=top?`rgba(${col},0.95)`:'rgba(120,170,200,0.6)';ctx.beginPath();ctx.arc(pt[0],pt[1],top?2.5+mag*3:1.6,0,6.28);ctx.fill();
+      ctx.font='600 8.5px JetBrains Mono, monospace';ctx.fillStyle=top?`rgba(${col},0.95)`:'rgba(150,190,215,0.7)';ctx.textAlign='center';ctx.fillText(c,pt[0],pt[1]-6);});
+  } else {
+    COMMODITIES.forEach(cm=>cm.routes.forEach(rt=>{const p1=pp(rt[0][0],rt[0][1]),p2=pp(rt[1][0],rt[1][1]);if(!p1||!p2)return;const rgb=hexRgb(cm.color);
+      drawArc(ctx,p1,p2,rt,dt,rgb,`rgba(${rgb},0.10)`);ctx.fillStyle=cm.color;ctx.beginPath();ctx.arc(p1[0],p1[1],2,0,6.28);ctx.fill();ctx.globalAlpha=0.7;ctx.beginPath();ctx.arc(p2[0],p2[1],2.5,0,6.28);ctx.fill();ctx.globalAlpha=1;}));
+  }
+}
+function drawArc(ctx,p1,p2,obj,dt,rgb,lineCol){const mx=(p1[0]+p2[0])/2+(p1[1]-p2[1])*0.28,my=(p1[1]+p2[1])/2+(p2[0]-p1[0])*0.28;
+  ctx.strokeStyle=lineCol;ctx.lineWidth=0.7;ctx.beginPath();ctx.moveTo(p1[0],p1[1]);ctx.quadraticCurveTo(mx,my,p2[0],p2[1]);ctx.stroke();
+  for(let i=0;i<obj.parts.length;i++){obj.parts[i]+=dt*0.22;if(obj.parts[i]>1)obj.parts[i]-=1;const t=obj.parts[i],it=1-t,px=it*it*p1[0]+2*it*t*mx+t*t*p2[0],py=it*it*p1[1]+2*it*t*my+t*t*p2[1];
+    ctx.globalAlpha=Math.sin(t*Math.PI);ctx.fillStyle=`rgb(${rgb})`;ctx.beginPath();ctx.arc(px,py,1.7,0,6.28);ctx.fill();}ctx.globalAlpha=1;}
+function hexRgb(hex){const n=parseInt(hex.slice(1),16);return `${(n>>16)&255},${(n>>8)&255},${n&255}`;}
+function fallbackPt(lng,lat,w,h){return [(lng+180)/360*w,(90-lat)/180*h];}
+const FB_CONT=[[0.19,0.34,0.13,0.20],[0.29,0.68,0.075,0.17],[0.36,0.14,0.05,0.055],[0.49,0.30,0.06,0.10],[0.53,0.58,0.09,0.17],[0.71,0.33,0.17,0.17],[0.845,0.72,0.07,0.07]];
+let fbDots=null;
+function drawFallbackLand(ctx,w,h){if(!fbDots||fbDots.w!==w){fbDots={w,pts:[]};for(let y=12;y<h;y+=11)for(let x=12;x<w;x+=11){const nx=x/w,ny=y/h;for(const[cx,cy,rx,ry]of FB_CONT){if(((nx-cx)/rx)**2+((ny-cy)/ry)**2<=1){fbDots.pts.push([x,y]);break;}}}}
+  ctx.fillStyle='rgba(70,140,180,0.4)';for(const[x,y]of fbDots.pts)ctx.fillRect(x-1,y-1,2,2);}
+function setFlow(m){flowMode=m;document.getElementById('t-cap').className=m==='capital'?'on':'';document.getElementById('t-com').className=m==='commodity'?'on':'';
+  document.getElementById('map-legend').innerHTML=m==='capital'
+    ?`<span><i class="dotc" style="background:#00ff9f"></i> Capital inflow (top mover)</span><span><i class="dotc" style="background:#ff4f6d"></i> Capital outflow (top mover)</span><span><i class="swatch" style="background:#7fe9ff"></i> Flow direction</span><span style="color:var(--dimmer)">only top movers light up</span>`
+    :COMMODITIES.map(cm=>`<span><i class="dotc" style="background:${cm.color}"></i> ${cm.name}</span>`).join('')+`<span style="color:var(--dimmer)">producer → consumer</span>`;
+  rebuildCapArcs();}
+window.setFlow=setFlow;
+function initOcularMapLegend(){ const el=document.getElementById('ocular-map-legend'); if(!el)return;
+  el.innerHTML=`<span><i class="dotc" style="background:#00ff9f"></i> inflow</span><span><i class="dotc" style="background:#ff4f6d"></i> outflow</span><span style="color:var(--dimmer)">all ${CCY.length} currencies incl. THB</span>`; }
+
+// ======================================================
+// BRAIN — folded glowing + FORMING-LOOP; drawn to hero + ocular
+// ======================================================
+const PAL=['#00d9ff','#4fc3f7','#81d4fa','#c792ea','#ffb627'];
+const bA=0.56,bB=0.50,bC=0.82,FAMP=0.085;
+function foldVal(y,phi){const v=0.55*Math.sin(6.2*phi+5*y)+0.34*Math.sin(9.3*phi-7*y+1.3)+0.22*Math.sin(13.1*phi+3*y+2.1)+0.15*Math.sin(4*phi-11*y+0.6);return Math.max(-1,Math.min(1,v/1.26));}
+function bSurf(y,phi){const yn=y/bB,t=Math.max(0,1-yn*yn),r=Math.pow(t,0.62);let ax=bA*r,az=bC*r;const temporal=Math.exp(-Math.pow((y+0.04)/0.20,2));ax*=1+0.16*temporal;const f=foldVal(y,phi),disp=1+FAMP*f;ax*=disp;az*=disp;let x=ax*Math.sin(phi),z=az*Math.cos(phi);z*=z>0?1.07:0.90;const mid=Math.exp(-Math.pow(x/0.09,2))*Math.max(0,(y+0.05)/bB);let yo=y+0.08*mid;const base=Math.max(0,(-y-0.18)/0.32);yo-=0.05*base*base;return{x,y:yo,z,fold:f};}
+let bstate=null;
+function buildBrain(){const pts=[],rings=[],sulci=[];
+  function addPt(x,y,z,glow,ring,fold,dim){const a=Math.random()*6.28,rad=2.4+Math.random()*2.6,el=(Math.random()-0.5)*Math.PI;pts.push({tx:x,ty:y,tz:z,glow,ring,fold:fold||0,dim:dim||1,x:Math.cos(el)*Math.cos(a)*rad,y:Math.sin(el)*rad,z:Math.cos(el)*Math.sin(a)*rad,tw:Math.random()*6.28,sp:0.5+Math.random()*1.5,fl:0});return pts.length-1;}
+  const RINGS=48;
+  for(let ri=0;ri<RINGS;ri++){const y=bB-(ri/(RINGS-1))*(2*bB),t=Math.max(0.001,1-(y/bB)*(y/bB)),n=Math.max(18,Math.round(60*Math.pow(t,0.6))),ring=[];for(let k=0;k<n;k++){const phi=-Math.PI+(k/n)*6.283+(Math.random()-0.5)*0.03,q=bSurf(y,phi);ring.push(addPt(q.x,q.y,q.z,false,ri,q.fold));}rings.push(ring);}
+  for(let j=0;j<7;j++){const y=-0.26-j*0.045,ring=[],n=20,rr=0.28*(1-j/9);for(let k=0;k<n;k++){const phi=-Math.PI+(k/n)*6.283;ring.push(addPt(rr*Math.sin(phi)*0.95,y,-0.52-0.12*Math.cos(phi)-rr*0.25,false,RINGS+j,0.5*Math.sin(k*1.7)));}rings.push(ring);}
+  for(let j=0;j<7;j++){const y=-0.40-j*0.05,ring=[],n=12,rr=0.115-j*0.008,pons=Math.exp(-Math.pow((j-1)/1.5,2))*0.03;for(let k=0;k<n;k++){const phi=-Math.PI+(k/n)*6.283;ring.push(addPt((rr+pons)*Math.sin(phi),y,-0.06+(rr+pons)*Math.cos(phi),false,RINGS+7+j,0,0.6));}rings.push(ring);}
+  function sulcus(list,side){const idx=list.map(([y,phi])=>{const q=bSurf(y,phi);return addPt(q.x*0.99,q.y,q.z*0.99+0.012,true,Math.round((bB-y)/(2*bB)*(RINGS-1)),-0.8);});sulci.push({idx,side,pulse:Math.random(),speed:0.35+Math.random()*0.4});}
+  const fis=[];for(let f=-1;f<=1.001;f+=0.14){const zc=f,y=Math.sqrt(Math.max(0,1-zc*zc))*0.30+0.14;fis.push([y,zc>0?0.001:Math.PI]);}sulcus(fis,'top');
+  sulcus([[0.32,0.85],[0.18,1.02],[0.03,1.14],[-0.12,1.2],[-0.25,1.12]],'xpos');sulcus([[0.32,-0.85],[0.18,-1.02],[0.03,-1.14],[-0.12,-1.2],[-0.25,-1.12]],'xneg');
+  sulcus([[0.45,0.55],[0.47,0.28],[0.46,0],[0.47,-0.28],[0.45,-0.55]],'top');sulcus([[0.30,0.45],[0.24,0.62],[0.16,0.76]],'xpos');sulcus([[0.30,-0.45],[0.24,-0.62],[0.16,-0.76]],'xneg');
+  const links=[];let g=0;while(links.length<140&&g++<7000){const a=Math.random()*pts.length|0,b=Math.random()*pts.length|0,d=Math.hypot(pts[a].tx-pts[b].tx,pts[a].ty-pts[b].ty,pts[a].tz-pts[b].tz);if(d>0.05&&d<0.24)links.push({a,b});}
+  const syn=[];for(let i=0;i<24;i++){const l=links[Math.random()*links.length|0];if(l)syn.push({a:l.a,b:l.b,t:Math.random()*3,dur:1.5+Math.random()*1.3,role:i%2?-1:1});}
+  const amb=[];for(let i=0;i<56;i++)amb.push({x:Math.random(),y:Math.random(),vx:(Math.random()-0.5)*0.012,vy:(Math.random()-0.5)*0.01,r:0.7+Math.random()*1.6,tw:Math.random()*6.28,sp:0.3+Math.random(),c:PAL[Math.random()*PAL.length|0]});
+  bstate={pts,rings,sulci,links,syn,amb,rotY:0.5,formStart:null,tSec:0};}
+function setBrainBias(m){biasMode=m;['s-auto','s-bull','s-bear','s-neu'].forEach(id=>{const el=document.getElementById(id);if(el)el.className='';});const map={auto:'s-auto',bull:'s-bull',bear:'s-bear',neutral:'s-neu'},el=document.getElementById(map[m]);if(el)el.className='on';if(m==='bull')brainTarget=0.9;else if(m==='bear')brainTarget=-0.9;else if(m==='neutral')brainTarget=0;}
+window.setBrainBias=setBrainBias;
+const shade=f=>0.35+0.65*(0.5+0.5*f);
+function updateBrain(now,dt){if(!bstate)return;if(bstate.formStart==null)bstate.formStart=now;bstate.tSec=Math.max(0,(now-bstate.formStart-150)/1000);
+  if(biasMode==='auto')brainTarget=predictive.p?(predictive.side==='LONG'?1:-1)*predictive.score/100:Math.sin(now/6000)*0.6;
+  brainBias+=(brainTarget-brainBias)*Math.min(1,dt*1.6);bstate.rotY+=dt*0.19;
+  for(const a of bstate.amb){a.x=(a.x+a.vx*dt+1)%1;a.y=(a.y+a.vy*dt+1)%1;}
+  for(const s of bstate.sulci){s.pulse+=dt*s.speed;if(s.pulse>1.25)s.pulse-=1.5;}
+  for(const sy of bstate.syn){sy.t+=dt/sy.dur;if(sy.t>1){sy.t=0;const nl=bstate.links[Math.random()*bstate.links.length|0];if(nl){sy.a=nl.a;sy.b=nl.b;}}}}
+function paintBrain(cv,ctx,now){const r=cv.getBoundingClientRect();if(r.width<10)return;const dpr=Math.min(2,devicePixelRatio||1);if(Math.abs(cv.width-r.width*dpr)>2){cv.width=Math.max(2,r.width*dpr);cv.height=Math.max(2,r.height*dpr);}
+  ctx.setTransform(dpr,0,0,dpr,0,0);const w=r.width,h=r.height;ctx.clearRect(0,0,w,h);if(!bstate)return;
+  const bull=Math.max(0,brainBias),bear=Math.max(0,-brainBias);
+  for(const a of bstate.amb){const tw=0.14+0.4*(0.5+0.5*Math.sin(now/900*a.sp+a.tw));ctx.globalAlpha=tw;ctx.fillStyle=a.c;ctx.fillRect(a.x*w-a.r/2,a.y*h-a.r/2,a.r,a.r);}ctx.globalAlpha=1;
+  const cx=w/2,cy=h*0.5,scale=Math.min(w,h)*0.42,cosr=Math.cos(bstate.rotY),sinr=Math.sin(bstate.rotY);
+  const rings=bstate.rings,totalR=rings.length,CYCLE=16,BUILD=9,PRE=4,L=totalR+BUILD+PRE,wave=(bstate.tSec/CYCLE)*L;
+  const pts=bstate.pts,proj=new Array(pts.length);
+  for(let i=0;i<pts.length;i++){const p=pts[i];let e=0;if(wave>=p.ring){const db=(wave-p.ring)%L;if(db<BUILD){const k=db/BUILD;e=1-Math.pow(1-k,3);}else if(db>L-PRE){const k=(L-db)/PRE;e=k*k;}else e=1;}
+    const x3=p.x+(p.tx-p.x)*e,y3=p.y+(p.ty-p.y)*e,z3=p.z+(p.tz-p.z)*e,rx=x3*cosr+z3*sinr,rz=-x3*sinr+z3*cosr,persp=1/(2.5-rz*0.6);proj[i]={sx:cx+rx*scale*persp,sy:cy-y3*scale*persp,persp,rz,e};}
+  for(let ri=0;ri<totalR;ri++){const ring=rings[ri];if(ring.length<2)continue;const e0=proj[ring[0]].e;if(e0<0.35)continue;
+    for(let k=0;k<ring.length;k++){const ia=ring[k],ib=ring[(k+1)%ring.length],qa=proj[ia],qb=proj[ib];const fold=(pts[ia].fold+pts[ib].fold)/2,sh=shade(fold),depth=0.5+0.5*qa.rz,bg=(e0>0.35&&e0<0.98)?(1-e0):0;
+      ctx.strokeStyle=`rgba(${Math.round(80+130*sh)},${Math.round(170+80*sh)},${Math.round(220+35*sh)},${(0.14+0.5*sh+0.4*bg)*e0*depth})`;ctx.lineWidth=0.5+0.9*sh;ctx.beginPath();ctx.moveTo(qa.sx,qa.sy);ctx.lineTo(qb.sx,qb.sy);ctx.stroke();}}
+  for(const s of bstate.sulci){const vis=s.side==='top'?0.9:s.side==='xpos'?Math.max(0,-sinr):Math.max(0,sinr);if(vis<0.06)continue;const e0=proj[s.idx[0]].e;if(e0<0.5)continue;const pj=s.idx.map(i=>proj[i]);
+    ctx.strokeStyle=`rgba(10,26,40,${0.55*vis*e0})`;ctx.lineWidth=2.2;ctx.beginPath();pj.forEach((q,i)=>i?ctx.lineTo(q.sx,q.sy):ctx.moveTo(q.sx,q.sy));ctx.stroke();
+    ctx.strokeStyle=`rgba(150,220,255,${0.26*vis*e0})`;ctx.lineWidth=0.7;ctx.beginPath();pj.forEach((q,i)=>i?ctx.lineTo(q.sx,q.sy):ctx.moveTo(q.sx,q.sy));ctx.stroke();
+    const seg=pj.length-1,fp=s.pulse*seg;if(fp>=0&&fp<seg){const i0=Math.floor(fp),fr=fp-i0,qa=pj[i0],qb=pj[i0+1],px=qa.sx+(qb.sx-qa.sx)*fr,py=qa.sy+(qb.sy-qa.sy)*fr;ctx.save();ctx.shadowColor='#7fe9ff';ctx.shadowBlur=13;ctx.fillStyle=`rgba(190,240,255,${0.9*vis*e0})`;ctx.beginPath();ctx.arc(px,py,2.3,0,6.28);ctx.fill();ctx.restore();}}
+  for(const sy of bstate.syn){const qa=proj[sy.a],qb=proj[sy.b];if(qa.e<0.6||qb.e<0.6)continue;const strength2=sy.role>0?bull:bear,colored=strength2>0.08,col=colored?(sy.role>0?'#00ff9f':'#ff2e63'):'#bfe8ff',aMul=colored?0.5+0.5*strength2:0.26;
+    const t1=Math.min(1,sy.t),t0=Math.max(0,sy.t-0.3),ax=qa.sx+(qb.sx-qa.sx)*t0,ay=qa.sy+(qb.sy-qa.sy)*t0,bx=qa.sx+(qb.sx-qa.sx)*t1,by=qa.sy+(qb.sy-qa.sy)*t1;const gr=ctx.createLinearGradient(ax,ay,bx,by);gr.addColorStop(0,'rgba(0,0,0,0)');gr.addColorStop(1,col);ctx.strokeStyle=gr;ctx.globalAlpha=aMul*Math.min(qa.e,qb.e);ctx.lineWidth=colored?1.4:1;ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();ctx.fillStyle=col;ctx.beginPath();ctx.arc(bx,by,colored?1.6:1,0,6.28);ctx.fill();}ctx.globalAlpha=1;
+  for(let i=0;i<pts.length;i++){const p=pts[i],q=proj[i];if(q.e<=0.02)continue;const tw=0.32+0.5*(0.5+0.5*Math.sin(now/700*p.sp+p.tw)),sh=shade(p.fold),depth=0.55+0.45*q.rz;const s=((p.glow?1.4:0.85)+1.0*q.persp)*(0.5+0.5*tw)*(0.5+0.7*sh);ctx.globalAlpha=Math.min(1,q.e*(tw*0.85*sh+0.1)*depth)*p.dim;ctx.fillStyle=p.glow?'#eaffff':(p.fold>0.3?'#cdeeff':'#7fb8d8');ctx.fillRect(q.sx-s/2,q.sy-s/2,s,s);}ctx.globalAlpha=1;}
+
+// ---------- boot + loops ----------
+const heroBrainCv=document.getElementById('hero-brain-canvas'),heroBrainCtx=heroBrainCv?heroBrainCv.getContext('2d'):null;
+const ocBrainCv=document.getElementById('ocular-brain-canvas'),ocBrainCtx=ocBrainCv.getContext('2d');
+buildTable(); buildBrain(); setFlow('capital'); rebuildCapArcs(); setBrainBias('auto');
+const restored=restoreState();   // bring back learning/calibration + running flag from before (survives tab close)
+resizeMaps(); initMap(); ensureMapReady(); initOcularMapLegend(); tick(); renderTable(); renderOpp(); renderTrinity(); if(!restored)setPreset('balanced'); else renderSettings(); renderWallet(); renderInternals(); renderCalib(); renderPositions(); renderClosed(); renderReasoning(); renderAdjustments();
+setWalletMode(walletMode);
+if(restored && restored.capProxy){
+  // proxy URL survived the restart → auto-reconnect so the user doesn't have to relink after closing the browser
+  const pe=document.getElementById('cap-proxy'); if(pe)pe.value=restored.capProxy;
+  pushReason('restoring session — auto-reconnecting to Capital.com proxy…');
+  setTimeout(()=>{ try{ connectCapital(); }catch(e){} }, 400);
+}
+if(restored && restored.trinityWasRunning){ pushReason('Trinity was RUNNING before the restart — positions will resync from Capital.com; press Start to resume opening new trades.'); }
+let lastFrame=0;
+function loop(now){requestAnimationFrame(loop);
+  if(!document.querySelector('.tab.show .trn')){return;}   /* alleen Trinity-canvassen tekenen als een Trinity-tab zichtbaar is */
+  const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
+  renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
+requestAnimationFrame(loop);
+setInterval(()=>{tick();renderTable();renderOpp();renderTrinity();renderWallet();renderInternals();renderCalib();},1200);
+setInterval(rebuildCapArcs,4000);
+setInterval(persistState,10000);   // persist learning + running flag every 10s
+addEventListener('beforeunload',persistState);
+
+
+/* ---- Trinity UI helpers (sd-cards etc.) ---- */
+/* ============================================================
+   TRINITY · FX — Osiris-shell UI controller (phase 1: design/look)
+   Tabs, top bar, clock and a multi-pair overview, all reading the
+   existing Trinity engine globals (ranked / pair / trinity / getSession).
+   The engine (app.js) is untouched; this only drives the new shell.
+   ============================================================ */
+(function () {
+  'use strict';
+
+  // ---------- tab switching ----------
+  function showTab(id) {
+    document.querySelectorAll('.otab').forEach(function (t) {
+      var on = t.id === 'tab-' + id;
+      t.classList.toggle('show', on);
+    });
+    document.querySelectorAll('.navb').forEach(function (n) { n.classList.toggle('active', n.dataset.tab === id); });
+    // canvases sized while hidden read width 0 — nudge them once visible
+    try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+    try { if (typeof ensureMapReady === 'function') ensureMapReady(); } catch (e) {}
+    setTimeout(function () { try { window.dispatchEvent(new Event('resize')); } catch (e) {} }, 80);
+  }
+  window.trinityShowTab = showTab;
+
+  var rail = document.getElementById('os-rail');
+  if (rail) rail.addEventListener('click', function (e) {
+    var b = e.target.closest('.navb'); if (!b) return;
+    showTab(b.dataset.tab);
+  });
+
+  // ---------- clock (UTC — forex runs on UTC sessions) ----------
+  function tickClock() {
+    var el = document.getElementById('os-clock'); if (!el) return;
+    var d = new Date(), p = function (n) { return String(n).padStart(2, '0'); };
+    el.textContent = p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds()) + ' UTC';
+  }
+  setInterval(tickClock, 1000); tickClock();
+
+  // ---------- top-bar pills ----------
+  function syncPills() {
+    try {
+      var st = document.getElementById('trinity-state');
+      var on = st ? /RUN/i.test(st.textContent) : false;
+      var dot = document.getElementById('os-engine-dot'), txt = document.getElementById('os-engine-txt');
+      if (dot) dot.className = 'os-dot' + (on ? '' : ' dim');
+      if (txt) txt.textContent = on ? 'ENGINE LIVE' : 'STANDBY';
+    } catch (e) {}
+    try {
+      var mode = document.getElementById('os-mode-txt');
+      var lv = (typeof liveMode !== 'undefined' && liveMode) || (typeof walletMode !== 'undefined' && walletMode === 'live');
+      if (mode) mode.textContent = lv ? 'LIVE PRICES' : 'DEMO / MOCK';
+    } catch (e) {}
+    try {
+      var s = (typeof getSession === 'function') ? getSession() : null;
+      var sEl = document.getElementById('os-session-txt');
+      if (sEl && s) sEl.textContent = (s.name || s.key || 'SESSION').replace('London–NY ', '').toUpperCase();
+    } catch (e) {}
+  }
+
+  // ---------- multi-pair overview (Osiris sd-cards) ----------
+  var ACC = ['#00d9ff', '#7c5cff', '#14f195'];   // three lanes, like BTC/ETH/SOL
+  function fmtRate(v) { if (v == null) return '—'; return v >= 100 ? v.toFixed(2) : (v >= 10 ? v.toFixed(3) : v.toFixed(4)); }
+  function renderCards() {
+    var host = document.getElementById('tr-sd-cards'); if (!host) return;
+    var list = (typeof ranked !== 'undefined' && ranked && ranked.length) ? ranked.slice(0, 3) : [];
+    if (!list.length) return;
+    host.innerHTML = list.map(function (r, i) {
+      var acc = ACC[i % 3];
+      var isLong = r.side === 'LONG';
+      var sideCol = isLong ? 'var(--bull2)' : 'var(--bear)';
+      var sideTxt = isLong ? '▲ LONG' : '▼ SHORT';
+      var chg = (r.chgPct != null) ? r.chgPct : 0;
+      var chgCol = chg > 0 ? 'var(--bull2)' : (chg < 0 ? 'var(--bear)' : 'var(--dim)');
+      var score = Math.max(0, Math.min(100, r.score || 0));
+      var pred = Math.round(r.pred || 0);
+      return '<div class="sd-card" style="--acc:' + acc + ';">' +
+        '<div class="sd-hd"><span class="sd-sym">' + r.p + '</span><span class="sd-badge" style="color:' + sideCol + ';">' + sideTxt + '</span></div>' +
+        '<div class="sd-row"><span class="k">Rate</span><span class="v">' + fmtRate(r.rate) + '</span></div>' +
+        '<div class="sd-row"><span class="k">Change</span><span class="v" style="color:' + chgCol + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(3) + '%</span></div>' +
+        '<div class="sd-row"><span class="k">Confidence</span><span class="v">' + pred + '%</span></div>' +
+        '<div class="sd-row"><span class="k">Opportunity score</span><span class="v" style="color:' + acc + ';">' + score + '/100</span></div>' +
+        '<div class="sd-bar"><i style="width:' + score + '%;background:' + acc + ';box-shadow:0 0 10px ' + acc + ';"></i></div>' +
+        '</div>';
+    }).join('');
+  }
+
+  setInterval(function () { syncPills(); renderCards(); }, 1500);
+  setTimeout(function () { syncPills(); renderCards(); }, 600);
+
+  // start on About; give the engine a moment then nudge canvases
+  window.addEventListener('load', function () { setTimeout(function () { try { window.dispatchEvent(new Event('resize')); } catch (e) {} }, 400); });
+})();
