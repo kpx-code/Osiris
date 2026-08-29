@@ -16639,28 +16639,10 @@ function _neoNetDraw(now, canvasId, outId) {
     // (22-08) padTop groter zodat de inputs ONDER de titel/subtitel beginnen (geen overlap);
     // padBot groter zodat de laag-labels + status-regel ruim boven de panel-hoeken/randen vallen.
     const padX = w * 0.13, padTop = h * 0.115, padBot = h * 0.15, padY = padTop;
-    // horizontale posities per laag. De input-kant (INPUTS→INTEGRATION→CORES) krijgt ~1,5× méér
-    // tussenruimte dan de rechterkant (CORES→OSIRIS→TA→…): eerste twee gaps 0.1875, de rest 0.125.
-    const _FX = [0, 0.30, 0.55, 0.68, 0.80, 0.90, 0.99];
-    const _fxOf = li => (_FX[li] != null ? _FX[li] : li / (layers.length - 1));
-    const _coresBand = [0.185, 0.44];        // fractionele x-band voor het 9-punts CORES-raster
-    // (24-08 v4) LANE-POSITIES: alleen de INPUT-kolom (laag 0) spreidt vol uit (input-pinnen links);
-    // ALLE diepere lagen krijgen hun y uit de vaste LANE-row (BTC/ETH/SOL-baan of de middenas) →
-    // de per-markt-stroom loopt in kaarsrechte horizontale banen, geen diagonale kruislijnen meer.
+    // (29-08 v6 · ORGANISCH) De platte lanen zijn vervangen door een BIOLOGISCH NEURAAL WEB
+    // (ring-cellen + witte filament-bundels + verspreide cyaan/groen tags met ECHTE cijfers).
+    // Posities worden organisch berekend in de organic-renderer onderaan; hier alleen basis-geometrie.
     const colH = h - padTop - padBot, cyMid = padTop + colH / 2;
-    const laneY = colH * 0.20;                 // verticale baan-afstand (BTC boven, SOL onder)
-    const _colX = li => padX + _fxOf(li) * (w - padX * 2);
-    const _coresLi = (_neonet.coresLi != null ? _neonet.coresLi : 1);
-    const pos = layers.map((nodes, li) => {
-        if (li === 0) {
-            const top = cyMid - colH / 2, gap = colH / Math.max(1, nodes.length - 1);
-            return nodes.map((nd, i) => ({ x: _colX(li), y: nodes.length === 1 ? cyMid : top + i * gap }));
-        }
-        if (li === _coresLi) {   // CORES-bundel: x volgt nd.xf binnen de band, y volgt de munt-baan
-            return nodes.map((nd) => ({ x: padX + (_coresBand[0] + (nd.xf || 0) * (_coresBand[1] - _coresBand[0])) * (w - padX * 2), y: cyMid + (nd.row || 0) * laneY }));
-        }
-        return nodes.map((nd) => ({ x: _colX(li), y: cyMid + (nd.row || 0) * laneY }));
-    });
 
     // ---- echte input-activaties injecteren + forward-propagatie (visueel) ----
     const inp = neoNetInputs();
@@ -16780,345 +16762,212 @@ function _neoNetDraw(now, canvasId, outId) {
         // CLOUD (Supabase/Oracle cloud-architectuur) als hidden-layer-punt op de mainbrain
         try { let cs = { connected: false, signedIn: false, syncing: false }; try { if (typeof osirisCloudStatus === 'function') cs = osirisCloudStatus(); } catch (e) {} setM('cloud', cs.signedIn ? 0.9 : cs.connected ? 0.55 : 0.2, 1, cs.signedIn ? 'gesynct' : cs.connected ? 'verbonden' : 'offline'); } catch (e) { setM('cloud', 0.2, 1, '—'); }
     } catch (e) {}
-    // META-POSITIES: INLINE in de tussenruimte tussen kolom `gap` en `gap+1`, verticaal boven/onder de
-    // hoofdrij (yoff) zodat ze niets overlappen. Meerdere knopen in dezelfde tussenruimte/kant worden
-    // netjes van de rij weg gestapeld.
-    const _metaPos = {};
-    try {
-        const colX = li => padX + _fxOf(li) * (w - padX * 2);
-        _neonet.meta.forEach(mn => {
-            const x = (mn.mx != null) ? (padX + mn.mx * (w - padX * 2)) : ((colX(mn.gap) + colX(mn.gap + 1)) / 2 + (mn.xoff || 0) * (w - padX * 2));
-            _metaPos[mn.id] = { x, y: cyMid + mn.yoff * colH, gap: mn.gap };
-        });
-    } catch (e) {}
+    // ============================================================================
+    // ORGANISCH NEURAAL WEB (29-08 v6) — ring-cellen, witte filament-bundels en
+    // verspreide cyaan/groen data-tags met ECHTE cijfers (kansen, ETA, FSO, node-
+    // countdown, governor-gewichten, calProb/pShown/bestProb). Referentie-look i.p.v.
+    // platte dataflow. Alle activaties/vals komen uit de injectie hierboven → data-true.
+    // ============================================================================
+    const isBig = _isBigNet;
+    const SR = (s) => { const x = Math.sin(s * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+    const S = Math.min(w, h) / 520;
+    const MKCOL = ['#f7931a', '#627eea', '#14f195'];   // BTC / ETH / SOL
+    const GREEN = '#14f195', CYAN = '#2ce0ff';
+    const _hex2 = (hx) => { if (!hx || hx[0] !== '#') return '228,238,248'; const n = parseInt(hx.slice(1), 16); return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; };
+    const _roundRect = (c, x, y, ww, hh, rad) => { c.beginPath(); c.moveTo(x + rad, y); c.arcTo(x + ww, y, x + ww, y + hh, rad); c.arcTo(x + ww, y + hh, x, y + hh, rad); c.arcTo(x, y + hh, x, y, rad); c.arcTo(x, y, x + ww, y, rad); c.closePath(); };
 
-    // ---- verbindingen: swingen + oplichten waar de compute-golf is ----
-    // Elke verbinding krijgt een duidelijke grondlaag (altijd zichtbaar, zodat de hele
-    // netwerkstructuur leesbaar is - ook tussen confluence/integratie/gewichten), plus
-    // een oplicht-component waar de compute-golf en activatie doorheen trekken.
-    // KLEUR: in rust volgt elke verbinding de kleur van zijn HERKOMST-input (geel/groen/
-    // paars/cyaan/...); zodra hij oplicht terwijl Neo rekent, kleurt hij Osiris-neonblauw.
-    const OSIRIS_NEON = '80,240,255';
-    // bepaal per node in de eerste laag zijn kleur (rgb), propageer die als "signaalkleur"
-    if (!_neonet._srcCol) {
-        // signaalkleur per node per laag: laag 0 = input-kleur, dieper = gemengd/overgeërfd
-        const hex2rgb = h => { const n = parseInt(h.slice(1), 16); return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; };
-        const src = layers.map(l => l.map(() => '130,180,230'));
-        layers[0].forEach((nd, i) => src[0][i] = hex2rgb(NEONET_INPUTS[i].c));
-        // elke diepere node erft de kleur van de sterkst-verbonden bron ervoor (grof, 1x)
-        for (let li = 1; li < layers.length; li++) {
-            layers[li].forEach((nd, j) => {
-                let best = null, bw = -1;
-                for (const cn of conns) if (cn.li === li - 1 && cn.b === j) { if (Math.abs(cn.w) > bw) { bw = Math.abs(cn.w); best = cn.a; } }
-                src[li][j] = best != null ? src[li - 1][best] : '130,180,230';
-            });
-        }
-        _neonet._srcCol = src;
+    // ---- 1. LAYOUT (organisch, gecachet; herbouwt alleen bij resize / net-herbouw) ----
+    const _okey = Math.round(w) + 'x' + Math.round(h) + '#' + layers.length + '#' + (_neonet.meta ? _neonet.meta.length : 0);
+    if (!_neonet._org || _neonet._org.key !== _okey) {
+        const MX = (bx) => w * (0.15 + bx * 0.83), MY = (by) => h * (0.05 + by * 0.90);
+        const specs = [];
+        const inN = layers[0].length, rows = Math.ceil(inN / 2);
+        for (let i = 0; i < inN; i++) { const col = i % 2, row = Math.floor(i / 2); specs.push({ ref: ['n', 0, i], bx: 0.015 + col * 0.05, by: 0.05 + (row / Math.max(1, rows - 1)) * 0.88, imp: 0.13, grp: 'in' }); }
+        const mkY = [0.28, 0.52, 0.74], tyX = [0.235, 0.335, 0.435], tyImp = [0.34, 0.44, 0.74];
+        for (let mk = 0; mk < 3; mk++) for (let ty = 0; ty < 3; ty++) { const idx = mk * 3 + ty; specs.push({ ref: ['n', 1, idx], bx: tyX[ty], by: mkY[mk] + (ty - 1) * 0.02, imp: tyImp[ty], grp: ['pmv', 'dn', 'mc'][ty] }); }
+        specs.push({ ref: ['n', 2, 0], bx: 0.55, by: 0.47, imp: 1.0, grp: 'osiris' });
+        specs.push({ ref: ['n', 3, 0], bx: 0.655, by: 0.37, imp: 0.42, grp: 'ta' });
+        specs.push({ ref: ['n', 3, 1], bx: 0.655, by: 0.58, imp: 0.40, grp: 'ta' });
+        specs.push({ ref: ['n', 4, 0], bx: 0.755, by: 0.32, imp: 0.5, grp: 'dec' });
+        specs.push({ ref: ['n', 4, 1], bx: 0.765, by: 0.49, imp: 0.46, grp: 'dec' });
+        specs.push({ ref: ['n', 4, 2], bx: 0.755, by: 0.66, imp: 0.5, grp: 'dec' });
+        specs.push({ ref: ['n', 5, 0], bx: 0.85, by: 0.47, imp: 0.8, grp: 'out' });
+        specs.push({ ref: ['n', 6, 0], bx: 0.93, by: 0.46, imp: 0.74, grp: 'rl' });
+        const metaAnchor = { 'gov-pred': [0.28, 0.15], 'gov-kin': [0.37, 0.10], 'gov-eta': [0.46, 0.14], 'gov-agg': [0.40, 0.92], 'llm': [0.55, 0.22], 'regime': [0.485, 0.71], 'cloud': [0.62, 0.66], 'mtf': [0.64, 0.23], 'nodefade': [0.66, 0.74], 'spike': [0.735, 0.16], 'fag-spot': [0.815, 0.18], 'fag-mar': [0.86, 0.29], 'risk': [0.83, 0.76], 'guardian': [0.775, 0.86], 'selfrev': [0.905, 0.26] };
+        const grpMeta = { 'gov-pred': 'gov', 'gov-kin': 'gov', 'gov-eta': 'gov', 'gov-agg': 'gov', 'llm': 'sys', 'regime': 'sys', 'cloud': 'sys', 'mtf': 'time', 'nodefade': 'time', 'spike': 'safe', 'fag-spot': 'safe', 'fag-mar': 'safe', 'risk': 'safe', 'guardian': 'safe', 'selfrev': 'rl' };
+        (_neonet.meta || []).forEach(mn => { const a = metaAnchor[mn.id]; if (a) specs.push({ ref: ['m', mn.id], bx: a[0], by: a[1], imp: 0.3, grp: grpMeta[mn.id] || 'sys' }); });
+        const cells = specs.map((sp, k) => {
+            const jx = (SR(k * 2 + 1) - 0.5) * 0.02, jy = (SR(k * 2 + 7) - 0.5) * 0.028;
+            return { ref: sp.ref, grp: sp.grp, imp: sp.imp, x: MX(sp.bx + jx), y: MY(sp.by + jy), baseR: (6 + sp.imp * 72) * S, k, key: sp.ref.join(':') };
+        });
+        const idxOf = {}; cells.forEach((c, i) => idxOf[c.key] = i);
+        const edgeSet = new Set(), edges = [];
+        const addEdge = (ai, bi) => { if (ai == null || bi == null || ai === bi) return; const kk = ai < bi ? ai + '_' + bi : bi + '_' + ai; if (edgeSet.has(kk)) return; edgeSet.add(kk); edges.push({ a: ai, b: bi, bow: (SR(ai * 13 + bi * 7) - 0.5) * 0.5, sp: 0.6 + SR(ai + bi) }); };
+        for (const cn of (_neonet.conns || [])) { const tli = cn.tLi != null ? cn.tLi : cn.li + 1; addEdge(idxOf['n:' + cn.li + ':' + cn.a], idxOf['n:' + tli + ':' + cn.b]); }
+        const metaTargets = { 'cores': ['n:1:2', 'n:1:5', 'n:1:8'], 'decision': ['n:4:0', 'n:4:1', 'n:4:2'], 'ta': ['n:3:0', 'n:3:1'], 'osiris': ['n:2:0'], 'rl': ['n:6:0'] };
+        (_neonet.meta || []).forEach(mn => { const mi = idxOf['m:' + mn.id]; const tg = metaTargets[mn.conn]; if (mi != null && tg) tg.forEach(t => addEdge(mi, idxOf[t])); });
+        for (let i = 0; i < cells.length; i++) { let bj = -1, bd = 1e9; for (let j = 0; j < cells.length; j++) { if (i === j) continue; const kk = i < j ? i + '_' + j : j + '_' + i; if (edgeSet.has(kk)) continue; const d = Math.hypot(cells[i].x - cells[j].x, cells[i].y - cells[j].y); if (d < bd) { bd = d; bj = j; } } if (bj >= 0) addEdge(i, bj); }
+        const bursts = [];
+        cells.forEach((c, ci) => { if (c.imp < 0.7) return; const n = 10 + Math.round(SR(ci) * 8), pts = []; for (let r = 0; r < n; r++) { const ang = SR(ci * 40 + r) * 6.283, len = 0.25 + SR(ci * 40 + r + 3) * 0.7; pts.push([c.x + Math.cos(ang) * len * w * 0.5, c.y + Math.sin(ang) * len * h * 0.5]); } bursts.push({ ci, pts }); });
+        const bg = []; for (let i = 0; i < 24; i++) bg.push({ cx: SR(i * 3 + 1) * w, cy: SR(i * 3 + 2) * h, r: (0.05 + SR(i * 3 + 3) * 0.28) * Math.min(w, h) });
+        const xs = []; for (let i = 0; i < 12; i++) xs.push({ x: SR(i * 5 + 11) * w, y: SR(i * 5 + 13) * h, g: SR(i * 5 + 17) > 0.5 });
+        const sqs = []; for (let i = 0; i < 16; i++) sqs.push({ x: SR(i * 7 + 3) * w, y: SR(i * 7 + 5) * h, kind: Math.floor(SR(i * 7 + 9) * 4) });
+        const decs = []; for (let i = 0; i < 16; i++) decs.push({ x: SR(i * 9 + 2) * w, y: SR(i * 9 + 4) * h, slot: i, big: SR(i * 9 + 6) > 0.72 });
+        _neonet._org = { key: _okey, cells, idxOf, edges, bursts, bg, xs, sqs, decs };
     }
-    const srcCol = _neonet._srcCol;
-    // (29-08 · ORGANISCH) faint 'NEURAL NETWORK' watermerk + achtergrond-tendrils = biologische diepte
-    if (_isBigNet) {
-        ctx.save();
-        ctx.font = "800 62px 'Orbitron','JetBrains Mono',monospace"; ctx.textAlign = 'left';
-        ctx.fillStyle = 'rgba(120,150,175,0.045)';
-        ctx.fillText('NEURAL', padX * 0.15, h - 74);
-        ctx.fillText('NETWORK', padX * 0.15, h - 16);
-        ctx.restore();
-        if (!_neonet._organicBg) {
-            const rnd = s => { const x = Math.sin(s * 99.13) * 4371.3; return x - Math.floor(x); };
-            const arr = []; for (let i = 0; i < 26; i++) arr.push({ x1: rnd(i + 1), y1: rnd(i + 7), x2: rnd(i + 13), y2: rnd(i + 19), b: (rnd(i + 23) - 0.5) * 0.6, ph: rnd(i + 29) * 6.28 });
-            _neonet._organicBg = arr;
-        }
-        ctx.lineWidth = 0.5; ctx.strokeStyle = 'rgba(210,225,240,0.045)';
-        for (const t of _neonet._organicBg) {
-            const ax = padX + t.x1 * (w - 2 * padX), ay = padTop + t.y1 * colH, bx = padX + t.x2 * (w - 2 * padX), by = padTop + t.y2 * colH;
-            const dx = bx - ax, dy = by - ay, ln = Math.hypot(dx, dy) || 1, nx = -dy / ln, ny = dx / ln;
-            const bw = (t.b + 0.12 * Math.sin(now / 1600 + t.ph)) * ln;
-            const cx = (ax + bx) / 2 + nx * bw, cy = (ay + by) / 2 + ny * bw;
-            ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(cx, cy, bx, by); ctx.stroke();
-        }
-    }
-    // DATA-WARE VERBINDINGEN (12-08): helderheid + dikte volgen de ECHTE co-activatie
-    // (bron-activatie x doel-activatie). Inactieve edges blijven een zwakke structuurlijn;
-    // actieve edges dragen een gerichte data-puls die van bron -> doel reist (links -> rechts),
-    // met snelheid en helderheid evenredig aan het signaal. Geen sweep-golf meer.
-    for (const cn of conns) {
-        const _tLi = (cn.tLi != null ? cn.tLi : cn.li + 1);
-        const A = pos[cn.li][cn.a], B = pos[_tLi][cn.b];
-        const aAct = layers[cn.li][cn.a].act || 0;
-        const bAct = layers[_tLi][cn.b].act || 0;
-        const signal = Math.max(0, Math.min(1, aAct * bAct));     // echte signaalsterkte over deze edge
-        const baseCol = srcCol[cn.li][cn.a];
-        const hot = signal > 0.28 && !cn.dim;     // dim input-waaier nooit 'heet' (geen dure gloed/spaghetti)
-        const col = hot ? OSIRIS_NEON : baseCol;
-        // MC-hoofdcores → OSIRIS: lijn-dikte volgt de ECHTE kapitaal-allocatie naar die munt (data-true):
-        // dikkere baan = meer equity naar dat sub-brein. Geeft in één oogopslag de allocatie weer.
-        let _wMul = 1, _aFloor = 0;
-        if (cn.coreEdge && _neonet._coreAlloc) { const al = _neonet._coreAlloc[cn.a] || 0.12; _wMul = 0.6 + 2.2 * al; _aFloor = 0.10 + 0.22 * al; }
-        if (cn.lane || cn.dim) _wMul *= 1.35;     // banen + INPUTS→PMV even stevig/duidelijk
-        // (29-08 · ORGANISCH) De verbinding is nu een GEBOGEN WITTE FILAMENT-BUNDEL (biologische
-        // neurale-web look) i.p.v. een rechte lijn. Helderheid/dikte volgen nog steeds de ECHTE
-        // co-activatie; hete edges kleuren cyaan met gloed. Kleur-basis wit i.p.v. herkomst-kleur.
-        const flash = 0.5 + 0.5 * Math.sin(now / 340 * (0.7 + cn.sp) + cn.flow * 6.28);
-        const strand = hot ? OSIRIS_NEON : '228,238,248';    // wit filament, cyaan als 'heet'
-        // controle-punt: loodrecht op A→B, organische boog die zacht meebeweegt
-        const _dx = B.x - A.x, _dy = B.y - A.y, _len = Math.hypot(_dx, _dy) || 1;
-        const _nx = -_dy / _len, _ny = _dx / _len;
-        const _bow = ((cn.flow || 0.5) - 0.5) * 0.55 + 0.14 * Math.sin(now / 1100 + (cn.flow || 0) * 6.28);
-        const _cx = (A.x + B.x) / 2 + _nx * _bow * _len, _cy = (A.y + B.y) / 2 + _ny * _bow * _len;
-        const _qpt = t => { const u = 1 - t; return [u * u * A.x + 2 * u * t * _cx + t * t * B.x, u * u * A.y + 2 * u * t * _cy + t * t * B.y]; };
-        let a = Math.max(_aFloor + 0.03, 0.10 + 0.26 * signal + (0.06 + 0.26 * signal) * flash);
-        if (cn.dim) a *= 0.55;                     // INPUTS→PMV zachter (achtergrond-web)
-        const bw = (0.5 + 0.85 * signal) * _wMul;
-        const curve = (offMul) => { const cx2 = _cx + _nx * offMul, cy2 = _cy + _ny * offMul; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx2, cy2, B.x, B.y); ctx.stroke(); };
-        if (hot) {
-            ctx.save(); ctx.shadowColor = `rgb(${strand})`; ctx.shadowBlur = 4 + 8 * signal;
-            ctx.strokeStyle = `rgba(${strand},${a.toFixed(3)})`; ctx.lineWidth = bw; curve(0);
-            ctx.restore();
+    const ORG = _neonet._org, cells = ORG.cells;
+
+    // ---- 2. LIVE DATA per cel (echte cijfers uit tools/cores/osiris/meta) ----
+    const _db = decisionBias;
+    const liveCell = (c) => {
+        const r = c.ref; let act = 0.3, big = c.imp >= 0.7, tag = null, tagBg = CYAN, ring = '228,238,248', dot = null;
+        if (r[0] === 'n') {
+            const nd = layers[r[1]] && layers[r[1]][r[2]]; if (!nd) return { act, big, ring, tag: null, tagBg, dot };
+            act = nd.act || 0.3;
+            if (c.grp === 'in') { ring = _hex2(NEONET_INPUTS[r[2]].c); }
+            else if (c.grp === 'pmv') { ring = _hex2(MKCOL[nd.mkt]); tagBg = nd.sign < 0 ? GREEN : CYAN; if (act > 0.55) tag = _syms[nd.mkt] + ' PMV ' + Math.round(act * 100) + '%'; if (nd.inv) dot = '#ff5f7e'; }
+            else if (c.grp === 'dn') { ring = _hex2(MKCOL[nd.mkt]); tagBg = CYAN; if (act > 0.55) tag = _syms[nd.mkt] + ' DN ' + Math.round(act * 100) + '%'; if (nd.metagate) dot = '#14f195'; else if (nd.inv) dot = '#ff5f7e'; }
+            else if (c.grp === 'mc') { ring = _hex2(MKCOL[nd.mkt]); tagBg = nd.sign < 0 ? '#ff5f7e' : GREEN; tag = _syms[nd.mkt] + ' ' + (nd.sign < 0 ? '▼' : '▲') + Math.round(act * 100) + '%'; }
+            else if (c.grp === 'osiris') { ring = '0,217,255'; tagBg = CYAN; tag = 'OSIRIS ' + Math.round(act * 100) + '%'; }
+            else if (c.grp === 'ta') { ring = r[2] === 1 ? '199,146,234' : '127,216,255'; tagBg = CYAN; tag = (r[2] === 1 ? 'TAˢ ' : 'TA ') + Math.round(act * 100) + '%'; }
+            else if (c.grp === 'dec') { const dc = ['#00ff9f', '#5c7488', '#ff4f6d'][r[2]]; ring = _hex2(dc); tagBg = r[2] === 0 ? GREEN : (r[2] === 2 ? '#ff4f6d' : CYAN); tag = ['LONG', 'NEUT', 'SHORT'][r[2]] + ' ' + Math.round(act * 100) + '%'; }
+            else if (c.grp === 'out') { ring = '0,217,255'; tagBg = _db >= 0 ? GREEN : '#ff4f6d'; tag = 'OUT ' + Math.round(Math.abs(_db) * 100) + '%'; }
+            else if (c.grp === 'rl') { ring = '20,241,149'; tagBg = GREEN; let adv = '—'; try { if (typeof OsirisRL !== 'undefined' && OsirisRL.lastDecision) adv = OsirisRL.ACTIONS[OsirisRL.lastDecision.action] + ' ' + (OsirisRL.lastDecision.conf * 100 | 0) + '%'; } catch (e) {} tag = 'RL ' + adv; }
         } else {
-            ctx.shadowBlur = 0;
-            ctx.strokeStyle = `rgba(${strand},${a.toFixed(3)})`; ctx.lineWidth = bw; curve(0);
+            const mn = (_neonet.meta || []).find(x => x.id === r[1]); if (!mn) return { act, big, ring, tag: null, tagBg, dot };
+            act = mn.act != null ? mn.act : 0.3; ring = _hex2(mn.col);
+            const grn = (r[1] === 'selfrev' || (r[1] === 'nodefade' && mn.sign > 0));
+            tagBg = (mn.sign != null && mn.sign < 0) ? '#ff5f7e' : (grn ? GREEN : (mn.col || CYAN));
+            tag = mn.label + (mn.val ? ' ' + mn.val : '');
         }
-        // tweede, ijlere streng ernaast → filament-bundel (biologische dichtheid)
-        ctx.shadowBlur = 0; ctx.strokeStyle = `rgba(${strand},${(a * 0.45).toFixed(3)})`; ctx.lineWidth = Math.max(0.4, bw * 0.6); curve(2.2 + 2 * signal);
-        // CONTINUE DATA-FLOW: cyaan deeltje reist voorwaarts langs de kromme (kleur = cyaan tag-stijl)
-        {
-            const _ft = ((now / 760) + cn.li * 0.16 + (cn.flow || 0)) % 1;
-            const [_fx, _fy] = _qpt(_ft);
-            const _fa = (0.16 + 0.6 * signal) * (cn.dim ? 0.7 : 1);
-            ctx.beginPath(); ctx.arc(_fx, _fy, (0.7 + 1.5 * signal) * (cn.dim ? 0.8 : 1), 0, 6.283);
-            ctx.fillStyle = `rgba(${hot ? OSIRIS_NEON : '120,215,255'},${_fa.toFixed(3)})`;
-            ctx.fill();
-        }
-        // FEEDBACK-FLITS: groen deeltje reist achterwaarts langs dezelfde kromme
-        if (_fbActive && _fbPos >= Math.min(cn.li, _tLi) && _fbPos <= Math.max(cn.li, _tLi) && _tLi !== cn.li) {
-            const _t = _fbPos - cn.li; const [_px, _py] = _qpt(_t);
-            ctx.strokeStyle = `rgba(20,241,149,${(0.12 * (1 - Math.abs(_t - 0.5))).toFixed(3)})`;
-            ctx.lineWidth = 0.5; curve(0);
-            ctx.beginPath(); ctx.arc(_px, _py, 0.35, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.65)'; ctx.fill();
-        }
-    }
+        return { act, big, tag, tagBg, ring, dot };
+    };
+    const LV = cells.map(liveCell);
 
-    // ---- neuronen ----
-    const outLabels = ['LONG', 'NEUT', 'SHORT'], outCols = ['#00ff9f', '#5c7488', '#ff4f6d'];
-    const isBig = (canvasId === 'neo-net-canvas-big' || canvasId === 'neo-net-canvas-wal');   // meer detail op het grote canvas
-    const _outputLi = (_neonet.outputLi != null ? _neonet.outputLi : layers.length - 2);
-    const _rlLi = (_neonet.rlLi != null ? _neonet.rlLi : layers.length - 1);
-    const _decLi = (_neonet.decisionLi != null ? _neonet.decisionLi : -1);
-    for (let li = 0; li < layers.length; li++) {
-        for (let i = 0; i < layers[li].length; i++) {
-            const p = pos[li][i], nd = layers[li][i];
-            const puls = 0.5 + 0.5 * Math.sin(now / 620 + (nd.tw || 0));   // zachte eigen-puls
-            const glow = nd.act * (0.55 + 0.45 * puls);                     // helderheid ~ echte activatie
-            const _coreNode = (li === (_neonet.coresLi != null ? _neonet.coresLi : -1));
-            const _coreMC = (_coreNode && nd.ntype === 2);   // MC-hoofdcore = medium cel
-            const _bigNode = (li === _outputLi || li === _rlLi || li === (_neonet.osirisLi != null ? _neonet.osirisLi : -1));
-            const r = (_bigNode ? 13 : (_coreMC ? 8.5 : 5.5)) + nd.act * 4 + nd.act * puls * 1.6;
-            // input-knopen krijgen hun eigen signaalkleur (rijker beeld)
-            let baseCol = 'rgba(130,200,255,GLOW)';
-            if (li === 0) { const c = NEONET_INPUTS[i].c; baseCol = _hexToRgba(c, '__A__'); }
-            // ORGANISCHE CEL: donkere kern + heldere ring (accent), dubbele celwand op de grote cellen
-            let ringCol = '228,238,248';   // wit standaard (filament-look)
-            if (li === 0) { const c = NEONET_INPUTS[i].c; const n = parseInt(c.slice(1), 16); ringCol = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; }
-            else if (li === _outputLi) ringCol = '0,217,255';
-            else if (li === _rlLi) ringCol = '20,241,149';
-            else if (_coreNode) { ringCol = ['247,147,26', '98,126,234', '20,241,149'][nd.mkt || 0]; }   // CORES: kleur per munt
-            else if (li === _decLi && layers[li].length === 3) { const dc = outCols[i]; const n = parseInt(dc.slice(1), 16); ringCol = `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; }
-            const _dimNode = nd.shadow ? 0.55 : 1;
-            const _wall = _bigNode || _coreMC;   // dubbele celwand op de grote + MC-cellen
-            ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.fillStyle = `rgba(3,7,14,${(0.5 + 0.28 * glow).toFixed(3)})`; ctx.fill();   // donkere kern (punch)
-            ctx.save();
-            if (_bigNode || nd.act > 0.45) { ctx.shadowColor = `rgb(${ringCol})`; ctx.shadowBlur = (_bigNode ? 8 : 4) + 10 * nd.act; }
-            ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.lineWidth = _wall ? 1.8 : 1.1; ctx.strokeStyle = `rgba(${ringCol},${(_dimNode * (0.34 + 0.6 * glow)).toFixed(3)})`; ctx.stroke();
-            ctx.restore();
-            if (_wall) { ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.6, 0, 6.283); ctx.lineWidth = 0.8; ctx.strokeStyle = `rgba(${ringCol},${(0.22 + 0.4 * nd.act).toFixed(3)})`; ctx.stroke(); }
-            // PMV/DEEPNET inversie-badge (rood ⇄-stipje) of DeepNet meta-gate-open (groen stipje)
-            if (nd.inv) { ctx.beginPath(); ctx.arc(p.x + r * 0.85, p.y - r * 0.85, 2.3, 0, 6.283); ctx.fillStyle = 'rgba(255,95,126,0.95)'; ctx.fill(); }
-            else if (nd.metagate) { ctx.beginPath(); ctx.arc(p.x + r * 0.85, p.y - r * 0.85, 2.0, 0, 6.283); ctx.fillStyle = 'rgba(20,241,149,0.9)'; ctx.fill(); }
-            // kern-flits op sterk-actieve knopen (data-gedreven, niet golf)
-            if (nd.act > 0.5) { ctx.beginPath(); ctx.arc(p.x, p.y, r * 0.4, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${(0.5 * nd.act * puls).toFixed(3)})`; ctx.fill(); }
-            // ACTIVATIE-WAARDE als percentage (alleen groot canvas, waar ruimte is)
-            if (isBig && nd.act > 0.08) {
-                ctx.font = "6px 'JetBrains Mono', monospace"; ctx.textAlign = 'center';
-                ctx.fillStyle = `rgba(220,240,255,${(0.4 + 0.5 * nd.act).toFixed(2)})`;
-                const valTxt = li === 0 ? `${(nd.sign < 0 ? '-' : '')}${Math.round(nd.act * 100)}` : `${Math.round(nd.act * 100)}`;
-                ctx.fillText(valTxt, p.x, p.y + r + 7);
-            }
+    // ---- 3. TEKENEN ----
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    const pulse = 0.5 + 0.5 * Math.sin(now / 900);
+    // 3a. achtergrond-bogen (biologische diepte)
+    ctx.lineWidth = 0.6;
+    for (const b of ORG.bg) { ctx.strokeStyle = 'rgba(200,220,240,0.03)'; ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, 6.283); ctx.stroke(); }
+    // 3b. hub-bursts (faint rechte stralen zoals de referentie)
+    for (const bu of ORG.bursts) { const c = cells[bu.ci]; ctx.strokeStyle = 'rgba(220,235,250,0.05)'; ctx.lineWidth = 0.4; for (const p of bu.pts) { ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(p[0], p[1]); ctx.stroke(); } }
+    // 3c. filament-web (witte gebogen bundels; helderheid ~ echte co-activatie)
+    for (const e of ORG.edges) {
+        const A = cells[e.a], B = cells[e.b];
+        const sig = Math.max(0, Math.min(1, (LV[e.a].act || 0.3) * (LV[e.b].act || 0.3)));
+        const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+        const flow = 0.5 + 0.5 * Math.sin(now / 1200 + e.a * 0.7);
+        const cx0 = (A.x + B.x) / 2 + nx * e.bow * len, cy0 = (A.y + B.y) / 2 + ny * e.bow * len;
+        const hot = sig > 0.3, baseA = 0.05 + 0.10 * flow;
+        for (let s = 0; s < 3; s++) {
+            const off = (s - 1) * (1.6 + 2 * sig), a2 = (s === 0 ? (baseA + 0.30 * sig) : baseA * 0.6);
+            ctx.strokeStyle = hot ? `rgba(120,225,255,${(a2 + 0.12 * sig).toFixed(3)})` : `rgba(228,238,248,${a2.toFixed(3)})`;
+            ctx.lineWidth = (s === 0 ? 0.9 + 1.3 * sig : 0.4);
+            ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0 + nx * off, cy0 + ny * off, B.x, B.y); ctx.stroke();
         }
+        if (sig > 0.12) { const t = ((now / 900) + e.sp) % 1, u = 1 - t; const px = u * u * A.x + 2 * u * t * cx0 + t * t * B.x, py = u * u * A.y + 2 * u * t * cy0 + t * t * B.y; ctx.beginPath(); ctx.arc(px, py, 0.8 + 1.4 * sig, 0, 6.283); ctx.fillStyle = `rgba(${hot ? '120,225,255' : '150,190,230'},${(0.3 + 0.5 * sig).toFixed(3)})`; ctx.fill(); }
     }
-
-    // ---- META-/VEILIGHEIDSKNOPEN: echte nodes die MET de pijplijn verbonden zijn ----
-    // Governor (trust), LLM (verificatie), FAG (fee-edge), Guardian (data-integriteit), Risk
-    // (breakers), Self-review — elk een knoop in de bovenband met connector-edges naar de laag
-    // waar hij ingrijpt. Rood + gloed als een guard/breaker getript is. Alles data-true.
-    try {
-        for (const mn of _neonet.meta) {
-            const mp = _metaPos[mn.id]; if (!mp) continue;
-            const act = mn.act != null ? mn.act : 0.2;
-            const _hx = mn.col.replace('#', ''); const rgb = `${parseInt(_hx.slice(0, 2), 16)},${parseInt(_hx.slice(2, 4), 16)},${parseInt(_hx.slice(4, 6), 16)}`;
-            const trip = (mn.sign != null && mn.sign < 0);        // getript/alarm → rood
-            const lineCol = trip ? '255,95,126' : rgb;
-            const sig = Math.max(0, Math.min(1, act));
-            // verbindingen volgens conn: Governor→de 3 MC-hoofdcores, FAG/Guardian/Risk/Spike→LONG/NEUT/SHORT,
-            // MTF/node-fade→TA, LLM/REGIME/CLOUD→OSIRIS, Self-review→RL.
-            let targets = [];
-            const nearestIn = li => { const col = pos[li]; if (!col || !col.length) return null; let best = col[0], bd = 1e9; for (const q of col) { const d = Math.abs(q.y - mp.y); if (d < bd) { bd = d; best = q; } } return best; };
-            const _cores = pos[_neonet.coresLi] || [];
-            if (mn.conn === 'cores') { targets = (_neonet.coresMC || [2, 5, 8]).map(ix => _cores[ix]).filter(Boolean); }
-            else if (mn.conn === 'decision') { targets = (pos[_neonet.decisionLi] || []).slice(); }
-            else if (mn.conn === 'ta') { targets = (pos[_neonet.timingLi] || []).slice(); }
-            else if (mn.conn === 'osiris') { targets = (pos[_neonet.osirisLi] || []).slice(); }
-            else if (mn.conn === 'rl') { targets = (pos[_neonet.rlLi] || []).slice(); }
-            else if (mn.conn === 'left') { const b = nearestIn(mp.gap); if (b) targets = [b]; }
-            else if (mn.conn === 'right') { const b = nearestIn(mp.gap + 1); if (b) targets = [b]; }
-            else { [mp.gap, mp.gap + 1].forEach(li => { const b = nearestIn(li); if (b) targets.push(b); }); }
-            for (let ti = 0; ti < targets.length; ti++) {
-                const B = targets[ti];
-                ctx.strokeStyle = `rgba(${lineCol},${(0.20 + 0.42 * sig).toFixed(3)})`; ctx.lineWidth = 0.9 + 1.2 * sig;   // feller
-                ctx.save(); ctx.shadowColor = `rgb(${lineCol})`; ctx.shadowBlur = (sig > 0.4 || trip) ? 5 + 6 * sig : 2; ctx.beginPath(); ctx.moveTo(mp.x, mp.y); ctx.lineTo(B.x, B.y); ctx.stroke(); ctx.restore();
-                const _mt = ((now / 720) + (mn.id.length * 0.11) + ti * 0.4) % 1; const _mx = mp.x + (B.x - mp.x) * _mt, _my = mp.y + (B.y - mp.y) * _mt;
-                ctx.beginPath(); ctx.arc(_mx, _my, 1.0 + 1.3 * sig, 0, 6.283); ctx.fillStyle = `rgba(${lineCol},${(0.3 + 0.5 * sig).toFixed(3)})`; ctx.fill();
-                if (_fbActive) { const _t = (Math.sin(now / 300 + ti) * 0.5 + 0.5); const gx = mp.x + (B.x - mp.x) * _t, gy = mp.y + (B.y - mp.y) * _t; ctx.beginPath(); ctx.arc(gx, gy, 0.6, 0, 6.283); ctx.fillStyle = 'rgba(170,255,215,0.45)'; ctx.fill(); }
-            }
-            const mr = 3.6 + act * 3;
-            ctx.beginPath(); ctx.arc(mp.x, mp.y, mr, 0, 6.283); ctx.fillStyle = `rgba(${lineCol},${(0.4 + 0.5 * act).toFixed(3)})`;
-            ctx.save(); ctx.shadowColor = trip ? 'rgba(255,95,126,0.9)' : `rgb(${lineCol})`; ctx.shadowBlur = trip ? 10 : 5; ctx.fill(); ctx.restore();
-            ctx.lineWidth = 1; ctx.strokeStyle = `rgba(${lineCol},0.85)`; ctx.stroke();
-            if (isBig) {
-                ctx.font = "bold 6px 'JetBrains Mono',monospace"; ctx.textAlign = 'center'; ctx.fillStyle = `rgba(${lineCol},0.95)`;
-                ctx.fillText(mn.label, mp.x, mp.y - mr - 3);
-                if (mn.val) { ctx.font = "6px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(205,222,236,0.85)'; ctx.fillText(mn.val, mp.x, mp.y + mr + 8); }
-            }
-        }
-    } catch (e) {}
-
-    // ---- laag-labels (in de ondermarge, boven de HTML-voettekst) ----
-    ctx.font = "8px 'JetBrains Mono', monospace"; ctx.textAlign = 'center';
-    const lnames = (_neonet.layerLabels) || ['INPUTS', 'INTEGRATION', 'CORES', 'OSIRIS', 'DECISION', 'OUTPUT'];
-    for (let li = 0; li < layers.length; li++) {
-        ctx.fillStyle = 'rgba(92,116,136,0.85)';
-        let _lx = pos[li][0].x;
-        if (li === _coresLi && pos[li].length > 1) { const xs = pos[li].map(p => p.x); _lx = (Math.min(...xs) + Math.max(...xs)) / 2; }   // CORES-label onder de bundel gecentreerd
-        ctx.fillText(lnames[li], _lx, h - padBot * 0.62);   // (22-08) verder onder de dataflow, ruim boven de status-regel
+    // 3d. ring-cellen (celmembranen met filament-wrap)
+    for (let ci = 0; ci < cells.length; ci++) {
+        const c = cells[ci], L = LV[ci], glow = (L.act || 0.3);
+        const r = c.baseR * (c.imp >= 0.7 ? (0.72 + 0.28 * glow) : (0.5 + 0.6 * glow));
+        ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.fillStyle = `rgba(3,7,14,${(0.42 + 0.3 * glow).toFixed(3)})`; ctx.fill();
+        ctx.save();
+        if (glow > 0.45 || c.imp >= 0.7) { ctx.shadowColor = `rgb(${L.ring})`; ctx.shadowBlur = (c.imp >= 0.7 ? 8 : 3) + 10 * glow; }
+        ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = c.imp >= 0.7 ? 1.6 : 1.05; ctx.strokeStyle = `rgba(${L.ring},${(0.34 + 0.55 * glow).toFixed(3)})`; ctx.stroke();
+        ctx.restore();
+        if (c.imp >= 0.55) { for (let k = 1; k <= 3; k++) { const rr = r * (1 + k * 0.14), a0 = SR(c.k * 9 + k) * 6.28, a1 = a0 + 1.2 + SR(c.k * 9 + k + 2) * 2.5; ctx.beginPath(); ctx.arc(c.x, c.y, rr, a0, a1); ctx.lineWidth = 0.5; ctx.strokeStyle = `rgba(228,238,248,${(0.10 * (1 - k * 0.22)).toFixed(3)})`; ctx.stroke(); } }
+        if (c.imp >= 0.7) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.62, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(${L.ring},${(0.2 + 0.35 * glow).toFixed(3)})`; ctx.stroke(); }
+        if (L.dot) { ctx.beginPath(); ctx.arc(c.x + r * 0.72, c.y - r * 0.72, 2.2, 0, 6.283); ctx.fillStyle = L.dot; ctx.fill(); }
+        if (glow > 0.5) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.34, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${(0.4 * glow * pulse).toFixed(3)})`; ctx.fill(); }
     }
-    // ---- HMM-regime + shadow-backtest OP HET NETWERK (alleen groot canvas) ----
+    // 3e. feedback-flits (groen deeltje reist terug door het web als het net leert)
+    if (_fbActive) { for (const e of ORG.edges) { if (SR(e.a * 3 + e.b) > 0.4) continue; const A = cells[e.a], B = cells[e.b], tt = (Math.sin(now / 400 + e.a) * 0.5 + 0.5); ctx.beginPath(); ctx.arc(A.x + (B.x - A.x) * tt, A.y + (B.y - A.y) * tt, 0.8, 0, 6.283); ctx.fillStyle = 'rgba(150,255,210,0.45)'; ctx.fill(); } }
+    // 3f. data-tags (echte cijfers) — filled accent-rechthoekjes zoals de referentie
+    ctx.textBaseline = 'middle';
+    for (let ci = 0; ci < cells.length; ci++) {
+        const c = cells[ci], L = LV[ci];
+        if (c.grp === 'in') { const nd = layers[0][c.ref[2]]; if (isBig && (nd.act || 0) > 0.42) { ctx.font = "6px 'JetBrains Mono',monospace"; ctx.textAlign = 'right'; ctx.fillStyle = `rgba(${L.ring},0.9)`; ctx.fillText(NEONET_INPUTS[c.ref[2]].label, c.x - 6, c.y); } continue; }
+        if (!L.tag) continue;
+        if (!isBig && c.imp < 0.55) continue;
+        const ang = SR(c.k * 3 + 1) * 6.283, rr = c.baseR * (c.imp >= 0.7 ? 0.62 : 0.5) + 10;
+        let tx = c.x + Math.cos(ang) * rr, ty = c.y + Math.sin(ang) * rr;
+        ctx.font = (c.imp >= 0.7 ? "bold 7px 'JetBrains Mono',monospace" : "6.5px 'JetBrains Mono',monospace");
+        const tw = ctx.measureText(L.tag).width, ph = 9, pw = tw + 7;
+        tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(10, Math.min(h - 12, ty));
+        ctx.fillStyle = L.tagBg; ctx.globalAlpha = 0.9; _roundRect(ctx, tx, ty - ph / 2, pw, ph, 1.5); ctx.fill(); ctx.globalAlpha = 1;
+        ctx.fillStyle = '#04121a'; ctx.textAlign = 'left'; ctx.fillText(L.tag, tx + 3.5, ty + 0.5);
+    }
+    // 3g. verspreide ECHTE readouts (prijzen, FSO, ETA, node-countdown, kinetic, RL, equity)
     if (isBig) {
-        const rc = { trending: '#14f195', volatiel: '#ffb627', compressie: '#7fd8ff', kalm: '#8aa0ff' };
-        const cx = w / 2;
-        // ---- SYSTEEM-STATUS chips (data-true, geen forward-pass neuronen): Regime HMM · Cloud · Worker ----
-        try {
-            const chips = [];
-            const H2 = (typeof OsirisRegimeHMM !== 'undefined') ? OsirisRegimeHMM : null;
-            const rlab = H2 ? (H2.trained ? (H2.label || 'kalm') : 'kalibreert') : '—';
-            chips.push({ t: `◧ HMM ${rlab.toUpperCase()}${H2 && H2.trained && H2.prob != null ? ' ' + (H2.prob * 100 | 0) + '%' : ''}`, c: rc[rlab] || '#c792ea' });
-            let cs = { connected: false, signedIn: false, syncing: false }; try { if (typeof osirisCloudStatus === 'function') cs = osirisCloudStatus(); } catch (e) {}
-            chips.push({ t: `☁ CLOUD ${cs.signedIn ? 'gesynct' : cs.connected ? 'verbonden' : 'offline'}`, c: cs.signedIn ? '#14f195' : cs.connected ? '#ffb627' : '#5c7488' });
-            let running = false; try { running = (typeof isBotRunning !== 'undefined' && isBotRunning) || (typeof botState !== 'undefined' && botState && botState.isRunning) || (typeof multiEngineRunning !== 'undefined' && multiEngineRunning) || false; } catch (e) {}
-            chips.push({ t: `⚙ WORKER ${running ? 'actief' : 'gepauzeerd'}`, c: running ? '#14f195' : '#5c7488' });
-            // onderin gecentreerd (net boven de feedback-regel) zodat de chips NIET de
-            // HTML-titel 'OSIRIS DEEPNET' linksboven overlappen.
-            ctx.font = "7.5px 'JetBrains Mono',monospace"; ctx.textAlign = 'left';
-            const gap = 16; let total = 0; for (const ch of chips) total += ctx.measureText(ch.t).width + gap; total -= gap;
-            let sx = Math.max(10, (w - total) / 2); const sy = h - 33;
-            for (const ch of chips) { ctx.fillStyle = ch.c; ctx.fillText(ch.t, sx, sy); sx += ctx.measureText(ch.t).width + gap; }
-        } catch (e) {}
-        if (typeof OsirisRegimeHMM !== 'undefined') {
-            const H = OsirisRegimeHMM;
-            const label = H.trained ? (H.label || 'kalm') : 'kalibreert';
-            const col = rc[label] || '#c792ea';
-            ctx.textAlign = 'center';
-            ctx.font = "bold 11px 'Orbitron','JetBrains Mono',monospace";
-            ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 10; ctx.fillStyle = col;
-            ctx.fillText(`REGIME · ${label.toUpperCase()}`, cx, 18); ctx.restore();
-            if (H.trained) {
-                ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(180,200,220,0.7)';
-                ctx.fillText(`HMM · zekerheid ${(H.prob * 100 | 0)}% · ${H.stable} candles stabiel`, cx, 31);
-            }
-            // 4 verborgen-state dots, de actieve state opgelicht in zijn regime-kleur
-            const K = H.K || 4, dotY = 42, gap = 16, x0 = cx - (K - 1) * gap / 2;
-            for (let k = 0; k < K; k++) {
-                const active = (H.current === k);
-                const scol = (H.order && rc[H.order[k]]) ? rc[H.order[k]] : '#5a6b7a';
-                ctx.beginPath(); ctx.arc(x0 + k * gap, dotY, active ? 4.2 : 2.3, 0, 6.283);
-                if (active) { ctx.save(); ctx.shadowColor = scol; ctx.shadowBlur = 9; ctx.fillStyle = scol; ctx.fill(); ctx.restore(); }
-                else { ctx.fillStyle = 'rgba(120,140,160,0.35)'; ctx.fill(); }
-            }
-        }
-        if (typeof OsirisShadowBacktest !== 'undefined' && OsirisShadowBacktest.best) {
-            const B = OsirisShadowBacktest.best;
-            ctx.textAlign = 'right'; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(20,241,149,0.85)';
-            ctx.fillText(`SHADOW-BT · tgt ${B.target}% / stop ${B.stop}% · Sharpe ${B.sharpe.toFixed(2)}`, w - 14, h - 20);
-        }
-        // RL-agent advies-badge (linksonder)
-        if (typeof OsirisRL !== 'undefined' && OsirisRL.episodes > 0) {
-            const R = OsirisRL; const d = R.lastDecision;
-            ctx.textAlign = 'left'; ctx.font = "8px 'JetBrains Mono',monospace";
-            ctx.fillStyle = 'rgba(127,216,255,0.85)';
-            const adv = d ? `${R.ACTIONS[d.action]} ${(d.conf * 100 | 0)}%` : '\u2014';
-            ctx.fillText(`RL · ${(R.episodes / 1000).toFixed(0)}k scenario's · advies ${adv}`, 14, h - 20);
-        }
-        // FSO SYSTEEM-STRESS: badge (regime + niveau) rechtsboven + subtiele stress-aura.
-        try {
-            if (typeof osirisStress !== 'undefined' && osirisStress.ts && (Date.now() - osirisStress.ts < 60 * 60000)) {
-                const lvl = osirisStress.level || 0;
-                const rc = osirisStress.regime === 'CRISIS' ? '#ff4f6d' : osirisStress.regime === 'SPANNING' ? '#ffb627' : '#14f195';
-                // aura: hoe hoger de stress, hoe roder de rand-gloed van het net
-                if (lvl > 0.15) {
-                    const ag = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.25, w / 2, h / 2, Math.max(w, h) * 0.62);
-                    ag.addColorStop(0, 'rgba(0,0,0,0)'); ag.addColorStop(1, `rgba(255,79,109,${Math.min(0.16, (lvl - 0.15) * 0.5)})`);
-                    ctx.fillStyle = ag; ctx.fillRect(0, 0, w, h);
-                }
-                // (22-08) verplaatst naar onder de HTML 'Osiris decision'-badge (rechtsboven),
-                // zodat de FSO-stress-tekst en de SHORT/LONG-uitkomst elkaar niet meer overlappen.
-                ctx.textAlign = 'right'; ctx.font = "bold 9px 'JetBrains Mono',monospace"; ctx.fillStyle = rc;
-                ctx.fillText(`◉ FSO ${osirisStress.regime} · stress ${lvl.toFixed(3)}`, w - 14, 62);
-                ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(127,180,255,0.85)';
-                ctx.fillText(`σ² ${(osirisStress.variance || 0).toFixed(4)} · asynchronie`, w - 14, 74);
-            }
-        } catch (e) {}
-        // (22-08c) TESLA-BLIKSEM VERWIJDERD op verzoek: geen gekartelde bogen/vortex meer tussen
-        // Osiris -> Decision -> Output. Deze verbindingen worden al als schone lijnen getekend door
-        // de reguliere conns-lus hierboven; hier tekenen we niets extra's (geen shadowBlur, geen jag).
-        // FEEDBACK-LUS: de puls flitst nu TERUG langs de bestaande netwerklijnen (zie de
-        // groene deeltjes in de verbindingen hierboven). Alleen nog een label onderaan.
-        try {
-            ctx.save();
-            const _lblOn = (typeof _fbActive !== 'undefined' && _fbActive);
-            ctx.fillStyle = _lblOn ? 'rgba(20,241,149,0.85)' : 'rgba(20,241,149,0.4)';
-            ctx.font = "7.5px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
-            ctx.fillText('\u21bb feedback \u00b7 uitkomst flitst terug door het net \u00b7 leert van elke trade', w / 2, h - 20);
-            ctx.restore();
-        } catch (e) {}
-    }
-    // input-labels links van de eerste kolom
-    ctx.textAlign = 'right'; ctx.font = "7px 'JetBrains Mono', monospace";
-    layers[0].forEach((nd, i) => { ctx.fillStyle = NEONET_INPUTS[i].c; ctx.fillText(NEONET_INPUTS[i].label, pos[0][i].x - 9, pos[0][i].y + 2.5); });
-    const brainCols = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
-    const _syms2 = ['BTC', 'ETH', 'SOL'], _typeTag = ['PMV', 'DN', 'MC'];
-    // CORES (laag 1, 9 knopen): munt-label links van elke baan (op de PMV-knoop) + type-tag per knoop
-    const _cLi = (_neonet.coresLi != null ? _neonet.coresLi : 1);
-    if (layers[_cLi]) {
-        layers[_cLi].forEach((nd) => {
-            const p = pos[_cLi][nd.i];
-            if (nd.ntype === 0) { ctx.textAlign = 'right'; ctx.font = "bold 7.5px 'JetBrains Mono', monospace"; ctx.fillStyle = brainCols[_syms2[nd.mkt]] || '#8b95a5'; ctx.fillText(_syms2[nd.mkt], p.x - 11, p.y + 2.5); }
-            if (isBig) { ctx.textAlign = 'center'; ctx.font = "5.5px 'JetBrains Mono',monospace"; ctx.fillStyle = (nd.ntype === 2 ? 'rgba(220,238,255,0.9)' : 'rgba(150,175,200,0.8)'); ctx.fillText(_typeTag[nd.ntype], p.x, p.y - (nd.ntype === 2 ? 11.5 : 8.5)); }
+        const pool = [];
+        try { for (const s of _syms) { const m = neoMultiState.markets[s]; if (m && m.lastPrice) pool.push({ t: m.lastPrice >= 100 ? m.lastPrice.toFixed(2) : m.lastPrice.toFixed(4), g: false }); } } catch (e) {}
+        try { if (typeof osirisStress !== 'undefined' && osirisStress.level != null) { pool.push({ t: 'FSO ' + osirisStress.level.toFixed(4), g: true }); pool.push({ t: 'σ² ' + (osirisStress.variance || 0).toFixed(4), g: false }); } } catch (e) {}
+        try { if (typeof OsirisKinetic !== 'undefined' && OsirisKinetic.state) for (const s of _syms) { const k = OsirisKinetic.state[s]; if (k && k.distPct != null) pool.push({ t: s + ' ' + (+k.distPct).toFixed(2) + '%' + (k.etaMin != null ? ' ' + Math.round(k.etaMin) + 'm' : ''), g: false }); } } catch (e) {}
+        try { for (const s of _syms) { const nx = (typeof getNodeContext === 'function') ? getNodeContext(Date.now(), s) : null; const eta = nx ? (nx.nextEtaMin != null ? nx.nextEtaMin : (nx.etaMin != null ? nx.etaMin : null)) : null; if (eta != null) pool.push({ t: s + '·node ' + Math.round(eta) + 'm', g: true }); } } catch (e) {}
+        try { if (typeof OsirisRL !== 'undefined' && OsirisRL.episodes) pool.push({ t: (OsirisRL.episodes / 1000).toFixed(0) + 'k eps', g: true }); } catch (e) {}
+        try { for (const s of _syms) { const m = neoMultiState.markets[s]; if (m && m.rsi != null) pool.push({ t: s + ' RSI ' + Math.round(m.rsi), g: false }); } } catch (e) {}
+        // dedup zodat verspreide readouts variëren i.p.v. herhalen
+        const seen = new Set(), upool = []; for (const rd of pool) { if (seen.has(rd.t)) continue; seen.add(rd.t); upool.push(rd); }
+        let _rc = 0;
+        ORG.decs.forEach((d, i) => {
+            if (d.x < w * 0.135) return;
+            const rd = upool.length ? upool[_rc++ % upool.length] : null;
+            const txt = rd ? rd.t : (10 + SR(i * 11 + 3) * 60).toFixed(4);
+            if (d.big && rd) { ctx.font = "6.5px 'JetBrains Mono',monospace"; const tw = ctx.measureText(txt).width; ctx.fillStyle = rd.g ? GREEN : CYAN; ctx.globalAlpha = 0.85; _roundRect(ctx, d.x, d.y - 4.5, tw + 6, 9, 1.5); ctx.fill(); ctx.globalAlpha = 1; ctx.fillStyle = '#04121a'; ctx.textAlign = 'left'; ctx.fillText(txt, d.x + 3, d.y + 0.5); }
+            else { ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillStyle = rd ? 'rgba(150,170,190,0.55)' : 'rgba(140,160,180,0.45)'; ctx.textAlign = 'left'; ctx.fillText(txt, d.x, d.y); }
         });
     }
-    // OSIRIS label (laag 2): mainbrain
-    const _oLi = (_neonet.osirisLi != null ? _neonet.osirisLi : 2);
-    ctx.textAlign = 'center'; ctx.font = "bold 7px 'JetBrains Mono', monospace";
-    if (layers[_oLi] && layers[_oLi][0]) { ctx.fillStyle = '#00d9ff'; ctx.fillText('OSIRIS', pos[_oLi][0].x, pos[_oLi][0].y - 16); }
-    // TA labels (laag 3, soft-gate): TA live (cyaan) + TAˢ shadow (paars)
-    const _taLi = (_neonet.timingLi != null ? _neonet.timingLi : 3);
-    ctx.font = "bold 6.5px 'JetBrains Mono', monospace";
-    if (layers[_taLi]) layers[_taLi].forEach((nd) => { if (nd.label) { ctx.fillStyle = nd.shadow ? 'rgba(199,146,234,0.85)' : '#7fd8ff'; ctx.fillText(nd.label, pos[_taLi][nd.i].x, pos[_taLi][nd.i].y - 8); } });
-    // DECISION labels (laag 4): LONG/NEUT/SHORT
-    const _dLi = (_neonet.decisionLi != null ? _neonet.decisionLi : 4);
-    ctx.textAlign = 'left'; ctx.font = "7px 'JetBrains Mono', monospace";
-    if (layers[_dLi]) layers[_dLi].forEach((nd, i) => { ctx.fillStyle = outCols[i]; ctx.fillText(outLabels[i], pos[_dLi][i].x + 9, pos[_dLi][i].y + 2.5); });
-    // RL label (laag 6)
-    if (layers[_rlLi] && layers[_rlLi][0]) { ctx.textAlign = 'center'; ctx.font = "bold 7px 'JetBrains Mono', monospace"; ctx.fillStyle = '#14f195'; ctx.fillText('RL', pos[_rlLi][0].x, pos[_rlLi][0].y - 16); }
-
+    // 3h. deco: X-markers + vierkantjes
+    for (const x of ORG.xs) { ctx.strokeStyle = x.g ? 'rgba(20,241,149,0.7)' : 'rgba(44,224,255,0.7)'; ctx.lineWidth = 1; const s2 = 3; ctx.beginPath(); ctx.moveTo(x.x - s2, x.y - s2); ctx.lineTo(x.x + s2, x.y + s2); ctx.moveTo(x.x + s2, x.y - s2); ctx.lineTo(x.x - s2, x.y + s2); ctx.stroke(); }
+    for (const q of ORG.sqs) { const s2 = 3.2; if (q.kind === 0) { ctx.fillStyle = 'rgba(44,224,255,0.8)'; ctx.fillRect(q.x, q.y, s2, s2); } else if (q.kind === 1) { ctx.fillStyle = 'rgba(150,160,175,0.55)'; ctx.fillRect(q.x, q.y, s2, s2); } else if (q.kind === 2) { ctx.fillStyle = 'rgba(235,242,250,0.7)'; ctx.fillRect(q.x, q.y, s2, s2); } else { ctx.strokeStyle = 'rgba(120,215,255,0.6)'; ctx.lineWidth = 0.8; ctx.strokeRect(q.x, q.y, s2, s2); } }
+    // 3i. WATERMERK (grote faint outline-letters)
+    if (isBig) {
+        ctx.save(); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        ctx.font = "800 " + Math.round(h * 0.15) + "px 'Orbitron','JetBrains Mono',monospace";
+        ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(150,170,190,0.05)'; ctx.fillStyle = 'rgba(150,170,190,0.026)';
+        ctx.fillText('NEURAL', w * 0.03, h * 0.60); ctx.strokeText('NEURAL', w * 0.03, h * 0.60);
+        ctx.fillText('NETWORK', w * 0.03, h * 0.60 + h * 0.145); ctx.strokeText('NETWORK', w * 0.03, h * 0.60 + h * 0.145);
+        ctx.restore();
+    }
+    // 3j. DATA-PANEEL links (echte account/engine-cijfers), onder de HTML-titel
+    if (isBig) {
+        ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+        const px0 = w * 0.02; let py0 = h * 0.235;
+        let confPct = 0, wrPct = null;
+        try { confPct = Math.round((layers[2][0].act || 0) * 100); } catch (e) {}
+        try { const sr = (typeof OsirisSelfReview !== 'undefined') ? OsirisSelfReview : null; if (sr && sr.history && sr.history[0] && sr.history[0].winrate != null) wrPct = Math.round(sr.history[0].winrate * 100); } catch (e) {}
+        ctx.font = "600 18px 'Orbitron','JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(220,235,250,0.85)';
+        ctx.fillText(confPct + '%', px0 + 4, py0);
+        ctx.strokeStyle = 'rgba(160,180,200,0.4)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px0 + 4, py0 + 14); ctx.lineTo(px0 + 58, py0 + 14); ctx.stroke();
+        if (wrPct != null) ctx.fillText(wrPct + '%', px0 + 4, py0 + 28);
+        ctx.font = "6px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(120,140,160,0.7)';
+        ctx.fillText('CONFIDENCE', px0 + 66, py0 - 4); if (wrPct != null) ctx.fillText('WIN-RATE', px0 + 66, py0 + 28);
+        py0 += 54; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(150,175,195,0.55)';
+        const bitCells = [layers[2][0], layers[1][2], layers[1][5], layers[1][8], layers[4][0], layers[6][0]];
+        for (let b = 0; b < 6; b++) { const v = Math.round((bitCells[b] ? bitCells[b].act : 0.5) * 31); ctx.fillText(v.toString(2).padStart(5, '0'), px0 + 4, py0 + b * 11); }
+        const cx0 = px0 + 58, cy0 = py0; ctx.font = "6.5px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(130,150,170,0.6)';
+        const lines = [];
+        try { if (typeof walletBalance !== 'undefined' && walletBalance != null) lines.push('EQ  | ' + (+walletBalance).toFixed(4)); } catch (e) {}
+        try { if (typeof marginState !== 'undefined' && marginState.equity != null) lines.push('MGN | ' + (+marginState.equity).toFixed(4)); } catch (e) {}
+        try { if (typeof OsirisRL !== 'undefined') lines.push('RL  | ' + (OsirisRL.episodes || 0) + ' · ' + (OsirisRL.avgReward || 0).toFixed(3)); } catch (e) {}
+        try { if (typeof osirisStress !== 'undefined' && osirisStress.level != null) lines.push('FSO | ' + osirisStress.level.toFixed(4) + ' - ' + (osirisStress.variance || 0).toFixed(4)); } catch (e) {}
+        try { const H = (typeof OsirisRegimeHMM !== 'undefined') ? OsirisRegimeHMM : null; if (H) lines.push('REG | ' + (H.trained ? (H.label || 'kalm') : 'kalibr') + (H.trained && H.prob != null ? ' ' + (H.prob * 100 | 0) + '%' : '')); } catch (e) {}
+        lines.slice(0, 6).forEach((ln, i) => ctx.fillText(ln, cx0, cy0 + i * 11));
+        ctx.restore();
+    }
+    // 3k. REGIME-titel bovenaan gecentreerd (subtiel, data-true)
+    if (isBig) {
+        try {
+            const H = (typeof OsirisRegimeHMM !== 'undefined') ? OsirisRegimeHMM : null;
+            const rc = { trending: '#14f195', volatiel: '#ffb627', compressie: '#7fd8ff', kalm: '#8aa0ff' };
+            const lab = H ? (H.trained ? (H.label || 'kalm') : 'kalibreert') : '—', col = rc[lab] || '#8aa0ff';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = "bold 10px 'Orbitron','JetBrains Mono',monospace";
+            ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.fillStyle = col; ctx.fillText('REGIME · ' + lab.toUpperCase() + (H && H.trained && H.prob != null ? '  ' + (H.prob * 100 | 0) + '%' : ''), w / 2, 16); ctx.restore();
+        } catch (e) {}
+    }
+    ctx.textBaseline = 'alphabetic';
     // beslissing-tekst onderin het paneel bijwerken (id hangt af van welk canvas rendert)
     const outEl = document.getElementById(_neonet._outId || 'neo-net-out');
     if (outEl) {
