@@ -1327,7 +1327,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div id="l3-body" style="border:1px solid rgba(0,217,255,0.2); border-radius:6px; padding:8px 10px; margin-bottom:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim);">Wacht op training&hellip;</div>
 
         <div class="subhead" style="display:flex; justify-content:space-between; cursor:pointer; margin-top:32px;" onclick="toggleCalibPanel()"><span><span id="calib-chevron">&#9662;</span> Calibration &middot; predicted vs. measured</span><span id="calib-updated" style="color:var(--dimmer); text-transform:none; letter-spacing:0;">&mdash;</span></div>
-        <div style="font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:var(--dimmer); margin:2px 0 6px;">DeepNet <b>walk-forward</b> (backtest op historische candles): <b>gekalibreerde kans</b> (na Platt) vs. gemeten uitkomst &middot; 1 gekozen brein groot.</div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.52rem; color:var(--dimmer); margin:2px 0 6px;">Gekozen brein groot: <b>ruwe score</b> &rarr; gemeten winrate per bin uit ECHTE trades (ongegladd). De <b>stippellijn</b> = de gemiddelde winrate; <b>AUC</b> = onderscheidend vermogen (0.5 = score voorspelt niets, &gt;0.5 = hogere score wint vaker, &lt;0.5 = omgekeerd). Bij te weinig trades: DeepNet walk-forward-backtest als terugval.</div>
         <div id="calib-brain-tabs" style="display:flex; gap:6px; margin-top:8px;">
             <button class="calib-tab active" data-brain="BTC" onclick="switchCalibBrain('BTC')">Neo BTC</button>
             <button class="calib-tab" data-brain="ETH" onclick="switchCalibBrain('ETH')">Neo ETH</button>
@@ -1971,7 +1971,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260829-jarvis28-calibfix"></script>
+<script src="app.js?v=20260829-jarvis30-braintrust"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
