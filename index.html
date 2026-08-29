@@ -616,6 +616,287 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 #tab-wallet table th{color:#a99bff!important;border-bottom:1px solid rgba(124,92,255,0.25)!important;}
 #tab-wallet .btn{border-color:rgba(124,92,255,0.4)!important;color:#c3b8ff!important;background:rgba(124,92,255,0.08)!important;}
 </style>
+<style id="trinity-scoped-css">
+/* ===== TRINITY · FX (scoped under .trn — cannot affect Osiris Crypto) ===== */
+.trn {
+    --void:#03060a;--bg:#04070c;--panel:#000004;--panel2:#070d15;--line:#12212e;
+    --cyan:#00d9ff;--cyan2:#4fc3f7;--tx:#e3f6ff;--dim:#5c7488;--dimmer:#37485a;
+    --bull:#14f195;--bull2:#00ff9f;--bear:#ff4f6d;--bear2:#ff2e63;--amber:#ffb627;--violet:#c792ea;--gold:#ffd54a;
+  }
+.trn, .trn * {box-sizing:border-box;}
+.trn {scroll-behavior:smooth;}
+.trn {margin:0;background:radial-gradient(1400px 800px at 50% -8%,#08131f 0%,#04070c 55%,#020409 100%);color:var(--tx);font-family:'Chakra Petch',sans-serif;overflow-x:hidden;}
+.trn .wrap {max-width:1200px;margin:0 auto;padding:0 20px 80px;}
+.trn .mono {font-family:'JetBrains Mono',monospace;}
+.trn .eyebrow {font-family:'JetBrains Mono',monospace;font-size:0.6rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--cyan2);}
+.trn .eyebrow::before {content:"—  ";color:var(--cyan);}
+.trn h2.sec {font-family:'Orbitron',sans-serif;font-weight:700;font-size:1.05rem;letter-spacing:0.14em;margin:6px 0 4px;color:#fff;}
+.trn .sec-line {height:1px;background:linear-gradient(90deg,var(--cyan) 0%,transparent 60%);margin:6px 0 16px;opacity:0.5;}
+.trn .hud-corner {position:absolute;width:12px;height:12px;border:solid var(--cyan);border-width:0;opacity:0.6;}
+.trn .c-tl {top:6px;left:6px;border-top-width:1px;border-left-width:1px;}
+.trn .c-tr {top:6px;right:6px;border-top-width:1px;border-right-width:1px;}
+.trn .c-bl {bottom:6px;left:6px;border-bottom-width:1px;border-left-width:1px;}
+.trn .c-br {bottom:6px;right:6px;border-bottom-width:1px;border-right-width:1px;}
+.trn .panel {position:relative;background:linear-gradient(180deg,rgba(7,13,21,0.75),rgba(3,6,10,0.85));border:1px solid var(--line);border-radius:12px;padding:16px;backdrop-filter:blur(2px);}
+.trn .topbar {display:flex;justify-content:space-between;align-items:center;padding:14px 0 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(3,6,10,0.8);backdrop-filter:blur(8px);z-index:30;}
+.trn .brand {font-family:'Orbitron',sans-serif;font-weight:800;font-size:1.02rem;letter-spacing:0.18em;color:#fff;}
+.trn .brand b {color:var(--cyan);}
+.trn .topnav {font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.1em;color:var(--dim);display:flex;gap:16px;align-items:center;text-transform:uppercase;}
+.trn .topnav a {color:var(--dim);text-decoration:none;}
+.trn .topnav a:hover {color:var(--cyan);}
+.trn .dotlive {width:6px;height:6px;border-radius:50%;background:var(--bull2);box-shadow:0 0 8px var(--bull2);display:inline-block;animation:blink 1.6s infinite;}
+@keyframes blink {0%,100%{opacity:1;}50%{opacity:0.3;}}
+@media(max-width:600px) {
+.trn .topnav a {display:none;}
+}
+.trn .hero {display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:center;min-height:520px;padding-top:20px;}
+@media(max-width:820px) {
+.trn .hero {grid-template-columns:1fr;min-height:0;}
+}
+.trn .hero h1 {font-family:'Orbitron',sans-serif;font-weight:800;font-size:2.7rem;line-height:1.05;margin:14px 0 18px;color:#fff;}
+.trn .hero h1 b {color:var(--cyan);}
+@media(max-width:820px) {
+.trn .hero h1 {font-size:2.0rem;}
+}
+.trn .hero p {color:#9fb4c4;font-size:0.95rem;line-height:1.7;max-width:520px;}
+.trn .hero .cta {display:flex;gap:12px;margin-top:24px;flex-wrap:wrap;}
+.trn .btn {font-family:'JetBrains Mono',monospace;font-size:0.66rem;letter-spacing:0.1em;text-transform:uppercase;padding:12px 20px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--dim);cursor:pointer;transition:all .18s;}
+.trn .btn.primary {border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 18px rgba(0,217,255,0.18);}
+.trn .btn:hover {color:var(--tx);border-color:var(--cyan2);}
+.trn .hero-brain {position:relative;min-height:440px;}
+.trn #hero-brain-canvas {width:100%;height:440px;display:block;}
+@media(max-width:820px) {
+.trn #hero-brain-canvas {height:340px;}
+.trn .hero-brain {min-height:340px;}
+}
+.trn .sim {display:flex;gap:8px;justify-content:center;margin-top:8px;flex-wrap:wrap;}
+.trn .sim button {font-family:'JetBrains Mono',monospace;font-size:0.56rem;letter-spacing:0.08em;text-transform:uppercase;padding:7px 12px;border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:4px;cursor:pointer;}
+.trn .sim button.on {border-color:var(--cyan);color:var(--cyan);}
+.trn section {margin-top:40px;position:relative;}
+.trn .map-head {display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;}
+.trn .toggle {display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;}
+.trn .toggle button {background:transparent;border:none;color:var(--dim);font-family:'JetBrains Mono',monospace;font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;padding:7px 13px;cursor:pointer;transition:all .18s;}
+.trn .toggle button.on {background:rgba(0,217,255,0.12);color:var(--cyan);}
+.trn #map-canvas {width:100%;height:470px;display:block;border-radius:8px;background:#020509;}
+@media(max-width:720px) {
+.trn #map-canvas {height:340px;}
+}
+.trn .legend {display:flex;gap:16px;flex-wrap:wrap;font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--dim);margin-top:10px;}
+.trn .legend span {display:inline-flex;align-items:center;gap:7px;}
+.trn .swatch {width:20px;height:9px;border-radius:2px;display:inline-block;}
+.trn .dotc {width:9px;height:9px;border-radius:50%;display:inline-block;}
+.trn table {width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:0.72rem;}
+.trn thead th {text-align:right;color:var(--dim);font-weight:500;letter-spacing:0.08em;text-transform:uppercase;font-size:0.56rem;padding:8px 10px;border-bottom:1px solid var(--line);}
+.trn thead th:first-child {text-align:left;}
+.trn tbody td {text-align:right;padding:7px 10px;border-bottom:1px solid rgba(255,255,255,0.03);}
+.trn tbody td:first-child {text-align:left;color:var(--tx);font-weight:600;}
+.trn tbody tr:hover {background:rgba(0,217,255,0.03);}
+.trn .up {color:var(--bull2);}
+.trn .down {color:var(--bear);}
+.trn .arrow {display:inline-block;width:0;height:0;margin-right:6px;vertical-align:middle;}
+.trn .arrow.u {border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:6px solid var(--bull2);}
+.trn .arrow.d {border-left:4px solid transparent;border-right:4px solid transparent;border-top:6px solid var(--bear);}
+.trn .spark {display:inline-block;width:52px;height:14px;vertical-align:middle;}
+.trn .best-long {box-shadow:inset 3px 0 0 var(--bull2);}
+.trn .best-short {box-shadow:inset 3px 0 0 var(--bear);}
+.trn .oppgrid {display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:12px;align-items:stretch;}
+@media(max-width:860px) {
+.trn .oppgrid {grid-template-columns:1fr;}
+}
+.trn .pick {position:relative;border:1px solid var(--line);border-radius:10px;padding:14px;background:rgba(0,0,0,0.3);}
+.trn .pick .lab {font-family:'JetBrains Mono',monospace;font-size:0.54rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--dim);}
+.trn .pick .pair {font-family:'Orbitron',sans-serif;font-weight:800;font-size:1.35rem;margin:4px 0;}
+.trn .pick.long .pair {color:var(--bull2);}
+.trn .pick.short .pair {color:var(--bear);}
+.trn .flick {font-size:0.5rem;color:var(--dimmer);letter-spacing:0.1em;}
+.trn .bar {height:7px;border-radius:4px;background:rgba(255,255,255,0.06);margin:8px 0 4px;overflow:hidden;}
+.trn .bar i {display:block;height:100%;border-radius:4px;transition:width 0.6s ease;}
+.trn .pick.long .bar i {background:linear-gradient(90deg,#0a5,#00ff9f);}
+.trn .pick.short .bar i {background:linear-gradient(90deg,#a33,#ff4f6d);}
+.trn .facts {font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);line-height:1.75;margin-top:8px;}
+.trn .facts b {color:var(--tx);}
+.trn .pred {position:relative;border:1px solid rgba(0,217,255,0.4);border-radius:12px;padding:18px;background:radial-gradient(600px 300px at 50% 0%,rgba(0,217,255,0.08),rgba(0,0,0,0.35));box-shadow:inset 0 0 30px rgba(0,217,255,0.10);}
+.trn .pred .crown {font-family:'JetBrains Mono',monospace;font-size:0.55rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--cyan);}
+.trn .pred .pair {font-family:'Orbitron',sans-serif;font-weight:800;font-size:2.1rem;margin:6px 0 2px;}
+.trn .pred.long .pair {color:var(--bull2);}
+.trn .pred.short .pair {color:var(--bear);}
+.trn .pred .side {font-family:'JetBrains Mono',monospace;font-size:0.72rem;letter-spacing:0.12em;}
+.trn .pred .horizon {display:inline-block;margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--tx);border:1px solid var(--line);border-radius:16px;padding:4px 12px;}
+.trn .pred .horizon b {color:var(--cyan);}
+.trn .factors {margin-top:12px;display:grid;gap:5px;font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--dim);}
+.trn .frow {display:grid;grid-template-columns:104px 1fr 34px;gap:8px;align-items:center;}
+.trn .fbar {height:5px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;}
+.trn .fbar i {display:block;height:100%;background:linear-gradient(90deg,#0a6,#00d9ff);border-radius:3px;transition:width .5s;}
+.trn .plan {margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);line-height:1.8;}
+.trn .plan b {color:var(--tx);}
+.trn .rank {margin-top:14px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--dim);}
+.trn .rank .row {display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);}
+.trn .ocular {display:grid;grid-template-columns:1fr 1fr;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px;}
+@media(max-width:720px) {
+.trn .ocular {grid-template-columns:1fr;}
+}
+.trn .ocell {position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden;min-height:360px;}
+.trn .ocell .tag {position:absolute;top:8px;left:10px;font-family:'JetBrains Mono',monospace;font-size:0.54rem;letter-spacing:0.16em;color:var(--cyan2);z-index:5;}
+.trn .ocell .sub {position:absolute;top:21px;left:10px;font-family:'JetBrains Mono',monospace;font-size:0.48rem;color:var(--dim);z-index:5;}
+.trn canvas.core {width:100%;height:100%;display:block;}
+.trn .eye-read {position:absolute;bottom:8px;left:10px;right:10px;z-index:5;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);}
+.trn .eye-read b {color:var(--tx);}
+.trn .pred .predhead {display:flex;justify-content:space-between;align-items:center;}
+.trn .status {font-family:'JetBrains Mono',monospace;font-size:0.54rem;letter-spacing:0.14em;padding:4px 11px;border-radius:14px;border:1px solid var(--line);color:var(--cyan);}
+.trn .status.win {color:var(--bull2);border-color:var(--bull);box-shadow:0 0 12px rgba(20,241,149,0.25);}
+.trn .status.loss {color:var(--bear);border-color:var(--bear);box-shadow:0 0 12px rgba(255,79,109,0.25);}
+.trn .predbody {display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-top:2px;}
+.trn .predtrade {font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--dim);min-width:172px;}
+.trn .trow {display:flex;justify-content:space-between;gap:16px;padding:2px 0;}
+.trn .trow b {color:var(--tx);}
+.trn .progwrap {display:flex;align-items:center;gap:8px;margin:14px 0 4px;font-family:'JetBrains Mono',monospace;font-size:0.5rem;color:var(--dimmer);text-transform:uppercase;}
+.trn .prog {position:relative;flex:1;height:6px;background:linear-gradient(90deg,rgba(255,79,109,0.35),rgba(255,255,255,0.05) 42%,rgba(255,255,255,0.05) 58%,rgba(0,255,159,0.35));border-radius:4px;}
+.trn .prog span {position:absolute;top:-3px;left:50%;width:12px;height:12px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan);transform:translateX(-6px);transition:left .5s;}
+.trn .ranksplit {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px;}
+@media(max-width:720px) {
+.trn .ranksplit {grid-template-columns:1fr;}
+}
+.trn .rankcol {border:1px solid var(--line);border-radius:8px;padding:10px;}
+.trn .rankhdr {font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;}
+.trn .rankcol.long .rankhdr {color:var(--bull2);}
+.trn .rankcol.short .rankhdr {color:var(--bear);}
+.trn .rrow {display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:0.64rem;color:var(--dim);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);}
+.trn .rrow b {color:var(--tx);}
+.trn .panel.trinity {margin-top:8px;}
+.trn .tgrid {display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:4px;}
+@media(max-width:720px) {
+.trn .tgrid {grid-template-columns:repeat(2,1fr);}
+}
+.trn .tstat {position:relative;border:1px solid var(--line);border-radius:8px;padding:10px;text-align:center;background:rgba(0,0,0,0.25);}
+.trn .tstat .v {font-family:'Orbitron',sans-serif;font-weight:800;font-size:1.2rem;color:var(--cyan);}
+.trn .tstat .l {font-family:'JetBrains Mono',monospace;font-size:0.5rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--dim);margin-top:3px;}
+.trn .tsessions {margin-top:14px;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);}
+.trn .tsrow {display:grid;grid-template-columns:132px 1fr 54px;gap:8px;align-items:center;padding:3px 0;}
+.trn .tsbar {height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;}
+.trn .tsbar i {display:block;height:100%;background:linear-gradient(90deg,#0a6,#00d9ff);border-radius:3px;transition:width .5s;}
+.trn .dual {display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media(max-width:820px) {
+.trn .dual {grid-template-columns:1fr;}
+}
+.trn .wgrid {display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:6px;}
+.trn .wstat {border:1px solid var(--line);border-radius:8px;padding:9px 11px;}
+.trn .wstat .l {font-family:'JetBrains Mono',monospace;font-size:0.5rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--dim);}
+.trn .wstat .v {font-family:'JetBrains Mono',monospace;font-size:0.92rem;font-weight:600;color:var(--tx);margin-top:2px;}
+.trn .presets {display:flex;gap:8px;margin:4px 0 12px;flex-wrap:wrap;}
+.trn .presets button {font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;padding:8px 14px;border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:6px;cursor:pointer;transition:all .18s;}
+.trn .presets button.on {border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 12px rgba(0,217,255,0.15);}
+.trn .setrow {display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--dim);padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.03);}
+.trn .setrow b {color:var(--tx);}
+.trn .toggles {display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+.trn .tog {font-family:'JetBrains Mono',monospace;font-size:0.54rem;letter-spacing:0.06em;padding:5px 11px;border:1px solid var(--line);border-radius:14px;color:var(--dim);cursor:pointer;}
+.trn .tog.on {border-color:var(--bull);color:var(--bull2);box-shadow:0 0 10px rgba(20,241,149,0.15);}
+.trn .meters {display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;}
+@media(max-width:600px) {
+.trn .meters {grid-template-columns:1fr;}
+}
+.trn .meter .mh {display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);margin-bottom:3px;}
+.trn .meter .mh b {color:var(--tx);}
+.trn .mbar {height:7px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;position:relative;}
+.trn .mbar i {display:block;height:100%;border-radius:4px;transition:width .4s;}
+.trn .mbar.center::before {content:'';position:absolute;left:50%;top:0;bottom:0;width:1px;background:rgba(255,255,255,0.2);}
+.trn .dtable {width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:0.62rem;margin-top:6px;}
+.trn .dtable th {text-align:right;color:var(--dim);font-size:0.5rem;text-transform:uppercase;letter-spacing:0.08em;padding:5px 8px;border-bottom:1px solid var(--line);}
+.trn .dtable th:first-child {text-align:left;}
+.trn .dtable td {text-align:right;padding:5px 8px;border-bottom:1px solid rgba(255,255,255,0.03);color:var(--dim);}
+.trn .dtable td:first-child {text-align:left;color:var(--tx);font-weight:600;}
+.trn .subh {font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin:16px 0 2px;}
+.trn .ictline {font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--dim);padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03);line-height:1.6;}
+.trn .ictline b {color:var(--tx);}
+.trn .ictline .bull {color:var(--bull2);}
+.trn .ictline .bear {color:var(--bear);}
+.trn .bigbtn {font-family:'Orbitron',sans-serif;font-weight:700;font-size:0.72rem;letter-spacing:0.12em;padding:11px 20px;border-radius:8px;border:1px solid var(--cyan);background:rgba(0,217,255,0.08);color:var(--cyan);cursor:pointer;transition:all .18s;}
+.trn .bigbtn:hover {box-shadow:0 0 16px rgba(0,217,255,0.3);}
+.trn .bigbtn.on {border-color:var(--bear);color:var(--bear);background:rgba(255,79,109,0.08);}
+.trn .trhead {display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;}
+.trn .trstate {font-family:'JetBrains Mono',monospace;font-size:0.6rem;letter-spacing:0.14em;color:var(--dim);}
+.trn .upd {font-family:'JetBrains Mono',monospace;font-size:0.5rem;color:var(--dimmer);letter-spacing:0.04em;}
+.trn .prow {display:grid;grid-template-columns:1.2fr 0.7fr 0.5fr 0.8fr 0.7fr 0.4fr;gap:6px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--dim);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);align-items:center;}
+.trn .xbtn {background:transparent;border:1px solid var(--line);color:var(--bear);border-radius:4px;cursor:pointer;font-size:0.55rem;padding:1px 5px;line-height:1.2;}
+.trn .xbtn:hover {border-color:var(--bear);background:rgba(255,79,109,0.1);}
+.trn .prow b {color:var(--tx);}
+.trn .calibwrap {margin-top:12px;border:1px solid var(--line);border-radius:8px;padding:10px;}
+.trn #calib-canvas {width:100%;height:230px;display:block;}
+.trn .oarow {display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;margin:6px 0;font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--dim);}
+.trn .oarow input, .trn .oarow select {font-family:'JetBrains Mono',monospace;font-size:0.62rem;background:#050b12;border:1px solid var(--line);color:var(--tx);border-radius:5px;padding:7px 9px;width:100%;}
+.trn .closedwrap {max-height:320px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px;margin-top:6px;}
+.trn .crow {display:grid;grid-template-columns:0.9fr 1.15fr 1.15fr 1.3fr 0.7fr 1.35fr 0.6fr;gap:8px;font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--dim);padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.03);align-items:center;}
+.trn .crow b {color:var(--tx);}
+.trn .chead {color:var(--dimmer);font-size:0.5rem;text-transform:uppercase;letter-spacing:0.08em;}
+.trn .exports {display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+.trn .exports button {font-family:'JetBrains Mono',monospace;font-size:0.56rem;letter-spacing:0.06em;text-transform:uppercase;padding:8px 13px;border:1px solid var(--line);background:transparent;color:var(--cyan2);border-radius:6px;cursor:pointer;transition:all .18s;}
+.trn .exports button:hover {border-color:var(--cyan);color:var(--cyan);}
+.trn .feedwrap {max-height:190px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--dim);margin-top:6px;}
+.trn .rline {padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03);line-height:1.5;}
+.trn .rt {color:var(--dimmer);margin-right:6px;}
+.trn .matrixfeed {background:#020a06;border-color:#0a3320;color:#7fe392;}
+.trn .matrixfeed .rt {color:#2f7a4a;}
+.trn .cklabel {display:flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--dim);cursor:pointer;}
+.trn .collapse {border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+.trn .collapse summary {cursor:pointer;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:0.62rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--cyan2);list-style:none;}
+.trn .collapse summary::-webkit-details-marker {display:none;}
+.trn .collapse summary::before {content:'▸ ';color:var(--cyan);}
+.trn .collapse[open] summary::before {content:'▾ ';}
+.trn .collapse .panel {border:none;border-radius:0;border-top:1px solid var(--line);background:transparent;}
+.trn footer {margin-top:44px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--dimmer);line-height:1.9;}
+.trn footer b {color:var(--dim);}
+.trn /* ===== OSIRIS SHELL (Trinity FX port) ===== */
+:root {--os-cyan:#00d9ff;--os-green:#14f195;--os-amber:#ffb627;--os-red:#ff5c6a;}
+.trn, .trn {height:100%;}
+.trn {overflow:hidden !important;}
+.trn .app {position:relative;z-index:1;display:grid;grid-template-columns:84px 1fr;grid-template-rows:58px 1fr;height:100vh;}
+.trn .os-top {grid-column:1/3;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(7,12,22,0.94),rgba(7,12,22,0.35));}
+.trn .os-brand {font-family:'Orbitron';font-weight:900;letter-spacing:5px;font-size:1.02rem;background:linear-gradient(90deg,#eafcff,var(--os-cyan));-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1;}
+.trn .os-brand b {color:#fff;-webkit-text-fill-color:#fff;}
+.trn .os-brand small {display:block;font-family:'JetBrains Mono';font-weight:400;letter-spacing:2px;font-size:0.44rem;color:var(--dim);margin-top:1px;-webkit-text-fill-color:var(--dim);}
+.trn .os-spacer {flex:1;}
+.trn .os-pill {display:flex;align-items:center;gap:7px;font-size:0.5rem;letter-spacing:1.3px;color:var(--dim);border:1px solid var(--line);border-radius:20px;padding:5px 10px;text-transform:uppercase;font-family:'JetBrains Mono',monospace;white-space:nowrap;}
+.trn .os-dot {width:7px;height:7px;border-radius:50%;background:var(--os-green);box-shadow:0 0 8px currentColor;color:var(--os-green);animation:ospulse 2.4s infinite;}
+.trn .os-dot.amber {background:var(--os-amber);color:var(--os-amber);}
+.trn .os-dot.cyan {background:var(--os-cyan);color:var(--os-cyan);}
+.trn .os-dot.dim {background:var(--dimmer);color:var(--dimmer);animation:none;box-shadow:none;}
+@keyframes ospulse {0%,100%{opacity:1}50%{opacity:.35}}
+.trn .os-clock {font-family:'Orbitron';font-weight:600;letter-spacing:2px;color:var(--os-cyan);font-size:0.76rem;text-align:right;font-variant-numeric:tabular-nums;min-width:88px;}
+.trn .os-rail {border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:4px;overflow-y:auto;}
+.trn .os-rail::-webkit-scrollbar {width:0;}
+.trn .navb {width:66px;height:52px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--dim);cursor:pointer;border:1px solid transparent;transition:.18s;position:relative;}
+.trn .navb svg {width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.6;}
+.trn .navb span {font-size:0.4rem;letter-spacing:.4px;text-transform:uppercase;text-align:center;font-family:'JetBrains Mono',monospace;}
+.trn .navb:hover {color:var(--tx);background:rgba(0,217,255,0.05);}
+.trn .navb.active {color:var(--os-cyan);border-color:var(--line);background:rgba(0,217,255,0.08);}
+.trn .navb.active::before {content:"";position:absolute;left:-1px;top:11px;bottom:11px;width:2px;background:var(--os-cyan);box-shadow:0 0 10px var(--os-cyan);border-radius:2px;}
+.trn .os-main {overflow:auto;padding:18px 24px 60px;position:relative;}
+.trn .os-main::-webkit-scrollbar {width:8px;}
+.trn .os-main::-webkit-scrollbar-thumb {background:rgba(0,217,255,0.2);border-radius:4px;}
+.trn .otab {display:none;}
+.trn .otab.show {display:block;animation:osfade .35s ease;}
+@keyframes osfade {from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.trn .otab section {margin-top:0 !important;}
+.trn /* multi-pair Osiris cards */
+.sd-grid3 {display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:8px 0 16px;}
+@media(max-width:900px) {
+.trn .sd-grid3 {grid-template-columns:1fr;}
+}
+.trn .sd-card {position:relative;background:linear-gradient(160deg,rgba(255,255,255,0.045),rgba(255,255,255,0.008));border:1px solid rgba(255,255,255,0.09);border-radius:10px;padding:12px 13px;overflow:hidden;font-family:'JetBrains Mono',monospace;}
+.trn .sd-card::before {content:'';position:absolute;left:0;top:0;height:100%;width:3px;background:var(--acc,#00d9ff);box-shadow:0 0 14px var(--acc,#00d9ff);}
+.trn .sd-hd {display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.trn .sd-sym {font-family:'Orbitron','JetBrains Mono',monospace;font-weight:800;letter-spacing:1px;font-size:0.82rem;color:var(--acc);}
+.trn .sd-badge {font-size:0.52rem;font-weight:700;letter-spacing:.5px;padding:2px 8px;border-radius:20px;border:1px solid currentColor;}
+.trn .sd-row {display:flex;justify-content:space-between;font-size:0.62rem;padding:2px 0;}
+.trn .sd-row .k {color:var(--dim);}
+.trn .sd-row .v {color:#eaffff;font-weight:600;}
+.trn .sd-bar {height:7px;border-radius:5px;overflow:hidden;background:rgba(255,255,255,0.06);margin-top:7px;}
+.trn .sd-bar>i {display:block;height:100%;}
+/* safety: keep the Trinity scope box in normal document flow */
+.trn{position:static !important;inset:auto !important;pointer-events:auto !important;z-index:auto !important;width:auto !important;background:transparent !important;overflow:visible !important;}
+
+</style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
 </head>
 <body>
 <div id="jv-holders" style="display:none"><svg id="hero-eye"></svg><button id="bull-btn" onclick="setEyeSignalManual('bull')"></button><button id="bear-btn" onclick="setEyeSignalManual('bear')"></button><span id="nav-live-price"></span><span id="hub-engine-badge"></span><div id="sec-hub"></div></div><canvas id="site-plexus" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas><canvas id="starmap" style="position:fixed;inset:0;z-index:0;pointer-events:none"></canvas>
@@ -641,6 +922,14 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <div class="navb" data-tab="cloud"><svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.3A3.5 3.5 0 0 1 18 18z"/></svg><span>Cloud</span></div>
     <div class="navb" data-tab="system"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/></svg><span>Systeem</span></div>
     <div class="navb" data-tab="downloads"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M5 20h14"/></svg><span>Downloads</span></div>
+    <div style="height:1px;background:linear-gradient(90deg,transparent,rgba(0,217,255,.35),transparent);margin:8px 8px 4px;"></div>
+    <div style="font:700 0.42rem 'JetBrains Mono',monospace;letter-spacing:1px;color:#7c5cff;text-align:center;margin-bottom:2px;text-transform:uppercase;">Trinity · FX</div>
+    <div class="navb" data-tab="tr-flow"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg><span>Flow</span></div>
+    <div class="navb" data-tab="tr-net"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 12l3-5M7 12l3 5M14 7l4 4M14 17l4-4"/></svg><span>Neural Net</span></div>
+    <div class="navb" data-tab="tr-market"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 4-6"/></svg><span>Market</span></div>
+    <div class="navb" data-tab="tr-wallet"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 14h2"/></svg><span>Wallet</span></div>
+    <div class="navb" data-tab="tr-engine"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2"/></svg><span>Engine</span></div>
+    <div class="navb" data-tab="tr-feed"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></svg><span>Internals</span></div>
   </div>
   <div class="main" id="main">
 
@@ -1869,6 +2158,251 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
     </section>
 
+    <!-- ===================== TRINITY · FX TABS (added; Osiris Crypto untouched) ===================== -->
+    <section class="tab" id="tab-tr-flow">
+      <div class="trn">
+  <section id="sec-map">
+    <div class="eyebrow">01 · Global flow</div>
+    <h2 class="sec">Capital &amp; Commodity Flow</h2>
+    <div class="sec-line"></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="map-head">
+        <div class="mono" style="font-size:0.62rem;color:var(--dim);">Capital = net currency flow proxy · Commodity = physical trade routes</div>
+        <div class="toggle">
+          <button id="t-cap" class="on" onclick="setFlow('capital')">Capital</button>
+          <button id="t-com" onclick="setFlow('commodity')">Commodity</button>
+        </div>
+      </div>
+      <canvas id="map-canvas"></canvas>
+      <div class="legend" id="map-legend"></div>
+    </div>
+  </section>
+      </div>
+    </section>
+    <section class="tab" id="tab-tr-net">
+      <div class="trn">
+  <section>
+    <div class="eyebrow">04 · Ocular core</div>
+    <h2 class="sec">Trinity — the adaptive FX agent</h2>
+    <div class="sec-line"></div>
+    <div class="ocular">
+      <div class="ocell">
+        <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+        <div class="tag">CAPITAL FLOW</div><div class="sub">all currencies · live</div>
+        <canvas id="ocular-map-canvas" class="core"></canvas>
+        <div class="eye-read" id="ocular-map-legend" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
+      </div>
+      <div class="ocell">
+        <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+        <div class="tag">TRINITY · CORTEX</div><div class="sub">adaptive learning · FX-calibrated</div>
+        <canvas id="ocular-brain-canvas" class="core"></canvas>
+      </div>
+    </div>
+    <div class="panel trinity">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="trhead">
+        <div class="mono" style="font-size:0.58rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;">Trinity · adaptive agent <span class="trstate">· <span id="trinity-state" style="color:var(--dim)">STOPPED</span></span></div>
+        <button id="trinity-toggle" class="bigbtn" onclick="toggleTrinity()">▶  START TRINITY</button>
+      </div>
+      <div class="upd" id="tr-updated" style="margin-bottom:8px;">updated —</div>
+      <div class="tgrid">
+        <div class="tstat"><div class="v" id="tr-trades">0</div><div class="l">trades taken</div></div>
+        <div class="tstat"><div class="v" id="tr-wr">—</div><div class="l">win rate</div></div>
+        <div class="tstat"><div class="v" id="tr-r">—</div><div class="l">avg R</div></div>
+        <div class="tstat"><div class="v" id="tr-mult">1.00×</div><div class="l">adaptive conf.</div></div>
+        <div class="tstat"><div class="v" id="tr-runtime" style="font-size:0.9rem;">stopped</div><div class="l">runtime since start</div></div>
+      </div>
+      <div class="calibwrap">
+        <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;display:flex;justify-content:space-between;">Calibration · predicted vs measured <span class="upd" id="tr-calib-updated">updated —</span></div>
+        <canvas id="calib-canvas"></canvas>
+        <div class="mono" style="font-size:0.5rem;color:var(--dimmer);">bars = measured win% per predicted-confidence band · dashed line = perfect calibration · green = well-calibrated</div>
+      </div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:12px;">Win rate per session (live learning)</div>
+      <div class="tsessions" id="tr-sessions"></div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Trinity self-tuning <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— autonomous adjustments as it learns</span></div>
+      <div class="feedwrap" id="adj-feed"></div>
+    </div>
+  </section>
+      </div>
+    </section>
+    <section class="tab" id="tab-tr-market">
+      <div class="trn">
+    <div class="eyebrow">Trinity · FX</div><h2 class="sec" style="margin:2px 0 6px;">Market at a glance — all pairs</h2><div class="sec-line"></div>
+    <div class="sd-grid3" id="tr-sd-cards"><span class="mono" style="color:var(--dim);font-size:0.62rem;">engine warming up…</span></div>
+  <section>
+    <div class="eyebrow">02 · Market at a glance</div>
+    <h2 class="sec">All Pairs — Rates &amp; Change</h2>
+    <div class="sec-line"></div>
+    <div class="panel" style="padding:6px 10px;">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div style="max-height:360px;overflow-y:auto;">
+        <table><thead><tr><th>Pair</th><th>Rate</th><th>Chg</th><th>Chg %</th><th>15m</th><th>1h</th><th>Day</th><th>Trend</th></tr></thead>
+        <tbody id="pairs-body"></tbody></table>
+      </div>
+    </div>
+  </section>
+  <section id="sec-opp">
+    <div class="eyebrow">03 · System data</div>
+    <h2 class="sec">Opportunity Engine</h2>
+    <div class="sec-line"></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="pred long" id="pred">
+        <div class="predhead">
+          <div class="crown" id="pred-crown">★ Predictive Swing</div>
+          <div class="status" id="pred-status">OPEN</div>
+        </div>
+        <div class="predbody">
+          <div>
+            <div class="pair" id="pred-pair">—</div>
+            <div class="side" id="pred-side">—</div>
+            <div class="horizon">session <b id="pred-horizon">—</b></div>
+          </div>
+          <div class="predtrade">
+            <div class="trow"><span>entry</span><b id="pred-entry">—</b></div>
+            <div class="trow"><span>current</span><b id="pred-current">—</b></div>
+            <div class="trow"><span>live P/L</span><b id="pred-pnl">0.00%</b></div>
+            <div class="trow"><span>in trade</span><b id="pred-age">—</b></div>
+          </div>
+        </div>
+        <div class="progwrap"><span>stop</span><div class="prog"><span id="pred-progdot"></span></div><span>target</span></div>
+        <div class="factors" id="pred-factors"></div>
+        <div class="plan" id="pred-plan"></div>
+      </div>
+      <div class="ranksplit">
+        <div class="rankcol long"><div class="rankhdr">▲ Long opportunities</div><div id="rank-long"></div></div>
+        <div class="rankcol short"><div class="rankhdr">▼ Short opportunities</div><div id="rank-short"></div></div>
+      </div>
+    </div>
+  </section>
+      </div>
+    </section>
+    <section class="tab" id="tab-tr-wallet">
+      <div class="trn">
+    <div class="eyebrow">Trinity · FX</div><h2 class="sec" style="margin:2px 0 6px;">Wallet</h2><div class="sec-line"></div>
+<div class="dual" style="grid-template-columns:1fr;">
+      <div class="panel">
+        <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+        <div class="mono" style="font-size:0.58rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">Wallet status <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">· source of truth</span></div>
+        <div class="toggles" style="margin-bottom:8px;">
+          <span class="tog on" id="wm-mock" onclick="setWalletMode('mock')">Trinity sim ($1k mock)</span>
+          <span class="tog" id="wm-live" onclick="setWalletMode('live')">Live Capital.com balance</span>
+        </div>
+        <div class="oarow" style="margin-bottom:8px;"><span>Start equity ($)</span><div style="display:flex;gap:6px;"><input id="start-equity" type="number" step="100" min="1" value="1000" style="flex:1;"><button class="btn" style="padding:7px 12px;" onclick="setStartEquity()">Set / reset</button></div></div>
+        <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-bottom:6px;">test phase — set any starting balance; on a live OANDA link this becomes your real account balance.</div>
+        <div class="wgrid">
+          <div class="wstat"><div class="l">Balance</div><div class="v" id="w-balance">—</div></div>
+          <div class="wstat"><div class="l">Equity</div><div class="v" id="w-equity">—</div></div>
+          <div class="wstat"><div class="l">Open P/L</div><div class="v" id="w-open">—</div></div>
+          <div class="wstat"><div class="l">Realized P/L</div><div class="v" id="w-realized">—</div></div>
+          <div class="wstat"><div class="l">Allocated</div><div class="v" id="w-alloc">—</div></div>
+          <div class="wstat"><div class="l">Available</div><div class="v" id="w-avail">—</div></div>
+          <div class="wstat"><div class="l">Win / Loss</div><div class="v" id="w-wl">—</div></div>
+          <div class="wstat"><div class="l">Max drawdown</div><div class="v" id="w-dd">—</div></div>
+          <div class="wstat"><div class="l">Realized (gross, no cost)</div><div class="v" id="w-realized-gross" style="font-size:0.78rem;">—</div></div>
+          <div class="wstat"><div class="l">Cost paid (fees + slippage)</div><div class="v" id="w-cost" style="font-size:0.78rem;color:var(--bear);">—</div></div>
+        </div>
+        <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin:12px 0 4px;display:flex;justify-content:space-between;align-items:center;">Open positions <span style="display:flex;gap:8px;align-items:center;"><button class="btn" style="padding:3px 8px;font-size:0.5rem;" onclick="closeAllLive()">Close all (live)</button><span class="upd" id="w-updated">updated —</span></span></div>
+        <div id="positions-body"></div>
+      </div>
+</div>
+      </div>
+    </section>
+    <section class="tab" id="tab-tr-engine">
+      <div class="trn">
+    <div class="eyebrow">Trinity · FX</div><h2 class="sec" style="margin:2px 0 6px;">Engine settings &amp; live data</h2><div class="sec-line"></div>
+      <div class="panel">
+        <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+        <div class="mono" style="font-size:0.58rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">Engine settings</div>
+        <div class="presets">
+          <button id="p-conservative" onclick="setPreset('conservative')">Conservative</button>
+          <button id="p-balanced" class="on" onclick="setPreset('balanced')">Balanced</button>
+          <button id="p-aggressive" onclick="setPreset('aggressive')">Aggressive</button>
+        </div>
+        <div id="settings-body"></div>
+        <div class="subh" style="margin:10px 0 4px;">Manual override <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— like NEO's engine config</span></div>
+        <div class="oarow"><span>Risk / trade %</span><input id="cs-risk" type="number" step="0.1" min="0.1" max="5"></div>
+        <div class="oarow"><span>Max alloc %</span><input id="cs-alloc" type="number" step="1" min="5" max="90"></div>
+        <div class="oarow"><span>Max positions</span><input id="cs-maxpos" type="number" step="1" min="1" max="8"></div>
+        <div class="oarow"><span>Stop %</span><input id="cs-stop" type="number" step="0.01" min="0.05" max="2"></div>
+        <div class="oarow"><span>Target %</span><input id="cs-tgt" type="number" step="0.01" min="0.1" max="4"></div>
+        <div class="oarow"><span>Min confidence %</span><input id="cs-minconf" type="number" step="1" min="20" max="95"></div>
+        <div class="oarow"><span>Sessions</span><div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <label class="cklabel"><input type="checkbox" id="cs-asia"> Asian</label>
+          <label class="cklabel"><input type="checkbox" id="cs-eu"> EU</label>
+          <label class="cklabel"><input type="checkbox" id="cs-us"> US</label>
+          <label class="cklabel"><input type="checkbox" id="cs-overlap"> Overlap</label>
+        </div></div>
+        <div style="display:flex;gap:8px;margin-top:8px;"><button class="btn" onclick="applyCustomSettings()">Apply custom</button><button class="btn" onclick="resetCustomSettings()">Reset to preset</button></div>
+        <div class="toggles" id="engine-toggles">
+          <span class="tog on" id="tg-ict" onclick="toggleOpt('ict')">ICT</span>
+          <span class="tog on" id="tg-svp" onclick="toggleOpt('svp')">SVP scan</span>
+          <span class="tog on" id="tg-meters" onclick="toggleOpt('meters')">Meters</span>
+          <span class="tog on" id="tg-news" onclick="toggleOpt('news')">News sentiment</span>
+        </div>
+        <div class="mono" style="font-size:0.56rem;color:var(--dim);margin-top:10px;">Active session (auto): <b id="set-session" style="color:var(--cyan)">—</b> · tuning applied to stop/target</div>
+      </div>
+    <div class="panel" style="margin-top:14px;">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="mono" style="font-size:0.58rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">Capital.com live data <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— EU-friendly · prices + demo orders</span></div>
+      <div class="oarow"><span>Environment</span><select id="cap-env"><option value="demo">Demo (free)</option><option value="live">Live (real money)</option></select></div>
+      <div class="oarow"><span>Proxy URL</span><input id="cap-proxy" placeholder="https://your-worker.workers.dev  (holds key + password)"></div>
+      <div style="margin-top:8px;display:flex;gap:8px;"><button class="btn primary" onclick="connectCapital()">Connect live prices</button><button class="btn" onclick="disconnectCapital()">Disconnect (mock)</button></div>
+      <div class="mono" id="cap-status" style="font-size:0.56rem;color:var(--amber);margin-top:10px;line-height:1.6;">MOCK data (simulated). Deploy the Capital.com proxy worker, paste its URL, and press Connect to run Trinity on REAL market prices with real demo orders.</div>
+      <div class="mono" id="cap-account-bal" style="font-size:0.56rem;color:var(--cyan);margin-top:6px;"></div>
+      <div class="mono" style="font-size:0.52rem;color:var(--dimmer);margin-top:8px;line-height:1.6;">Capital.com's API needs your key <b>and</b> password, so everything routes through your proxy — no secret ever touches this page. The proxy (capital-proxy-worker.js) holds them server-side. Both pricing and orders go through it. Start with a <b>Demo</b> account.</div>
+    </div>
+    <div class="panel" style="margin-top:14px;">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="mono" style="font-size:0.58rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">OANDA live data <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— non-EU · real market prices</span></div>
+      <div class="oarow"><span>Environment</span><select id="oa-env"><option value="practice">Practice (demo / free)</option><option value="live">Live (real money)</option></select></div>
+      <div class="oarow"><span>Account ID</span><input id="oa-account" placeholder="e.g. 101-004-xxxxxxx-001"></div>
+      <div class="oarow"><span>API token</span><input id="oa-token" type="password" placeholder="practice token — read-only pricing"></div>
+      <div class="oarow"><span>Order proxy URL</span><input id="oa-proxy" placeholder="https://your-worker.example.com  (optional, for orders)"></div>
+      <div style="margin-top:8px;display:flex;gap:8px;"><button class="btn primary" onclick="connectOanda()">Connect live prices</button><button class="btn" onclick="disconnectOanda()">Disconnect (mock)</button></div>
+      <div class="mono" id="oa-status" style="font-size:0.56rem;color:var(--amber);margin-top:10px;line-height:1.6;">MOCK data (simulated). Enter your OANDA practice Account ID + API token and press Connect to run Trinity on REAL market prices.</div>
+      <div class="mono" style="font-size:0.52rem;color:var(--bear);margin-top:8px;line-height:1.6;">⚠ Only ever paste a <b>practice</b> (demo) token here, and only when running the page locally or on a private host. On a public GitHub Pages site anyone could read a token typed into the page. Read-only pricing is fetched straight from the browser; placing real <b>orders</b> still requires a serverless proxy that holds the token server-side — never in this page.</div>
+    </div>
+    <details class="collapse" style="margin-top:14px;">
+      <summary>Closed Positions &amp; Data Export</summary>
+      <div class="panel">
+        <div class="crow chead" style="border-bottom:1px solid var(--line);">
+          <span>Pair</span><span>Opened</span><span>Closed</span><span>Entry → Exit</span><span>Size</span><span>P/L (USD · %)</span><span>Exit</span>
+        </div>
+        <div class="closedwrap"><div id="closed-body"></div></div>
+        <div class="exports">
+          <button onclick="exportTrades()">⭳ Trades (CSV)</button>
+          <button onclick="exportPairs()">⭳ Pairs (CSV)</button>
+          <button onclick="exportWallet()">⭳ Wallet (JSON)</button>
+          <button onclick="exportEngine()">⭳ Engine (JSON)</button>
+        </div>
+      </div>
+    </details>
+      </div>
+    </section>
+    <section class="tab" id="tab-tr-feed">
+      <div class="trn">
+    <div class="eyebrow">Trinity · FX</div><h2 class="sec" style="margin:2px 0 6px;">Engine internals</h2><div class="sec-line"></div>
+  <section>
+    <div class="eyebrow">06 · Engine internals</div>
+    <h2 class="sec">System Data — meters · SVP · ICT <span style="font-weight:400;color:var(--dimmer);font-size:0.8rem;text-transform:none;letter-spacing:0;">(background, no chart)</span></h2>
+    <div class="sec-line"></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="subh" style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">Live reasoning feed <button class="btn" style="padding:3px 8px;font-size:0.5rem;" onclick="exportReasoning()">⭳ Download feed</button></div>
+      <div class="feedwrap matrixfeed" id="reason-feed"></div>
+      <div class="subh">Confluence meters · <b id="meters-pair" style="color:var(--tx)">—</b></div>
+      <div class="meters" id="meters-body"></div>
+      <div class="subh">SVP scan · session volume profile</div>
+      <table class="dtable"><thead><tr><th>Pair</th><th>POC</th><th>VAH</th><th>VAL</th><th>vs value</th></tr></thead><tbody id="svp-body"></tbody></table>
+      <div class="subh">ICT signals · HTF bias · sweep · FVG · killzone</div>
+      <div id="ict-body"></div>
+    </div>
+  </section>
+      </div>
+    </section>
+
   </div>
 </div>
 
@@ -1971,7 +2505,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260829-jarvis30-braintrust"></script>
+<script src="app.js?v=20260829-jarvis31-trinity"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
