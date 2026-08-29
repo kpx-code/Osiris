@@ -16775,6 +16775,8 @@ function _neoNetDraw(now, canvasId, outId) {
     const GREEN = '#14f195', CYAN = '#2ce0ff';
     const _hex2 = (hx) => { if (!hx || hx[0] !== '#') return '228,238,248'; const n = parseInt(hx.slice(1), 16); return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; };
     const _roundRect = (c, x, y, ww, hh, rad) => { c.beginPath(); c.moveTo(x + rad, y); c.arcTo(x + ww, y, x + ww, y + hh, rad); c.arcTo(x + ww, y + hh, x, y + hh, rad); c.arcTo(x, y + hh, x, y, rad); c.arcTo(x, y, x + ww, y, rad); c.closePath(); };
+    const _mixRGB = (a, b, t) => { const pa = a.split(',').map(Number), pb = b.split(',').map(Number); return pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(','); };
+    const RING_WHITE = '236,243,251';
 
     // ---- 1. LAYOUT (organisch, gecachet; herbouwt alleen bij resize / net-herbouw) ----
     const _okey = Math.round(w) + 'x' + Math.round(h) + '#' + layers.length + '#' + (_neonet.meta ? _neonet.meta.length : 0);
@@ -16783,7 +16785,7 @@ function _neoNetDraw(now, canvasId, outId) {
         const specs = [];
         const inN = layers[0].length;
         // INPUTS in ÉÉN nette kolom links → hun lijnen lopen niet door andere input-cirkels
-        for (let i = 0; i < inN; i++) specs.push({ ref: ['n', 0, i], bx: 0.012, by: 0.02 + (i / Math.max(1, inN - 1)) * 0.96, imp: 0.12, grp: 'in' });
+        for (let i = 0; i < inN; i++) specs.push({ ref: ['n', 0, i], bx: 0.008, by: 0.01 + (i / Math.max(1, inN - 1)) * 0.98, imp: 0.10, grp: 'in' });
         const mkY = [0.28, 0.52, 0.74], tyX = [0.235, 0.335, 0.435], tyImp = [0.34, 0.44, 0.74];
         for (let mk = 0; mk < 3; mk++) for (let ty = 0; ty < 3; ty++) { const idx = mk * 3 + ty; specs.push({ ref: ['n', 1, idx], bx: tyX[ty], by: mkY[mk] + (ty - 1) * 0.02, imp: tyImp[ty], grp: ['pmv', 'dn', 'mc'][ty], mk }); }
         // TARGETS (Kinetic prijs-target per munt) tussen de cores en OSIRIS
@@ -16805,16 +16807,18 @@ function _neoNetDraw(now, canvasId, outId) {
         (_neonet.meta || []).forEach(mn => { const a = metaAnchor[mn.id]; if (a) specs.push({ ref: ['m', mn.id], bx: a[0], by: a[1], imp: 0.3, grp: grpMeta[mn.id] || 'sys' }); });
         const cells = specs.map((sp, k) => {
             const jx = (SR(k * 2 + 1) - 0.5) * (sp.grp === 'in' ? 0 : 0.02), jy = (SR(k * 2 + 7) - 0.5) * (sp.grp === 'in' ? 0 : 0.028);
-            return { ref: sp.ref, grp: sp.grp, imp: sp.imp, mk: sp.mk, x: MX(sp.bx + jx), y: MY(sp.by + jy), baseR: (6 + sp.imp * 72) * S, k, key: sp.ref.join(':') };
+            return { ref: sp.ref, grp: sp.grp, imp: sp.imp, mk: sp.mk, x: MX(sp.bx + jx), y: MY(sp.by + jy), baseR: (sp.grp === 'in' ? 9 * S : (5 + sp.imp * 60) * S), k, key: sp.ref.join(':') };
         });
         const idxOf = {}; cells.forEach((c, i) => idxOf[c.key] = i);
         const edgeSet = new Set(), edges = [];
         const addEdge = (ai, bi, opt) => { if (ai == null || bi == null || ai === bi) return; const kk = ai < bi ? ai + '_' + bi : bi + '_' + ai; if (edgeSet.has(kk)) return; edgeSet.add(kk); edges.push(Object.assign({ a: ai, b: bi, bow: (SR(ai * 13 + bi * 7) - 0.5) * 0.5, sp: 0.6 + SR(ai + bi) }, opt || {})); };
         // echte conns (behalve INPUTS→PMV: die routeren we netjes hieronder)
         for (const cn of (_neonet.conns || [])) { if (cn.li === 0) continue; const tli = cn.tLi != null ? cn.tLi : cn.li + 1; addEdge(idxOf['n:' + cn.li + ':' + cn.a], idxOf['n:' + tli + ':' + cn.b]); }
-        // INPUTS → ALLEEN de dichtstbijzijnde PMV-knoop (1 lijn per input, geen kruisingen door input-cirkels)
+        // INPUTS → ALLE 3 de PMV-knopen (BTC/ETH/SOL) — data-true: elke feature voedt elk sub-brein.
+        // De inputs staan links in één kolom en de PMV's rechts, dus de lijnen waaieren rechtsuit weg
+        // (kruisen geen andere input-cirkels).
         const pmvIdx = [idxOf['n:1:0'], idxOf['n:1:3'], idxOf['n:1:6']].filter(x => x != null);
-        for (let i = 0; i < inN; i++) { const ci = idxOf['n:0:' + i]; if (ci == null || !pmvIdx.length) continue; let bj = -1, bd = 1e9; for (const pj of pmvIdx) { const d = Math.hypot(cells[ci].x - cells[pj].x, cells[ci].y - cells[pj].y); if (d < bd) { bd = d; bj = pj; } } addEdge(ci, bj, { input: true }); }
+        for (let i = 0; i < inN; i++) { const ci = idxOf['n:0:' + i]; if (ci == null) continue; for (const pj of pmvIdx) addEdge(ci, pj, { input: true }); }
         // TARGETS: MC-core → target → OSIRIS ; CAPITAL: OSIRIS → capital → decision
         for (let mk = 0; mk < 3; mk++) { const ti = idxOf['x:tgt-' + _syms[mk]]; addEdge(ti, idxOf['n:1:' + (mk * 3 + 2)]); addEdge(ti, idxOf['n:2:0']); }
         addEdge(idxOf['x:cap-spot'], idxOf['n:2:0']); addEdge(idxOf['x:cap-spot'], idxOf['n:4:1']);
@@ -16823,6 +16827,15 @@ function _neoNetDraw(now, canvasId, outId) {
         (_neonet.meta || []).forEach(mn => { const mi = idxOf['m:' + mn.id]; const tg = metaTargets[mn.conn]; if (mi != null && tg) tg.forEach(t => addEdge(mi, idxOf[t])); });
         // nabijheids-dichtheid — maar NOOIT naar/vanaf een input (geen lijnen door input-cirkels)
         for (let i = 0; i < cells.length; i++) { if (cells[i].grp === 'in') continue; let bj = -1, bd = 1e9; for (let j = 0; j < cells.length; j++) { if (i === j || cells[j].grp === 'in') continue; const kk = i < j ? i + '_' + j : j + '_' + i; if (edgeSet.has(kk)) continue; const d = Math.hypot(cells[i].x - cells[j].x, cells[i].y - cells[j].y); if (d < bd) { bd = d; bj = j; } } if (bj >= 0) addEdge(i, bj); }
+        // RELAXATIE: duw overlappende cellen uit elkaar (inputs blijven in hun kolom, schuiven alleen verticaal)
+        const _rr = (c) => c.baseR + 5 * S;
+        for (let it = 0; it < 46; it++) {
+            for (let i = 0; i < cells.length; i++) for (let j = i + 1; j < cells.length; j++) {
+                const A = cells[i], B = cells[j]; const dx = B.x - A.x, dy = B.y - A.y; let d = Math.hypot(dx, dy) || 0.01; const mn = _rr(A) + _rr(B);
+                if (d < mn) { const p = (mn - d) / d * 0.5, ox = dx * p, oy = dy * p; if (A.grp === 'in') { A.y -= oy; } else { A.x -= ox; A.y -= oy; } if (B.grp === 'in') { B.y += oy; } else { B.x += ox; B.y += oy; } }
+            }
+            for (const c of cells) { const m = c.baseR + 4; if (c.grp === 'in') { c.x = MX(0.008); c.y = Math.max(h * 0.05 + m, Math.min(h - m, c.y)); } else { c.x = Math.max(w * 0.155 + m, Math.min(w - m - 2, c.x)); c.y = Math.max(h * 0.10 + m, Math.min(h - m - 2, c.y)); } }
+        }
         const bursts = [];
         cells.forEach((c, ci) => { if (c.imp < 0.7) return; const n = 10 + Math.round(SR(ci) * 8), pts = []; for (let r = 0; r < n; r++) { const ang = SR(ci * 40 + r) * 6.283, len = 0.25 + SR(ci * 40 + r + 3) * 0.7; pts.push([c.x + Math.cos(ang) * len * w * 0.5, c.y + Math.sin(ang) * len * h * 0.5]); } bursts.push({ ci, pts }); });
         const bg = []; for (let i = 0; i < 24; i++) bg.push({ cx: SR(i * 3 + 1) * w, cy: SR(i * 3 + 2) * h, r: (0.05 + SR(i * 3 + 3) * 0.28) * Math.min(w, h) });
@@ -16893,7 +16906,10 @@ function _neoNetDraw(now, canvasId, outId) {
         const eb = Math.max(0, emph - 0.72) * 1.6;                                  // extra oplichten voor de meest-actieve elementen
         const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
         const flow = 0.5 + 0.5 * Math.sin(now / 1200 + e.a * 0.7);
-        const cx0 = (A.x + B.x) / 2 + nx * e.bow * len, cy0 = (A.y + B.y) / 2 + ny * e.bow * len;
+        // "haar in de wind": het controle-punt wappert traag heen en weer (input-haren wat meer)
+        const sway = (0.11 * Math.sin(now / 700 + e.a * 0.9 + e.b * 0.5) + 0.07 * Math.sin(now / 410 + e.b * 1.3)) * (e.input ? 1.7 : 1);
+        const bowNow = e.bow + sway;
+        const cx0 = (A.x + B.x) / 2 + nx * bowNow * len, cy0 = (A.y + B.y) / 2 + ny * bowNow * len;
         const hot = sig > 0.28 || emph > 0.74, baseA = (e.input ? 0.035 : 0.05) + 0.10 * flow;   // input-lijnen extra ijl
         for (let s = 0; s < 3; s++) {
             const off = (s - 1) * (1.6 + 2 * sig), a2 = (s === 0 ? (baseA + 0.30 * sig + 0.18 * eb) : baseA * 0.6);
@@ -16907,14 +16923,20 @@ function _neoNetDraw(now, canvasId, outId) {
     for (let ci = 0; ci < cells.length; ci++) {
         const c = cells[ci], L = LV[ci], glow = (L.act || 0.3);
         const r = c.baseR * (c.imp >= 0.7 ? (0.72 + 0.28 * glow) : (0.5 + 0.6 * glow));
+        // KLEUR: standaard WIT, kleurt naar de EIGEN kleur naarmate de cel actiever is; een dataflow-
+        // golf (L→R) laat ze bovendien om beurten hun eigen kleur oplichten. OSIRIS blijft jarvis-blauw.
+        const wave = 0.5 + 0.5 * Math.sin(now / 1250 - (c.x / w) * 7 + c.k * 0.35);
+        const actMix = Math.max(0, Math.min(1, (glow - 0.34) / 0.42));
+        let mix = Math.min(1, Math.max(actMix, wave * wave * (0.30 + 0.55 * glow)));
+        if (c.grp === 'osiris') mix = 1;
+        const ringRGB = _mixRGB(RING_WHITE, L.ring, mix);
         ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.fillStyle = `rgba(3,7,14,${(0.42 + 0.3 * glow).toFixed(3)})`; ctx.fill();
         ctx.save();
-        if (glow > 0.45 || c.imp >= 0.7) { ctx.shadowColor = `rgb(${L.ring})`; ctx.shadowBlur = (c.imp >= 0.7 ? 8 : 3) + 10 * glow; }
-        ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = (c.imp >= 0.7 ? 1.6 : 1.05) + glow * 0.9; ctx.strokeStyle = `rgba(${L.ring},${(0.30 + 0.70 * glow).toFixed(3)})`; ctx.stroke();
-        if (glow > 0.62) { ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = 0.8; ctx.strokeStyle = `rgba(255,255,255,${((glow - 0.62) * 0.9).toFixed(3)})`; ctx.stroke(); }   // meest-actieve cellen lichten hun rand extra op
+        if (glow > 0.45 || c.imp >= 0.7 || mix > 0.5) { ctx.shadowColor = `rgb(${ringRGB})`; ctx.shadowBlur = (c.imp >= 0.7 ? 8 : 3) + 10 * glow; }
+        ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = (c.imp >= 0.7 ? 1.6 : 1.05) + glow * 0.9; ctx.strokeStyle = `rgba(${ringRGB},${(0.34 + 0.62 * glow).toFixed(3)})`; ctx.stroke();
         ctx.restore();
         if (c.imp >= 0.55) { for (let k = 1; k <= 3; k++) { const rr = r * (1 + k * 0.14), a0 = SR(c.k * 9 + k) * 6.28, a1 = a0 + 1.2 + SR(c.k * 9 + k + 2) * 2.5; ctx.beginPath(); ctx.arc(c.x, c.y, rr, a0, a1); ctx.lineWidth = 0.5; ctx.strokeStyle = `rgba(228,238,248,${(0.10 * (1 - k * 0.22)).toFixed(3)})`; ctx.stroke(); } }
-        if (c.imp >= 0.7) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.62, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(${L.ring},${(0.2 + 0.35 * glow).toFixed(3)})`; ctx.stroke(); }
+        if (c.imp >= 0.7) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.62, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(${ringRGB},${(0.2 + 0.35 * glow).toFixed(3)})`; ctx.stroke(); }
         if (L.dot) { ctx.beginPath(); ctx.arc(c.x + r * 0.72, c.y - r * 0.72, 2.2, 0, 6.283); ctx.fillStyle = L.dot; ctx.fill(); }
         if (glow > 0.5) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.34, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${(0.4 * glow * pulse).toFixed(3)})`; ctx.fill(); }
     }
