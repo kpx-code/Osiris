@@ -4865,11 +4865,21 @@ function _buildCalibMap(filterFn, monotone) {
     }
     if (pts.length < 1) return { map: null, n: withProb.length, provisional };
     const overall = arr.filter(x => x.win).length / arr.length * 100;
+    // DISCRIMINATIE via AUC (Mann-Whitney): de kans dat een WINNENDE trade een hogere ruwe score
+    // had dan een VERLIEZENDE. 0.5 = de score onderscheidt niet (winst hangt niet van de score af),
+    // >0.5 = hogere score wint vaker (goede rangschikking), <0.5 = omgekeerd (inversie). Dit is
+    // robuust tegen bin-ruis — véél betrouwbaarder dan naar het eerste vs. laatste punt kijken.
+    let auc = null;
+    { const nW = arr.filter(x => x.win).length, nL = arr.length - nW;
+      if (nW && nL) { const ranks = new Array(arr.length); let i = 0;
+        while (i < arr.length) { let j = i; while (j + 1 < arr.length && arr[j + 1].p === arr[i].p) j++; const rAvg = (i + j) / 2 + 1; for (let k = i; k <= j; k++) ranks[k] = rAvg; i = j + 1; }
+        let sr = 0; for (let k = 0; k < arr.length; k++) if (arr[k].win) sr += ranks[k];
+        auc = (sr - nW * (nW + 1) / 2) / (nW * nL); } }
     // monotoon (max) is nodig voor de REMAP-map (calibrateProbability), maar maakt de DIAGNOSE-
     // grafiek misleidend: een vlakke/dalende relatie wordt dan platgeslagen tot een horizontale
     // lijn (bv. SOL 74%→74%). Voor de 4-breinen-diagnose geven we daarom de RUWE winrate per bin.
     if (monotone) for (let i = 1; i < pts.length; i++) pts[i][1] = Math.max(pts[i][1], pts[i - 1][1]);
-    return { map: pts, n: withProb.length, provisional, overall: +overall.toFixed(1) };
+    return { map: pts, n: withProb.length, provisional, overall: +overall.toFixed(1), auc: auc == null ? null : +auc.toFixed(3) };
 }
 // Neo BTC (global _calibMap, blijft BTC-zuiver + versie-zuiver).
 function computeCalibrationMap() {
@@ -4884,11 +4894,85 @@ function computeCalibrationMapFor(brain, monotone) {
     const curVer = currentConfigVersion();
     const versionOk = l => !_calibCurrentVersionOnly || l.configVersion == null || l.configVersion === curVer;
     let filt;
-    if (brain === 'OSIRIS') filt = l => l.entryProbabilityPct != null && !l.manual && l.isOsiris === true && versionOk(l);
+    // OSIRIS mainbrain = de ALGEMENE winrate: elke gesloten trade telt (win of verlies), of het nu
+    // BTC, ETH of SOL is — de markt maakt niet uit voor de mainbrain-beslissing.
+    if (brain === 'OSIRIS') filt = l => l.entryProbabilityPct != null && !l.manual && versionOk(l);
     else if (brain === 'BTC') filt = l => l.entryProbabilityPct != null && !l.manual && (l.market == null || l.market === 'BTC') && versionOk(l);
     else filt = l => l.entryProbabilityPct != null && !l.manual && l.market === brain && versionOk(l);
     return _buildCalibMap(filt, monotone);
 }
+
+// ============================================================
+// OSIRIS · BRAIN-TRUST (30-08) — EERLIJKE, SAMPLE-SIZE-BEWUSTE MEEWEGING PER SUB-BREIN.
+// ------------------------------------------------------------
+// Elk brein (BTC/ETH/SOL) krijgt vertrouwen op basis van DRIE dingen, zodat ze NIET
+// zomaar even zwaar meewegen:
+//   • nConf  = hoeveel trades het brein heeft (n/(n+K)) — weinig trades ⇒ minder vertrouwen.
+//   • disc   = of de ruwe score de winst überhaupt rangschikt (AUC → 0..1), gekrompen door
+//              nConf zodat een toevals-AUC op weinig trades niet meetelt.
+//   • baseline = de EIGEN gemeten winrate, via empirische-Bayes naar de GEZAMENLIJKE winrate
+//              van de 3 markten gekrompen o.b.v. n (weinig trades ⇒ leun op de 3-markt-avg).
+// De trust-gewogen winkans:  effProb = baseline + (ruwe_kans − baseline) · disc.
+//   → score onderscheidt niet (disc≈0) ⇒ val terug op de eerlijke basisrate.
+//   → score bewezen (disc≈1) ⇒ volg de ruwe score.
+// De allocatie-factor (0.5..1) verlaagt bovendien de equity naar een brein dat weinig
+// trades heeft of een vlakke score, zodat de meeweging écht eerlijk is.
+// De RUWE score (m.bestProb / entryProbabilityPct) blijft ongemoeid voor de kalibratie.
+// ============================================================
+const OsirisBrainTrust = {
+    K_N: 40,                                   // half vertrouwen bij 40 trades
+    _cache: {}, _cacheTs: 0, _cacheLen: -1,
+    _syms: ['BTC', 'ETH', 'SOL'],
+    _filtFor(sym) {
+        return (sym === 'BTC')
+            ? (l => l.entryProbabilityPct != null && !l.manual && (l.market == null || l.market === 'BTC') && l.outcome != null)
+            : (l => l.entryProbabilityPct != null && !l.manual && l.market === sym && l.outcome != null);
+    },
+    _pooled() {   // gezamenlijke winrate van de 3 markten (telt elke trade even zwaar = n-eerlijk)
+        let w = 0, t = 0;
+        try { for (const l of learningLog) { if (l.manual || l.entryProbabilityPct == null || l.outcome == null) continue; const mk = l.market || 'BTC'; if (this._syms.indexOf(mk) < 0) continue; t++; if (l.outcome === 'win') w++; } } catch (e) {}
+        return { wr: t > 0 ? w / t : 0.5, n: t };
+    },
+    _statsFor(sym, pooled) {
+        let arr = [];
+        try { arr = learningLog.filter(this._filtFor(sym)).map(l => ({ p: l.entryProbabilityPct, win: l.outcome === 'win' ? 1 : 0 })); } catch (e) {}
+        const n = arr.length, wins = arr.filter(x => x.win).length, wr = n ? wins / n : null;
+        // AUC (Mann-Whitney): kans dat een winnende trade een hogere score had dan een verliezende.
+        let auc = null;
+        if (n >= 8) { const nW = wins, nL = n - wins;
+            if (nW && nL) { arr.sort((a, b) => a.p - b.p); const ranks = new Array(n); let i = 0;
+                while (i < n) { let j = i; while (j + 1 < n && arr[j + 1].p === arr[i].p) j++; const rA = (i + j) / 2 + 1; for (let k = i; k <= j; k++) ranks[k] = rA; i = j + 1; }
+                let sr = 0; for (let k = 0; k < n; k++) if (arr[k].win) sr += ranks[k];
+                auc = (sr - nW * (nW + 1) / 2) / (nW * nL); } }
+        const nConf = n / (n + this.K_N);
+        const pw = pooled ? pooled.wr : 0.5;
+        const aucAdj = (auc == null) ? 0.5 : (0.5 + (auc - 0.5) * nConf);   // AUC naar 0.5 gekrompen bij weinig data
+        const disc = Math.max(0, Math.min(1, (aucAdj - 0.5) / 0.20));       // 0=geen onderscheid, 1=AUC≥0.70
+        const baseline = (wr == null) ? pw : (pw + (wr - pw) * nConf);      // eigen winrate → 3-markt-avg gekrompen
+        const reliability = nConf * (0.4 + 0.6 * disc);                     // trades ÉN onderscheid nodig
+        return { n, wr: wr == null ? null : +wr.toFixed(4), auc: auc == null ? null : +auc.toFixed(3), aucAdj: +aucAdj.toFixed(3), nConf: +nConf.toFixed(3), disc: +disc.toFixed(3), pooled: +pw.toFixed(4), baseline: +baseline.toFixed(4), reliability: +reliability.toFixed(3), inverted: (auc != null && aucAdj < 0.45 && n >= 40) };
+    },
+    _rebuild() { const pooled = this._pooled(); const c = { _pooled: pooled }; for (const s of this._syms) c[s] = this._statsFor(s, pooled); return c; },
+    stats(sym) {
+        const now = Date.now(); let curLen = 0; try { curLen = learningLog.length; } catch (e) {}
+        if (!this._cache || now - this._cacheTs > 15000 || curLen !== this._cacheLen) { this._cache = this._rebuild(); this._cacheTs = now; this._cacheLen = curLen; }
+        return this._cache[sym] || this._statsFor(sym, this._cache._pooled);
+    },
+    // trust-gewogen winkans (fractie). Bij te weinig data blijft de ruwe score staan.
+    effProb(sym, rawProb) {
+        try { if (rawProb == null) return rawProb; const s = this.stats(sym); if (!s || s.n < 10) return rawProb;
+            const eff = s.baseline + (rawProb - s.baseline) * s.disc; return Math.max(0.01, Math.min(0.99, eff));
+        } catch (e) { return rawProb; }
+    },
+    // allocatie-betrouwbaarheid 0.5..1: weinig trades of vlakke score ⇒ minder equity.
+    weightFactor(sym) { try { const s = this.stats(sym); return s ? (0.5 + 0.5 * s.reliability) : 1; } catch (e) { return 1; } },
+    // korte, leesbare uitleg per brein (voor de transparantie-panelen)
+    explain(sym) { const s = this.stats(sym); if (!s || s.n < 10) return `${sym}: te weinig trades (${s ? s.n : 0}) — ruwe score telt volledig`;
+        const lean = Math.round((1 - s.disc) * 100); const src = s.disc >= 0.66 ? 'volgt eigen score' : (s.disc <= 0.2 ? 'leunt op basisrate' : 'mengt score+basisrate');
+        return `${sym}: ${s.n} trades · AUC ${s.auc != null ? s.auc.toFixed(2) : '—'} · ${src} (${lean}% basisrate) · basisrate ${(s.baseline * 100).toFixed(0)}% · weeg ×${this.weightFactor(sym).toFixed(2)}${s.inverted ? ' · ⚠ omgekeerd' : ''}`;
+    }
+};
+window.OsirisBrainTrust = OsirisBrainTrust;
 
 
 // BACKFILL: zet oude Osiris ETH/SOL-trades uit de tradeLog alsnog in de learningLog,
@@ -8613,7 +8697,9 @@ function subBrainEvaluate(sym) {
         } catch (e) {}
         const prob = Math.max(0, Math.min(100, score)) / 100;
         b.lastProb = prob; b.lastSide = side; b.lastFactors = factors;
-        m.bestProb = prob; m.bestSide = side; m.bestFactors = factors;
+        m.bestProb = prob; m.bestSide = side; m.bestFactors = factors;   // RUWE score (blijft ongemoeid voor de kalibratie)
+        // trust-gewogen winkans + betrouwbaarheid (eerlijke, sample-size-bewuste meeweging)
+        try { m.trustProb = OsirisBrainTrust.effProb(sym, prob); m.trustStats = OsirisBrainTrust.stats(sym); } catch (e) { m.trustProb = prob; }
         return { prob, side };
     } catch (e) { return { prob: 0.5, side: null }; }
 }
@@ -12370,12 +12456,15 @@ async function marginTick() {
             if (_fsoStop) { marginState.lastAction = `entries gepauzeerd (FSO ${osirisStress.regime})`; }
             for (const sym of (_fsoStop ? [] : (typeof MULTI_SYMBOLS !== 'undefined' ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL']))) {
             const m = neoMultiState.markets[sym]; if (!m || m.bestProb == null || !m.bestSide) continue;
+            // TRUST-gate: gebruik de trust-gewogen kans (valt terug op de basisrate als de score van
+            // dit brein niet onderscheidt / te weinig trades heeft). RUWE bestProb blijft voor logging.
+            const pEff = (m.trustProb != null ? m.trustProb : m.bestProb);
             const binSym = MULTI_BINANCE[sym];
             if (marginState.positions.some(p => p.symbol === binSym)) continue;                 // al open
             if (_marginLastEntry[sym] && (now - _marginLastEntry[sym]) < 30000) continue;        // cooldown verkort 60s -> 30s (vaker traden dan spot)
-            if (m.bestProb < MINP) continue;
+            if (pEff < MINP) continue;
             // fee-guard: bij een grote edge-achterstand alleen nog top-setups (kans ≥ 70%)
-            if (_feeNoEdge && _feeGuard.deficit > 0.10 && m.bestProb < 0.70) { marginState.lastAction = `${sym} overgeslagen: fee-guard (edge-tekort ${(_feeGuard.deficit * 100 | 0)}pt, kans ${(m.bestProb * 100 | 0)}% < 70%)`; continue; }
+            if (_feeNoEdge && _feeGuard.deficit > 0.10 && pEff < 0.70) { marginState.lastAction = `${sym} overgeslagen: fee-guard (edge-tekort ${(_feeGuard.deficit * 100 | 0)}pt, kans ${(pEff * 100 | 0)}% < 70%)`; continue; }
             // adaptieve predict-poort: blokkeert tegengestelde trades zodra de voorspeller vertrouwd is
             try { if (typeof osirisPredictGate === 'function') { const _g = osirisPredictGate(sym, m.bestSide); if (!_g.allow) { marginState.lastAction = `${sym} overgeslagen: ${_g.reason}`; continue; } } } catch (e) {}
             // trend-alignment veto: geen counter-trend margin-entry bij een sterke trend
@@ -12966,7 +13055,11 @@ function osirisReview() {
             }
             // per-markt sentiment-tilt (Fear & Greed + funding + L/S van DEZE munt)
             try { if (side) prob = Math.max(0, Math.min(1, prob + sentimentTilt(side, sym) / 100)); } catch (e) {}
-            cands.push({ sym, prob, side });
+            // TRUST-MEEWEGING (30-08): trek de conviction naar de eerlijke basisrate als de score van
+            // dit brein niet onderscheidt of te weinig trades heeft (rawProb blijft bewaard voor weergave).
+            let effProb = prob, wFac = 1;
+            try { effProb = OsirisBrainTrust.effProb(sym, prob); wFac = OsirisBrainTrust.weightFactor(sym); } catch (e) {}
+            cands.push({ sym, prob: effProb, rawProb: prob, side, wFac });
         }
         if (!cands.length) return osirisState;
 
@@ -13000,11 +13093,14 @@ function osirisReview() {
             // FSO-OPPORTUNITY-TILT (22-08): kans-gewogen \u00e9n getilt naar de munt met de echte
             // bliksem-kans (kinetische opportunity). Osiris verdeelt de equity zo autonoom meer
             // naar de markt waar een grote beweging op komst is.
-            const weights = eligible.map(c => { const opp = (typeof osirisMarketOpportunity === 'function') ? osirisMarketOpportunity(c.sym) : 0; return { sym: c.sym, opp, w: c.prob * c.prob * (1 + 1.6 * opp) }; });
+            // Meeweging = kans\u00b2 \u00d7 opportunity \u00d7 TRUST-factor. De trust-factor (0.5..1) verlaagt de
+            // equity naar een brein met weinig trades of een niet-onderscheidende score, zodat de
+            // markten NIET even zwaar meewegen als hun betrouwbaarheid verschilt.
+            const weights = eligible.map(c => { const opp = (typeof osirisMarketOpportunity === 'function') ? osirisMarketOpportunity(c.sym) : 0; const tf = (c.wFac != null ? c.wFac : 1); return { sym: c.sym, opp, tf, w: c.prob * c.prob * (1 + 1.6 * opp) * tf }; });
             const sumW = weights.reduce((a, x) => a + x.w, 0);
             for (const x of weights) alloc[x.sym] = sumW > 0 ? x.w / sumW : 1 / eligible.length;
-            const rank = weights.map(x => `${x.sym} ${(alloc[x.sym] * 100 | 0)}%${x.opp > 0.5 ? '\u26a1' : ''}`).join(' \u00b7 ');
-            osirisState.note = `${eligible.length} munten geschikt - equity kans+opportunity-gewogen (${rank}); \u26a1 = FSO-bliksemkans.`;
+            const rank = weights.map(x => `${x.sym} ${(alloc[x.sym] * 100 | 0)}%${x.opp > 0.5 ? '\u26a1' : ''}${x.tf < 0.8 ? '\u2193' : ''}`).join(' \u00b7 ');
+            osirisState.note = `${eligible.length} munten geschikt - equity kans+opportunity\u00d7trust-gewogen (${rank}); \u26a1 = FSO-bliksemkans, \u2193 = lager gewicht door weinig trades/vlakke score.`;
             osirisState.opportunity = Object.fromEntries(weights.map(x => [x.sym, +x.opp.toFixed(3)]));
         }
         osirisState.allocations = alloc;
@@ -13029,15 +13125,21 @@ function renderOsirisPanel() {
         const barCol = colors[p.sym] || '#00d9ff';
         const skip = (osirisState.skip && p.sym !== 'BTC') ? osirisState.skip[p.sym] : null;
         const skipHtml = (skip && a > 0) ? ` <span style="color:#ff8a94; font-size:0.54rem;">&middot; ${skip}</span>` : '';
+        // trust-transparantie: toon de trust-gewogen kans + (ruwe score als die afwijkt) + uitleg.
+        let raw = (p.rawProb != null) ? p.rawProb : p.prob;
+        let rawHtml = (Math.abs((p.prob || 0) - raw) >= 0.02) ? ` <span style="color:var(--text-dimmer); font-size:0.54rem;">(ruw ${(raw*100|0)}%)</span>` : '';
+        let tHtml = ''; try { tHtml = `<div style="color:#8aa0ff; font-size:0.52rem; margin-top:1px;">${OsirisBrainTrust.explain(p.sym)}</div>`; } catch (e) {}
         html += `<div style="margin-bottom:7px;">
             <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
                 <span style="color:${barCol}; font-weight:700;">${p.sym} ${p.side || ''}${skipHtml}</span>
-                <span>kans ${(p.prob*100|0)}% &middot; equity ${a.toFixed(0)}%</span>
+                <span>kans ${(p.prob*100|0)}%${rawHtml} &middot; equity ${a.toFixed(0)}%</span>
             </div>
             <div style="height:5px; background:rgba(255,255,255,0.06); border-radius:3px; overflow:hidden;"><div style="height:100%; width:${a}%; background:${barCol};"></div></div>
+            ${tHtml}
         </div>`;
     }
     html += `<div style="margin-top:6px; color:var(--text-dim); font-size:0.58rem;">${osirisState.note}</div>`;
+    try { const pl = OsirisBrainTrust.stats('BTC'); if (pl && pl.pooled != null) html += `<div style="margin-top:4px; color:var(--text-dimmer); font-size:0.55rem;">Osiris mainbrain (algemeen, alle markten): winrate ${(pl.pooled*100).toFixed(0)}% &middot; basisrate waar vlakke/kleine breinen op terugvallen.</div>`; } catch (e) {}
     html += `</div>`;
     el.innerHTML = html;
 }
@@ -15219,7 +15321,7 @@ window.renderSessionsPanels = renderSessionsPanels;
 // ============================================================
 const _CALIB_COL = { BTC: '#ffb627', ETH: '#627eea', SOL: '#14f195', OSIRIS: '#00d9ff' };
 // Tekent één predicted-vs-measured curve in #calib-plot.
-function _drawCalibCurve(map, n, provisional, col, label, xMin) {
+function _drawCalibCurve(map, n, provisional, col, label, xMin, overall, auc) {
     const plot = document.getElementById('calib-plot');
     const note = document.getElementById('calib-note');
     if (!plot) return;
@@ -15234,22 +15336,33 @@ function _drawCalibCurve(map, n, provisional, col, label, xMin) {
         return;
     }
     const single = map.length < 2;   // weinig spreiding -> 1 kalibratiepunt i.p.v. een curve
+    const _flat = (auc != null && n >= 40 && Math.abs(auc - 0.5) <= 0.06);   // AUC≈0.5 → geen onderscheid
+    const _invert = (auc != null && n >= 40 && auc < 0.44);                    // AUC<0.44 → omgekeerd
     if (head) {
         const gap = map.reduce((a, [r, w]) => a + (r - w), 0) / map.length;
-        if (gap > 5) { head.textContent = `${label} is overconfident.`; head.style.color = 'var(--amber)'; }
+        if (_invert) { head.textContent = `${label}: score is omgekeerd (AUC ${auc.toFixed(2)}).`; head.style.color = '#ff6b6b'; }
+        else if (_flat) { head.textContent = `${label}: score onderscheidt niet (AUC ${auc.toFixed(2)}).`; head.style.color = 'var(--amber)'; }
+        else if (gap > 5) { head.textContent = `${label} is overconfident.`; head.style.color = 'var(--amber)'; }
         else if (gap < -5) { head.textContent = `${label} onderschat zichzelf.`; head.style.color = 'var(--teal)'; }
         else { head.textContent = `${label} is goed gekalibreerd.`; head.style.color = 'var(--teal)'; }
     }
     const X = r => 8 + (Math.min(100, Math.max(xMin, r)) - xMin) / (100 - xMin) * 86;
     const Y = w => 50 - Math.min(100, Math.max(0, w)) / 100 * 46;
     let svg = '';
+    // avg-referentielijn: de totale winrate. Valt de curve daarmee samen, dan onderscheidt de score niet.
+    if (overall != null) {
+        const yo = Y(overall).toFixed(1);
+        svg += `<line x1="8" y1="${yo}" x2="94" y2="${yo}" stroke="${col}" stroke-width="0.4" stroke-dasharray="1.5 2" opacity="0.5"/>`;
+        svg += `<text x="94" y="${(Y(overall) - 1.4).toFixed(1)}" font-size="3.2" fill="${col}" text-anchor="end" opacity="0.8" font-family="'JetBrains Mono',monospace">avg ${overall.toFixed(0)}%</text>`;
+    }
     if (!single) {
         const pts = map.map(([r, w]) => `${X(r).toFixed(1)},${Y(w).toFixed(1)}`).join(' ');
         svg += `<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"/>`;
     }
-    map.forEach(([r, w], i) => {
-        const toon = single || i === map.length - 1;
-        svg += `<circle cx="${X(r).toFixed(1)}" cy="${Y(w).toFixed(1)}" r="${toon ? 1.8 : 1.1}" fill="${col}"/>`;
+    map.forEach(([r, w, cnt], i) => {
+        const toon = single || i === map.length - 1 || i === 0;
+        let rr = Math.max(0.9, Math.min(2.8, 0.8 + Math.sqrt(cnt || 0) * 0.26)); if (single || i === map.length - 1) rr = Math.max(rr, 1.9);
+        svg += `<circle cx="${X(r).toFixed(1)}" cy="${Y(w).toFixed(1)}" r="${rr.toFixed(1)}" fill="${col}"><title>ruwe score ${r.toFixed(0)} \u2192 winrate ${w.toFixed(0)}% (${cnt || 0} trades)</title></circle>`;
         if (toon) svg += `<text x="${(X(r) - 3).toFixed(1)}" y="${(Y(w) - 3).toFixed(1)}" font-size="4" font-weight="bold" fill="${col}" text-anchor="middle" font-family="'JetBrains Mono',monospace">${w.toFixed(0)}%</text>`;
     });
     plot.innerHTML = svg;
@@ -15267,15 +15380,16 @@ function _drawCalibCurve(map, n, provisional, col, label, xMin) {
             const bias = map.reduce((a, [r, w]) => a + (r - w), 0) / map.length;   // + = voorspelt hoger dan werkelijk (overmoedig)
             const ece = map.reduce((a, [r, w]) => a + Math.abs(r - w), 0) / map.length;
             const lo = map[0], hi = map[map.length - 1];
-            const trend = hi[1] - lo[1];
+            const aucTxt = (auc != null) ? ` \u00b7 AUC ${auc.toFixed(2)}` : '';
             let oordeel, kleur, advies;
-            if (map.length >= 3 && trend < -8) { oordeel = 'INVERSIE \u2014 curve omgekeerd'; kleur = '#ff6b6b'; advies = 'de score wijst structureel de verkeerde kant op; Osiris\' inversie-autopiloot keert deze markt om zodra n groot genoeg is.'; }
+            if (_invert) { oordeel = `INVERSIE \u2014 score omgekeerd (AUC ${auc.toFixed(2)})`; kleur = '#ff6b6b'; advies = 'winnende trades hadden juist een LAGERE score; de score wijst structureel de verkeerde kant op. Osiris\' inversie-autopiloot keert deze markt om zodra n groot genoeg is.'; }
+            else if (_flat) { oordeel = `vlak \u2014 score onderscheidt niet (AUC ${auc.toFixed(2)})`; kleur = 'var(--amber)'; advies = 'hoge en lage scores winnen ongeveer even vaak (AUC\u22480.5); de score rangschikt de trades niet, alleen het gemiddelde telt. Overweeg deze markt-score minder zwaar te laten meewegen.'; }
             else if (bias > 5) { oordeel = `overmoedig (+${bias.toFixed(0)}pt)`; kleur = 'var(--amber)'; advies = 'het model schat de kans te hoog in; de Governor weegt hem lager en Platt-herkalibratie trekt de kans omlaag.'; }
             else if (bias < -5) { oordeel = `te bescheiden (${bias.toFixed(0)}pt)`; kleur = 'var(--teal)'; advies = 'het model schat de kans te laag in \u2014 er is ruimte om deze markt zwaarder te laten meewegen.'; }
             else if (ece > 12) { oordeel = `wisselvallig (ECE ${ece.toFixed(0)}pt)`; kleur = 'var(--amber)'; advies = 'de score en de werkelijkheid lopen grillig uiteen; meer out-of-sample data nodig voordat je hem vertrouwt.'; }
             else { oordeel = 'goed gekalibreerd'; kleur = 'var(--teal)'; advies = 'voorspelde kans \u2248 gemeten uitkomst; deze markt mag normaal meewegen.'; }
             note.innerHTML = `<b style="color:${kleur};">${label}: ${oordeel}.</b> ${advies}`
-                + ` <span style="color:var(--dim);">\u00b7 ${n} ${provisional ? 'samples (VOORLOPIG, kleine steekproef)' : 'samples'} \u00b7 ECE ${ece.toFixed(0)}pt \u00b7 bias ${bias >= 0 ? '+' : ''}${bias.toFixed(0)}pt \u00b7 laagste bin voorspeld ${lo[0].toFixed(0)}%\u2192gemeten ${lo[1].toFixed(0)}%, hoogste ${hi[0].toFixed(0)}%\u2192${hi[1].toFixed(0)}% \u00b7 hoe verder onder de stippellijn, hoe overmoediger.</span>`;
+                + ` <span style="color:var(--dim);">\u00b7 ${n} ${provisional ? 'samples (VOORLOPIG, kleine steekproef)' : 'samples'} \u00b7 ECE ${ece.toFixed(0)}pt \u00b7 bias ${bias >= 0 ? '+' : ''}${bias.toFixed(0)}pt${aucTxt} (0.5=geen onderscheid) \u00b7 laagste bin voorspeld ${lo[0].toFixed(0)}%\u2192gemeten ${lo[1].toFixed(0)}%, hoogste ${hi[0].toFixed(0)}%\u2192${hi[1].toFixed(0)}% \u00b7 de stippellijn = de gemiddelde winrate.</span>`;
         }
     }
 }
@@ -15402,7 +15516,7 @@ function downloadDeepNetModels() {
 }
 window.downloadDeepNetModels = downloadDeepNetModels;
 
-function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin, unit, overall){
+function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin, unit, overall, auc, wFac){
     var plot=document.getElementById(plotId); if(!plot) return;
     unit=unit||'trades';
     xMin=(xMin==null)?50:xMin;
@@ -15411,19 +15525,19 @@ function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin, u
     var head=document.getElementById(headId);
     if(!map||map.length<1){ plot.innerHTML=''; if(head){head.innerHTML=label+' <span style="color:#5c7488;font-weight:400">\u2014 no data yet</span>';} return; }
     var single=map.length<2;
-    // kop: verdict + spreiding. gap = ruwe score vs gemeten winrate; spread = onderscheidend vermogen.
+    // gap = ruwe score vs gemeten winrate (niveau). AUC = onderscheidend vermogen (rangschikking).
     var gap=map.reduce(function(x,p){return x+(p[0]-p[1]);},0)/map.length;
-    var ys=map.map(function(p){return p[1];});
-    var spread=Math.max.apply(null,ys)-Math.min.apply(null,ys);
+    var flat=(auc!=null && n>=40 && Math.abs(auc-0.5)<=0.06);
+    var invert=(auc!=null && n>=40 && auc<0.44);
     if(head){
         var verdict,vcol;
-        if(gap>5){verdict='overconfident +'+gap.toFixed(0)+'pt';vcol='#ffb627';}
+        if(invert){verdict='inverted \u00b7 AUC '+auc.toFixed(2);vcol='#ff6b6b';}
+        else if(flat){verdict='flat \u00b7 score onderscheidt niet (AUC '+auc.toFixed(2)+')';vcol='#ffb627';}
+        else if(gap>5){verdict='overconfident +'+gap.toFixed(0)+'pt';vcol='#ffb627';}
         else if(gap<-5){verdict='underconfident '+gap.toFixed(0)+'pt';vcol='#14f195';}
         else{verdict='well calibrated';vcol='#14f195';}
-        // eerlijke waarschuwing: als de winrate nauwelijks varieert over de score, onderscheidt de
-        // score niet (een 'vlakke' lijn als 74%->74%). Dat is echte info, geen mooie kalibratie.
-        var flatNote=(!single && spread<8) ? ' <span style="color:#ffb627;font-weight:400">\u00b7 vlak: score onderscheidt nauwelijks (\u0394'+spread.toFixed(0)+'pt)</span>' : '';
-        head.innerHTML=label+' <span style="color:'+vcol+';font-weight:400">\u00b7 '+verdict+' \u00b7 '+n+' '+unit+(overall!=null?' \u00b7 gem '+overall.toFixed(0)+'%':'')+'</span>'+flatNote;
+        var wTxt=(wFac!=null)?' <span style="color:#8aa0ff;font-weight:400">\u00b7 meeweging \u00d7'+wFac.toFixed(2)+'</span>':'';
+        head.innerHTML=label+' <span style="color:'+vcol+';font-weight:400">\u00b7 '+verdict+' \u00b7 '+n+' '+unit+(overall!=null?' \u00b7 avg '+overall.toFixed(0)+'%':'')+(auc!=null&&!invert&&!flat?' \u00b7 AUC '+auc.toFixed(2):'')+'</span>'+wTxt;
         head.style.color=col;
     }
     // plot-area binnen de viewBox: x[30..228], y[120..12]  (0..100%)
@@ -15435,7 +15549,7 @@ function _drawCalibInto(plotId, headId, map, n, provisional, col, label, xMin, u
     if(overall!=null){
         var yo=Y(overall).toFixed(1);
         svg+='<line x1="30" y1="'+yo+'" x2="228" y2="'+yo+'" stroke="'+col+'" stroke-width="0.8" stroke-dasharray="2 3" opacity="0.5"/>';
-        svg+='<text x="228" y="'+(Y(overall)-2).toFixed(1)+'" font-size="6.5" fill="'+col+'" text-anchor="end" opacity="0.75" font-family="\'JetBrains Mono\',monospace">gem '+overall.toFixed(0)+'%</text>';
+        svg+='<text x="228" y="'+(Y(overall)-2).toFixed(1)+'" font-size="6.5" fill="'+col+'" text-anchor="end" opacity="0.75" font-family="\'JetBrains Mono\',monospace">avg '+overall.toFixed(0)+'%</text>';
     }
     if(!single){
         var pts=map.map(function(p){return X(p[0]).toFixed(1)+','+Y(p[1]).toFixed(1);}).join(' ');
@@ -15459,8 +15573,9 @@ function renderAllCalibrationCurves(){
     var dn=null; try{ if(typeof OsirisDeepNet!=='undefined') dn=OsirisDeepNet; }catch(e){}
     // DIAGNOSE-grafiek: RUWE gemeten winrate per bin (monotone=false), zodat een vlakke/dalende
     // relatie zichtbaar blijft i.p.v. platgeslagen tot een horizontale lijn.
+    var _wf=function(s){ try{ return OsirisBrainTrust.weightFactor(s); }catch(e){ return null; } };
     try{ var rb=computeCalibrationMapFor('BTC',false);
-        if(rb&&rb.map) _drawCalibInto('calib-plot-btc','calib-head-btc',rb.map,rb.n,rb.provisional,C.BTC,'Neo BTC',50,'trades',rb.overall);
+        if(rb&&rb.map) _drawCalibInto('calib-plot-btc','calib-head-btc',rb.map,rb.n,rb.provisional,C.BTC,'Neo BTC',50,'trades',rb.overall,rb.auc,_wf('BTC'));
         else _drawCalibInto('calib-plot-btc','calib-head-btc',null,(rb?rb.n:0),true,C.BTC,'Neo BTC',50,'trades');
     }catch(e){}
     ['ETH','SOL'].forEach(function(sym){ try{
@@ -15468,13 +15583,13 @@ function renderAllCalibrationCurves(){
         // voorkeur: de trade-gebaseerde per-markt-curve (echte trades). Alleen als die te
         // weinig data heeft, val terug op de DeepNet walk-forward-curve (label 'wf-samples').
         var r=computeCalibrationMapFor(sym,false);
-        if(r&&r.map) _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,r.map,r.n,r.provisional,C[sym],'Neo '+sym,0,'trades',r.overall);
+        if(r&&r.map) _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,r.map,r.n,r.provisional,C[sym],'Neo '+sym,0,'trades',r.overall,r.auc,_wf(sym));
         else if(c&&c.map) _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,c.map,c.n,c.n<60,C[sym],'Neo '+sym,0,'wf-samples');
         else _drawCalibInto('calib-plot-'+lc,'calib-head-'+lc,null,(r?r.n:0),true,C[sym],'Neo '+sym,0,'trades');
     }catch(e){} });
     try{ var o=dn?dn.calibrationCurve('OSIRIS'):null;
         var ro=computeCalibrationMapFor('OSIRIS',false);
-        if(ro&&ro.map) _drawCalibInto('calib-plot-osiris','calib-head-osiris',ro.map,ro.n,ro.provisional,C.OSIRIS,'Osiris Mainbrain',0,'trades',ro.overall);
+        if(ro&&ro.map) _drawCalibInto('calib-plot-osiris','calib-head-osiris',ro.map,ro.n,ro.provisional,C.OSIRIS,'Osiris Mainbrain',0,'trades',ro.overall,ro.auc);
         else if(o&&o.map) _drawCalibInto('calib-plot-osiris','calib-head-osiris',o.map,o.n,o.n<60,C.OSIRIS,'Osiris Mainbrain',0,'wf-samples');
     }catch(e){}
 }
@@ -15484,20 +15599,22 @@ function renderCalibrationCurve() {
     const col = _CALIB_COL[sym] || '#ffb627';
     const label = sym === 'OSIRIS' ? 'Osiris mainbrain' : ('Neo ' + sym);
     if (sym === 'BTC') {
-        computeCalibrationMap();
-        const n = learningLog.filter(l => !l.manual && l.entryProbabilityPct != null && (l.market == null || l.market === 'BTC')).length;
-        _drawCalibCurve(_calibMap, n, _calibProvisional, col, label, 50);
+        computeCalibrationMap();   // ververst _calibMap (monotoon) voor de kans-remap
+        const rb = computeCalibrationMapFor('BTC', false);   // RUWE (ongegladde) curve voor de weergave
+        const n = (rb && rb.n != null) ? rb.n : learningLog.filter(l => !l.manual && l.entryProbabilityPct != null && (l.market == null || l.market === 'BTC')).length;
+        if (rb && rb.map) _drawCalibCurve(rb.map, rb.n, rb.provisional, col, label, 50, rb.overall, rb.auc);
+        else _drawCalibCurve(null, n, true, col, label, 50);
         return;
     }
     // (22-08) VOORKEUR: de LIVE trade-gebaseerde curve (n groeit met echte trades) i.p.v. de
-    // vaste walk-forward-backtest (n=144). Zo klopt het getoonde aantal met de werkelijkheid.
-    const r = computeCalibrationMapFor(sym);
-    if (r && r.map && r.n >= 20) { _drawCalibCurve(r.map, r.n, r.provisional, col, label + ' (live trades)', 0); return; }
+    // vaste walk-forward-backtest (n=144). RUWE winrate (monotone=false) zodat vlak/dalend zichtbaar blijft.
+    const r = computeCalibrationMapFor(sym, false);
+    if (r && r.map && r.n >= 20) { _drawCalibCurve(r.map, r.n, r.provisional, col, label + ' (live trades)', 0, r.overall, r.auc); return; }
     // fallback zolang er te weinig echte trades zijn: de DeepNet walk-forward-backtest (vast venster).
     let dn = null;
     try { if (typeof OsirisDeepNet !== 'undefined') dn = OsirisDeepNet.calibrationCurve(sym); } catch (e) {}
     if (dn && dn.map) { _drawCalibCurve(dn.map, dn.n, dn.n < 60, col, label + ' (walk-forward backtest)', 0); return; }
-    if (r && r.map) { _drawCalibCurve(r.map, r.n, r.provisional, col, label, 50); }
+    if (r && r.map) { _drawCalibCurve(r.map, r.n, r.provisional, col, label, 50, r.overall, r.auc); }
 }
 
 function renderExitDistribution() {
