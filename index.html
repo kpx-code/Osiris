@@ -788,7 +788,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="hudframe mb" style="margin-top:18px;">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
         <canvas id="neo-net-canvas-big" style="width:100%; height:740px; display:block; position:relative; z-index:1;"></canvas>
-        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">3 banen (BTC·ETH·SOL): PMV &rarr; deepnet &rarr; cores &rarr; targets &rarr; osiris &rarr; TA &rarr; decision &rarr; capital &rarr; output &rarr; RL &nbsp;·&nbsp; meta: governor · LLM · regime · multi-TF · node-fade · FAG · guardian · risk · spike-guard · self-review</div></div>
+        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs &rarr; CORES (9: PMV·DN·MC × BTC·ETH·SOL) &rarr; osiris &rarr; TA &rarr; decision &rarr; output &rarr; RL &nbsp;·&nbsp; meta: governor · LLM · regime · cloud · multi-TF · node-fade · FAG · guardian · risk · spike-guard · self-review</div></div>
         <div class="net-out"><div class="l">Osiris decision</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
       </div>
 
@@ -971,7 +971,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="hudframe mb">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
         <canvas id="neo-net-canvas-wal" style="width:100%; height:460px; display:block; position:relative; z-index:1;"></canvas>
-        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs &rarr; integration &rarr; FSO &rarr; timing-agent &rarr; cores &rarr; osiris &rarr; decision &rarr; capital &rarr; output</div></div>
+        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs &rarr; CORES (9: PMV·DN·MC × BTC·ETH·SOL) &rarr; osiris &rarr; TA &rarr; decision &rarr; output &rarr; RL</div></div>
         <div class="net-out"><div class="l">Osiris decision</div><div class="v"><span id="neo-net-out-wal">&mdash;</span></div></div>
       </div>
 
@@ -1971,7 +1971,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260829-jarvis23-organic-nn"></script>
+<script src="app.js?v=20260829-jarvis24-cores9"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
