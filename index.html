@@ -821,6 +821,27 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .trn .prow b {color:var(--tx);}
 .trn .calibwrap {margin-top:12px;border:1px solid var(--line);border-radius:8px;padding:10px;}
 .trn #calib-canvas {width:100%;height:230px;display:block;}
+/* FSO multi-scale controls + checkboxes */
+.trn .fsoctrl {margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:rgba(0,0,0,0.2);}
+.trn .fsoctrl-row {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0;}
+.trn .fsoctrl-lbl {font-family:'JetBrains Mono',monospace;font-size:0.5rem;letter-spacing:1px;text-transform:uppercase;color:var(--dimmer);min-width:46px;}
+.trn .fsocbwrap {display:flex;flex-wrap:wrap;gap:6px 12px;}
+.trn .fsocbgrid {display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:4px 10px;margin-top:6px;}
+.trn .fsocb {display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);cursor:pointer;user-select:none;}
+.trn .fsocb input {appearance:none;-webkit-appearance:none;width:13px;height:13px;border:1px solid var(--line);border-radius:3px;background:#050b12;cursor:pointer;position:relative;flex:0 0 auto;}
+.trn .fsocb input:checked {background:var(--os-cyan,#00d9ff);border-color:var(--os-cyan,#00d9ff);}
+.trn .fsocb input:checked::after {content:"✓";position:absolute;top:-2px;left:1px;font-size:10px;color:#04121a;font-weight:700;}
+.trn .fsodetails {margin:6px 0;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);}
+.trn .fsodetails summary {cursor:pointer;color:var(--tx);padding:3px 0;}
+/* live-data feeds panel */
+.trn .feeds {display:flex;flex-direction:column;gap:2px;}
+.trn .feedrow {display:grid;grid-template-columns:14px 1.4fr 0.9fr 1.6fr;gap:8px;align-items:center;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03);}
+.trn .feedrow.feedhdr {border-bottom:1px solid var(--line);margin-bottom:3px;padding-bottom:5px;}
+.trn .feeddot {width:9px;height:9px;border-radius:50%;box-shadow:0 0 6px currentColor;}
+.trn .feedname {color:var(--tx);}
+.trn .feedstat {font-weight:700;text-align:left;}
+.trn .feedupd {color:var(--dim);text-align:right;font-size:0.5rem;}
+@media (max-width:720px){ .trn .feedrow {grid-template-columns:12px 1fr;gap:2px;} .trn .feedstat,.trn .feedupd{grid-column:2;text-align:left;} }
 .trn .oarow {display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;margin:6px 0;font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--dim);}
 .trn .oarow input, .trn .oarow select {font-family:'JetBrains Mono',monospace;font-size:0.62rem;background:#050b12;border:1px solid var(--line);color:var(--tx);border-radius:5px;padding:7px 9px;width:100%;}
 .trn .closedwrap {max-height:320px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px;margin-top:6px;}
@@ -1115,12 +1136,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div style="font-size:0.56rem; color:var(--dim); margin:6px 0 10px; line-height:1.7; background:rgba(0,0,0,0.3); border:1px solid var(--line); border-radius:6px; padding:8px 10px;">
           <div style="color:#9fb2c4; font-weight:700; margin-bottom:4px; letter-spacing:0.5px;">LEGENDA &middot; wat je ziet <span style="color:var(--text-dimmer); font-weight:400; letter-spacing:0;">(klik = lijn aan/uit &middot; dubbelklik = alleen deze)</span></div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:2px 16px;">
-            <span id="fso-leg-BTC" onclick="fsoToggleLine('BTC')" ondblclick="fsoSoloLine('BTC')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen BTC"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #f7931a;vertical-align:middle;"></span> <b style="color:#f7931a;">BTC</b>-stress &mdash; gem. van BTC's 5 oscillatoren</span>
-            <span id="fso-leg-ETH" onclick="fsoToggleLine('ETH')" ondblclick="fsoSoloLine('ETH')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen ETH"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #8fb8ff;vertical-align:middle;"></span> <b style="color:#8fb8ff;">ETH</b>-stress</span>
-            <span id="fso-leg-SOL" onclick="fsoToggleLine('SOL')" ondblclick="fsoSoloLine('SOL')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen SOL"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #14f195;vertical-align:middle;"></span> <b style="color:#14f195;">SOL</b>-stress</span>
-            <span id="fso-leg-CORR" onclick="fsoToggleLine('CORR')" ondblclick="fsoSoloLine('CORR')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen correlatie"><span style="display:inline-block;width:14px;height:0;border-top:2px dotted #c792ea;vertical-align:middle;"></span> <b style="color:#c792ea;">Correlatie-breuk</b> &mdash; hoe sterk de 3 munten ontkoppelen (hoog = systeemrisico)</span>
-            <span id="fso-leg-STRESS" onclick="fsoToggleLine('STRESS')" ondblclick="fsoSoloLine('STRESS')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen global stress"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #ff5f7e;vertical-align:middle;"></span> <b style="color:#ff5f7e;">Global Stress (S&#772;)</b> &mdash; gemiddelde van alle 17 oscillatoren</span>
-            <span id="fso-leg-VAR" onclick="fsoToggleLine('VAR')" ondblclick="fsoSoloLine('VAR')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen variance"><span style="display:inline-block;width:14px;height:0;border-top:2px dashed #7fb4ff;vertical-align:middle;"></span> <b style="color:#7fb4ff;">Variance (&sigma;&sup2;)</b> &mdash; asynchronie / early-warning (2e as)</span>
+            <span id="fso-leg-BTC" onclick="fsoToggleLine('BTC')" ondblclick="fsoSoloLine('BTC')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen BTC"><input type="checkbox" id="fso-cb-BTC" checked onclick="event.stopPropagation()" onchange="fsoToggleLine('BTC')" style="width:12px;height:12px;vertical-align:middle;margin-right:5px;accent-color:#00d9ff;cursor:pointer;"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #f7931a;vertical-align:middle;"></span> <b style="color:#f7931a;">BTC</b>-stress &mdash; gem. van BTC's 5 oscillatoren</span>
+            <span id="fso-leg-ETH" onclick="fsoToggleLine('ETH')" ondblclick="fsoSoloLine('ETH')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen ETH"><input type="checkbox" id="fso-cb-ETH" checked onclick="event.stopPropagation()" onchange="fsoToggleLine('ETH')" style="width:12px;height:12px;vertical-align:middle;margin-right:5px;accent-color:#00d9ff;cursor:pointer;"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #8fb8ff;vertical-align:middle;"></span> <b style="color:#8fb8ff;">ETH</b>-stress</span>
+            <span id="fso-leg-SOL" onclick="fsoToggleLine('SOL')" ondblclick="fsoSoloLine('SOL')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen SOL"><input type="checkbox" id="fso-cb-SOL" checked onclick="event.stopPropagation()" onchange="fsoToggleLine('SOL')" style="width:12px;height:12px;vertical-align:middle;margin-right:5px;accent-color:#00d9ff;cursor:pointer;"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #14f195;vertical-align:middle;"></span> <b style="color:#14f195;">SOL</b>-stress</span>
+            <span id="fso-leg-CORR" onclick="fsoToggleLine('CORR')" ondblclick="fsoSoloLine('CORR')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen correlatie"><input type="checkbox" id="fso-cb-CORR" checked onclick="event.stopPropagation()" onchange="fsoToggleLine('CORR')" style="width:12px;height:12px;vertical-align:middle;margin-right:5px;accent-color:#00d9ff;cursor:pointer;"><span style="display:inline-block;width:14px;height:0;border-top:2px dotted #c792ea;vertical-align:middle;"></span> <b style="color:#c792ea;">Correlatie-breuk</b> &mdash; hoe sterk de 3 munten ontkoppelen (hoog = systeemrisico)</span>
+            <span id="fso-leg-STRESS" onclick="fsoToggleLine('STRESS')" ondblclick="fsoSoloLine('STRESS')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen global stress"><input type="checkbox" id="fso-cb-STRESS" checked onclick="event.stopPropagation()" onchange="fsoToggleLine('STRESS')" style="width:12px;height:12px;vertical-align:middle;margin-right:5px;accent-color:#00d9ff;cursor:pointer;"><span style="display:inline-block;width:14px;height:0;border-top:2px solid #ff5f7e;vertical-align:middle;"></span> <b style="color:#ff5f7e;">Global Stress (S&#772;)</b> &mdash; gemiddelde van alle 17 oscillatoren</span>
+            <span id="fso-leg-VAR" onclick="fsoToggleLine('VAR')" ondblclick="fsoSoloLine('VAR')" style="cursor:pointer; user-select:none;" title="klik: aan/uit · dubbelklik: alleen variance"><input type="checkbox" id="fso-cb-VAR" checked onclick="event.stopPropagation()" onchange="fsoToggleLine('VAR')" style="width:12px;height:12px;vertical-align:middle;margin-right:5px;accent-color:#00d9ff;cursor:pointer;"><span style="display:inline-block;width:14px;height:0;border-top:2px dashed #7fb4ff;vertical-align:middle;"></span> <b style="color:#7fb4ff;">Variance (&sigma;&sup2;)</b> &mdash; asynchronie / early-warning (2e as)</span>
           </div>
           <div style="color:#9fb2c4; font-weight:700; margin:6px 0 3px; letter-spacing:0.5px;">KRITIEKE LEVELS &middot; wat de cijfers betekenen</div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:2px 16px;">
@@ -2169,7 +2190,14 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="trn">
     <div class="eyebrow">Trinity · FX</div><h2 class="sec" style="margin:2px 0 6px;">Neural Net &amp; engine</h2><div class="sec-line"></div>
 
-    <div class="eyebrow" style="margin-top:6px;">Global flow · capital &amp; commodity</div>
+    <div class="eyebrow" style="margin-top:6px;">Live data &amp; feeds · connectiviteit</div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div id="tr-feeds" class="feeds"><div class="mono" style="color:var(--dimmer);font-size:0.56rem;">feeds initialiseren…</div></div>
+      <div class="mono" style="font-size:0.46rem;color:var(--dimmer);margin-top:6px;">Elke feed toont status + last updated. Een 500/503 tijdens gesloten FX-uren (weekend / buiten sessietijden) verschijnt als <b style="color:#ffb627;">markt gesloten</b> i.p.v. een fout; een fout tijdens open uren als <b style="color:#ff4f6d;">data feed unavailable</b> (server-kant).</div>
+    </div>
+
+    <div class="eyebrow" style="margin-top:22px;">Global flow · capital &amp; commodity</div>
     <div class="panel">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div class="map-head">
@@ -2216,9 +2244,18 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Win rate per session (live learning) <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— brain-trust: ×gewicht · AUC · vlak/inv</span></div>
       <div class="tsessions" id="tr-sessions"></div>
-      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">FSO · FX system-stress <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— markt-als-systeem, tempert risico bij stress</span></div>
-      <div class="mono" id="tr-fso" style="font-size:0.6rem;margin-top:4px;color:var(--dim);">◉ FSO — kalibreert…</div>
-      <canvas id="tr-fso-canvas" style="width:100%;height:70px;display:block;margin-top:6px;background:rgba(0,0,0,0.25);border-radius:6px;"></canvas>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">FSO · FX system-stress <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— markt-als-systeem over alle 18 valuta's &amp; 28 pairs · micro/meso/macro/volledig · togglebaar</span></div>
+      <div class="mono" id="tr-fso" style="font-size:0.6rem;margin-top:4px;color:var(--dim);line-height:1.7;">◉ FSO — kalibreert…</div>
+      <div class="fsoctrl">
+        <div class="fsoctrl-row"><span class="fsoctrl-lbl">Schaal</span><div id="tr-fso-scaletoggles" class="fsocbwrap"></div></div>
+        <div class="fsoctrl-row"><span class="fsoctrl-lbl">Series</span><div id="tr-fso-seriestoggles" class="fsocbwrap"></div></div>
+        <details class="fsodetails"><summary>Valuta-oscillatoren overlayen (18) <span style="color:var(--dimmer)">— klik om te tonen</span></summary><div id="tr-fso-ccytoggles" class="fsocbwrap fsocbgrid"></div></details>
+        <details class="fsodetails"><summary>Pair-oscillatoren overlayen (28) <span style="color:var(--dimmer)">— klik om te tonen</span></summary><div id="tr-fso-pairtoggles" class="fsocbwrap fsocbgrid"></div></details>
+        <div class="fsoctrl-row"><button class="btn btn-mini" type="button" onclick="trFsoClearOverlays()" style="padding:3px 8px;font-size:0.5rem;">✕ overlays wissen</button><span class="mono" style="font-size:0.46rem;color:var(--dimmer);">data draait altijd op de achtergrond — vinkjes tonen/verbergen alleen lijnen</span></div>
+      </div>
+      <div id="tr-fso-charts"></div>
+      <div class="mono" style="font-size:0.48rem;color:var(--dimmer);margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;"><span style="color:#ff5f7e;">— stress S̄</span><span style="color:#7fb4ff;">-- σ² system-variance</span><span style="color:#c792ea;">— VFM (opgebouwde energie)</span><span style="color:#ff8a94;">▧ gevarenzone (σ² ≤ 0.20)</span><span style="color:var(--dimmer);">gekleurd = valuta/pair-overlay</span></div>
+      <div class="mono" id="tr-fso-shadow" style="font-size:0.54rem;margin-top:6px;color:var(--dim);line-height:1.7;">shadow-backtest verzamelt data…</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Trinity self-tuning <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— autonomous adjustments as it learns</span></div>
       <div class="feedwrap" id="adj-feed"></div>
     </div>
@@ -2500,7 +2537,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260830-jarvis34-trinity-deepnet"></script>
+<script src="app.js?v=20260830-jarvis36-fso-scales-feeds"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
