@@ -20796,6 +20796,16 @@ const GSD_CATS = [
 ];
 const GSD_TH_DEFAULT = 0.20;   // UOTAM start value; calibrated to the engine's own σ² distribution
 const GSD_VAR_REF = 0.06;      // fixed σ² normalisation reference (zone-variance scale) — keeps σ² dynamic, not pinned
+// GDELT per-zone query terms (geopolitics/tone). Robust keyword queries beat FIPS codes.
+const GSD_GDELT_Q = {
+  na:    '("United States" OR Canada OR Mexico) (protest OR shooting OR strike OR crisis OR shutdown)',
+  eu:    '(Europe OR Ukraine OR France OR Germany OR "United Kingdom") (war OR protest OR sanction OR strike OR crisis)',
+  ap:    '(China OR Taiwan OR Japan OR "North Korea" OR India OR "South China Sea") (military OR tension OR conflict OR crisis)',
+  me:    '(Israel OR Iran OR Gaza OR "Saudi Arabia" OR Yemen OR Syria OR "Red Sea") (war OR strike OR attack OR conflict)',
+  latam: '(Brazil OR Argentina OR Venezuela OR Mexico OR Colombia) (protest OR unrest OR crisis OR coup)'
+};
+// ACLED region codes per zone (ACLED API region= numeric ids)
+const GSD_ACLED_REG = { na:[16,15,13], eu:[12,11], ap:[7,8,17,18], me:[9,5,1,2,3,4], latam:[14,15] };
 function _gsdRe(r){ return ({RUST:'CALM',SPANNING:'TENSION',CRISIS:'CRISIS'}[r])||r; }   // English regime display
 
 const TrinityGSD = {
@@ -21010,7 +21020,11 @@ const GSDData = {
     run(()=>this.eonet(), 10*60000, 4000);
     run(()=>this.weather(), 15*60000, 7000);
     run(()=>this.worldbank(), 6*3600000, 10000);
-    run(()=>this.gdelt(), 10*60000, 13000);   // alleen als proxy is ingesteld
+    // proxy-gated bronnen (draaien alleen als een GSD-proxy-URL is ingesteld)
+    run(()=>this.gdelt(), 10*60000, 13000);   // geopolitiek / tone (geen key)
+    run(()=>this.fred(),  30*60000, 16000);   // financiële condities (VIX/NFCI) — FRED key
+    run(()=>this.ecb(),   30*60000, 19000);   // euro-area systeemstress (CISS) — geen key
+    run(()=>this.acled(), 30*60000, 22000);   // gewapende conflicten — ACLED key
   },
   // USGS aardbevingen (direct, GeoJSON) → disaster-stress per zone
   usgs(){
@@ -21055,18 +21069,61 @@ const GSDData = {
       }).catch(e=>TrinityFeeds.markErr('gsd-worldbank',e.message,e.http));
     });
   },
-  // GDELT geopolitiek + tone (proxy) → geo/conflict/tone per zone
+  // GDELT geopolitics + tone (proxy) → geo/conflict/tone per zone (per-zone keyword tonechart)
   gdelt(){
     if(!TrinityGSD.proxy) return;   // proxy-gated
-    GSD_ZONES.forEach(z=>{ if(z.synthetic||!z.wb.length)return;
-      const q=encodeURIComponent('sourcecountry:'+z.wb[0]+' (protest OR conflict OR war OR sanction OR crisis)');
-      const url='https://api.gdeltproject.org/api/v2/doc/doc?query='+q+'&mode=tonechart&format=json&timespan=3d';
-      this._get(url,false).then(d=>{ // tone → sentiment/conflict-stress
-        let neg=0,tot=0; (d.tonechart||[]).forEach(b=>{ tot+=b.count||0; if((b.bin||0)<-2) neg+=b.count||0; });
-        const conflict=_clamp01(tot? neg/tot*1.5 : 0), tone=_clamp01(tot? neg/tot : 0);
-        TrinityGSD.setCell(z.key,'geo',conflict,'GDELT'); TrinityGSD.setCell(z.key,'conflict',conflict,'GDELT'); TrinityGSD.setCell(z.key,'tone',tone,'GDELT');
-        TrinityFeeds.markOk('gsd-gdelt','tone '+z.key);
+    let okAny=false;
+    GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const q=GSD_GDELT_Q[z.key]; if(!q)return;
+      const url='https://api.gdeltproject.org/api/v2/doc/doc?query='+encodeURIComponent(q)+'&mode=tonechart&format=json&timespan=3d';
+      this._get(url,false).then(d=>{ let neg=0,tot=0; (d.tonechart||[]).forEach(b=>{ const c=b.count||0; tot+=c; if((b.bin||0)<=-2) neg+=c; });
+        const negFrac = tot? neg/tot : 0;
+        const geo=_clamp01(negFrac*1.4), tone=_clamp01(negFrac);
+        // GDELT owns geo + tone. Conflict is owned by ACLED (hard event data); GDELT only fills
+        // conflict when ACLED has no data (no key), so the two sources never overwrite each other.
+        TrinityGSD.setCell(z.key,'geo',geo,'GDELT'); TrinityGSD.setCell(z.key,'tone',tone,'GDELT');
+        const cc=TrinityGSD.cells[z.key].conflict; if(!cc||cc.src!=='ACLED'||cc.v==null) TrinityGSD.setCell(z.key,'conflict',_clamp01(negFrac*1.6),'GDELT');
+        okAny=true; TrinityFeeds.markOk('gsd-gdelt','tone ok · '+z.key);
       }).catch(e=>TrinityFeeds.markErr('gsd-gdelt',e.message,e.http));
+    });
+  },
+  // FRED financial conditions (proxy, FRED key server-side) → global 'cb' stress (VIX + NFCI)
+  fred(){
+    if(!TrinityGSD.proxy) return;
+    const latest=(sid,cb)=>{ const url='https://api.stlouisfed.org/fred/series/observations?series_id='+sid+'&sort_order=desc&limit=1';
+      return this._get(url,false).then(d=>{ const o=(d.observations||[])[0]; const v=o?parseFloat(o.value):NaN; cb(isNaN(v)?null:v); }).catch(()=>cb(null)); };
+    Promise.all([ new Promise(r=>latest('VIXCLS',v=>r(v))), new Promise(r=>latest('NFCI',v=>r(v))) ]).then(([vix,nfci])=>{
+      let parts=[]; if(vix!=null) parts.push(_clamp01((vix-11)/40));           // VIX ~11 calm → ~50 crisis
+      if(nfci!=null) parts.push(_clamp01((nfci+0.7)/1.4));                     // NFCI <0 loose, >0 tight
+      if(!parts.length){ TrinityFeeds.markErr('gsd-fred','no data'); return; }
+      const fc=parts.reduce((a,b)=>a+b,0)/parts.length;
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const extra=z.key==='na'?0.08:0; TrinityGSD.setCell(z.key,'cb',_clamp01(fc+extra),'FRED'); });
+      TrinityFeeds.markOk('gsd-fred','VIX '+(vix!=null?vix.toFixed(1):'—')+' · NFCI '+(nfci!=null?nfci.toFixed(2):'—'));
+    }).catch(e=>TrinityFeeds.markErr('gsd-fred',e.message,e.http));
+  },
+  // ECB euro-area systemic stress CISS (proxy, no key) → EU 'econ'/'cb'
+  ecb(){
+    if(!TrinityGSD.proxy) return;
+    const url='https://data-api.ecb.europa.eu/service/data/CISS/D.U2.Z0Z.4F.EC.SS_CIN.IDX?lastNObservations=1&format=jsondata';
+    this._get(url,false).then(d=>{ let val=null;
+      try{ const ds=d.dataSets&&d.dataSets[0]; const s=ds&&ds.series; const first=s&&s[Object.keys(s)[0]]; const obs=first&&first.observations; const k=obs&&Object.keys(obs)[0]; if(k!=null) val=obs[k][0]; }catch(e){}
+      if(val==null){ TrinityFeeds.markErr('gsd-ecb','no CISS'); return; }
+      const ciss=_clamp01(val);   // CISS is al 0..1
+      TrinityGSD.setCell('eu','econ',_clamp01(ciss*0.9+0.05),'ECB CISS'); TrinityGSD.setCell('eu','cb',_clamp01(ciss),'ECB CISS');
+      TrinityFeeds.markOk('gsd-ecb','CISS '+ciss.toFixed(2));
+    }).catch(e=>TrinityFeeds.markErr('gsd-ecb',e.message,e.http));
+  },
+  // ACLED armed-conflict events last 30d (proxy, ACLED key+email server-side) → 'conflict' per zone
+  acled(){
+    if(!TrinityGSD.proxy) return;
+    const since=new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+    GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const regs=GSD_ACLED_REG[z.key]; if(!regs)return;
+      const url='https://api.acleddata.com/acled/read?region='+regs.join('|')+'&event_date='+since+'&event_date_where=%3E%3D&fields=event_date|fatalities&limit=3000';
+      this._get(url,false).then(d=>{ const rows=(d&&d.data)||[]; if(!d||d.success===false){ TrinityFeeds.markErr('gsd-acled', (d&&d.error&&d.error.message)||'key?'); return; }
+        let ev=rows.length, fat=0; rows.forEach(r=>fat+=(+r.fatalities||0));
+        const conflict=_clamp01(ev/400 + fat/2000);   // events + fatalities → stress
+        TrinityGSD.setCell(z.key,'conflict',conflict,'ACLED');
+        TrinityFeeds.markOk('gsd-acled',ev+' events '+z.key);
+      }).catch(e=>TrinityFeeds.markErr('gsd-acled',e.message,e.http));
     });
   }
 };
@@ -21151,7 +21208,7 @@ function drawGSDChart(key){
   ctx.textAlign='left'; ctx.save(); ctx.shadowColor=rc; ctx.shadowBlur=6; ctx.fillStyle=rc; ctx.font="bold 13px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText('● '+_gsdRe(TrinityGSD.regime)+(TrinityGSD.killSwitch?' ⚡':''),padL+2,padT-10); ctx.restore();
   ctx.fillStyle='#a7bacb'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText('stress '+sc.S[L-1].toFixed(3)+' · σ² '+sc.V[L-1].toFixed(2)+' · node '+TrinityGSD.nodeTh.toFixed(2)+' · VFM '+(sc.VFM[L-1]*100|0)+'% · '+L+'pt',padL+118,padT-10);
 }
-const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-gdelt','GDELT geopolitics/tone','proxy']];
+const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
 function renderGSD(){
   if(!TrinityGSD._built) return;
   if(!_gsdBuilt) _gsdBuildToggles();
