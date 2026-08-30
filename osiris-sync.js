@@ -138,7 +138,11 @@ window._osirisEngineActive = _osirisEngineActive;
 
 /* ---- PUSH: spiegel de staat + nieuwe trades naar de cloud, lees de afstandsbediening ---- */
 async function osirisSyncPush() {
-    if (!_sb || !_sbUser) return;
+    if (!_sb) return;
+    // eerste tik na page-load: sessie kan nog niet hersteld zijn -> even ophalen
+    // i.p.v. stil niets doen (dat was de reden dat je een paar keer moest tikken).
+    if (!_sbUser) { try { const { data } = await _sb.auth.getSession(); _sbUser = data && data.session ? data.session.user : null; } catch (e) {} }
+    if (!_sbUser) { _osirisSyncMsg('Log eerst in.'); return; }
     _osirisSyncDot('busy');
     const _engine = _osirisEngineActive();
     try {
@@ -253,6 +257,35 @@ async function osirisRestoreFromCloud() {
 }
 window.osirisRestoreFromCloud = osirisRestoreFromCloud;
 
+/* ---- PULL LATEST (mobiel/kijk-apparaat): één tik -> volledige nieuwste cloud-staat ----
+ * Het probleem was: "sync nu" op een kijk-apparaat haalde alléén de start-tijden op, niet
+ * de volledige staat. Daardoor moest je meerdere keren tikken (en zag je alsnog oude data).
+ * Deze functie haalt in ÉÉN tik ALLE staat-sleutels op, schrijft ze naar localStorage
+ * (behalve de run-vlaggen, zodat er geen tweede engine start) en herlaadt één keer, zodat
+ * elk paneel meteen de nieuwste data toont. Non-destructief op een kijk-apparaat (dat heeft
+ * geen eigen authoritatieve staat), dus zonder bevestigingsdialoog. */
+let _osPulling = false;
+async function osirisPullLatest() {
+    if (!_sb) { _osirisSyncMsg('Cloud niet geladen.'); return; }
+    if (_osPulling) return; _osPulling = true;
+    if (!_sbUser) { try { const { data } = await _sb.auth.getSession(); _sbUser = data && data.session ? data.session.user : null; } catch (e) {} }
+    if (!_sbUser) { _osirisSyncMsg('Log eerst in.'); _osPulling = false; return; }
+    _osirisSyncStamp('nieuwste ophalen…', 'busy'); _osirisSyncDot('busy');
+    try {
+        const { data, error } = await _sb.from('osiris_state').select('key,value').eq('user_id', _sbUser.id);
+        if (error) { _osirisSyncStamp('ophalen mislukt: ' + error.message, 'err'); _osPulling = false; return; }
+        let n = 0;
+        (data || []).forEach(r => {
+            if (OSIRIS_NO_RESTORE.includes(r.key)) return;   // run-vlaggen niet terugzetten (geen 2e engine)
+            try { localStorage.setItem(r.key, typeof r.value === 'string' ? r.value : JSON.stringify(r.value)); n++; } catch (e) {}
+        });
+        try { sessionStorage.setItem('osirisJustPulled', String(n)); } catch (e) {}
+        _osirisSyncStamp('nieuwste opgehaald (' + n + ') · herladen…', 'ok');
+        setTimeout(() => { try { location.reload(); } catch (e) { _osPulling = false; } }, 220);
+    } catch (e) { _osirisSyncStamp('ophalen mislukt (zie console)', 'err'); console.warn('[osiris-sync] pull-fout', e); _osPulling = false; }
+}
+window.osirisPullLatest = osirisPullLatest;
+
 /* ---- afstandsbediening toepassen ----
  * In FASE 1 werkt dit alleen als DEZE browser de engine draait. Echte 24/7-
  * afstandsbediening komt in FASE 2, wanneer de Oracle-worker deze vlag leest. */
@@ -327,6 +360,8 @@ function _osirisSyncBuildUI() {
     document.body.appendChild(box);
     _osirisSyncRenderAuth();
     try { const lc = localStorage.getItem('osirisSyncLastConnected'); if (lc) _osirisSyncStamp('laatst verbonden ' + new Date(lc).toLocaleString('nl-NL')); } catch (e) {}
+    // net na een "nieuwste data ophalen" + reload: bevestig kort dat de verse data binnen is
+    try { const jp = sessionStorage.getItem('osirisJustPulled'); if (jp != null) { sessionStorage.removeItem('osirisJustPulled'); _osirisSyncStamp('✓ nieuwste data geladen (' + jp + ' items)', 'ok'); } } catch (e) {}
 }
 function _osirisSyncToggleMin() {
     const b = document.getElementById('osiris-sync-box'); if (!b) return;
@@ -338,13 +373,25 @@ window._osirisSyncToggleMin = _osirisSyncToggleMin;
 function _osirisSyncRenderAuth() {
     const el = document.getElementById('osiris-sync-auth'); if (!el) return;
     if (_sbUser) {
-        el.innerHTML =
-          '<div class="osb-user">\u2713 ' + (_sbUser.email || 'ingelogd') + '</div>' +
-          '<div class="osb-row">' +
-            '<button onclick="osirisSyncPush()">sync nu</button>' +
-            '<button onclick="osirisRestoreFromCloud()">herstel</button>' +
-            '<button onclick="osirisSignOut()">uit</button>' +
-          '</div>';
+        var _engine = false; try { _engine = _osirisEngineActive(); } catch (e) {}
+        if (_engine) {
+            // ENGINE-APPARAAT (bron van waarheid): pushen naar de cloud + evt. herstel.
+            el.innerHTML =
+              '<div class="osb-user">\u2713 ' + (_sbUser.email || 'ingelogd') + '</div>' +
+              '<div class="osb-row">' +
+                '<button onclick="osirisSyncPush()">sync nu</button>' +
+                '<button onclick="osirisRestoreFromCloud()">herstel</button>' +
+                '<button onclick="osirisSignOut()">uit</button>' +
+              '</div>';
+        } else {
+            // KIJK-APPARAAT (bv. mobiel): \u00e9\u00e9n tik haalt de VOLLEDIGE nieuwste staat op.
+            el.innerHTML =
+              '<div class="osb-user">\u2713 ' + (_sbUser.email || 'ingelogd') + '</div>' +
+              '<button class="osb-primary" onclick="osirisPullLatest()" style="margin-top:2px;">\u2b73 nieuwste data ophalen</button>' +
+              '<div class="osb-row">' +
+                '<button onclick="osirisSignOut()">uit</button>' +
+              '</div>';
+        }
         _osirisSyncDot('ok');
     } else {
         // in een <form> voor toegankelijkheid (fixt de "password field not in a form"-warning)
