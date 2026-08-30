@@ -22,7 +22,7 @@
   html,body{margin:0;height:100%;}
   body{background:radial-gradient(1200px 700px at 80% -10%,rgba(58,134,255,0.10),transparent 60%),radial-gradient(900px 600px at 8% 112%,rgba(124,92,255,0.09),transparent 60%),var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;overflow:hidden;}
   body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;background-image:linear-gradient(rgba(0,217,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,217,255,0.03) 1px,transparent 1px);background-size:46px 46px;mask-image:radial-gradient(circle at 55% 40%,#000 30%,transparent 88%);}
-  .app{position:relative;z-index:1;display:grid;grid-template-columns:82px 1fr;grid-template-rows:58px 1fr;height:100vh;}
+  .app{position:relative;z-index:1;display:grid;grid-template-columns:82px 1fr;grid-template-rows:58px 1fr;height:100vh;height:100dvh;}
   .top{grid-column:1/3;display:flex;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(7,12,22,0.92),rgba(7,12,22,0.35));}
   .brand{font-family:'Orbitron';font-weight:900;letter-spacing:6px;font-size:1.12rem;background:linear-gradient(90deg,#eafcff,var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent;}
   .brand small{font-family:'JetBrains Mono';font-weight:400;letter-spacing:2px;font-size:0.48rem;color:var(--dim);display:block;margin-top:-2px;}
@@ -32,7 +32,7 @@
   .dot.amber{background:var(--amber);color:var(--amber);}.dot.cyan{background:var(--cyan);color:var(--cyan);}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
   .clock{font-family:'Orbitron';font-weight:600;letter-spacing:3px;color:var(--cyan);font-size:0.8rem;width:104px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;flex:none;}
-  .rail{border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:4px;overflow-y:auto;}
+  .rail{border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding-top:12px;padding-bottom:18px;gap:4px;overflow-y:auto;-webkit-overflow-scrolling:touch;}
   .rail::-webkit-scrollbar{width:0;}
   .navb{width:62px;height:50px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--dim);cursor:pointer;border:1px solid transparent;transition:.18s;position:relative;}
   .navb svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.6;}
@@ -111,9 +111,15 @@
   .stat b{color:#eafcff;font-weight:500;}
   .toggle-row{display:flex;justify-content:space-between;align-items:center;font-size:0.62rem;padding:3px 0;}
   @media(max-width:900px){
-    .app{grid-template-columns:58px 1fr;}
+    .app{grid-template-columns:54px 1fr;}
     .main{padding:14px 12px 40px;}
-    .navb{width:52px;height:46px;}
+    /* compacte rail zodat ALLE tabs (incl. de laatste, FSO GSD) op één iPhone-scherm passen */
+    .rail{gap:2px;padding-top:8px;padding-bottom:16px;}
+    .navb{width:50px;height:40px;border-radius:9px;}
+    .navb svg{width:16px;height:16px;}
+    .navb span{font-size:0.38rem;line-height:1.05;}
+    .rail>div[style*="font:700"]{margin:3px 0 1px!important;}
+    .rail>div[style*="height:1px"]{margin:4px 8px 2px!important;}
     .top{gap:8px;padding:0 12px;}.brand{font-size:0.9rem;letter-spacing:3px;}.pill{display:none;}.pill:first-of-type{display:flex;}
     .grid{gap:10px;}
     .g-2,.g-2b,.g-3,.g-4,.g-6{grid-template-columns:1fr!important;}
@@ -122,6 +128,13 @@
     #netcv,#net-ov,#net-wal{height:320px!important;}
     table{font-size:0.56rem;}th{font-size:0.46rem;}
     .h{font-size:0.85rem;}
+    /* brede tabellen niet afknippen maar horizontaal scrollen */
+    .trn .dtable{min-width:360px;}
+  }
+  /* zeer korte schermen (landscape / kleine iPhone): rail nóg compacter */
+  @media(max-height:720px){
+    .navb{height:38px;}
+    .rail{gap:2px;}
   }
   .cbx{display:inline-flex;align-items:center;gap:7px;font-size:0.62rem;cursor:pointer;color:var(--text);}
   .cbx>i{width:16px;height:16px;border-radius:4px;border:1px solid var(--line);background:rgba(3,8,14,0.7);display:inline-flex;align-items:center;justify-content:center;flex:none;}
@@ -2291,7 +2304,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="subh">Confluence meters · <b id="meters-pair" style="color:var(--tx)">—</b></div>
       <div class="meters" id="meters-body"></div>
       <div class="subh">SVP scan · session volume profile</div>
+      <div class="table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
       <table class="dtable"><thead><tr><th>Pair</th><th>POC</th><th>VAH</th><th>VAL</th><th>vs value</th></tr></thead><tbody id="svp-body"></tbody></table>
+      </div>
       <div class="subh">ICT signals · HTF bias · sweep · FVG · killzone</div>
       <div id="ict-body"></div>
     </div>
@@ -2615,9 +2630,9 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260830-jarvis45-gsd-histcal"></script>
+<script src="app.js?v=20260830-jarvis46-mobile"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="osiris-sync.js?v=20260823-perf"></script>
+<script src="osiris-sync.js?v=20260830-mobile-pull"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
 <script>(function(){function r(){try{window.dispatchEvent(new Event("resize"));}catch(e){}}var o=window.showTab;if(typeof o==="function"){window.showTab=function(id){o(id);setTimeout(r,60);};}window.addEventListener("load",function(){setTimeout(r,300);});})();</script>
 </body>
