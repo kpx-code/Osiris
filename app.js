@@ -20792,6 +20792,7 @@ const GSD_CATS = [
   { key:'market',   name:'Market / FX',           col:'#14f195', direct:true,  src:'live FX-FSO' }
 ];
 const GSD_TH_DEFAULT = 0.20;   // UOTAM start value; calibrated to the engine's own σ² distribution
+const GSD_VAR_REF = 0.06;      // fixed σ² normalisation reference (zone-variance scale) — keeps σ² dynamic, not pinned
 function _gsdRe(r){ return ({RUST:'CALM',SPANNING:'TENSION',CRISIS:'CRISIS'}[r])||r; }   // English regime display
 
 const TrinityGSD = {
@@ -20834,9 +20835,10 @@ const TrinityGSD = {
       GSD_CATS.forEach(c=>{ let s=0,n=0; GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cell=this.cells[z.key][c.key]; if(cell&&cell.v!=null){s+=cell.v;n++;} }); this.catStress[c.key]= n? s/n : null; });
 
       const stress=_clamp01(gmean);
-      // σ² = spreiding tussen zones (asynchronie), genormaliseerd op eigen piek
+      // σ² = spread between zones (asynchrony). Normalised against a FIXED reference so it is an
+      // absolute, interpretable & moving measure (not pinned at its own all-time peak).
       const m=gmean; let rv=0; zVals.forEach(v=>rv+=(v-m)*(v-m)); rv= zVals.length? rv/zVals.length : 0;
-      this._varMax=Math.max(rv,this._varMax*0.9995); const sysVar=_clamp01(rv/(this._varMax||1e-6));
+      const sysVar=_clamp01(rv/GSD_VAR_REF);
       // compressie / gevarenzone t.o.v. GEKALIBREERDE node-drempel
       const compressed = sysVar<=this.nodeTh;
       if(compressed){ this.compressionAge++; this.compressionPeak=Math.max(this.compressionPeak,this.compressionAge);
@@ -20854,7 +20856,7 @@ const TrinityGSD = {
       const now=Date.now();
       this.hist.push(stress); this.histV.push(sysVar); this.histVFM.push(this.vfm); this.histEsc.push(escapeVel); this.histMove.push(move); this.t.push(now);
       ['hist','histV','histVFM','histEsc','histMove','t'].forEach(k=>{ if(this[k].length>360)this[k].shift(); });
-      this._scales({stress,sysVar,vfm:this.vfm,t:now});
+      this._scales({stress,sysVar,vfm:this.vfm,t:now,zones:Object.assign({},this.zoneStress)});
       this._rank();
       if(now-this._calTs>15000){ this._calTs=now; this._calibrate(); }
       this._predict();
@@ -20877,14 +20879,18 @@ const TrinityGSD = {
     }catch(e){}
   },
   _scales(pt){
-    if(!this.scales){ this.scales={}; [['micro',1],['meso',4],['macro',16],['full',64]].forEach(([k,f])=>{ this.scales[k]={factor:f,_acc:null,S:[],V:[],VFM:[],t:[]}; }); }
+    if(!this.scales){ this.scales={}; [['micro',1],['meso',4],['macro',16],['full',64]].forEach(([k,f])=>{ const sc={factor:f,_acc:null,S:[],V:[],VFM:[],t:[],zones:{}}; GSD_ZONES.forEach(z=>{ if(!z.synthetic) sc.zones[z.key]=[]; }); this.scales[k]=sc; }); }
     for(const k in this.scales){ const sc=this.scales[k];
       if(sc.factor===1){ this._commit(sc,pt); continue; }
-      if(!sc._acc)sc._acc={n:0,S:0,V:0,VFM:0,t:0}; const a=sc._acc; a.n++; a.S+=pt.stress; a.V+=pt.sysVar; a.VFM+=pt.vfm; a.t=pt.t;
-      if(a.n>=sc.factor){ this._commit(sc,{stress:a.S/a.n,sysVar:a.V/a.n,vfm:a.VFM/a.n,t:a.t}); sc._acc=null; }
+      if(!sc._acc){ sc._acc={n:0,S:0,V:0,VFM:0,t:0,zones:{}}; GSD_ZONES.forEach(z=>{ if(!z.synthetic) sc._acc.zones[z.key]=0; }); }
+      const a=sc._acc; a.n++; a.S+=pt.stress; a.V+=pt.sysVar; a.VFM+=pt.vfm; a.t=pt.t;
+      GSD_ZONES.forEach(z=>{ if(!z.synthetic){ const zv=(pt.zones&&pt.zones[z.key]!=null)?pt.zones[z.key]:0; a.zones[z.key]+=zv; } });
+      if(a.n>=sc.factor){ const zAvg={}; for(const zk in a.zones) zAvg[zk]=a.zones[zk]/a.n; this._commit(sc,{stress:a.S/a.n,sysVar:a.V/a.n,vfm:a.VFM/a.n,t:a.t,zones:zAvg}); sc._acc=null; }
     }
   },
-  _commit(sc,pt){ sc.S.push(pt.stress); sc.V.push(pt.sysVar); sc.VFM.push(pt.vfm); sc.t.push(pt.t); if(sc.S.length>240){sc.S.shift();sc.V.shift();sc.VFM.shift();sc.t.shift();} },
+  _commit(sc,pt){ sc.S.push(pt.stress); sc.V.push(pt.sysVar); sc.VFM.push(pt.vfm); sc.t.push(pt.t);
+    if(pt.zones) for(const zk in sc.zones){ sc.zones[zk].push(pt.zones[zk]!=null?pt.zones[zk]:0); }
+    if(sc.S.length>240){ sc.S.shift();sc.V.shift();sc.VFM.shift();sc.t.shift(); for(const zk in sc.zones) sc.zones[zk].shift(); } },
 
   // ---- ranking: strenge sortering van zones×categorieën onder druk ----
   _rank(){
@@ -20978,6 +20984,9 @@ const TrinityGSD = {
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
 const GSD_CATWEIGHT = { market:1.3, econ:1.1, geo:1.2, conflict:1.2, disaster:0.9, weather:0.7, trade:1.0, cb:1.1, tone:1.0 };
+// het tijdvenster dat elke bron/categorie dekt (voor de "period"-kolom in de ranking)
+const GSD_CAT_WINDOW = { disaster:'last 7d', weather:'3d forecast', econ:'latest yr', trade:'latest', cb:'latest', geo:'last 3d', conflict:'last 3d', tone:'last 3d', market:'live' };
+function _gsdWhen(ms){ if(!ms) return '—'; const d=new Date(ms), p=n=>String(n).padStart(2,'0'); return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())+'Z'; }
 const TPWIN = { micro:12*3600e3, meso:2*864e5, macro:5*864e5 };   // halve-window rond TAM-node per schaal
 
 // ==================================================================================
@@ -21120,12 +21129,14 @@ function drawGSDChart(key){
       nodes.forEach(nt=>{ const frac=(nt-t0)/((t1-t0)||1); if(frac<0||frac>1)return; const px=padL+frac*plotW; ctx.strokeStyle=col+'77'; ctx.lineWidth=1.2; ctx.setLineDash([3,4]); ctx.beginPath(); ctx.moveTo(px,padT); ctx.lineTo(px,H-padB); ctx.stroke(); ctx.setLineDash([]); }); });
   }
   const line=(arr,col,w,dash)=>{ if(!arr)return; ctx.strokeStyle=col; ctx.lineWidth=w; if(dash)ctx.setLineDash(dash); ctx.beginPath(); for(let i=0;i<L;i++){ const px=x(i),py=yS(arr[i]); i?ctx.lineTo(px,py):ctx.moveTo(px,py);} ctx.stroke(); if(dash)ctx.setLineDash([]); };
+  // per-zone stress als ECHTE tijdreeks-lijnen (toont de divergentie/beweging tussen zones)
+  if(GSD_VIS.series.ZONES){ GSD_ZONES.forEach(z=>{ if(!GSD_VIS.zones[z.key]||z.synthetic)return; const arr=sc.zones&&sc.zones[z.key]; if(arr&&arr.length===L){ ctx.globalAlpha=0.75; line(arr,z.col,1.2); ctx.globalAlpha=1; } });
+    // eindlabels rechts
+    let ly=padT+22; GSD_ZONES.forEach(z=>{ if(!GSD_VIS.zones[z.key]||z.synthetic)return; const zs=TrinityGSD.zoneStress[z.key]; if(zs==null)return; const yy=yS(zs); ctx.beginPath(); ctx.arc(W-padR-2,yy,3,0,6.283); ctx.fillStyle=z.col; ctx.fill(); ctx.fillStyle=z.col; ctx.font="8.5px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText(z.key.toUpperCase()+' '+zs.toFixed(2),W-padR+5,ly); ly+=12; }); }
   if(GSD_VIS.series.VFM) line(sc.VFM,'rgba(199,146,234,0.6)',1.5);
   if(GSD_VIS.series.VAR) line(sc.V,'rgba(127,180,255,0.8)',1.4,[5,4]);
-  if(GSD_VIS.series.GLOBAL){ // glow onder de hoofd-stresslijn
-    ctx.save(); ctx.shadowColor='rgba(255,95,126,0.5)'; ctx.shadowBlur=6; line(sc.S,'#ff5f7e',2.6); ctx.restore(); }
-  // huidige zone-stress als gekleurde stippen + labels rechts
-  if(GSD_VIS.series.ZONES){ let ly=padT+22; GSD_ZONES.forEach(z=>{ if(!GSD_VIS.zones[z.key]||z.synthetic)return; const zs=TrinityGSD.zoneStress[z.key]; if(zs==null)return; const yy=yS(zs); ctx.beginPath(); ctx.arc(W-padR-2,yy,3.2,0,6.283); ctx.fillStyle=z.col; ctx.fill(); ctx.fillStyle=z.col; ctx.font="8.5px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText(z.key.toUpperCase()+' '+zs.toFixed(2),W-padR+5,ly); ly+=12; }); }
+  if(GSD_VIS.series.GLOBAL){ // glow onder de hoofd-stresslijn (globale gemiddelde)
+    ctx.save(); ctx.shadowColor='rgba(255,95,126,0.5)'; ctx.shadowBlur=6; line(sc.S,'#ff5f7e',2.8); ctx.restore(); }
   if(GSD_VIS.series.GLOBAL){ const cx=x(L-1),cy=yS(sc.S[L-1]); const pulse=3+1.5*Math.sin(Date.now()/500); ctx.beginPath(); ctx.arc(cx,cy,pulse+3,0,6.283); ctx.fillStyle='rgba(255,95,126,0.25)'; ctx.fill(); ctx.beginPath(); ctx.arc(cx,cy,3,0,6.283); ctx.fillStyle='#ffd0d8'; ctx.fill(); }
   // y-as labels
   ctx.fillStyle='#8398ac'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; [0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v.toFixed(2),padL-5,yS(v)+3));
@@ -21150,10 +21161,13 @@ function renderGSD(){
   }
   // ranking-feed per categorie
   const rk=document.getElementById('gsd-ranking');
-  if(rk){ const rows=TrinityGSD.ranking; if(!rows||!rows.length) rk.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.56rem;">no zones under pressure measured yet…</div>';
-    else rk.innerHTML=rows.filter(r=>GSD_VIS.zones[r.zone]&&GSD_VIS.cats[r.cat]).slice(0,18).map((r,i)=>{ const bad=r.v>=TrinityGSD.crisT?'#ff4f6d':r.v>=TrinityGSD.spanT?'#ffb627':'#14f195';
-      return `<div class="gsdrow"><span class="gsdrk">#${i+1}</span><span class="gsddot" style="background:${r.zoneCol}"></span><span class="gsdzone">${r.zoneName}</span><span class="gsdcat" style="color:${r.catCol}">${r.catName}</span><div class="gsdbar"><i style="width:${Math.round(r.v*100)}%;background:${bad}"></i></div><span class="gsdval" style="color:${bad}">${Math.round(r.v*100)}</span><span class="gsdsrc">${r.src||''}</span></div>`;
-    }).join('')||'<div class="mono" style="color:var(--dimmer);font-size:0.56rem;">no rows for current filters</div>';
+  if(rk){ const rows=(TrinityGSD.ranking||[]).filter(r=>GSD_VIS.zones[r.zone]&&GSD_VIS.cats[r.cat]).slice(0,18);
+    const nowUTC=_gsdWhen(Date.now());
+    const head=`<div class="gsdrow gsdhdr"><span class="gsdrk">#</span><span class="gsddot"></span><span class="gsdzone">Zone</span><span class="gsdcat">Category</span><div class="gsdbar" style="background:none;color:var(--dimmer);font-size:0.48rem;text-align:left;">as of ${nowUTC}</div><span class="gsdval">score</span><span class="gsdwin">period</span><span class="gsdupd">updated</span></div>`;
+    if(!rows.length) rk.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.56rem;">no zones under pressure measured yet…</div>';
+    else rk.innerHTML=head+rows.map((r,i)=>{ const bad=r.v>=TrinityGSD.crisT?'#ff4f6d':r.v>=TrinityGSD.spanT?'#ffb627':'#14f195'; const win=GSD_CAT_WINDOW[r.cat]||'';
+      return `<div class="gsdrow"><span class="gsdrk">#${i+1}</span><span class="gsddot" style="background:${r.zoneCol}"></span><span class="gsdzone">${r.zoneName}</span><span class="gsdcat" style="color:${r.catCol}">${r.catName}</span><div class="gsdbar"><i style="width:${Math.round(r.v*100)}%;background:${bad}"></i></div><span class="gsdval" style="color:${bad}">${Math.round(r.v*100)}</span><span class="gsdwin">${win}</span><span class="gsdupd">${_gsdWhen(r.at)} <small style="color:var(--dimmer)">${r.src||''}</small></span></div>`;
+    }).join('');
   }
   // predictor + shadow (micro/meso/macro)
   const pr=document.getElementById('gsd-predict');
