@@ -2504,7 +2504,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div id="gsd-feeds" class="feeds"><div class="mono" style="color:var(--dimmer);font-size:0.56rem;">feeds initialising…</div></div>
       <div class="oarow" style="margin-top:10px;"><span>GSD proxy URL (optional)</span><div style="display:flex;gap:6px;"><input id="gsd-proxy" type="text" placeholder="https://…worker.dev  (for GDELT/FRED/ACLED)" style="flex:1;"><button class="btn" style="padding:7px 12px;" onclick="gsdSetProxy()">Set</button></div></div>
       <div class="mono" style="font-size:0.46rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Browser-direct (no account/key): USGS · NASA EONET · Open-Meteo · World Bank. Proxy required for GDELT (geopolitics/tone, no key), ECB (no key), FRED &amp; ACLED (free registration) — add a free Cloudflare Worker later, just like the capital proxy. Everything runs in the background; toggles are display-only.</div>
-      <div style="margin-top:10px;"><button class="btn" style="padding:7px 12px;" onclick="gsdDownload()">⭳ Download FSO-GSD data (JSON)</button> <span class="mono" style="font-size:0.46rem;color:var(--dimmer);">zone scores · category breakdown · node projections · calibration — no keys</span></div>
+      <div class="secdiv" style="margin-top:16px;"><h3>Historical calibration</h3><span class="sub">— calibrate node/regime thresholds on decades of real crises (FRED · ECB · GDELT · USGS)</span></div>
+      <div class="mono" id="gsd-histcal" style="font-size:0.56rem;color:var(--dim);line-height:1.7;">not yet run — set the proxy above, then it starts automatically (or press below).</div>
+      <div style="margin-top:8px;"><button class="btn" style="padding:7px 12px;" onclick="gsdBackfill()">⟳ Calibrate from history</button> <span class="mono" style="font-size:0.46rem;color:var(--dimmer);">pulls deep series via the proxy · sets crisis-anchored thresholds · live data keeps refining</span></div>
+
+      <div style="margin-top:14px;"><button class="btn" style="padding:7px 12px;" onclick="gsdDownload()">⭳ Download FSO-GSD data (JSON)</button> <span class="mono" style="font-size:0.46rem;color:var(--dimmer);">zone scores · category breakdown · node projections · calibration — no keys</span></div>
     </div>
       </div>
     </section>
@@ -2611,7 +2615,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260830-jarvis44-gsd-proxy"></script>
+<script src="app.js?v=20260830-jarvis45-gsd-histcal"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
