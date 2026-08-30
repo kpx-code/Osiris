@@ -924,23 +924,23 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <div class="navb" data-tab="downloads"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M5 20h14"/></svg><span>Downloads</span></div>
     <div style="height:1px;background:linear-gradient(90deg,transparent,rgba(0,217,255,.35),transparent);margin:8px 8px 4px;"></div>
     <div style="font:700 0.42rem 'JetBrains Mono',monospace;letter-spacing:1px;color:#7c5cff;text-align:center;margin-bottom:2px;text-transform:uppercase;">Trinity · FX</div>
-    <div class="navb" data-tab="tr-flow"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg><span>Flow</span></div>
     <div class="navb" data-tab="tr-net"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 12l3-5M7 12l3 5M14 7l4 4M14 17l4-4"/></svg><span>Neural Net</span></div>
     <div class="navb" data-tab="tr-market"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 4-6"/></svg><span>Market</span></div>
     <div class="navb" data-tab="tr-wallet"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 14h2"/></svg><span>Wallet</span></div>
     <div class="navb" data-tab="tr-engine"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2"/></svg><span>Engine</span></div>
-    <div class="navb" data-tab="tr-feed"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></svg><span>Internals</span></div>
+    <div class="navb" data-tab="tr-download"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M5 20h14"/></svg><span>Download</span></div>
   </div>
   <div class="main" id="main">
 
     <!-- OVERVIEW -->
     <section class="tab show" id="tab-about">
-      <div class="eyebrow" style="color:var(--cyan);">&mdash; Osiris Deepnet KPX &middot; autonomous crypto trading AI</div>
+      <div class="eyebrow" style="color:var(--cyan);">&mdash; Osiris Deepnet KPX &middot; autonomous trading AI &middot; crypto &amp; FX</div>
       <div class="split-grid" style="margin-top:10px;">
         <div>
           <h1 class="hero-h1">Osiris trades.<br><em>And learns</em> from every trade.</h1>
           <p class="hero-lead">A self-directed trading intelligence for BTC, ETH and SOL. It scans the market every ten seconds, weighs its own probabilities, and guards every open position &mdash; on the Binance spot <em>and</em> futures testnets, with fake capital.</p>
           <p class="about-para">One principle drives it: <b style="color:var(--cyan)">stay honest about your own certainty</b>. Every closed trade flows back into a calibration table that checks what the model predicted against what really happened, and the whole system is nudged by that truth. A raw score is trusted only as far as its measured win rate earns. Nothing changes silently &mdash; every self-adjustment is written to a live feed.</p>
+          <p class="about-para">Osiris now runs in two flavours: <b style="color:var(--cyan)">Osiris Crypto</b> for BTC / ETH / SOL, and <b style="color:#ffd24a;">Osiris Trinity FX</b> &mdash; a sister engine that applies the same self-calibrating, session-aware brain to the foreign-exchange majors.</p>
         </div>
         <div id="about-eye-wrap" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div class="eyebrow" style="margin-bottom:8px;color:var(--cyan);text-align:center;">&mdash; Autonomous BTC / ETH / SOL Intelligence</div>
@@ -989,14 +989,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">⇱</span> Transparent</h4><p>Every self-adjustment logged; all data exportable.</p></div>
       </div>
 
-      <div class="eyebrow" style="margin-top:34px;">&mdash; The living network</div>
-      <h1 class="h" style="margin-top:6px;">OSIRIS DEEPNET &middot; live vortex</h1>
-      <p class="hero-lead" style="max-width:none;">The exact network that drives every decision, rendered live. Sixteen inputs spiral inward through the layers &mdash; integration, FSO, the Timing-Agent, the three cores, the Osiris mainbrain, the decision and the spot/margin capital &mdash; down to one glowing output. Every node reads its <b style="color:var(--cyan)">real activation right now</b>: what you see is what the bot is thinking. Nothing here is decorative.</p>
-      <div style="display:flex; justify-content:center; margin-top:10px;">
-        <canvas id="about-radial" width="640" height="640" style="width:100%; max-width:560px; height:auto; aspect-ratio:1/1; display:block;"></canvas>
-      </div>
-      <div style="text-align:center; font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:#5c7488; letter-spacing:0.12em; text-transform:uppercase; margin-top:6px;">outer ring: 16 inputs &middot; core: live decision &middot; arcs: strongest signals &middot; true to data</div>
-
       <div class="eyebrow" style="margin-top:34px;">&mdash; Under the hood &middot; the architecture</div>
       <h1 class="h" style="margin-top:6px;">How the machine is built</h1>
       <p class="hero-lead" style="max-width:none;">Layers of intelligence stacked on one shared engine &mdash; each panel a real subsystem.</p>
@@ -1012,7 +1004,20 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="toolcard"><span class="tc-badge">LOOP</span><h4><span class="tc-ic">↻</span> Feedback loop</h4><p>Every closed trade flashes back through the net &mdash; calibration, weights, thresholds, exits &amp; stops all re-tune. Nothing changes silently.</p></div>
       </div>
 
-      <div class="panel" style="margin-top:24px;border-color:rgba(255,182,39,0.35);background:rgba(255,182,39,0.04);"><div class="plabel" style="color:var(--amber)">&#9888; Not financial advice</div><div style="font-size:0.68rem;line-height:1.9;color:var(--dim)">Osiris is an <b style="color:var(--amber)">experimental, educational project</b> running entirely on the Binance <b style="color:var(--cyan)">Spot and Futures testnets</b> with fake capital. Nothing in this app is financial, investment or trading advice. Its numbers, probabilities and decisions are the output of a self-learning model and can be wrong. Never trade real money based on this bot without your own research; trading carries a real risk of loss.</div></div>
+      <!-- OSIRIS TRINITY FX -->
+      <div class="eyebrow" style="margin-top:34px; color:#ffd24a;">&mdash; Osiris &middot; Trinity FX</div>
+      <h1 class="h" style="margin-top:6px;">The FX sister-engine</h1>
+      <p class="hero-lead" style="max-width:none;">Trinity takes the Osiris brain to the <b style="color:#ffd24a;">foreign-exchange majors</b>. Same idea, different market: it ranks the pairs by live opportunity, trades the moment that fits the <b style="color:var(--cyan)">active session</b> (Asia / EU / US / overlap), and scores every result out-of-sample so its confidence stays honest.</p>
+      <div class="toolgrid">
+        <div class="toolcard sys"><span class="tc-badge">SESSIONS</span><h4><span class="tc-ic">◷</span> Session-aware</h4><p>Each FX session gets its own brain-trust &mdash; win rate, AUC and reliability weighted by how many trades it has actually seen, so a thin session leans on the pool.</p></div>
+        <div class="toolcard sys"><span class="tc-badge">SYSTEM</span><h4><span class="tc-ic">◉</span> FX FSO</h4><p>A stress oscillator across the majors reads calm / spanning / crisis and scales position size &mdash; and blocks fresh entries when the market turns disorderly.</p></div>
+        <div class="toolcard sys"><span class="tc-badge">CALIBRATED</span><h4><span class="tc-ic">◎</span> Self-calibrating</h4><p>Predicted vs. measured win rate per session, the same calibration discipline as the crypto engine &mdash; raw score trusted only as far as it earns.</p></div>
+        <div class="toolcard vlt"><span class="tc-badge">FLOW</span><h4><span class="tc-ic">◧</span> Capital &amp; commodity flow</h4><p>A live world map of where capital and commodities are rotating, feeding the FX neural-net view.</p></div>
+      </div>
+
+      <div class="panel" style="margin-top:24px;border-color:rgba(97,175,254,0.35);background:rgba(97,175,254,0.05);"><div class="plabel" style="color:var(--cyan)">&#128679; Under construction</div><div style="font-size:0.68rem;line-height:1.9;color:var(--dim)">This dashboard is <b style="color:var(--cyan)">actively being built</b>. <b style="color:#ffd24a;">Osiris Trinity FX</b> in particular is new and still evolving &mdash; tabs, tools and numbers can change, break or be rebuilt without notice. Treat everything you see as a work in progress rather than a finished product.</div></div>
+
+      <div class="panel" style="margin-top:16px;border-color:rgba(255,182,39,0.35);background:rgba(255,182,39,0.04);"><div class="plabel" style="color:var(--amber)">&#9888; Not financial advice</div><div style="font-size:0.68rem;line-height:1.9;color:var(--dim)">Osiris &mdash; both Crypto and Trinity FX &mdash; is an <b style="color:var(--amber)">experimental, educational project</b> running on <b style="color:var(--cyan)">testnets / simulated capital</b>. Nothing in this app is financial, investment or trading advice. Its numbers, probabilities and decisions are the output of a self-learning model and can be wrong. Never trade real money based on this bot without your own research; trading carries a real risk of loss.</div></div>
     </section>
 
     <!-- NEURAL NET -->
@@ -2159,12 +2164,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     </section>
 
     <!-- ===================== TRINITY · FX TABS (added; Osiris Crypto untouched) ===================== -->
-    <section class="tab" id="tab-tr-flow">
+    <section class="tab" id="tab-tr-net">
       <div class="trn">
-  <section id="sec-map">
-    <div class="eyebrow">01 · Global flow</div>
-    <h2 class="sec">Capital &amp; Commodity Flow</h2>
-    <div class="sec-line"></div>
+    <div class="eyebrow">Trinity · FX</div><h2 class="sec" style="margin:2px 0 6px;">Neural Net &amp; engine</h2><div class="sec-line"></div>
+
+    <div class="eyebrow" style="margin-top:6px;">Global flow · capital &amp; commodity</div>
     <div class="panel">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div class="map-head">
@@ -2177,28 +2181,14 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <canvas id="map-canvas"></canvas>
       <div class="legend" id="map-legend"></div>
     </div>
-  </section>
-      </div>
-    </section>
-    <section class="tab" id="tab-tr-net">
-      <div class="trn">
-  <section>
-    <div class="eyebrow">04 · Ocular core</div>
-    <h2 class="sec">Trinity — the adaptive FX agent</h2>
-    <div class="sec-line"></div>
-    <div class="ocular">
-      <div class="ocell">
-        <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
-        <div class="tag">CAPITAL FLOW</div><div class="sub">all currencies · live</div>
-        <canvas id="ocular-map-canvas" class="core"></canvas>
-        <div class="eye-read" id="ocular-map-legend" style="display:flex;gap:10px;flex-wrap:wrap;"></div>
-      </div>
-      <div class="ocell">
-        <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
-        <div class="tag">TRINITY · CORTEX</div><div class="sub">adaptive learning · FX-calibrated</div>
-        <canvas id="ocular-brain-canvas" class="core"></canvas>
-      </div>
+
+    <div class="eyebrow" style="margin-top:22px;">Trinity · neural net <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— adaptive learning · FX-calibrated</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <canvas id="ocular-brain-canvas" class="core" style="width:100%;min-height:380px;display:block;"></canvas>
     </div>
+
+    <div class="eyebrow" style="margin-top:22px;">Learnings · self-calibration</div>
     <div class="panel trinity">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div class="trhead">
@@ -2218,12 +2208,27 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <canvas id="calib-canvas"></canvas>
         <div class="mono" style="font-size:0.5rem;color:var(--dimmer);">bars = measured win% per predicted-confidence band · dashed line = perfect calibration · green = well-calibrated</div>
       </div>
-      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:12px;">Win rate per session (live learning)</div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Win rate per session (live learning) <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— brain-trust: ×gewicht · AUC · vlak/inv</span></div>
       <div class="tsessions" id="tr-sessions"></div>
-      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Trinity self-tuning <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— autonomous adjustments as it learns</span></div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">FSO · FX system-stress <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— markt-als-systeem, tempert risico bij stress</span></div>
+      <div class="mono" id="tr-fso" style="font-size:0.6rem;margin-top:4px;color:var(--dim);">◉ FSO — kalibreert…</div>
+      <canvas id="tr-fso-canvas" style="width:100%;height:70px;display:block;margin-top:6px;background:rgba(0,0,0,0.25);border-radius:6px;"></canvas>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Trinity self-tuning <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— autonomous adjustments as it learns</span></div>
       <div class="feedwrap" id="adj-feed"></div>
     </div>
-  </section>
+
+    <div class="eyebrow" style="margin-top:22px;">Tools · engine internals</div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="subh" style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">Live reasoning feed <button class="btn" style="padding:3px 8px;font-size:0.5rem;" onclick="exportReasoning()">⭳ Download feed</button></div>
+      <div class="feedwrap matrixfeed" id="reason-feed"></div>
+      <div class="subh">Confluence meters · <b id="meters-pair" style="color:var(--tx)">—</b></div>
+      <div class="meters" id="meters-body"></div>
+      <div class="subh">SVP scan · session volume profile</div>
+      <table class="dtable"><thead><tr><th>Pair</th><th>POC</th><th>VAH</th><th>VAL</th><th>vs value</th></tr></thead><tbody id="svp-body"></tbody></table>
+      <div class="subh">ICT signals · HTF bias · sweep · FVG · killzone</div>
+      <div id="ict-body"></div>
+    </div>
       </div>
     </section>
     <section class="tab" id="tab-tr-market">
@@ -2364,42 +2369,29 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="mono" id="oa-status" style="font-size:0.56rem;color:var(--amber);margin-top:10px;line-height:1.6;">MOCK data (simulated). Enter your OANDA practice Account ID + API token and press Connect to run Trinity on REAL market prices.</div>
       <div class="mono" style="font-size:0.52rem;color:var(--bear);margin-top:8px;line-height:1.6;">⚠ Only ever paste a <b>practice</b> (demo) token here, and only when running the page locally or on a private host. On a public GitHub Pages site anyone could read a token typed into the page. Read-only pricing is fetched straight from the browser; placing real <b>orders</b> still requires a serverless proxy that holds the token server-side — never in this page.</div>
     </div>
-    <details class="collapse" style="margin-top:14px;">
-      <summary>Closed Positions &amp; Data Export</summary>
-      <div class="panel">
-        <div class="crow chead" style="border-bottom:1px solid var(--line);">
-          <span>Pair</span><span>Opened</span><span>Closed</span><span>Entry → Exit</span><span>Size</span><span>P/L (USD · %)</span><span>Exit</span>
-        </div>
-        <div class="closedwrap"><div id="closed-body"></div></div>
-        <div class="exports">
-          <button onclick="exportTrades()">⭳ Trades (CSV)</button>
-          <button onclick="exportPairs()">⭳ Pairs (CSV)</button>
-          <button onclick="exportWallet()">⭳ Wallet (JSON)</button>
-          <button onclick="exportEngine()">⭳ Engine (JSON)</button>
-        </div>
-      </div>
-    </details>
       </div>
     </section>
-    <section class="tab" id="tab-tr-feed">
+    <section class="tab" id="tab-tr-download">
       <div class="trn">
-    <div class="eyebrow">Trinity · FX</div><h2 class="sec" style="margin:2px 0 6px;">Engine internals</h2><div class="sec-line"></div>
-  <section>
-    <div class="eyebrow">06 · Engine internals</div>
-    <h2 class="sec">System Data — meters · SVP · ICT <span style="font-weight:400;color:var(--dimmer);font-size:0.8rem;text-transform:none;letter-spacing:0;">(background, no chart)</span></h2>
-    <div class="sec-line"></div>
+    <div class="eyebrow">Trinity · FX</div><h2 class="sec" style="margin:2px 0 6px;">Download · Trinity data</h2><div class="sec-line"></div>
     <div class="panel">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
-      <div class="subh" style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">Live reasoning feed <button class="btn" style="padding:3px 8px;font-size:0.5rem;" onclick="exportReasoning()">⭳ Download feed</button></div>
-      <div class="feedwrap matrixfeed" id="reason-feed"></div>
-      <div class="subh">Confluence meters · <b id="meters-pair" style="color:var(--tx)">—</b></div>
-      <div class="meters" id="meters-body"></div>
-      <div class="subh">SVP scan · session volume profile</div>
-      <table class="dtable"><thead><tr><th>Pair</th><th>POC</th><th>VAH</th><th>VAL</th><th>vs value</th></tr></thead><tbody id="svp-body"></tbody></table>
-      <div class="subh">ICT signals · HTF bias · sweep · FVG · killzone</div>
-      <div id="ict-body"></div>
+      <div class="mono" style="font-size:0.58rem;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px;">All exports · local, no keys</div>
+      <div class="exports">
+        <button onclick="exportTrades()">⭳ Trades (CSV)</button>
+        <button onclick="exportPairs()">⭳ Pairs (CSV)</button>
+        <button onclick="exportWallet()">⭳ Wallet (JSON)</button>
+        <button onclick="exportEngine()">⭳ Engine (JSON)</button>
+        <button onclick="exportReasoning()">⭳ Reasoning feed</button>
+      </div>
+      <div class="mono" style="font-size:0.52rem;color:var(--dimmer);margin-top:10px;line-height:1.6;">Exports bevatten geen API-keys of wachtwoorden. Trades/Pairs als CSV; Wallet/Engine als JSON incl. brain-trust per sessie, kalibratie (predicted vs measured) en auto-aanpassingen.</div>
     </div>
-  </section>
+    <div class="panel" style="margin-top:14px;">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="mono" style="font-size:0.58rem;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">Closed positions</div>
+      <div class="crow chead" style="border-bottom:1px solid var(--line);"><span>Pair</span><span>Opened</span><span>Closed</span><span>Entry → Exit</span><span>Size</span><span>P/L (USD · %)</span><span>Exit</span></div>
+      <div class="closedwrap"><div id="closed-body"></div></div>
+    </div>
       </div>
     </section>
 
@@ -2505,7 +2497,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260829-jarvis31-trinity"></script>
+<script src="app.js?v=20260830-jarvis33-trinity-fx"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
