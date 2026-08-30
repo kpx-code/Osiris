@@ -18675,7 +18675,6 @@ try { OsirisDeepNet.startService(); } catch (e) {}
 
 /* ==================================================================================
    TRINITY · FX — ported into Osiris (added below Osiris Crypto; Crypto code untouched).
-   Engine + UI from the standalone Trinity app. Runs on its own DOM ids (tr-* tabs).
    ================================================================================== */
 /* ============================================================
    OSIRIS INTEL FOREX — preview engine (mock data)
@@ -18831,6 +18830,56 @@ function renderReasoning(){ const el=document.getElementById('reason-feed'); if(
   el.innerHTML=reasonLog.slice(0,60).map(r=>`<div class="rline"><span class="rt">${fmtTime(r.t).slice(11)}</span> ${r.msg}</div>`).join('')||'<div class="rline" style="color:var(--dimmer)">awaiting scan output…</div>';
 }
 
+// ===== TRINITY · FSO — FX system-stress oscillator (markt-als-systeem) =====
+// Hoeveel beweegt/divergeert de HELE FX-markt? level = gemiddelde beweging + spreiding (correlatie-
+// breuk) + volatiliteit; regime = RUST/SPANNING/CRISIS. Wordt gebruikt om risico te temperen
+// (CRISIS = geen nieuwe entries, SPANNING = kleiner). Data-true uit de live pair-momentum/vol.
+const TrinityFSO = { level:0, variance:0, absMom:0, regime:'RUST', ts:0, hist:[],
+  compute(){
+    try{
+      const moms=PAIRS.map(p=>(pair[p]&&pair[p].mom)||0);
+      const vols=PAIRS.map(p=>(pair[p]&&pair[p]._vol)||0);
+      const n=moms.length||1;
+      const meanMom=moms.reduce((a,b)=>a+b,0)/n;
+      const absMom=moms.reduce((a,b)=>a+Math.abs(b),0)/n;
+      const varMom=moms.reduce((a,b)=>a+(b-meanMom)*(b-meanMom),0)/n;
+      const volMean=vols.reduce((a,b)=>a+b,0)/n;
+      const level=Math.max(0,Math.min(1, absMom*0.9 + Math.sqrt(varMom)*0.8 + volMean*120 ));
+      this.absMom=+absMom.toFixed(4); this.variance=+varMom.toFixed(5); this.level=+level.toFixed(4);
+      this.regime = level>0.42?'CRISIS' : level>0.22?'SPANNING' : 'RUST';
+      this.ts=Date.now(); this.hist.push(level); if(this.hist.length>120)this.hist.shift();
+    }catch(e){}
+    return this;
+  },
+  sizeMult(){ return this.regime==='CRISIS'?0.4 : this.regime==='SPANNING'?0.75 : 1; },   // risico-schaal
+  blockEntries(){ return this.regime==='CRISIS'; }
+};
+// ===== TRINITY · BRAIN-TRUST — eerlijke, sample-size-bewuste weging per SESSIE =====
+// Zelfde principe als Osiris: elke sessie (asia/eu/us/overlap) krijgt vertrouwen o.b.v. aantal trades
+// (nConf), of de confidence de winst rangschikt (AUC→disc), en de eigen winrate gekrompen naar de
+// ALGEMENE winrate over alle sessies. Weinig trades / vlakke conf ⇒ leun op de basisrate + minder gewicht.
+const TrinityTrust = { K:15, _c:null, _ts:0, _len:-1, _sessions:['asia','eu','us','overlap'],
+  _pooled(){ const t=trinity.trades||[]; const n=t.length, w=t.filter(x=>x.win).length; return {wr:n?w/n:0.5,n}; },
+  _statFor(sess,pooled){
+    const arr=(trinity.trades||[]).filter(t=>t.session===sess).map(t=>({p:t.conf,win:t.win?1:0}));
+    const n=arr.length, wins=arr.filter(x=>x.win).length, wr=n?wins/n:null;
+    let auc=null;
+    if(n>=8){ const nW=wins,nL=n-wins; if(nW&&nL){ arr.sort((a,b)=>a.p-b.p); const rk=new Array(n); let i=0;
+      while(i<n){let j=i;while(j+1<n&&arr[j+1].p===arr[i].p)j++;const r=(i+j)/2+1;for(let k=i;k<=j;k++)rk[k]=r;i=j+1;}
+      let sr=0;for(let k=0;k<n;k++)if(arr[k].win)sr+=rk[k]; auc=(sr-nW*(nW+1)/2)/(nW*nL); } }
+    const nConf=n/(n+this.K), pw=pooled.wr;
+    const aucAdj=(auc==null)?0.5:(0.5+(auc-0.5)*nConf);
+    const disc=Math.max(0,Math.min(1,(aucAdj-0.5)/0.20));
+    const baseline=(wr==null)?pw:(pw+(wr-pw)*nConf);
+    const reliability=nConf*(0.4+0.6*disc);
+    return {n,wr:wr==null?null:+wr.toFixed(3),auc:auc==null?null:+auc.toFixed(3),nConf:+nConf.toFixed(3),disc:+disc.toFixed(3),baseline:+baseline.toFixed(3),reliability:+reliability.toFixed(3),inverted:(auc!=null&&aucAdj<0.45&&n>=30)};
+  },
+  _rebuild(){ const pooled=this._pooled(); const c={_pooled:pooled}; for(const s of this._sessions)c[s]=this._statFor(s,pooled); return c; },
+  stats(sess){ const now=Date.now(), len=(trinity.trades||[]).length; if(!this._c||now-this._ts>8000||len!==this._len){this._c=this._rebuild();this._ts=now;this._len=len;} return this._c[sess]||this._statFor(sess,(this._c&&this._c._pooled)||{wr:0.5}); },
+  effConf(sess,rawConf){ try{ const s=this.stats(sess); if(!s||s.n<6) return rawConf; const bl=s.baseline*100; const eff=bl+(rawConf-bl)*s.disc; return Math.max(3,Math.min(99,eff)); }catch(e){ return rawConf; } },
+  weightFactor(sess){ try{ const s=this.stats(sess); return s?(0.5+0.5*s.reliability):1; }catch(e){ return 1; } },
+  explain(sess){ const s=this.stats(sess); if(!s||s.n<6)return `${s?s.n:0} trades — conf telt volledig`; const src=s.disc>=0.66?'volgt conf':(s.disc<=0.2?'leunt op basis':'mengt'); return `${s.n}tr · AUC ${s.auc!=null?s.auc.toFixed(2):'—'} · ${src} · basis ${(s.baseline*100).toFixed(0)}% · ×${this.weightFactor(sess).toFixed(2)}${s.inverted?' ⚠inv':''}`; }
+};
 function tick(){
   CCY.forEach(c=>{
     // drift regime (AR(1), ~15-tick half-life) with frequent shocks — trends real but can reverse mid-trade
@@ -18882,6 +18931,7 @@ function tick(){
   ranked=PAIRS.map(p=>({p,...pair[p]})).sort((a,b)=>b.score-a.score);
   topLong =ranked.filter(r=>r.side==='LONG').sort((a,b)=>b.score-a.score)[0]||ranked[0];
   topShort=ranked.filter(r=>r.side==='SHORT').sort((a,b)=>b.score-a.score)[0]||ranked[0];
+  TrinityFSO.compute();
   manageTrinity();
 }
 
@@ -18929,12 +18979,18 @@ function manageTrinity(){
   // open the best long/short micro-margin opportunities across ALL pairs (only when Trinity is ON)
   if(trinityOn && pr.sessions.includes(S.key)){
     const liveOpenCount = liveMode ? heldSet.size : openPs.length;   // union count = true concurrent exposure
-    const cands=tradablePairs.map(p=>({p,...pair[p]}))
-      .filter(r=>Math.round(Math.min(99,r.pred*trinity.mult))>=pr.minConf).sort((a,b)=>b.pred-a.pred);
-    let slots=Math.max(0,pr.maxPos-liveOpenCount);
-    for(const c of cands){ if(slots<=0)break; openTrade(c,S,pr); slots--; }
-    if(scanTick%6===0){ const top=tradablePairs.map(p=>({p,...pair[p]})).sort((a,b)=>b.pred-a.pred)[0];
-      if(top) pushReason(`scan · ${S.name} · best unheld candidate ${top.p} conf ${Math.round(Math.min(99,top.pred*trinity.mult))}% (need ${pr.minConf}%) · fib ${Math.round(top.fib*100)}% · scanned ${tradablePairs.length}${live?' live':''} pairs · ${liveOpenCount}/${pr.maxPos} open`);
+    // trust-gewogen confidence voor DEZE sessie (vlakke/kleine sessie ⇒ conf naar de basisrate getrokken)
+    const _ec = r => TrinityTrust.effConf(S.key, Math.min(99, r.pred*trinity.mult));
+    if(TrinityFSO.blockEntries()){
+      if(scanTick%6===0) pushReason(`FSO CRISIS · stress ${TrinityFSO.level.toFixed(2)} (σ² ${TrinityFSO.variance.toFixed(4)}) — nieuwe entries gepauzeerd tot de FX-markt kalmeert`);
+    } else {
+      const cands=tradablePairs.map(p=>({p,...pair[p]}))
+        .filter(r=>_ec(r)>=pr.minConf).sort((a,b)=>_ec(b)-_ec(a));
+      let slots=Math.max(0,pr.maxPos-liveOpenCount);
+      for(const c of cands){ if(slots<=0)break; openTrade(c,S,pr); slots--; }
+      if(scanTick%6===0){ const top=tradablePairs.map(p=>({p,...pair[p]})).sort((a,b)=>_ec(b)-_ec(a))[0];
+        if(top) pushReason(`scan · ${S.name} · best ${top.p} trust-conf ${Math.round(_ec(top))}% (raw ${Math.round(Math.min(99,top.pred*trinity.mult))}%, need ${pr.minConf}%) · sessie-trust ${TrinityTrust.explain(S.key)} · FSO ${TrinityFSO.regime} ${TrinityFSO.level.toFixed(2)} · ${tradablePairs.length}${live?' live':''} pairs · ${liveOpenCount}/${pr.maxPos} open`);
+      }
     }
   } else if(scanTick%10===0){
     pushReason(trinityOn?`session ${S.name} not in the active session list \u2014 standing by`:'Trinity idle — press Start to trade');
@@ -18946,7 +19002,8 @@ function manageTrinity(){
 }
 function openTrade(c,S,pr){
   pr=pr||activePreset(); const tune=SESSION_TUNE[S.key]||{volMult:1}, st=pair[c.p], long=st.sig>=0, entry=st.rate;
-  const conf=Math.round(Math.min(99,Math.max(5,st.pred*trinity.mult)));
+  const rawConf=Math.min(99,Math.max(5,st.pred*trinity.mult));
+  const conf=Math.round(TrinityTrust.effConf(S.key, rawConf));   // trust-gewogen confidence (data-true per sessie)
   const live=feed.mode==='live'&&feed.ok;
   // STOP/TARGET: on live data, scale to the pair's actual realized volatility so trades can actually
   // reach them within a sensible time; on mock, use the preset percentages. Respect Capital's min stop %.
@@ -18965,7 +19022,8 @@ function openTrade(c,S,pr){
   // HORIZON: on live, give trades enough real time to actually reach stop/target (not TIME-close near zero).
   // Longer horizon + asymmetric target:stop is what moves results away from break-even — winners get room to run.
   const horizonH = live ? 1.5 : Math.min(6,Math.max(2.5,(()=>{let hUTC=new Date().getUTCHours()+new Date().getUTCMinutes()/60,toEnd=S.end-hUTC;if(toEnd<0)toEnd+=24;return toEnd;})()));
-  const alloc=wallet.balance*(pr.maxAllocPct/100)/pr.maxPos;              // micro-margin: spread across the portfolio
+  // grootte: basis micro-margin × FSO-risicoschaal × sessie-trust (weinig trades/vlakke sessie ⇒ kleiner)
+  const alloc=wallet.balance*(pr.maxAllocPct/100)/pr.maxPos * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key);
   const localId='t'+(Date.now())+Math.floor(Math.random()*1000);
   positions.push({localId,pair:c.p,side:long?'LONG':'SHORT',entry,current:entry,stop,target,horizonH,ageH:0,openClock:mockClock,openedAt:new Date(),
     status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,extended:false,session:S.key,sessionName:S.name,sessionWindow:S.window,sessionDesc:S.desc,conf,stopPctUsed,alloc,
@@ -19442,9 +19500,23 @@ function renderTrinity(){
   if(rt){ if(trinityOn&&trinityStartedAt){ const s=Math.floor((Date.now()-trinityStartedAt)/1000), h=Math.floor(s/3600), m=Math.floor((s%3600)/60), sec=s%60;
       rt.textContent=(h?h+'h ':'')+m+'m '+sec+'s'; } else rt.textContent='stopped'; }
   const names={overlap:'London–NY',eu:'London / EU',us:'New York / US',asia:'Tokyo / Asian'};
+  // FSO · FX system-stress
+  const fso=document.getElementById('tr-fso');
+  if(fso){ const rc={RUST:'#14f195',SPANNING:'#ffb627',CRISIS:'#ff4f6d'}[TrinityFSO.regime]||'#7fd4ff';
+    fso.innerHTML=`<span style="color:${rc};font-weight:700">◉ FSO ${TrinityFSO.regime}</span> · stress ${TrinityFSO.level.toFixed(3)} · σ² ${TrinityFSO.variance.toFixed(4)} · risico-schaal ×${TrinityFSO.sizeMult().toFixed(2)}${TrinityFSO.blockEntries()?' · <b style="color:#ff4f6d">nieuwe entries gepauzeerd</b>':''}`;
+  }
+  // FSO mini-grafiek (stress-historie met SPANNING/CRISIS-drempels)
+  const fc=document.getElementById('tr-fso-canvas');
+  if(fc&&fc.getContext){ const r=fc.getBoundingClientRect(); if(r.width>10){ if(fc.width!==Math.round(r.width*2)){fc.width=r.width*2;fc.height=r.height*2;} const cx=fc.getContext('2d'); cx.setTransform(2,0,0,2,0,0); const W=r.width,H=r.height; cx.clearRect(0,0,W,H);
+    [['#ffb627',0.22],['#ff4f6d',0.42]].forEach(a=>{const y=H-a[1]*H; cx.strokeStyle=a[0]+'55'; cx.setLineDash([3,3]); cx.beginPath();cx.moveTo(0,y);cx.lineTo(W,y);cx.stroke();cx.setLineDash([]);});
+    const h=TrinityFSO.hist||[]; if(h.length>1){ const rc={RUST:'#14f195',SPANNING:'#ffb627',CRISIS:'#ff4f6d'}[TrinityFSO.regime]||'#7fd4ff';
+      cx.beginPath(); h.forEach((v,i)=>{const x=i/(h.length-1)*W, y=H-Math.max(0,Math.min(1,v))*H; i?cx.lineTo(x,y):cx.moveTo(x,y);});
+      cx.strokeStyle=rc; cx.lineWidth=1.5; cx.stroke(); cx.lineTo(W,H); cx.lineTo(0,H); cx.closePath(); cx.fillStyle=rc+'18'; cx.fill(); }
+  } }
   const el=document.getElementById('tr-sessions'); if(!el)return;
-  el.innerHTML=Object.keys(names).map(k=>{const b=t.byS[k],wr=b.n?Math.round(b.w/b.n*100):0;
-    return `<div class="tsrow"><span>${names[k]}</span><div class="tsbar"><i style="width:${wr}%"></i></div><span style="text-align:right;color:var(--tx)">${b.n?wr+'%':'—'} <small style="color:var(--dimmer)">(${b.n})</small></span></div>`;}).join('');
+  el.innerHTML=Object.keys(names).map(k=>{const b=t.byS[k],wr=b.n?Math.round(b.w/b.n*100):0; const tr=TrinityTrust.stats(k), wf=TrinityTrust.weightFactor(k);
+    const trust=`<small style="color:#8aa0ff">×${wf.toFixed(2)}${tr&&tr.auc!=null?' AUC '+tr.auc.toFixed(2):''}${tr&&tr.n>=6&&tr.disc<=0.2?' · vlak':''}${tr&&tr.inverted?' ⚠inv':''}</small>`;
+    return `<div class="tsrow"><span>${names[k]}</span><div class="tsbar"><i style="width:${wr}%"></i></div><span style="text-align:right;color:var(--tx)">${b.n?wr+'%':'—'} <small style="color:var(--dimmer)">(${b.n})</small> ${trust}</span></div>`;}).join('');
   const lu=document.getElementById('tr-updated'); if(lu)lu.textContent='updated '+fmtTime(lastUpdated.trinity||new Date());
 }
 // ---------- wallet + settings ----------
@@ -19559,10 +19631,10 @@ function rebuildCapArcs(){const list=CCY.map(c=>({c,v:flow[c]}));const outs=list
   capArcs=[];outs.forEach(o=>ins.forEach(i=>capArcs.push({from:o.c,to:i.c,parts:Array.from({length:4},()=>Math.random())})));}
 
 let WORLD=null;
-function makeMapTarget(cv){ return { cv, ctx:cv.getContext('2d'), projection:null, geoPath:null, baseCanvas:null, ready:false, w:0, h:0 }; }
+function makeMapTarget(cv){ if(!cv)return null; return { cv, ctx:cv.getContext('2d'), projection:null, geoPath:null, baseCanvas:null, ready:false, w:0, h:0 }; }
 const mapMain=makeMapTarget(document.getElementById('map-canvas'));
 const mapOcular=makeMapTarget(document.getElementById('ocular-map-canvas'));
-function setupProjectionFor(t){ const r=t.cv.getBoundingClientRect(); t.w=r.width; t.h=r.height; if(t.w<10||!WORLD)return;
+function setupProjectionFor(t){ if(!t)return; const r=t.cv.getBoundingClientRect(); t.w=r.width; t.h=r.height; if(t.w<10||!WORLD)return;
   t.projection=d3.geoNaturalEarth1().fitExtent([[8,8],[t.w-8,t.h-8]],{type:'Sphere'});
   t.baseCanvas=document.createElement('canvas'); t.baseCanvas.width=t.w; t.baseCanvas.height=t.h;
   const bx=t.baseCanvas.getContext('2d'); t.geoPath=d3.geoPath(t.projection,bx);
@@ -19582,15 +19654,16 @@ function initMap(){ if(typeof d3==='undefined'||typeof topojson==='undefined'){ 
   tryLoad();
 }
 // keep trying to build the projection until the canvases actually have dimensions (section may render late)
-function ensureMapReady(){ if(WORLD){ if(!mapMain.ready)setupProjectionFor(mapMain); if(!mapOcular.ready)setupProjectionFor(mapOcular);
-  if(mapMain.ready&&mapOcular.ready)return; } setTimeout(ensureMapReady,1200); }
-function resizeMapTarget(t){ const r=t.cv.getBoundingClientRect(), dpr=Math.min(2,devicePixelRatio||1);
+function ensureMapReady(){ if(WORLD){ if(mapMain&&!mapMain.ready)setupProjectionFor(mapMain); if(mapOcular&&!mapOcular.ready)setupProjectionFor(mapOcular);
+  if((!mapMain||mapMain.ready)&&(!mapOcular||mapOcular.ready))return; } setTimeout(ensureMapReady,1200); }
+function resizeMapTarget(t){ if(!t)return; const r=t.cv.getBoundingClientRect(), dpr=Math.min(2,devicePixelRatio||1);
   t.cv.width=Math.max(2,r.width*dpr); t.cv.height=Math.max(2,r.height*dpr);
   if(WORLD&&(Math.abs(r.width-t.w)>2||Math.abs(r.height-t.h)>2))setupProjectionFor(t); }
 function resizeMaps(){ resizeMapTarget(mapMain); resizeMapTarget(mapOcular); }
 addEventListener('resize',resizeMaps);
 function projFor(t,lng,lat){ return t.projection?t.projection([lng,lat]):null; }
 function renderMapTarget(t,now,dt,mode){
+  if(!t)return;
   const r=t.cv.getBoundingClientRect(); if(r.width<10)return; const dpr=Math.min(2,devicePixelRatio||1); if(Math.abs(t.cv.width-r.width*dpr)>2)resizeMapTarget(t);
   const ctx=t.ctx,w=r.width,h=r.height; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
   if(t.ready&&t.baseCanvas)ctx.drawImage(t.baseCanvas,0,0,w,h); else drawFallbackLand(ctx,w,h);
@@ -19694,7 +19767,7 @@ if(restored && restored.capProxy){
 if(restored && restored.trinityWasRunning){ pushReason('Trinity was RUNNING before the restart — positions will resync from Capital.com; press Start to resume opening new trades.'); }
 let lastFrame=0;
 function loop(now){requestAnimationFrame(loop);
-  if(!document.querySelector('.tab.show .trn')){return;}   /* alleen Trinity-canvassen tekenen als een Trinity-tab zichtbaar is */
+  if(!document.querySelector('.tab.show .trn')){return;}
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
@@ -19704,7 +19777,7 @@ setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
 
 
-/* ---- Trinity UI helpers (sd-cards etc.) ---- */
+/* ---- Trinity UI helpers ---- */
 /* ============================================================
    TRINITY · FX — Osiris-shell UI controller (phase 1: design/look)
    Tabs, top bar, clock and a multi-pair overview, all reading the
