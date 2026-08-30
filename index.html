@@ -848,16 +848,19 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 .trn .feedupd {color:var(--dim);text-align:right;font-size:0.5rem;}
 @media (max-width:720px){ .trn .feedrow {grid-template-columns:12px 1fr;gap:2px;} .trn .feedstat,.trn .feedupd{grid-column:2;text-align:left;} }
 /* GSD ranking + predictor */
-.trn .gsdrow{display:grid;grid-template-columns:30px 12px 1.2fr 1fr 1.4fr 34px auto;gap:8px;align-items:center;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03);}
+.trn .gsdrow{display:grid;grid-template-columns:34px 12px 150px 148px 1fr 40px 92px 150px;gap:10px;align-items:center;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);}
+.trn .gsdrow.gsdhdr{border-bottom:1px solid var(--line);color:var(--dimmer);font-size:0.5rem;letter-spacing:1px;text-transform:uppercase;padding-bottom:6px;margin-bottom:2px;}
 .trn .gsdrk{color:var(--dimmer);}
 .trn .gsddot{width:9px;height:9px;border-radius:50%;box-shadow:0 0 6px currentColor;}
-.trn .gsdzone{color:var(--tx);}
-.trn .gsdbar{height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;}
+.trn .gsdzone{color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.trn .gsdcat{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.trn .gsdbar{height:7px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;}
 .trn .gsdbar i{display:block;height:100%;border-radius:3px;}
 .trn .gsdval{text-align:right;font-weight:700;}
-.trn .gsdsrc{color:var(--dimmer);font-size:0.48rem;}
+.trn .gsdwin{color:var(--dim);font-size:0.5rem;white-space:nowrap;}
+.trn .gsdupd{color:var(--dim);font-size:0.5rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .trn .gsdpred{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0;background:rgba(0,0,0,0.2);}
-@media (max-width:720px){ .trn .gsdrow{grid-template-columns:24px 10px 1fr 34px;} .trn .gsdcat,.trn .gsdbar,.trn .gsdsrc{display:none;} }
+@media (max-width:820px){ .trn .gsdrow{grid-template-columns:26px 10px 1fr 40px;} .trn .gsdcat,.trn .gsdbar,.trn .gsdwin,.trn .gsdupd{display:none;} }
 .trn .oarow {display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;margin:6px 0;font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--dim);}
 .trn .oarow input, .trn .oarow select {font-family:'JetBrains Mono',monospace;font-size:0.62rem;background:#050b12;border:1px solid var(--line);color:var(--tx);border-radius:5px;padding:7px 9px;width:100%;}
 .trn .closedwrap {max-height:320px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px;margin-top:6px;}
@@ -2607,7 +2610,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260830-jarvis41-fso-cal-exportall"></script>
+<script src="app.js?v=20260830-jarvis42-gsd-liven-rank"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
