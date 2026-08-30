@@ -1433,7 +1433,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <div style="font-size:0.56rem; color:var(--dim); margin:6px 0;">Aparte keys van <b style="color:var(--cyan)">testnet.binancefuture.com</b> (los van je spot-keys). Blijven lokaal in je browser.</div>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <input id="futures-api-key" placeholder="Futures API key" style="flex:1; min-width:180px; background:#0c141f; border:1px solid var(--line); color:var(--tx); padding:6px 8px; border-radius:6px; font-size:0.6rem;">
-            <input id="futures-api-secret" type="password" placeholder="Futures API secret" style="flex:1; min-width:180px; background:#0c141f; border:1px solid var(--line); color:var(--tx); padding:6px 8px; border-radius:6px; font-size:0.6rem;">
+            <form style="display:contents" autocomplete="off" onsubmit="return false"><input type="text" autocomplete="username" aria-hidden="true" tabindex="-1" style="display:none"><input id="futures-api-secret" type="password" autocomplete="new-password" placeholder="Futures API secret" style="flex:1; min-width:180px; background:#0c141f; border:1px solid var(--line); color:var(--tx); padding:6px 8px; border-radius:6px; font-size:0.6rem;"></form>
             <button type="button" onclick="saveMarginKeys()" class="btn btn-ghost" style="font-size:0.62rem;">Opslaan</button>
             <button type="button" onclick="marginTestConnection()" class="btn btn-ghost" style="font-size:0.62rem; color:var(--teal); border-color:rgba(0,255,204,0.4);">Test verbinding</button>
             <button type="button" onclick="marginSyncWallet()" class="btn btn-ghost" style="font-size:0.62rem; color:var(--amber); border-color:rgba(255,182,39,0.4);" title="Haalt je vrije USDT-saldo van de futures-testnet en zet het margin-startkapitaal daarop (met bevestiging).">Sync wallet &larr; futures</button>
@@ -1870,8 +1870,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
                              de rij eromheen: geen layout-verschil, wel een schone console. De form
                              submit nooit (onsubmit=false) - de keys gaan alleen naar localStorage. -->
                         <form style="display:contents;" autocomplete="off" onsubmit="return false;">
+                        <form style="display:contents" autocomplete="off" onsubmit="return false"><input type="text" autocomplete="username" aria-hidden="true" tabindex="-1" style="display:none">
                         <div><label>Testnet API Key</label><input type="password" id="testnet-api-key" autocomplete="new-password" placeholder="alleen testnet-keys!"></div>
-                        <div><label>Testnet API Secret</label><input type="password" id="testnet-api-secret" autocomplete="new-password" placeholder="alleen testnet-keys!"></div>
+                        <div><label>Testnet API Secret</label><input type="password" id="testnet-api-secret" autocomplete="new-password" placeholder="alleen testnet-keys!"></div></form>
                         </form>
                         <div style="display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap;">
                             <button type="button" id="testnet-save-keys-btn" class="btn btn-ghost btn-mini">Keys opslaan</button>
@@ -2431,7 +2432,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="mono" style="font-size:0.58rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;">OANDA live data <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— non-EU · real market prices</span></div>
       <div class="oarow"><span>Environment</span><select id="oa-env"><option value="practice">Practice (demo / free)</option><option value="live">Live (real money)</option></select></div>
       <div class="oarow"><span>Account ID</span><input id="oa-account" placeholder="e.g. 101-004-xxxxxxx-001"></div>
-      <div class="oarow"><span>API token</span><input id="oa-token" type="password" placeholder="practice token — read-only pricing"></div>
+      <div class="oarow"><span>API token</span><form style="display:contents" autocomplete="off" onsubmit="return false"><input type="text" autocomplete="username" aria-hidden="true" tabindex="-1" style="display:none"><input id="oa-token" type="password" autocomplete="new-password" placeholder="practice token — read-only pricing"></form></div>
       <div class="oarow"><span>Order proxy URL</span><input id="oa-proxy" placeholder="https://your-worker.example.com  (optional, for orders)"></div>
       <div style="margin-top:8px;display:flex;gap:8px;"><button class="btn primary" onclick="connectOanda()">Connect live prices</button><button class="btn" onclick="disconnectOanda()">Disconnect (mock)</button></div>
       <div class="mono" id="oa-status" style="font-size:0.56rem;color:var(--amber);margin-top:10px;line-height:1.6;">MOCK data (simulated). Enter your OANDA practice Account ID + API token and press Connect to run Trinity on REAL market prices.</div>
@@ -2610,7 +2611,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260830-jarvis42-gsd-liven-rank"></script>
+<script src="app.js?v=20260830-jarvis43-fixcrash"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
