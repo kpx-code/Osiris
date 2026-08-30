@@ -913,6 +913,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
   </div>
   <div class="rail" id="rail">
     <div class="navb active" data-tab="about"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg><span>About</span></div>
+    <div style="font:700 0.42rem 'JetBrains Mono',monospace;letter-spacing:1px;color:var(--cyan);text-align:center;margin:6px 0 2px;text-transform:uppercase;">Osiris Neo</div>
     <div class="navb" data-tab="net"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 12l3-5M7 12l3 5M14 7l4 4M14 17l4-4"/></svg><span>Neural Net</span></div>
     <div class="navb" data-tab="wallet"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M16 14h2"/></svg><span>Wallet</span></div>
     <div class="navb" data-tab="charts"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 4-6"/></svg><span>Charts</span></div>
@@ -940,7 +941,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <h1 class="hero-h1">Osiris trades.<br><em>And learns</em> from every trade.</h1>
           <p class="hero-lead">A self-directed trading intelligence for BTC, ETH and SOL. It scans the market every ten seconds, weighs its own probabilities, and guards every open position &mdash; on the Binance spot <em>and</em> futures testnets, with fake capital.</p>
           <p class="about-para">One principle drives it: <b style="color:var(--cyan)">stay honest about your own certainty</b>. Every closed trade flows back into a calibration table that checks what the model predicted against what really happened, and the whole system is nudged by that truth. A raw score is trusted only as far as its measured win rate earns. Nothing changes silently &mdash; every self-adjustment is written to a live feed.</p>
-          <p class="about-para">Osiris now runs in two flavours: <b style="color:var(--cyan)">Osiris Crypto</b> for BTC / ETH / SOL, and <b style="color:#ffd24a;">Osiris Trinity FX</b> &mdash; a sister engine that applies the same self-calibrating, session-aware brain to the foreign-exchange majors.</p>
+          <p class="about-para">Osiris runs as two engines that share one brain: <b style="color:var(--cyan)">Osiris Neo</b> for BTC / ETH / SOL, and <b style="color:#ffd24a;">Osiris Trinity (FX)</b> &mdash; the same self-calibrating, session-aware intelligence applied to the foreign-exchange majors.</p>
         </div>
         <div id="about-eye-wrap" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
           <div class="eyebrow" style="margin-bottom:8px;color:var(--cyan);text-align:center;">&mdash; Autonomous BTC / ETH / SOL Intelligence</div>
@@ -1005,9 +1006,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
 
       <!-- OSIRIS TRINITY FX -->
-      <div class="eyebrow" style="margin-top:34px; color:#ffd24a;">&mdash; Osiris &middot; Trinity FX</div>
-      <h1 class="h" style="margin-top:6px;">The FX sister-engine</h1>
-      <p class="hero-lead" style="max-width:none;">Trinity takes the Osiris brain to the <b style="color:#ffd24a;">foreign-exchange majors</b>. Same idea, different market: it ranks the pairs by live opportunity, trades the moment that fits the <b style="color:var(--cyan)">active session</b> (Asia / EU / US / overlap), and scores every result out-of-sample so its confidence stays honest.</p>
+      <div class="eyebrow" style="margin-top:34px; color:#ffd24a;">&mdash; Osiris &middot; Trinity (FX)</div>
+      <h1 class="h" style="margin-top:6px;">Osiris Trinity (FX)</h1>
+      <p class="hero-lead" style="max-width:none;">Trinity brings the Osiris brain to the <b style="color:#ffd24a;">foreign-exchange majors</b>. Same idea, different market: it ranks the pairs by live opportunity, trades the moment that fits the <b style="color:var(--cyan)">active session</b> (Asia / EU / US / overlap), and scores every result out-of-sample so its confidence stays honest.</p>
       <div class="toolgrid">
         <div class="toolcard sys"><span class="tc-badge">SESSIONS</span><h4><span class="tc-ic">◷</span> Session-aware</h4><p>Each FX session gets its own brain-trust &mdash; win rate, AUC and reliability weighted by how many trades it has actually seen, so a thin session leans on the pool.</p></div>
         <div class="toolcard sys"><span class="tc-badge">SYSTEM</span><h4><span class="tc-ic">◉</span> FX FSO</h4><p>A stress oscillator across the majors reads calm / spanning / crisis and scales position size &mdash; and blocks fresh entries when the market turns disorderly.</p></div>
@@ -1077,12 +1078,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       }
     </style>
     <section class="tab" id="tab-net">
-      <div class="eyebrow">Core Visualisation</div><h1 class="h">OSIRIS NEURAL NET VISUALISATION</h1>
+      <div class="eyebrow">Core Visualisation</div><h1 class="h">OSIRIS NEO &middot; NEURAL NET VISUALISATION</h1>
 
       <div class="hudframe mb" style="margin-top:18px;">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
         <canvas id="neo-net-canvas-big" style="width:100%; height:740px; display:block; position:relative; z-index:1;"></canvas>
-        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs &rarr; CORES (9: PMV·DN·MC × BTC·ETH·SOL) &rarr; osiris &rarr; TA &rarr; decision &rarr; output &rarr; RL &nbsp;·&nbsp; meta: governor · LLM · regime · cloud · multi-TF · node-fade · FAG · guardian · risk · spike-guard · self-review</div></div>
+        <div class="net-hud"><div class="t">OSIRIS NEO DEEPNET</div><div class="s">inputs &rarr; CORES (9: PMV·DN·MC × BTC·ETH·SOL) &rarr; osiris &rarr; TA &rarr; decision &rarr; output &rarr; RL &nbsp;·&nbsp; meta: governor · LLM · regime · cloud · multi-TF · node-fade · FAG · guardian · risk · spike-guard · self-review</div></div>
         <div class="net-out"><div class="l">Osiris decision</div><div class="v"><span id="neo-net-out-big">&mdash;</span></div></div>
       </div>
 
@@ -1265,7 +1266,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="hudframe mb">
         <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
         <canvas id="neo-net-canvas-wal" style="width:100%; height:460px; display:block; position:relative; z-index:1;"></canvas>
-        <div class="net-hud"><div class="t">OSIRIS DEEPNET</div><div class="s">inputs &rarr; CORES (9: PMV·DN·MC × BTC·ETH·SOL) &rarr; osiris &rarr; TA &rarr; decision &rarr; output &rarr; RL</div></div>
+        <div class="net-hud"><div class="t">OSIRIS NEO DEEPNET</div><div class="s">inputs &rarr; CORES (9: PMV·DN·MC × BTC·ETH·SOL) &rarr; osiris &rarr; TA &rarr; decision &rarr; output &rarr; RL</div></div>
         <div class="net-out"><div class="l">Osiris decision</div><div class="v"><span id="neo-net-out-wal">&mdash;</span></div></div>
       </div>
 
@@ -2182,10 +2183,15 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="legend" id="map-legend"></div>
     </div>
 
-    <div class="eyebrow" style="margin-top:22px;">Trinity · neural net <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— adaptive learning · FX-calibrated</span></div>
-    <div class="panel">
+    <div class="eyebrow" style="margin-top:22px;">Trinity · neural net <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— zelfde ontwerp als Osiris Neo · Trinity's eigen inputs &amp; tools · gestippelde knopen = nog niet in Trinity</span></div>
+    <div class="panel" style="position:relative;">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
-      <canvas id="ocular-brain-canvas" class="core" style="width:100%;min-height:380px;display:block;"></canvas>
+      <div style="position:absolute;top:12px;left:16px;right:16px;z-index:2;pointer-events:none;">
+        <div style="font:800 0.72rem 'Orbitron','JetBrains Mono',monospace;letter-spacing:1.5px;color:#cfe6f5;">TRINITY DEEPNET</div>
+        <div style="font:0.5rem/1.5 'JetBrains Mono',monospace;color:var(--dim);letter-spacing:0.3px;margin-top:3px;max-width:74%;">inputs (15) &rarr; CORES (4 sessies: ASIA&middot;EU&middot;US&middot;OVLP) &rarr; trinity &rarr; gate &rarr; decision &rarr; output &rarr; learn &nbsp;&middot;&nbsp; tools: brain-trust &middot; session &middot; FSO &middot; cost-guard &middot; calib &middot; self-tune &nbsp;&middot;&nbsp; <span style="color:#5c7488;">gestippeld = planned (Neo heeft dit, Trinity nog niet): deepnet &middot; predict-inv &middot; kinetic &middot; node-time &middot; regime-HMM &middot; LLM &middot; multi-TF &middot; node-fade &middot; spike-guard &middot; guardian &middot; risk &middot; RL-exit &middot; cloud &middot; margin</span></div>
+      </div>
+      <canvas id="tr-deepnet-canvas" style="width:100%;height:580px;display:block;"></canvas>
+      <div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:6px;">Uitkomst: <b id="tr-deepnet-out" style="color:var(--dim);">&mdash;</b></div>
     </div>
 
     <div class="eyebrow" style="margin-top:22px;">Learnings · self-calibration</div>
@@ -2310,6 +2316,9 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         </div>
         <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin:12px 0 4px;display:flex;justify-content:space-between;align-items:center;">Open positions <span style="display:flex;gap:8px;align-items:center;"><button class="btn" style="padding:3px 8px;font-size:0.5rem;" onclick="closeAllLive()">Close all (live)</button><span class="upd" id="w-updated">updated —</span></span></div>
         <div id="positions-body"></div>
+        <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin:16px 0 6px;">Closed positions</div>
+        <div class="crow chead" style="border-bottom:1px solid var(--line);"><span>Pair</span><span>Opened</span><span>Closed</span><span>Entry → Exit</span><span>Size</span><span>P/L (USD · %)</span><span>Exit</span></div>
+        <div class="closedwrap"><div id="closed-body"></div></div>
       </div>
 </div>
       </div>
@@ -2385,12 +2394,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <button onclick="exportReasoning()">⭳ Reasoning feed</button>
       </div>
       <div class="mono" style="font-size:0.52rem;color:var(--dimmer);margin-top:10px;line-height:1.6;">Exports bevatten geen API-keys of wachtwoorden. Trades/Pairs als CSV; Wallet/Engine als JSON incl. brain-trust per sessie, kalibratie (predicted vs measured) en auto-aanpassingen.</div>
-    </div>
-    <div class="panel" style="margin-top:14px;">
-      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
-      <div class="mono" style="font-size:0.58rem;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;">Closed positions</div>
-      <div class="crow chead" style="border-bottom:1px solid var(--line);"><span>Pair</span><span>Opened</span><span>Closed</span><span>Entry → Exit</span><span>Size</span><span>P/L (USD · %)</span><span>Exit</span></div>
-      <div class="closedwrap"><div id="closed-body"></div></div>
     </div>
       </div>
     </section>
@@ -2497,7 +2500,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260830-jarvis33-trinity-fx"></script>
+<script src="app.js?v=20260830-jarvis34-trinity-deepnet"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260823-perf"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
