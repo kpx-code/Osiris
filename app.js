@@ -18783,7 +18783,7 @@ let trinityWasRunning=false;                                     // persisted: w
 let trinityStartedAt=null;                                       // ms timestamp when Trinity was last started (for runtime display)
 const toEpic=p=>p.replace('/','');                                 // EUR/USD -> EURUSD
 const fromEpic=e=>e.length===6?e.slice(0,3)+'/'+e.slice(3):e;      // EURUSD -> EUR/USD
-function fmtTime(d){ if(!d)return '—'; const p=n=>String(n).padStart(2,'0');
+function fmtTime(d){ if(!d)return '—'; if(!(d instanceof Date)) d=new Date(d); if(isNaN(d.getTime()))return '—'; const p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); }
 
 // ---------- active engine config: baseline preset (or manual override) + Trinity's autonomous adjustments ----------
@@ -19704,7 +19704,7 @@ function restoreState(){
   try{ const raw=localStorage.getItem('oif_state'); if(!raw)return null; const s=JSON.parse(raw);
     if(s.walletMode) walletMode=s.walletMode;
     if(s.preset) preset=s.preset; if('customPreset' in s) customPreset=s.customPreset;
-    if(s.autoAdj) autoAdj=s.autoAdj;
+    if(s.autoAdj){ autoAdj=s.autoAdj; if(!autoAdj.disabledSessions)autoAdj.disabledSessions={}; if(autoAdj.minConfDelta==null)autoAdj.minConfDelta=0; if(autoAdj.tgtMult==null)autoAdj.tgtMult=1; if(autoAdj.maxPosDelta==null)autoAdj.maxPosDelta=0; }
     if(s.capProxy) capProxy=s.capProxy;
     if(s.trinityStartedAt) trinityStartedAt=s.trinityStartedAt;
     if(s.trinity){ trinity.trades=s.trinity.trades||[]; trinity.byS=s.trinity.byS||trinity.byS; trinity.wr=s.trinity.wr||0; trinity.avgR=s.trinity.avgR||0; trinity.mult=s.trinity.mult||1; }
@@ -20194,7 +20194,10 @@ const restored=restoreState();   // bring back learning/calibration + running fl
 try{ TrinityFeeds.allMock(); TrinityFeeds.markOk('engine','sim-tick actief'); }catch(e){}
 try{ TrinityGSD.init(); }catch(e){}
 try{ _trFsoBuildToggles(); _trFsoBuildCharts(); }catch(e){}
-resizeMaps(); initMap(); ensureMapReady(); initOcularMapLegend(); tick(); renderTable(); renderOpp(); renderTrinity(); if(!restored)setPreset('balanced'); else renderSettings(); renderWallet(); renderInternals(); renderCalib(); renderPositions(); renderClosed(); renderReasoning(); renderAdjustments();
+function _safe(f){ try{ f(); }catch(e){ try{ console.warn('render skip:',e.message); }catch(_){} } }
+[resizeMaps,initMap,ensureMapReady,initOcularMapLegend,tick,renderTable,renderOpp,renderTrinity].forEach(_safe);
+_safe(()=>{ if(!restored)setPreset('balanced'); else renderSettings(); });
+[renderWallet,renderInternals,renderCalib,renderPositions,renderClosed,renderReasoning,renderAdjustments].forEach(_safe);
 setWalletMode(walletMode);
 if(restored && restored.capProxy){
   // proxy URL survived the restart → auto-reconnect so the user doesn't have to relink after closing the browser
@@ -20209,7 +20212,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{tick();renderTable();renderOpp();renderTrinity();renderWallet();renderInternals();renderCalib();try{renderGSD();}catch(e){}},1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
