@@ -9310,8 +9310,9 @@ function fsoToggleLine(key) {
     if (!(key in FSO_VISIBLE)) return;
     FSO_VISIBLE[key] = !FSO_VISIBLE[key];
     try { localStorage.setItem('osirisFSOvisible', JSON.stringify(FSO_VISIBLE)); } catch (e) {}
-    // legenda-item visueel bijwerken
+    // legenda-item + checkbox visueel bijwerken
     try { const el = document.getElementById('fso-leg-' + key); if (el) { el.style.opacity = FSO_VISIBLE[key] ? '1' : '0.32'; el.style.textDecoration = FSO_VISIBLE[key] ? 'none' : 'line-through'; } } catch (e) {}
+    try { const cb = document.getElementById('fso-cb-' + key); if (cb) cb.checked = FSO_VISIBLE[key]; } catch (e) {}
     // alle 4 schalen direct opnieuw tekenen (schone redraw, geen overlap)
     try { ['micro', 'meso', 'macro', 'full'].forEach(k => drawFSOChart('fso-' + k, k)); } catch (e) {}
 }
@@ -9322,10 +9323,13 @@ function fsoSoloLine(key) {
     const isSolo = FSO_VISIBLE[key] && lineKeys.every(k => k === key ? FSO_VISIBLE[k] : !FSO_VISIBLE[k]);
     for (const k of lineKeys) FSO_VISIBLE[k] = isSolo ? true : (k === key);
     try { localStorage.setItem('osirisFSOvisible', JSON.stringify(FSO_VISIBLE)); } catch (e) {}
-    try { for (const k of lineKeys) { const el = document.getElementById('fso-leg-' + k); if (el) { el.style.opacity = FSO_VISIBLE[k] ? '1' : '0.32'; el.style.textDecoration = FSO_VISIBLE[k] ? 'none' : 'line-through'; } } } catch (e) {}
+    try { for (const k of lineKeys) { const el = document.getElementById('fso-leg-' + k); if (el) { el.style.opacity = FSO_VISIBLE[k] ? '1' : '0.32'; el.style.textDecoration = FSO_VISIBLE[k] ? 'none' : 'line-through'; } const cb = document.getElementById('fso-cb-' + k); if (cb) cb.checked = FSO_VISIBLE[k]; } } catch (e) {}
     try { ['micro', 'meso', 'macro', 'full'].forEach(k => drawFSOChart('fso-' + k, k)); } catch (e) {}
 }
 window.fsoSoloLine = fsoSoloLine;
+// checkboxes synchroniseren met (mogelijk herstelde) FSO_VISIBLE-state bij load
+function _fsoSyncChecks() { try { for (const k in FSO_VISIBLE) { const cb = document.getElementById('fso-cb-' + k); if (cb) cb.checked = FSO_VISIBLE[k]; const el = document.getElementById('fso-leg-' + k); if (el) { el.style.opacity = FSO_VISIBLE[k] ? '1' : '0.32'; el.style.textDecoration = FSO_VISIBLE[k] ? 'none' : 'line-through'; } } } catch (e) {} }
+try { if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _fsoSyncChecks); else _fsoSyncChecks(); } catch (e) {}
 function drawFSOChart(canvasId, key) {
     const cv = document.getElementById(canvasId); if (!cv) return;
     const S = OsirisFSO.scales[key]; const ctx = cv.getContext('2d');
@@ -18830,30 +18834,372 @@ function renderReasoning(){ const el=document.getElementById('reason-feed'); if(
   el.innerHTML=reasonLog.slice(0,60).map(r=>`<div class="rline"><span class="rt">${fmtTime(r.t).slice(11)}</span> ${r.msg}</div>`).join('')||'<div class="rline" style="color:var(--dimmer)">awaiting scan output…</div>';
 }
 
-// ===== TRINITY · FSO — FX system-stress oscillator (markt-als-systeem) =====
-// Hoeveel beweegt/divergeert de HELE FX-markt? level = gemiddelde beweging + spreiding (correlatie-
-// breuk) + volatiliteit; regime = RUST/SPANNING/CRISIS. Wordt gebruikt om risico te temperen
-// (CRISIS = geen nieuwe entries, SPANNING = kleiner). Data-true uit de live pair-momentum/vol.
-const TrinityFSO = { level:0, variance:0, absMom:0, regime:'RUST', ts:0, hist:[],
+// ==================================================================================
+// TRINITY · FSO — FX Financial State Oscillator (UOTAM V7.7 model op de FX-markt)
+// ----------------------------------------------------------------------------------
+// Zelfde model-kern als Osiris Neo's OsirisFSO, maar gevoed met FX-data i.p.v. crypto:
+//   • deel-oscillatoren over ALLE 18 valuta's (sterkte + flow) én ALLE 28 pairs
+//     (volatiliteit + |momentum| + range), plus cross-market corr-breuk & dispersie.
+//   • Global Stress  S̄  = gemiddelde van alle genormaliseerde oscillatoren.
+//   • System-Variantie σ² = spreiding TUSSEN de oscillatoren (asynchronie / UOTAM-chaosmeter),
+//     genormaliseerd t.o.v. de eigen historische piek → kritieke node-drempel 0.20.
+//   • VFM = opgebouwde kinetische energie: laadt op zolang σ² in de "gevarenzone"
+//     (compressie ≤ node-drempel) blijft, ontlaadt bij een variantie-uitbraak.
+//   • ΔV = ontsnappingssnelheid: veranderingssnelheid van σ² over een venster.
+//   • KILL-SWITCH: langdurige compressie + ΔV-uitbraak + VFM≈max ⇒ niet-lineaire ontlading.
+// Drempels worden gekalibreerd door TrinityFSOShadow (backtest + scenario-tester) en pas
+// overgenomen door TrinityFSOCal na live-bevestiging — precies zoals Neo.
+// ==================================================================================
+const FSO_NODE_TH = 0.20;          // kritieke node-drempel op de genormaliseerde system-variantie
+const _clamp01 = x => Math.max(0, Math.min(1, x));
+const TrinityFSO = {
+  // publieke, live waarden (level = stress, voor API-compat met de rest van Trinity)
+  level:0, stress:0, variance:0, sysVar:0, absMom:0, vfm:0, escapeVel:0,
+  compressionAge:0, compressionPeak:0, killSwitch:false, killTs:0,
+  regime:'RUST', ts:0,
+  spanT:0.22, crisT:0.42, escapeCrit:0.10, calibrated:false,
+  names:[], osc:[], marketsUsed:0,
+  hist:[], histV:[], histVFM:[], histMove:[], histEsc:[],
+  _varMax:0.02, _shadowTs:0, _calTs:0,
   compute(){
     try{
-      const moms=PAIRS.map(p=>(pair[p]&&pair[p].mom)||0);
-      const vols=PAIRS.map(p=>(pair[p]&&pair[p]._vol)||0);
-      const n=moms.length||1;
-      const meanMom=moms.reduce((a,b)=>a+b,0)/n;
-      const absMom=moms.reduce((a,b)=>a+Math.abs(b),0)/n;
-      const varMom=moms.reduce((a,b)=>a+(b-meanMom)*(b-meanMom),0)/n;
-      const volMean=vols.reduce((a,b)=>a+b,0)/n;
-      const level=Math.max(0,Math.min(1, absMom*0.9 + Math.sqrt(varMom)*0.8 + volMean*120 ));
-      this.absMom=+absMom.toFixed(4); this.variance=+varMom.toFixed(5); this.level=+level.toFixed(4);
-      this.regime = level>0.42?'CRISIS' : level>0.22?'SPANNING' : 'RUST';
-      this.ts=Date.now(); this.hist.push(level); if(this.hist.length>120)this.hist.shift();
+      const osc=[], names=[];
+      // 1) per-valuta: sterkte-magnitude + flow-magnitude (18 valuta's = de "rente-oscillatoren"-analoog)
+      for(const c of CCY){
+        osc.push(_clamp01(Math.abs(strength[c]||0)));            names.push(c+'·str');
+        osc.push(_clamp01(Math.abs(flow[c]||0)));                names.push(c+'·flow');
+      }
+      // 2) per-pair: volatiliteit, |momentum|, range (28 pairs)
+      const chgs=[], moms=[];
+      for(const p of PAIRS){ const st=pair[p]; if(!st)continue;
+        const v=_clamp01((st._vol||0)*140);                      osc.push(v); names.push(p+'·vol');
+        const mm=_clamp01(Math.abs(st.mom||0));                  osc.push(mm); names.push(p+'·mom');
+        const rg=_clamp01(Math.abs(st.m15||0)/0.8);              osc.push(rg); names.push(p+'·rng');
+        chgs.push(st.chgPct||0); moms.push(st.mom||0);
+      }
+      // 3) cross-market: correlatie-breuk (richtings-onenigheid) + dispersie
+      const nP=moms.length||1;
+      const netDir=moms.reduce((a,b)=>a+Math.sign(b),0)/nP;      // -1..1
+      const corrBreak=_clamp01(1-Math.abs(netDir));              // 1 = pairs volledig oneens (asynchroon)
+      const mC=chgs.reduce((a,b)=>a+b,0)/nP;
+      const dispersion=_clamp01(Math.sqrt(chgs.reduce((a,b)=>a+(b-mC)*(b-mC),0)/nP)/1.2);
+      osc.push(corrBreak); names.push('X·corr-break');
+      osc.push(dispersion); names.push('X·dispersie');
+
+      // 4) Global Stress S̄ + System-Variantie σ² (spreiding tussen de oscillatoren)
+      const N=osc.length||1;
+      const mean=osc.reduce((a,b)=>a+b,0)/N;
+      const rawVar=osc.reduce((a,b)=>a+(b-mean)*(b-mean),0)/N;
+      const stress=_clamp01(mean*2.2);                           // schaal zodat rust≈0.1, crisis≈0.5+
+      // σ² genormaliseerd t.o.v. eigen historische piek (adaptief → node-drempel 0.20 blijft betekenisvol)
+      this._varMax=Math.max(rawVar, this._varMax*0.9995);
+      const sysVar=_clamp01(rawVar/(this._varMax||1e-6));
+      const absMom=moms.reduce((a,b)=>a+Math.abs(b),0)/nP;
+
+      // 5) compressie / gevarenzone + VFM (opgebouwde kinetische energie)
+      const compressed = sysVar<=FSO_NODE_TH;                    // UOTAM "gevarenzone"
+      if(compressed){ this.compressionAge++; this.compressionPeak=Math.max(this.compressionPeak,this.compressionAge);
+        this.vfm=_clamp01(this.vfm + 0.010*(1-(sysVar/FSO_NODE_TH)) + 0.004); }   // laadt sneller bij diepere compressie
+      else { this.compressionAge=Math.max(0,this.compressionAge-2); }
+
+      // 6) ΔV = ontsnappingssnelheid van σ² over ~6 ticks
+      const W=6, hv=this.histV;
+      const escapeVel = hv.length>=W ? (sysVar - hv[hv.length-W]) : 0;
+
+      // 7) KILL-SWITCH: langdurige compressie + ΔV-uitbraak + VFM≈max ⇒ niet-lineaire ontlading
+      const kill = (this.compressionPeak>=8) && (escapeVel>this.escapeCrit) && (this.vfm>=0.82) && !compressed;
+      if(kill){ this.killSwitch=true; this.killTs=Date.now(); this.vfm=_clamp01(this.vfm*0.35); this.compressionPeak=0; } // ontlaad de accu
+      else if(this.killSwitch && Date.now()-this.killTs>20000){ this.killSwitch=false; }
+      if(!compressed && !kill){ this.vfm=Math.max(0,this.vfm*0.992); }             // trage decay buiten compressie
+
+      // 8) regime (stress-drempels, gekalibreerd) — kill-switch forceert CRISIS
+      let regime = stress>this.crisT?'CRISIS' : stress>this.spanT?'SPANNING':'RUST';
+      if(this.killSwitch) regime='CRISIS';
+
+      // publiceer
+      this.stress=+stress.toFixed(4); this.level=this.stress;                      // level == stress (API-compat)
+      this.variance=+rawVar.toFixed(5); this.sysVar=+sysVar.toFixed(4);
+      this.absMom=+absMom.toFixed(4); this.escapeVel=+escapeVel.toFixed(4);
+      this.regime=regime; this.osc=osc; this.names=names; this.marketsUsed=CCY.length;
+      this.ts=Date.now();
+
+      // history-buffers (voor grafiek + backtest). histMove = markt-brede gerealiseerde beweging per tick
+      // (gemiddelde |chgPct| over alle pairs) → de "forward move" die de backtester probeert te voorspellen.
+      const move = PAIRS.reduce((a,p)=>a+Math.abs((pair[p]&&pair[p].chgPct)||0),0)/nP;
+      this.hist.push(this.stress);   if(this.hist.length>240)this.hist.shift();
+      this.histV.push(sysVar);       if(this.histV.length>240)this.histV.shift();
+      this.histVFM.push(this.vfm);   if(this.histVFM.length>240)this.histVFM.shift();
+      this.histEsc.push(escapeVel);  if(this.histEsc.length>240)this.histEsc.shift();
+      this.histMove.push(move);      if(this.histMove.length>240)this.histMove.shift();
+
+      // shadow-backtest + kalibratie (gethrottled, zoals Neo's update-flow)
+      const now=Date.now();
+      if(now-this._shadowTs>10000){ this._shadowTs=now; try{ TrinityFSOShadow.run(); }catch(e){} }
+      if(now-this._calTs>15000){ this._calTs=now; try{ TrinityFSOCal.consider(); }catch(e){} }
+      const cal=TrinityFSOCal.get(); this.spanT=cal.spanning; this.crisT=cal.crisis; this.escapeCrit=cal.escape; this.calibrated=cal.calibrated;
+      try{ TrinityFeeds.markOk('fso', this.osc.length+' oscillatoren · '+this.regime); }catch(e){}
+      try{ this._scales(); }catch(e){}   // downsample naar micro/meso/macro/full
     }catch(e){}
     return this;
   },
-  sizeMult(){ return this.regime==='CRISIS'?0.4 : this.regime==='SPANNING'?0.75 : 1; },   // risico-schaal
-  blockEntries(){ return this.regime==='CRISIS'; }
+  // risico-schaal: kill-switch of hoge lading = defensiever
+  sizeMult(){ if(this.killSwitch) return 0.35; const base = this.regime==='CRISIS'?0.4 : this.regime==='SPANNING'?0.75 : 1;
+    return this.vfm>=0.9 ? Math.min(base,0.6) : base; },   // volle VFM-accu = pre-emptief kleiner
+  blockEntries(){ return this.regime==='CRISIS' || this.killSwitch; },
+  explain(){ return `${this.regime}${this.killSwitch?' · KILL-SWITCH':''} · stress ${this.stress.toFixed(3)} · σ² ${this.sysVar.toFixed(2)}${this.sysVar<=FSO_NODE_TH?' (gevarenzone)':''} · VFM ${(this.vfm*100|0)}% · ΔV ${this.escapeVel>=0?'+':''}${this.escapeVel.toFixed(3)} · ×${this.sizeMult().toFixed(2)}${this.calibrated?' · gekalibreerd':''}`; }
 };
+
+// ---- Shadow-backtester + scenario-tester (zoekt drempels die grotere bewegingen vóórspellen) ----
+function _fsoFwd(move,H){ const L=move.length, fwd=new Array(L).fill(null);
+  for(let i=0;i<L-H;i++){ let mx=0; for(let h=1;h<=H;h++){ if(move[i+h]>mx)mx=move[i+h]; } fwd[i]=mx; } return fwd; }
+function _fsoLift(sig,fwd,T,i0,i1,dir){ let n=0,above=0,bn=0,bsum=0; for(let i=i0;i<i1;i++){ if(fwd[i]==null)continue; bn++; bsum+=fwd[i];
+    const hit = dir<0 ? (sig[i]<=T) : (sig[i]>T); if(hit){ n++; above+=fwd[i]; } }
+  const base=bn?bsum/bn:0, am=n?above/n:0; return {n,lift:base>0?am/base:0,base,am}; }
+function _fsoBest(sig,fwd,o){ let best=null,validN=0; const L=sig.length; for(let i=0;i<L;i++)if(fwd[i]!=null)validN++;
+  for(let T=o.lo;T<=o.hi+1e-9;T+=o.step){ const r=_fsoLift(sig,fwd,T,0,L,o.dir||1); if(r.n<o.minN)continue; if(o.maxFrac&&r.n>o.maxFrac*validN)continue;
+    if(r.lift>=o.minLift && (!best||r.lift>best.lift)) best={T:+T.toFixed(4),lift:+r.lift.toFixed(3),n:r.n}; } return best; }
+
+const TrinityFSOShadow = {
+  H:8, prop:null, scenario:null,
+  run(){
+    try{
+      const S=TrinityFSO; const L=S.hist.length; if(L<80) return;
+      const fwd=_fsoFwd(S.histMove,this.H);
+      // STRIKT (poort voor 'proven' + kalibratie): drempel telt alleen als overschrijden echt grotere moves vóórspelt
+      const crisis=_fsoBest(S.hist,   fwd,{lo:0.28,hi:0.60,step:0.01,minLift:1.30,minN:15,maxFrac:0.35});
+      const span  =_fsoBest(S.hist,   fwd,{lo:0.12,hi:0.30,step:0.01,minLift:1.10,minN:25,maxFrac:0.60});
+      const compVar=_fsoBest(S.histV, fwd,{lo:0.10,hi:0.35,step:0.01,minLift:1.15,minN:15,maxFrac:0.45,dir:-1});
+      const esc   =_fsoBest(S.histEsc,fwd,{lo:0.04,hi:0.25,step:0.01,minLift:1.20,minN:12,maxFrac:0.40});
+      // RAPPORT (altijd de best-separerende kandidaat, ook onder de strikte lift-drempel → zichtbaar in de UI)
+      const bestCrisis=_fsoBest(S.hist,fwd,{lo:0.28,hi:0.60,step:0.01,minLift:0,minN:12,maxFrac:0.45});
+      const bestSpan  =_fsoBest(S.hist,fwd,{lo:0.12,hi:0.30,step:0.01,minLift:0,minN:20,maxFrac:0.65});
+      this.prop={ ts:Date.now(), n:L, horizon:this.H, spanning:span, crisis:crisis, compVar, escape:esc,
+        bestCrisis, bestSpan, proven:!!(crisis&&span) };
+      this._scenario(fwd);
+      this._save();
+    }catch(e){}
+  },
+  // Monte-Carlo scenario-tester: bootstrap synthetische stress/forward-paden en meet of de
+  // gevonden drempels óók dáár separeren (robuustheid buiten de exacte historie).
+  _scenario(fwd){
+    try{
+      const S=TrinityFSO; const pc=this.prop&&(this.prop.crisis||this.prop.bestCrisis); if(!pc){ this.scenario=null; return; }
+      const hist=S.hist, L=hist.length, M=160, H=this.H; const T=pc.T;
+      let liftSum=0, ok=0;
+      for(let m=0;m<M;m++){
+        // bootstrap een pad door blok-resampling van (stress, forward-move)-paren
+        const sig=new Array(L), fw=new Array(L);
+        for(let i=0;i<L;i++){ const j=(Math.random()*L)|0; sig[i]=hist[j]; fw[i]=fwd[j]!=null?fwd[j]:0; }
+        const r=_fsoLift(sig,fw,T,0,L,1); if(r.n>=8){ liftSum+=r.lift; ok++; }
+      }
+      const avgLift= ok?liftSum/ok:0;
+      this.scenario={ paths:M, horizon:H, thr:T, avgLift:+avgLift.toFixed(3), robust: avgLift>=1.20, tested:ok };
+    }catch(e){ this.scenario=null; }
+  },
+  _save(){ try{ localStorage.setItem('trinityFSOShadow', JSON.stringify({prop:this.prop,scenario:this.scenario})); }catch(e){} },
+  _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityFSOShadow')||'null'); if(d){ this.prop=d.prop; this.scenario=d.scenario; } }catch(e){} },
+  bundle(){ return { proposal:this.prop, scenario:this.scenario }; }
+};
+
+const TrinityFSOCal = {
+  DEF:{ spanning:0.22, crisis:0.42, escape:0.10 }, cal:null, cooldownMs:5*60000,
+  get(){ const c=this.cal; return { spanning:(c&&c.spanning!=null)?c.spanning:this.DEF.spanning, crisis:(c&&c.crisis!=null)?c.crisis:this.DEF.crisis, escape:(c&&c.escape!=null)?c.escape:this.DEF.escape, calibrated:!!(c&&c.changes&&c.changes.length) }; },
+  _ensure(){ if(!this.cal) this.cal={ spanning:this.DEF.spanning, crisis:this.DEF.crisis, escape:this.DEF.escape, lastAdopt:0, changes:[] }; return this.cal; },
+  consider(){
+    try{
+      const S=TrinityFSO; const sh=TrinityFSOShadow.prop; if(!sh||!sh.proven) return;
+      if(TrinityFSOShadow.scenario && !TrinityFSOShadow.scenario.robust) return;   // alleen overnemen als scenario's het ook dragen
+      const c=this._ensure(); const now=Date.now(); if(now-(c.lastAdopt||0)<this.cooldownMs) return;
+      const L=S.hist.length; const fwd=_fsoFwd(S.histMove,TrinityFSOShadow.H); const i0=Math.floor(L*0.6);
+      const stepTo=(cur,target,bound)=>{ if(target==null)return{v:cur,changed:false}; const st=Math.max(-0.02,Math.min(0.02,target-cur)); let nv=Math.max(bound[0],Math.min(bound[1],cur+st)); nv=+nv.toFixed(3); return {v:nv,changed:Math.abs(nv-cur)>=0.001}; };
+      const changes=[];
+      if(sh.crisis){ const lr=_fsoLift(S.hist,fwd,sh.crisis.T,i0,L,1); if(lr.n>=6&&lr.lift>=1.20){ const r=stepTo(c.crisis,sh.crisis.T,[0.30,0.62]); if(r.changed){ c.crisis=r.v; changes.push(`crisis→${r.v} (shadow ${sh.crisis.lift}, live ${lr.lift.toFixed(2)})`); } } }
+      if(sh.spanning){ const lr=_fsoLift(S.hist,fwd,sh.spanning.T,i0,L,1); if(lr.n>=10&&lr.lift>=1.08){ const r=stepTo(c.spanning,sh.spanning.T,[0.12,Math.max(0.13,c.crisis-0.08)]); if(r.changed){ c.spanning=r.v; changes.push(`spanning→${r.v} (shadow ${sh.spanning.lift}, live ${lr.lift.toFixed(2)})`); } } }
+      if(c.spanning>c.crisis-0.06) c.spanning=+(c.crisis-0.08).toFixed(3);
+      if(sh.escape){ const lr=_fsoLift(S.histEsc,fwd,sh.escape.T,i0,L,1); if(lr.n>=6&&lr.lift>=1.15){ const r=stepTo(c.escape,sh.escape.T,[0.04,0.25]); if(r.changed){ c.escape=r.v; changes.push(`escape→${r.v}`); } } }
+      if(changes.length){ c.lastAdopt=now; c.changes.unshift({ts:now,changes}); if(c.changes.length>40)c.changes.pop(); this._save();
+        try{ pushAdj('FSO-zone (gekalibreerd)', 'shadow+scenario', changes.join(' · '), 'na backtest-separatie, scenario-robuustheid én live-bevestiging'); }catch(e){} }
+    }catch(e){}
+  },
+  _save(){ try{ localStorage.setItem('trinityFSOCal', JSON.stringify(this.cal)); }catch(e){} },
+  _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityFSOCal')||'null'); if(d)this.cal=d; }catch(e){} },
+  bundle(){ return { defaults:this.DEF, live:this.get(), shadow:TrinityFSOShadow.bundle(), nodeThreshold:FSO_NODE_TH,
+    uitleg:'FX-FSO-zones worden alleen gekalibreerd na (1) shadow-backtest separatie, (2) scenario-robuustheid (Monte-Carlo) én (3) live-bevestiging, in kleine begrensde stappen met cooldown.' }; }
+};
+try{ TrinityFSOShadow._restore(); TrinityFSOCal._restore(); }catch(e){}
+
+// ==================================================================================
+// TRINITY · FEEDS — connectiviteit/health per live-data-feed + FX-handelstijden
+// ----------------------------------------------------------------------------------
+// Voor ELKE tool/feed die Trinity gebruikt houden we bij: status, laatst-ok, laatste
+// foutmelding. Faalt een live-feed terwijl de FX-markt DICHT is (weekend / buiten de
+// handelsuren), dan tonen we "markt gesloten" i.p.v. een harde fout — de 500's van de
+// proxy in het weekend zijn immers omdat de FX-markt geen data levert, niet een bug.
+// ==================================================================================
+// FX-handelstijden (bij benadering, UTC): opent zondag ~21:00, sluit vrijdag ~21:00 (24/5).
+function fxMarketOpen(at){
+  const d=at||new Date(), day=d.getUTCDay(), h=d.getUTCHours()+d.getUTCMinutes()/60;
+  let open=true, reason='FX open (24/5)';
+  if(day===6){ open=false; reason='weekend — FX gesloten'; }
+  else if(day===0 && h<21){ open=false; reason='weekend — FX opent zondag ~21:00 UTC'; }
+  else if(day===5 && h>=21){ open=false; reason='weekend — FX gesloten sinds vrijdag ~21:00 UTC'; }
+  let sess=null; try{ if(open) sess=getSession(); }catch(e){}
+  // volgende open/sluit-moment (grof)
+  let nextTxt='';
+  try{ if(!open){ nextTxt='opent zondag 21:00 UTC'; } else if(day===5){ nextTxt='sluit vrijdag 21:00 UTC'; } }catch(e){}
+  return { open, reason, session:sess, next:nextTxt };
+}
+const TrinityFeeds = {
+  defs:[
+    {name:'engine',   label:'Trinity engine (sim-tick)', kind:'internal'},
+    {name:'fso',      label:'FSO compute',               kind:'internal'},
+    {name:'health',   label:'Capital.com proxy · sessie',kind:'live', ep:'/health'},
+    {name:'prices',   label:'Live pricing',              kind:'live', ep:'/prices'},
+    {name:'account',  label:'Account balans',            kind:'live', ep:'/account'},
+    {name:'positions',label:'Open posities',             kind:'live', ep:'/positions'},
+    {name:'activity', label:'Afgewikkelde deals',        kind:'live', ep:'/activity'},
+    {name:'rules',    label:'Dealing rules',             kind:'live', ep:'/rules'}
+  ],
+  st:{},
+  _s(name){ if(!this.st[name]) this.st[name]={status:'idle',lastOk:null,lastErr:null,lastMsg:'',http:null}; return this.st[name]; },
+  markOk(name,msg){ const s=this._s(name); s.status='ok'; s.lastOk=Date.now(); s.lastMsg=msg||''; s.http=200; },
+  // ok=false: classificeer markt-gesloten vs. server-fout
+  markErr(name,msg,http){ const s=this._s(name); const mk=fxMarketOpen();
+    if(!mk.open && this._s(name) && this.defs.find(d=>d.name===name&&d.kind==='live')){ s.status='market-closed'; s.lastMsg=mk.reason; }
+    else { s.status='unavailable'; s.lastMsg=(http?('HTTP '+http+' · '):'')+(msg||'data feed unavailable'); }
+    s.lastErr=Date.now(); s.http=http||null;
+  },
+  markMock(name){ const s=this._s(name); s.status='mock'; s.lastMsg='mock/sim — niet verbonden'; },
+  status(name){ return this._s(name); },
+  // alles live op mock zetten (bij disconnect)
+  allMock(){ this.defs.forEach(d=>{ if(d.kind==='live') this.markMock(d.name); }); }
+};
+try{ window.TrinityFeeds=TrinityFeeds; window.fxMarketOpen=fxMarketOpen; }catch(e){}
+
+// ==================================================================================
+// TRINITY · FSO MULTI-SCALE — micro/meso/macro/volledig (net als Neo's 4 schalen)
+// Downsampled uit dezelfde per-tick oscillator-stroom. Data accumuleert ALTIJD in de
+// achtergrond (in compute→_scales), onafhankelijk van welke tab open is of welke
+// vinkjes de user heeft aangeklikt. De vinkjes bepalen ALLEEN wat er getekend wordt.
+// ==================================================================================
+const TRN_FSO_SCALES = [['micro',1,'MICRO · elke tick'],['meso',4,'MESO · 4× (swing)'],['macro',16,'MACRO · 16× (cyclus)'],['full',64,'VOLLEDIG · 64× (overzicht)']];
+TrinityFSO.scales=null;
+TrinityFSO._scales=function(){
+  if(!this.scales){ this.scales={}; TRN_FSO_SCALES.forEach(([k,f])=>{ const sc={factor:f,_acc:null,S:[],V:[],VFM:[],t:[],ccy:{},pair:{}}; CCY.forEach(c=>sc.ccy[c]=[]); PAIRS.forEach(p=>sc.pair[p]=[]); this.scales[k]=sc; }); }
+  const ccyS={}, pairS={};
+  for(const c of CCY) ccyS[c]=_clamp01((Math.abs(strength[c]||0)+Math.abs(flow[c]||0))/1.4);
+  for(const p of PAIRS){ const st=pair[p]; pairS[p]= st?_clamp01(((st._vol||0)*140 + Math.abs(st.mom||0) + Math.abs(st.m15||0)/0.8)/3):0; }
+  const pt={ S:this.stress, V:this.sysVar, VFM:this.vfm, ccy:ccyS, pair:pairS, t:Date.now() };
+  for(const k in this.scales) this._pushScale(this.scales[k], pt);
+};
+TrinityFSO._pushScale=function(sc,pt){
+  if(sc.factor===1){ this._commitScale(sc,pt); return; }
+  if(!sc._acc){ sc._acc={n:0,S:0,V:0,VFM:0,t:0,ccy:{},pair:{}}; CCY.forEach(c=>sc._acc.ccy[c]=0); PAIRS.forEach(p=>sc._acc.pair[p]=0); }
+  const a=sc._acc; a.n++; a.S+=pt.S; a.V+=pt.V; a.VFM+=pt.VFM; a.t=pt.t;
+  for(const c in pt.ccy)a.ccy[c]+=pt.ccy[c]; for(const p in pt.pair)a.pair[p]+=pt.pair[p];
+  if(a.n>=sc.factor){ const av={S:a.S/a.n,V:a.V/a.n,VFM:a.VFM/a.n,t:a.t,ccy:{},pair:{}}; for(const c in a.ccy)av.ccy[c]=a.ccy[c]/a.n; for(const p in a.pair)av.pair[p]=a.pair[p]/a.n; this._commitScale(sc,av); sc._acc=null; }
+};
+TrinityFSO._commitScale=function(sc,pt){ const CAP=240;
+  sc.S.push(pt.S); sc.V.push(pt.V); sc.VFM.push(pt.VFM); sc.t.push(pt.t);
+  for(const c in pt.ccy)sc.ccy[c].push(pt.ccy[c]); for(const p in pt.pair)sc.pair[p].push(pt.pair[p]);
+  if(sc.S.length>CAP){ sc.S.shift(); sc.V.shift(); sc.VFM.shift(); sc.t.shift(); for(const c in sc.ccy)sc.ccy[c].shift(); for(const p in sc.pair)sc.pair[p].shift(); }
+};
+
+// zichtbaarheids-state (alleen visueel; data draait altijd door)
+const TRN_FSO_VIS = { scales:{micro:false,meso:true,macro:false,full:false}, series:{STRESS:true,VAR:true,VFM:true,CORR:false}, ccy:{}, pairs:{} };
+try{ const v=JSON.parse(localStorage.getItem('trinityFSOvis')||'null'); if(v){ Object.assign(TRN_FSO_VIS.scales,v.scales||{}); Object.assign(TRN_FSO_VIS.series,v.series||{}); TRN_FSO_VIS.ccy=v.ccy||{}; TRN_FSO_VIS.pairs=v.pairs||{}; } }catch(e){}
+function _trFsoSave(){ try{ localStorage.setItem('trinityFSOvis', JSON.stringify(TRN_FSO_VIS)); }catch(e){} }
+const _CCY_COL = {}; const _CCYPAL=['#00d9ff','#14f195','#ffb627','#c792ea','#ff6ec7','#4fc3f7','#7fffd4','#ffd54a','#ff8fa3','#8fb8ff','#f7931a','#a5c8ff','#7af0b8','#e0a3f0','#a3e4ff','#ffb0b6','#b8e986','#d0a3ff'];
+CCY.forEach((c,i)=>_CCY_COL[c]=_CCYPAL[i%_CCYPAL.length]);
+function _pairCol(p){ const b=splitPair(p)[0]; return _CCY_COL[b]||'#8fb8ff'; }
+
+function trFsoToggleScale(k){ TRN_FSO_VIS.scales[k]=!TRN_FSO_VIS.scales[k]; _trFsoSave(); _trFsoBuildCharts(); renderTrinityFSO(); }
+function trFsoToggleSeries(k){ TRN_FSO_VIS.series[k]=!TRN_FSO_VIS.series[k]; _trFsoSave(); renderTrinityFSO(); }
+function trFsoToggleCcy(c){ TRN_FSO_VIS.ccy[c]=!TRN_FSO_VIS.ccy[c]; _trFsoSave(); renderTrinityFSO(); }
+function trFsoTogglePair(p){ TRN_FSO_VIS.pairs[p]=!TRN_FSO_VIS.pairs[p]; _trFsoSave(); renderTrinityFSO(); }
+function trFsoClearOverlays(){ TRN_FSO_VIS.ccy={}; TRN_FSO_VIS.pairs={}; _trFsoSave(); _trFsoBuildToggles(); renderTrinityFSO(); }
+try{ Object.assign(window,{trFsoToggleScale,trFsoToggleSeries,trFsoToggleCcy,trFsoTogglePair,trFsoClearOverlays}); }catch(e){}
+
+// bouwt de vinkjes (schalen + series + valuta + pairs) éénmalig
+let _trFsoTogglesBuilt=false;
+function _trFsoBuildToggles(){
+  const cb=(checked,label,onclick,col)=>`<label class="fsocb"><input type="checkbox" ${checked?'checked':''} onchange="${onclick}"><span${col?` style="color:${col}"`:''}>${label}</span></label>`;
+  const sEl=document.getElementById('tr-fso-scaletoggles');
+  if(sEl) sEl.innerHTML=TRN_FSO_SCALES.map(([k,f,lab])=>cb(TRN_FSO_VIS.scales[k],lab,`trFsoToggleScale('${k}')`)).join('');
+  const serEl=document.getElementById('tr-fso-seriestoggles');
+  if(serEl) serEl.innerHTML=[['STRESS','stress S̄','#ff5f7e'],['VAR','σ² variance','#7fb4ff'],['VFM','VFM energie','#c792ea'],['CORR','corr-breuk','#ffd54a']].map(([k,lab,col])=>cb(TRN_FSO_VIS.series[k],lab,`trFsoToggleSeries('${k}')`,col)).join('');
+  const cEl=document.getElementById('tr-fso-ccytoggles');
+  if(cEl) cEl.innerHTML=CCY.map(c=>cb(!!TRN_FSO_VIS.ccy[c],c,`trFsoToggleCcy('${c}')`,_CCY_COL[c])).join('');
+  const pEl=document.getElementById('tr-fso-pairtoggles');
+  if(pEl) pEl.innerHTML=PAIRS.map(p=>cb(!!TRN_FSO_VIS.pairs[p],p,`trFsoTogglePair('${p}')`,_pairCol(p))).join('');
+  _trFsoTogglesBuilt=true;
+}
+// bouwt per zichtbare schaal een groot canvas
+function _trFsoBuildCharts(){
+  const wrap=document.getElementById('tr-fso-charts'); if(!wrap)return;
+  const want=TRN_FSO_SCALES.filter(([k])=>TRN_FSO_VIS.scales[k]);
+  if(!want.length){ wrap.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.56rem;padding:8px;">geen schaal geselecteerd — vink hierboven MICRO/MESO/MACRO/VOLLEDIG aan</div>'; return; }
+  wrap.innerHTML=want.map(([k,f,lab])=>`<div style="margin-top:10px;"><div class="mono" style="font-size:0.56rem;color:#7fd8ff;letter-spacing:1px;margin-bottom:4px;">${lab}</div><canvas id="tr-fso-${k}" style="width:100%;height:300px;display:block;background:rgba(0,0,0,0.28);border-radius:6px;"></canvas></div>`).join('');
+}
+function drawTrinityFSO(key){
+  const cv=document.getElementById('tr-fso-'+key); if(!cv||!cv.getContext)return;
+  const sc=TrinityFSO.scales&&TrinityFSO.scales[key]; const r=cv.getBoundingClientRect(); if(r.width<10)return;
+  if(cv.width!==Math.round(r.width*2)){ cv.width=r.width*2; cv.height=r.height*2; }
+  const ctx=cv.getContext('2d'); ctx.setTransform(2,0,0,2,0,0); const W=r.width,H=r.height; ctx.clearRect(0,0,W,H);
+  const padL=30,padR=54,padT=14,padB=16;
+  if(!sc||sc.S.length<2){ ctx.fillStyle='#5c7488'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('FSO verzamelt data…',W/2,H/2); return; }
+  const L=sc.S.length, plotW=W-padL-padR;
+  const x=i=>padL+(i/(L-1))*plotW, yS=v=>padT+(1-_clamp01(v))*(H-padT-padB);
+  const spanT=TrinityFSO.spanT||0.22, crisT=TrinityFSO.crisT||0.42;
+  // zones
+  ctx.fillStyle='rgba(20,241,149,0.04)'; ctx.fillRect(padL,yS(spanT),plotW,yS(0)-yS(spanT));
+  ctx.fillStyle='rgba(255,182,39,0.05)'; ctx.fillRect(padL,yS(crisT),plotW,yS(spanT)-yS(crisT));
+  ctx.fillStyle='rgba(255,79,109,0.09)'; ctx.fillRect(padL,yS(1),plotW,yS(crisT)-yS(1));
+  // gevarenzone (σ² ≤ node-drempel) arcering per kolom
+  for(let i=0;i<L;i++){ if(sc.V[i]<=FSO_NODE_TH){ const px=x(i),bw=plotW/(L-1)+0.6; ctx.fillStyle='rgba(255,138,148,0.07)'; ctx.fillRect(px-bw/2,padT,bw,H-padT-padB); } }
+  // drempellijnen
+  const thr=(v,col,lab)=>{ ctx.strokeStyle=col; ctx.lineWidth=1; ctx.setLineDash([5,4]); ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font="7px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText(lab+' '+v.toFixed(2),W-padR-2,yS(v)-2); };
+  thr(crisT,'rgba(255,79,109,0.85)','CRISIS'); thr(spanT,'rgba(255,182,39,0.8)','SPANNING');
+  const line=(arr,col,w,dash)=>{ if(!arr)return; ctx.strokeStyle=col; ctx.lineWidth=w; if(dash)ctx.setLineDash(dash); ctx.beginPath(); for(let i=0;i<L;i++){ const px=x(i),py=yS(arr[i]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); } ctx.stroke(); if(dash)ctx.setLineDash([]); };
+  // overlays: valuta + pairs (individuele oscillator-lijnen)
+  for(const c of CCY){ if(TRN_FSO_VIS.ccy[c]&&sc.ccy[c]) line(sc.ccy[c],_CCY_COL[c],0.9); }
+  for(const p of PAIRS){ if(TRN_FSO_VIS.pairs[p]&&sc.pair[p]) line(sc.pair[p],_pairCol(p),0.8,[3,2]); }
+  // series
+  if(TRN_FSO_VIS.series.VFM) line(sc.VFM,'rgba(199,146,234,0.55)',1.0);
+  if(TRN_FSO_VIS.series.VAR) line(sc.V,'rgba(127,180,255,0.7)',1.0,[4,3]);
+  if(TRN_FSO_VIS.series.STRESS) line(sc.S,'#ff5f7e',1.6);
+  // huidige-waarde marker
+  if(TRN_FSO_VIS.series.STRESS){ const cx=x(L-1),cy=yS(sc.S[L-1]); ctx.beginPath(); ctx.arc(cx,cy,3.5,0,6.283); ctx.fillStyle='rgba(255,95,126,0.25)'; ctx.fill(); ctx.beginPath(); ctx.arc(cx,cy,2,0,6.283); ctx.fillStyle='#ffd0d8'; ctx.fill(); }
+  // assen
+  ctx.fillStyle='#7d99ac'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='right';
+  [0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v.toFixed(2),padL-4,yS(v)+3));
+  // tijd-as
+  try{ if(sc.t&&sc.t.length===L){ const fmt=ms=>{const d=new Date(ms),p=n=>String(n).padStart(2,'0'); return key==='micro'||key==='meso'?`${p(d.getHours())}:${p(d.getMinutes())}`:`${p(d.getDate())}/${p(d.getMonth()+1)}`; };
+    ctx.fillStyle='#6d8296'; ctx.font="7.5px 'JetBrains Mono',monospace"; for(let s=0;s<=4;s++){ const i=Math.round(s/4*(L-1)); ctx.textAlign=s===0?'left':s===4?'right':'center'; ctx.fillText(fmt(sc.t[i]),x(i),H-4); } } }catch(e){}
+  // regime-badge + huidige waarden
+  const F=TrinityFSO, rc={RUST:'#14f195',SPANNING:'#ffb627',CRISIS:'#ff4f6d'}[F.regime]||'#7fd4ff';
+  ctx.textAlign='left'; ctx.fillStyle=rc; ctx.font="bold 10px 'JetBrains Mono',monospace"; ctx.fillText('● '+F.regime+(F.killSwitch?' ⚡':''),padL+2,padT+9);
+  ctx.fillStyle='#9fb2c4'; ctx.font="8.5px 'JetBrains Mono',monospace"; ctx.fillText('stress '+sc.S[L-1].toFixed(3)+' · σ² '+sc.V[L-1].toFixed(2)+' · VFM '+(sc.VFM[L-1]*100|0)+'% · '+L+'pt',padL+70,padT+9);
+}
+function renderTrinityFSO(){
+  if(!_trFsoTogglesBuilt) _trFsoBuildToggles();
+  if(!document.getElementById('tr-fso-'+(TRN_FSO_SCALES.find(([k])=>TRN_FSO_VIS.scales[k])||['x'])[0])) _trFsoBuildCharts();
+  TRN_FSO_SCALES.forEach(([k])=>{ if(TRN_FSO_VIS.scales[k]) { try{ drawTrinityFSO(k); }catch(e){} } });
+}
+// connectiviteits-paneel: status per feed
+function renderFeeds(){
+  const el=document.getElementById('tr-feeds'); if(!el)return;
+  const mk=fxMarketOpen();
+  const dot=(st)=>({ok:'#14f195',mock:'#7fd4ff','market-closed':'#ffb627',unavailable:'#ff4f6d',idle:'#5c7488'}[st]||'#5c7488');
+  const lbl=(st)=>({ok:'connected',mock:'mock/sim','market-closed':'markt gesloten',unavailable:'data feed unavailable',idle:'—'}[st]||st);
+  const rows=TrinityFeeds.defs.map(d=>{ const s=TrinityFeeds.status(d.name);
+    const upd = s.lastOk?('last updated '+fmtTime(new Date(s.lastOk))):(s.lastErr?('laatste fout '+fmtTime(new Date(s.lastErr))):'—');
+    return `<div class="feedrow"><span class="feeddot" style="background:${dot(s.status)}"></span><span class="feedname">${d.label}${d.ep?` <small style="color:var(--dimmer)">${d.ep}</small>`:''}</span><span class="feedstat" style="color:${dot(s.status)}">${lbl(s.status)}</span><span class="feedupd">${upd}${s.lastMsg?` · <small style="color:var(--dimmer)">${s.lastMsg}</small>`:''}</span></div>`;
+  }).join('');
+  el.innerHTML=`<div class="feedrow feedhdr"><span class="feeddot" style="background:${mk.open?'#14f195':'#ffb627'}"></span><span class="feedname"><b>FX-markt ${mk.open?'OPEN':'GESLOTEN'}</b></span><span class="feedstat" style="color:${mk.open?'#14f195':'#ffb627'}">${mk.open?(mk.session?mk.session.name:'24/5'):'weekend'}</span><span class="feedupd"><small style="color:var(--dimmer)">${mk.reason}${mk.next?' · '+mk.next:''}</small></span></div>`+rows;
+}
+try{ Object.assign(window,{renderTrinityFSO,renderFeeds,drawTrinityFSO}); }catch(e){}
+
 // ===== TRINITY · BRAIN-TRUST — eerlijke, sample-size-bewuste weging per SESSIE =====
 // Zelfde principe als Osiris: elke sessie (asia/eu/us/overlap) krijgt vertrouwen o.b.v. aantal trades
 // (nConf), of de confidence de winst rangschikt (AUC→disc), en de eigen winrate gekrompen naar de
@@ -18932,6 +19278,7 @@ function tick(){
   topLong =ranked.filter(r=>r.side==='LONG').sort((a,b)=>b.score-a.score)[0]||ranked[0];
   topShort=ranked.filter(r=>r.side==='SHORT').sort((a,b)=>b.score-a.score)[0]||ranked[0];
   TrinityFSO.compute();
+  try{ TrinityFeeds.markOk('engine', feed.mode==='live'&&feed.ok ? 'live-prijzen actief' : 'sim-tick actief'); }catch(e){}
   manageTrinity();
 }
 
@@ -19167,48 +19514,52 @@ function connectCapital(){
   feed.provider='capital'; feed.mode='live';
   capStatus('Connecting to Capital.com '+feed.env.toUpperCase()+' via proxy…','var(--cyan)');
   // health check first
-  fetch(capProxy+'/health').then(r=>r.json()).then(h=>{
-    if(!h.ok||!h.session){ feed.mode='mock'; feed.ok=false; capStatus('Proxy reachable but no Capital.com session — check CAP_API_KEY / CAP_IDENTIFIER / CAP_PASSWORD secrets on the worker.','var(--bear)'); return; }
+  fetch(capProxy+'/health').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(h=>{
+    if(!h.ok||!h.session){ feed.mode='mock'; feed.ok=false; TrinityFeeds.markErr('health','proxy bereikbaar, geen Capital.com-sessie'); capStatus('Proxy reachable but no Capital.com session — check CAP_API_KEY / CAP_IDENTIFIER / CAP_PASSWORD secrets on the worker.','var(--bear)'); return; }
+    TrinityFeeds.markOk('health', 'sessie actief · '+feed.env.toUpperCase());
     fetchCapitalPrices(true); fetchCapitalAccount(); fetchCapitalRules(); startCapitalSync();
     // after a reconnect / tab reopen: if Trinity was running before, resume syncing its open positions
     if(trinityWasRunning && !trinityOn){ pushReason('reconnected — Trinity was running before; resuming sync with Capital.com (open positions restored from broker)'); }
     feed.timer=setInterval(()=>{ fetchCapitalPrices(false); },5000);        // poll every 5s (proxy throttles internally)
     setInterval(()=>{ if(feed.mode==='live') fetchCapitalAccount(); },20000);
-  }).catch(e=>{ feed.mode='mock'; feed.ok=false; capStatus('Cannot reach proxy: '+e.message+' — verify the worker URL and that it is deployed.','var(--bear)'); });
+  }).catch(e=>{ feed.mode='mock'; feed.ok=false; TrinityFeeds.markErr('health',e.message,e.http); capStatus('Cannot reach proxy: '+e.message+' — verify the worker URL and that it is deployed.','var(--bear)'); });
 }
 window.connectCapital=connectCapital;
 function capStatus(msg,color){ const st=document.getElementById('cap-status'); if(st){st.textContent=msg; st.style.color=color||'var(--amber)';} }
 function fetchCapitalRules(){
   const epics=PAIRS.map(toEpic).join(',');
-  fetch(capProxy+'/rules?epics='+encodeURIComponent(epics)).then(r=>r.json()).then(d=>{
-    if(!d.rules)return; let n=0;
+  fetch(capProxy+'/rules?epics='+encodeURIComponent(epics)).then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
+    if(!d.rules){ TrinityFeeds.markErr('rules','geen rules'); return; } let n=0;
     d.rules.forEach(ru=>{ const name=fromEpic(ru.epic); const st=pair[name]; if(!st)return;
       st._minSize=ru.minSize||0.1; st._sizeStep=ru.sizeStep||0.01; st._minStopPct=ru.minStopPct; st._maxStopPct=ru.maxStopPct; st._ccy=ru.currency; n++; });
+    TrinityFeeds.markOk('rules', n+' pairs');
     pushReason('dealing rules loaded for '+n+' pairs — order sizes now match each market\u2019s minimum');
-  }).catch(()=>{});
+  }).catch(e=>{ TrinityFeeds.markErr('rules',e.message,e.http); });
 }
 function fetchCapitalPrices(first){
   const epics=PAIRS.map(toEpic).join(',');
-  fetch(capProxy+'/prices?epics='+encodeURIComponent(epics)).then(r=>r.json()).then(d=>{
-    if(d.error){ capStatus('Price error: '+d.error,'var(--bear)'); return; }
+  fetch(capProxy+'/prices?epics='+encodeURIComponent(epics)).then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
+    if(d.error){ capStatus('Price error: '+d.error,'var(--bear)'); TrinityFeeds.markErr('prices',d.error); return; }
     let n=0,tradeable=0;
     (d.prices||[]).forEach(pr=>{ const name=fromEpic(pr.epic); const st=pair[name]; if(!st||pr.mid==null)return;
       st.rate=pr.mid; st.base=st.base||pr.mid; st._live=true; st._liveAt=Date.now(); st.tradeable=(pr.status==='TRADEABLE'); st._spread=(pr.bid&&pr.ask)?(pr.ask-pr.bid)/pr.mid:0; n++; if(st.tradeable)tradeable++; });
     feed.ok=n>0; feed.livePairs=n; feed.lastAt=new Date();
     if(feed.ok){ capStatus('LIVE · Capital.com '+feed.env.toUpperCase()+' · '+n+'/'+PAIRS.length+' pairs · '+tradeable+' tradeable · real spread · '+fmtTime(feed.lastAt),'var(--bull2)');
+      TrinityFeeds.markOk('prices', n+'/'+PAIRS.length+' pairs · '+tradeable+' tradeable');
       if(first) pushReason('LIVE feed connected — Capital.com '+feed.env.toUpperCase()+', '+n+' pairs via proxy. Trinity now trades REAL market prices; results are no longer simulated.'); }
-    else capStatus('Connected but no prices returned (market may be closed — forex is shut on weekends).','var(--amber)');
-  }).catch(e=>{ capStatus('Price fetch failed: '+e.message,'var(--bear)'); });
+    else { capStatus('Connected but no prices returned (market may be closed — forex is shut on weekends).','var(--amber)'); TrinityFeeds.markErr('prices','geen prijzen (markt mogelijk gesloten)'); }
+  }).catch(e=>{ capStatus('Price fetch failed: '+e.message,'var(--bear)'); TrinityFeeds.markErr('prices',e.message,e.http); });
 }
 function fetchCapitalAccount(){
-  fetch(capProxy+'/account').then(r=>r.json()).then(a=>{
-    if(a&&a.balance!=null){ feed.accountBalance=a.balance; feed.accountCurrency=a.currency;
+  fetch(capProxy+'/account').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(a=>{
+    if(a&&a.balance!=null){ feed.accountBalance=a.balance; feed.accountCurrency=a.currency; TrinityFeeds.markOk('account', a.balance.toLocaleString('en-US',{style:'currency',currency:a.currency||'USD'}));
       const el=document.getElementById('cap-account-bal'); if(el)el.textContent='Demo account: '+a.balance.toLocaleString('en-US',{style:'currency',currency:a.currency||'USD'})+' · available '+(a.available!=null?a.available.toLocaleString('en-US',{style:'currency',currency:a.currency||'USD'}):'—'); }
-  }).catch(()=>{});
+    else TrinityFeeds.markErr('account','geen balans');
+  }).catch(e=>{ TrinityFeeds.markErr('account',e.message,e.http); });
 }
 function disconnectCapital(){
   if(feed.timer){ clearInterval(feed.timer); feed.timer=null; }
-  feed.mode='mock'; feed.ok=false;
+  feed.mode='mock'; feed.ok=false; TrinityFeeds.allMock();
   capStatus('Disconnected — back on MOCK (simulated) data.','var(--amber)');
   pushReason('live feed disconnected — reverted to mock data');
 }
@@ -19232,11 +19583,12 @@ function stopCapitalSync(){ if(syncTimer){ clearInterval(syncTimer); syncTimer=n
 function syncCapitalPositions(){
   if(!capProxy) return;
   Promise.all([
-    fetch(capProxy+'/positions').then(r=>r.json()).catch(e=>({error:e.message})),
-    fetch(capProxy+'/account').then(r=>r.json()).catch(e=>({error:e.message})),
+    fetch(capProxy+'/positions').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).catch(e=>({error:e.message,http:e.http})),
+    fetch(capProxy+'/account').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).catch(e=>({error:e.message,http:e.http})),
   ]).then(([pos,acc])=>{
-    if(acc&&acc.balance!=null){ liveAccount=acc; }
-    if(pos&&pos.positions){
+    if(acc&&acc.balance!=null){ liveAccount=acc; TrinityFeeds.markOk('account', acc.balance.toLocaleString('en-US',{style:'currency',currency:acc.currency||'USD'})); } else if(acc&&acc.error){ TrinityFeeds.markErr('account',acc.error,acc.http); }
+    if(pos&&pos.error){ TrinityFeeds.markErr('positions',pos.error,pos.http); }
+    else if(pos&&pos.positions){ TrinityFeeds.markOk('positions', pos.positions.length+' open');
       livePositions=pos.positions.map(p=>{
         const name=fromEpic(p.epic), long=p.direction==='BUY';
         const mid=(p.bid&&p.offer)?(p.bid+p.offer)/2:p.entry;
@@ -19266,8 +19618,9 @@ function reconcileInternalWithBroker(){
 // Read broker-settled deals so Trinity learns outcomes even when Capital.com guards the stop/target
 function syncCapitalActivity(){
   if(!capProxy) return;
-  fetch(capProxy+'/activity?seconds=3600').then(r=>r.json()).then(d=>{
-    if(!d.activities)return;
+  fetch(capProxy+'/activity?seconds=3600').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
+    if(!d.activities){ TrinityFeeds.markErr('activity','geen activity'); return; }
+    TrinityFeeds.markOk('activity', d.activities.length+' events');
     d.activities.forEach(a=>{
       if(a.type!=='POSITION' || (a.status!=='CLOSED'&&a.status!=='DELETED'&&a.status!=='ACCEPTED'))return;
       const key=a.dealId+'|'+a.date; if(seenClosed[key])return;
@@ -19278,7 +19631,7 @@ function syncCapitalActivity(){
         if(meta && !meta.logged){ meta.logged=true; recordBrokerClose(a,meta); }
       }
     });
-  }).catch(()=>{});
+  }).catch(e=>{ TrinityFeeds.markErr('activity',e.message,e.http); });
 }
 function recordBrokerClose(a,meta){
   // Trinity didn't see the tick-by-tick exit (broker did), so we log the outcome from activity + last known P/L.
@@ -19470,7 +19823,7 @@ function exportWallet(){ downloadFile('oif-wallet.json',JSON.stringify({...walle
 function exportPairs(){ const h=['pair','rate','chg_pct','m15','h1','day','mom','pred','fib_pct','side','score'];
   const rows=PAIRS.map(p=>{const s=pair[p];return [p,s.rate,s.chgPct.toFixed(3),s.m15.toFixed(3),s.h1.toFixed(3),s.day.toFixed(3),s.mom.toFixed(3),s.pred.toFixed(1),(s.fib*100).toFixed(0),s.side,s.score.toFixed(1)];});
   downloadFile('oif-pairs.csv',[h.join(','),...rows.map(r=>r.join(','))].join('\n'),'text/csv'); }
-function exportEngine(){ downloadFile('oif-engine.json',JSON.stringify({preset,customPreset,activePreset:activePreset(),presets:PRESETS,sessionTune:SESSION_TUNE,options:opts,oanda:{env:oanda.env,mode:oanda.mode,connected:oanda.connected},trinity:{adaptiveMult:trinity.mult,winRate:trinity.wr,avgR:trinity.avgR,bySession:trinity.byS},autoAdj,autoAdjustments:trinityAdj.slice(0,30),calibration:calibB,costModel:{COST_PCT,STOP_SLIP_PCT},exportedAt:fmtTime(new Date())},null,2),'application/json'); }
+function exportEngine(){ downloadFile('oif-engine.json',JSON.stringify({preset,customPreset,activePreset:activePreset(),presets:PRESETS,sessionTune:SESSION_TUNE,options:opts,oanda:{env:oanda.env,mode:oanda.mode,connected:oanda.connected},trinity:{adaptiveMult:trinity.mult,winRate:trinity.wr,avgR:trinity.avgR,bySession:trinity.byS},autoAdj,autoAdjustments:trinityAdj.slice(0,30),calibration:calibB,costModel:{COST_PCT,STOP_SLIP_PCT},fso:{live:{stress:TrinityFSO.stress,sysVar:TrinityFSO.sysVar,vfm:TrinityFSO.vfm,escapeVel:TrinityFSO.escapeVel,regime:TrinityFSO.regime,killSwitch:TrinityFSO.killSwitch,compressionAge:TrinityFSO.compressionAge,oscillators:TrinityFSO.osc.length,names:TrinityFSO.names},calibration:TrinityFSOCal.bundle()},exportedAt:fmtTime(new Date())},null,2),'application/json'); }
 window.exportTrades=exportTrades; window.exportWallet=exportWallet; window.exportPairs=exportPairs; window.exportEngine=exportEngine;
 function renderCalib(){
   const cv=document.getElementById('calib-canvas'); if(!cv)return;
@@ -19502,17 +19855,32 @@ function renderTrinity(){
   const names={overlap:'London–NY',eu:'London / EU',us:'New York / US',asia:'Tokyo / Asian'};
   // FSO · FX system-stress
   const fso=document.getElementById('tr-fso');
-  if(fso){ const rc={RUST:'#14f195',SPANNING:'#ffb627',CRISIS:'#ff4f6d'}[TrinityFSO.regime]||'#7fd4ff';
-    fso.innerHTML=`<span style="color:${rc};font-weight:700">◉ FSO ${TrinityFSO.regime}</span> · stress ${TrinityFSO.level.toFixed(3)} · σ² ${TrinityFSO.variance.toFixed(4)} · risico-schaal ×${TrinityFSO.sizeMult().toFixed(2)}${TrinityFSO.blockEntries()?' · <b style="color:#ff4f6d">nieuwe entries gepauzeerd</b>':''}`;
+  if(fso){ const F=TrinityFSO; const rc={RUST:'#14f195',SPANNING:'#ffb627',CRISIS:'#ff4f6d'}[F.regime]||'#7fd4ff';
+    const comp = F.sysVar<=FSO_NODE_TH;
+    fso.innerHTML=`<span style="color:${rc};font-weight:700">◉ FSO ${F.regime}</span>${F.killSwitch?' <b style="color:#ff4f6d">⚡ KILL-SWITCH</b>':''}`
+      +` · stress <b style="color:var(--tx)">${F.stress.toFixed(3)}</b> · σ² <b style="color:${comp?'#ff4f6d':'var(--tx)'}">${F.sysVar.toFixed(2)}</b>${comp?' <small style="color:#ff8a94">gevarenzone (compressie)</small>':''}`
+      +` · VFM <b style="color:${F.vfm>=0.82?'#ff4f6d':'#ffb627'}">${(F.vfm*100|0)}%</b> · ΔV ${F.escapeVel>=0?'+':''}${F.escapeVel.toFixed(3)} · ×${F.sizeMult().toFixed(2)}`
+      +`${F.blockEntries()?' · <b style="color:#ff4f6d">entries gepauzeerd</b>':''}`
+      +` <small style="color:var(--dimmer)">· ${F.marketsUsed} valuta's · ${F.osc.length} oscillatoren</small>`;
   }
-  // FSO mini-grafiek (stress-historie met SPANNING/CRISIS-drempels)
-  const fc=document.getElementById('tr-fso-canvas');
-  if(fc&&fc.getContext){ const r=fc.getBoundingClientRect(); if(r.width>10){ if(fc.width!==Math.round(r.width*2)){fc.width=r.width*2;fc.height=r.height*2;} const cx=fc.getContext('2d'); cx.setTransform(2,0,0,2,0,0); const W=r.width,H=r.height; cx.clearRect(0,0,W,H);
-    [['#ffb627',0.22],['#ff4f6d',0.42]].forEach(a=>{const y=H-a[1]*H; cx.strokeStyle=a[0]+'55'; cx.setLineDash([3,3]); cx.beginPath();cx.moveTo(0,y);cx.lineTo(W,y);cx.stroke();cx.setLineDash([]);});
-    const h=TrinityFSO.hist||[]; if(h.length>1){ const rc={RUST:'#14f195',SPANNING:'#ffb627',CRISIS:'#ff4f6d'}[TrinityFSO.regime]||'#7fd4ff';
-      cx.beginPath(); h.forEach((v,i)=>{const x=i/(h.length-1)*W, y=H-Math.max(0,Math.min(1,v))*H; i?cx.lineTo(x,y):cx.moveTo(x,y);});
-      cx.strokeStyle=rc; cx.lineWidth=1.5; cx.stroke(); cx.lineTo(W,H); cx.lineTo(0,H); cx.closePath(); cx.fillStyle=rc+'18'; cx.fill(); }
-  } }
+  // Multi-scale FSO-charts (micro/meso/macro/volledig) + connectiviteits-paneel — data draait op de achtergrond,
+  // vinkjes bepalen alleen wat getekend wordt.
+  try{ renderTrinityFSO(); }catch(e){}
+  try{ renderFeeds(); }catch(e){}
+  // Shadow-backtest + scenario-tester + kalibratie-status
+  const shl=document.getElementById('tr-fso-shadow');
+  if(shl){ const sh=TrinityFSOShadow.prop, sc=TrinityFSOShadow.scenario, cal=TrinityFSOCal.get();
+    if(!sh){ shl.innerHTML='<span style="color:var(--dimmer)">shadow-backtest verzamelt data… (≈80 ticks nodig)</span>'; }
+    else { const cr=sh.crisis||sh.bestCrisis, sp=sh.spanning||sh.bestSpan;
+      shl.innerHTML=
+      `<span style="color:${sh.proven?'#14f195':'#ffb627'}">◐ shadow ${sh.proven?'proven':'kandidaten'}</span> <small style="color:var(--dimmer)">n=${sh.n}·H${sh.horizon}</small>`
+      +(cr?` · crisis&gt;${cr.T} <small style="color:var(--dimmer)">lift ${cr.lift}${sh.crisis?'':' (zwak)'}</small>`:'')
+      +(sp?` · spanning&gt;${sp.T} <small style="color:var(--dimmer)">lift ${sp.lift}${sh.spanning?'':' (zwak)'}</small>`:'')
+      +(sh.escape?` · ΔV&gt;${sh.escape.T}`:'')
+      +(sc?` · <span style="color:${sc.robust?'#14f195':'#ffb627'}">scenario ×${sc.avgLift} ${sc.robust?'robuust':'zwak'}</span> <small style="color:var(--dimmer)">(${sc.paths} paden)</small>`:'')
+      +(cal.calibrated?` · <b style="color:#14f195">zones gekalibreerd</b> span ${cal.spanning}/cris ${cal.crisis}`:` · <small style="color:var(--dimmer)">zones op default (${cal.spanning}/${cal.crisis}) — kalibreert bij bewezen separatie op live data</small>`);
+    }
+  }
   const el=document.getElementById('tr-sessions'); if(!el)return;
   el.innerHTML=Object.keys(names).map(k=>{const b=t.byS[k],wr=b.n?Math.round(b.w/b.n*100):0; const tr=TrinityTrust.stats(k), wf=TrinityTrust.weightFactor(k);
     const trust=`<small style="color:#8aa0ff">×${wf.toFixed(2)}${tr&&tr.auc!=null?' AUC '+tr.auc.toFixed(2):''}${tr&&tr.n>=6&&tr.disc<=0.2?' · vlak':''}${tr&&tr.inverted?' ⚠inv':''}</small>`;
@@ -19756,6 +20124,8 @@ const heroBrainCv=document.getElementById('hero-brain-canvas'),heroBrainCtx=hero
 const ocBrainCv=document.getElementById('ocular-brain-canvas'),ocBrainCtx=ocBrainCv?ocBrainCv.getContext('2d'):null;
 buildTable(); buildBrain(); setFlow('capital'); rebuildCapArcs(); setBrainBias('auto');
 const restored=restoreState();   // bring back learning/calibration + running flag from before (survives tab close)
+try{ TrinityFeeds.allMock(); TrinityFeeds.markOk('engine','sim-tick actief'); }catch(e){}
+try{ _trFsoBuildToggles(); _trFsoBuildCharts(); }catch(e){}
 resizeMaps(); initMap(); ensureMapReady(); initOcularMapLegend(); tick(); renderTable(); renderOpp(); renderTrinity(); if(!restored)setPreset('balanced'); else renderSettings(); renderWallet(); renderInternals(); renderCalib(); renderPositions(); renderClosed(); renderReasoning(); renderAdjustments();
 setWalletMode(walletMode);
 if(restored && restored.capProxy){
