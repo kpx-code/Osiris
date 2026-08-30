@@ -19753,7 +19753,7 @@ function paintBrain(cv,ctx,now){const r=cv.getBoundingClientRect();if(r.width<10
 
 // ---------- boot + loops ----------
 const heroBrainCv=document.getElementById('hero-brain-canvas'),heroBrainCtx=heroBrainCv?heroBrainCv.getContext('2d'):null;
-const ocBrainCv=document.getElementById('ocular-brain-canvas'),ocBrainCtx=ocBrainCv.getContext('2d');
+const ocBrainCv=document.getElementById('ocular-brain-canvas'),ocBrainCtx=ocBrainCv?ocBrainCv.getContext('2d'):null;
 buildTable(); buildBrain(); setFlow('capital'); rebuildCapArcs(); setBrainBias('auto');
 const restored=restoreState();   // bring back learning/calibration + running flag from before (survives tab close)
 resizeMaps(); initMap(); ensureMapReady(); initOcularMapLegend(); tick(); renderTable(); renderOpp(); renderTrinity(); if(!restored)setPreset('balanced'); else renderSettings(); renderWallet(); renderInternals(); renderCalib(); renderPositions(); renderClosed(); renderReasoning(); renderAdjustments();
@@ -19868,4 +19868,445 @@ addEventListener('beforeunload',persistState);
 
   // start on About; give the engine a moment then nudge canvases
   window.addEventListener('load', function () { setTimeout(function () { try { window.dispatchEvent(new Event('resize')); } catch (e) {} }, 400); });
+})();
+
+
+/* ---- Trinity DeepNet visualisatie ---- */
+/* ==================================================================================
+   TRINITY · DEEPNET — node-graph visualisatie in dezelfde ontwerptaal als de
+   Osiris Neo DeepNet, maar met Trinity's EIGEN elementen. Tools die Trinity NOG NIET
+   heeft (maar Neo wel) worden als "ghost"-knopen (gestippeld, gedimd, tag "planned")
+   getekend, zodat je in één oogopslag ziet wat Trinity mist t.o.v. Osiris Neo.
+   Volledig self-contained; leest live Trinity-state (pair/ranked/predictive/trinity/
+   TrinityFSO/TrinityTrust/getSession/wallet). Raakt geen Osiris-code aan.
+   ================================================================================== */
+(function () {
+  'use strict';
+
+  // ---- Trinity INPUTS (data-true FX-features die de beslissing voeden) ----
+  const TRN_INPUTS = [
+    { key: 'str',     label: 'STR',     c: '#00d9ff' },  // currency strength gap
+    { key: 'mom',     label: 'MOM',     c: '#14f195' },  // momentum
+    { key: 'vol',     label: 'VOL',     c: '#c792ea' },  // volatility
+    { key: 'carry',   label: 'CARRY',   c: '#ffd54a' },  // rate differential / carry
+    { key: 'news',    label: 'NEWS',    c: '#ff8fa3' },  // news sentiment
+    { key: 'fib',     label: 'FIB',     c: '#ffb627' },  // fib confluence
+    { key: 'liq',     label: 'LIQ',     c: '#4fc3f7' },  // session liquidity
+    { key: 'sig',     label: 'SIG',     c: '#7fffd4' },  // signal magnitude
+    { key: 'flow',    label: 'FLOW',    c: '#38bdf8' },  // capital flow
+    { key: 'trend',   label: 'TREND',   c: '#81d4fa' },  // trend alignment
+    { key: 'cost',    label: 'COST',    c: '#ff6ec7' },  // spread + slippage cost
+    { key: 'sess',    label: 'SESS',    c: '#8fb8ff' },  // active-session bias
+    { key: 'fso_lvl', label: 'FSO·LVL', c: '#ff5f7e' },  // FX system-stress level
+    { key: 'fso_var', label: 'FSO·σ²',  c: '#7fb4ff' },  // stress variance
+    { key: 'fso_mom', label: 'FSO·MOM', c: '#c792ea' }   // mean |momentum|
+  ];
+
+  const SESS = ['asia', 'eu', 'us', 'overlap'];
+  const SESSLAB = { asia: 'ASIA', eu: 'EU', us: 'US', overlap: 'OVLP' };
+  const SESSCOL = { asia: '#ffb627', eu: '#00d9ff', us: '#14f195', overlap: '#c792ea' };
+
+  // META: present = Trinity HEEFT deze tool (data-true, oplicht).
+  //       ghost  = Neo heeft 'm wél, Trinity NOG NIET (gedimd, gestippeld, "planned").
+  const TRN_META = [
+    // ---- aanwezig (lit) ----
+    { id: 'trust',   label: 'BRAIN-TRUST', mx: 0.30, yoff: -0.34, conn: 'cores', col: '#7fd8ff', ghost: false },
+    { id: 'session', label: 'SESSION',     mx: 0.55, yoff: 0.34,  conn: 'gate',  col: '#8fb8ff', ghost: false },
+    { id: 'fso',     label: 'FSO',         mx: 0.63, yoff: -0.30, conn: 'gate',  col: '#ff5f7e', ghost: false },
+    { id: 'cost',    label: 'COST-GUARD',  mx: 0.80, yoff: -0.31, conn: 'dec',   col: '#ffd24a', ghost: false },
+    { id: 'calib',   label: 'CALIB',       mx: 0.90, yoff: -0.22, conn: 'learn', col: '#14f195', ghost: false },
+    { id: 'selftune',label: 'SELF-TUNE',   mx: 0.945, yoff: 0.22, conn: 'learn', col: '#14f195', ghost: false },
+    // ---- ontbreekt (ghost · planned) ----
+    { id: 'g_deep',  label: 'DEEPNET',     mx: 0.25, yoff: 0.32,  conn: 'cores', col: '#5c7488', ghost: true },
+    { id: 'g_pred',  label: 'PREDICT·INV', mx: 0.40, yoff: 0.34,  conn: 'cores', col: '#5c7488', ghost: true },
+    { id: 'g_kin',   label: 'KINETIC',     mx: 0.485, yoff: -0.34,conn: 'osiris',col: '#5c7488', ghost: true },
+    { id: 'g_node',  label: 'NODE-TIME',   mx: 0.66, yoff: 0.34,  conn: 'gate',  col: '#5c7488', ghost: true },
+    { id: 'g_regime',label: 'REGIME·HMM',  mx: 0.49, yoff: 0.71,  conn: 'osiris',col: '#5c7488', ghost: true },
+    { id: 'g_llm',   label: 'LLM·VERIFY',  mx: 0.56, yoff: -0.32, conn: 'osiris',col: '#5c7488', ghost: true },
+    { id: 'g_mtf',   label: 'MULTI-TF',    mx: 0.645, yoff: -0.20,conn: 'gate',  col: '#5c7488', ghost: true },
+    { id: 'g_fade',  label: 'NODE-FADE',   mx: 0.665, yoff: 0.20, conn: 'gate',  col: '#5c7488', ghost: true },
+    { id: 'g_spike', label: 'SPIKE-GUARD', mx: 0.80, yoff: -0.44, conn: 'dec',   col: '#5c7488', ghost: true },
+    { id: 'g_guard', label: 'GUARDIAN',    mx: 0.785, yoff: 0.42, conn: 'dec',   col: '#5c7488', ghost: true },
+    { id: 'g_risk',  label: 'RISK-BREAK',  mx: 0.84, yoff: 0.30,  conn: 'dec',   col: '#5c7488', ghost: true },
+    { id: 'g_rl',    label: 'RL-EXIT',     mx: 0.915, yoff: -0.30,conn: 'learn', col: '#5c7488', ghost: true },
+    { id: 'g_cloud', label: 'CLOUD-SYNC',  mx: 0.615, yoff: 0.66, conn: 'osiris',col: '#5c7488', ghost: true },
+    { id: 'g_margin',label: 'MARGIN',      mx: 0.72, yoff: 0.52,  conn: 'dec',   col: '#5c7488', ghost: true }
+  ];
+
+  let _trnet = { built: false, raf: null, last: 0, pulse: 0, fbPulse: 0, _lastLearn: null, actLevel: 0, _org: null, _outId: null };
+
+  // ---- live input-activaties uit Trinity's echte state ----
+  function trnNetInputs() {
+    const norm = (v, s) => Math.max(-1, Math.min(1, (v || 0) / s));
+    let best = null, sess = null, F = { level: 0, variance: 0, absMom: 0 }, flowMean = 0, actSessStr = 0;
+    try { best = (typeof ranked !== 'undefined' && ranked && ranked.length) ? ranked[0] : null; } catch (e) {}
+    try { sess = (typeof getSession === 'function') ? getSession() : null; } catch (e) {}
+    try { if (typeof TrinityFSO !== 'undefined') F = TrinityFSO; } catch (e) {}
+    try { if (typeof flow !== 'undefined' && typeof CCY !== 'undefined') { let s = 0, n = 0; CCY.forEach(c => { s += Math.abs(flow[c] || 0); n++; }); flowMean = n ? s / n : 0; } } catch (e) {}
+    try { if (sess && sess.pairs && typeof strength !== 'undefined' && typeof splitPair === 'function') { let s = 0, n = 0; sess.pairs.forEach(p => { const sp = splitPair(p); if (sp) { s += Math.abs((strength[sp[0]] || 0) - (strength[sp[1]] || 0)); n++; } }); actSessStr = n ? s / n : 0; } } catch (e) {}
+    let costRel = 0.3;
+    try { if (best && best.p && typeof COST_PCT !== 'undefined') { const kind = /JPY|USD|EUR|GBP|CHF|CAD|AUD|NZD/.test(best.p) ? 'major' : 'cross'; costRel = Math.min(1, (COST_PCT[kind] || 0.02) / 0.07); } } catch (e) {}
+    return {
+      str:  norm(best ? best._gap : 0, 1.2),
+      mom:  norm(best ? best.mom : 0, 1.2),
+      vol:  Math.max(0, Math.min(1, (best ? best.vol : 0.3))),
+      carry: norm(best ? best._carry : 0, 1),
+      news: norm(best ? best._news : 0, 1),
+      fib:  Math.max(0, Math.min(1, best ? best.fib : 0)),
+      liq:  Math.max(0.05, Math.min(1, actSessStr * 1.4 + 0.25)),
+      sig:  Math.max(0, Math.min(1, best ? (best._sigMag || 0) : 0)),
+      flow: Math.max(0, Math.min(1, flowMean * 2)),
+      trend: norm(best ? (best.mom || 0) : 0, 1),
+      cost: costRel,
+      sess: Math.max(0.1, Math.min(1, actSessStr * 1.6 + 0.2)),
+      fso_lvl: Math.max(0, Math.min(1, (F.level || 0))) * ((F.regime === 'CRISIS') ? -1 : 1),
+      fso_var: Math.max(0, Math.min(1, (F.variance || 0) * 20)),
+      fso_mom: Math.max(0, Math.min(1, (F.absMom || 0)))
+    };
+  }
+
+  function buildTrinityNet() {
+    // 0 INPUTS(15) → 1 CORES(4 sessies) → 2 TRINITY(mainbrain) → 3 GATE(2) → 4 DECISION(3) → 5 OUTPUT → 6 LEARN
+    const layerSizes = [TRN_INPUTS.length, 4, 1, 2, 3, 1, 1];
+    const layers = layerSizes.map((n, li) => { const a = []; for (let i = 0; i < n; i++) a.push({ li, i, act: 0, sign: 1, row: 0 }); return a; });
+    _trnet.layers = layers;
+    _trnet.layerLabels = ['INPUTS', 'CORES', 'TRINITY', 'GATE', 'DECISION', 'OUTPUT', 'LEARN'];
+    _trnet.meta = TRN_META.map(m => Object.assign({ act: 0.3, sign: 1, val: '' }, m));
+    _trnet.built = true;
+  }
+
+  const SRf = (s) => { const x = Math.sin(s * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+  const _trHex2 = (hx) => { if (!hx || hx[0] !== '#') return '228,238,248'; const n = parseInt(hx.slice(1), 16); return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; };
+  const _trMix = (a, b, t) => { const pa = a.split(',').map(Number), pb = b.split(',').map(Number); return pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(','); };
+  const _trRR = (c, x, y, ww, hh, rad) => { c.beginPath(); c.moveTo(x + rad, y); c.arcTo(x + ww, y, x + ww, y + hh, rad); c.arcTo(x + ww, y + hh, x, y + hh, rad); c.arcTo(x, y + hh, x, y, rad); c.arcTo(x, y, x + ww, y, rad); c.closePath(); };
+  const RING_WHITE = '236,243,251', GREEN = '#14f195', CYAN = '#2ce0ff', GHOST = '92,116,136';
+
+  function _trInject(now, inp) {
+    const layers = _trnet.layers;
+    // laag 0 — inputs
+    layers[0].forEach((nd, i) => { const v = inp[TRN_INPUTS[i].key] || 0; nd.act = Math.abs(v); nd.sign = Math.sign(v) || 1; });
+    // laag 1 — 4 sessie-cores (TrinityTrust): activatie ~ reliability/baseline, actieve sessie l+
+    let activeKey = 'eu';
+    try { const s = (typeof getSession === 'function') ? getSession() : null; if (s) activeKey = s.key; } catch (e) {}
+    layers[1].forEach((nd, i) => {
+      const key = SESS[i]; nd.sessKey = key; nd.active = (key === activeKey);
+      let st = null; try { st = (typeof TrinityTrust !== 'undefined') ? TrinityTrust.stats(key) : null; } catch (e) {}
+      const base = st ? st.baseline : 0.5, rel = st ? st.reliability : 0;
+      nd.act = Math.max(0.14, Math.min(1, base * 0.6 + rel * 0.4 + (nd.active ? 0.18 : 0)));
+      nd.sign = (st && st.inverted) ? -1 : 1; nd.inv = !!(st && st.inverted);
+      nd.n = st ? st.n : 0; nd.wr = st ? st.wr : null; nd.auc = st ? st.auc : null;
+      let wf = 1; try { wf = (typeof TrinityTrust !== 'undefined') ? TrinityTrust.weightFactor(key) : 1; } catch (e) {}
+      nd.wf = wf;
+    });
+    // laag 2 — TRINITY mainbrain (predictive score/conf)
+    let mainConf = 0.3, mainSide = 1;
+    try { if (typeof predictive !== 'undefined' && predictive) { mainConf = Math.max(0.15, Math.min(1, (predictive.score || 30) / 100)); mainSide = (predictive.side === 'SHORT') ? -1 : 1; } } catch (e) {}
+    layers[2][0].act = mainConf; layers[2][0].sign = mainSide;
+    // laag 3 — GATE: session tradeable + FSO size/block
+    let sessOk = 0.6, fsoMult = 1, fsoBlock = false;
+    try { const pr = (typeof activePreset === 'function') ? activePreset() : null; const s = (typeof getSession === 'function') ? getSession() : null; sessOk = (pr && s && pr.sessions && pr.sessions.indexOf(s.key) >= 0) ? 0.9 : 0.25; } catch (e) {}
+    try { if (typeof TrinityFSO !== 'undefined') { fsoMult = TrinityFSO.sizeMult(); fsoBlock = TrinityFSO.blockEntries(); } } catch (e) {}
+    layers[3][0].act = Math.max(0.12, sessOk); layers[3][0].sign = 1; layers[3][0].label = 'SESS-GATE';
+    layers[3][1].act = Math.max(0.12, Math.min(1, fsoMult)); layers[3][1].sign = fsoBlock ? -1 : 1; layers[3][1].label = 'FSO-GATE';
+    // laag 4 — DECISION long/neut/short (uit open posities + predictive)
+    let db = 0;
+    try {
+      let ws = 0, ds = 0;
+      const ps = (typeof positions !== 'undefined' && positions) ? positions.filter(p => p.status === 'open') : [];
+      for (const p of ps) { const dir = (p.side === 'SHORT') ? -1 : 1; const w = 1; ds += w * dir; ws += w; }
+      if (ws === 0) { db = mainSide * (mainConf - 0.4); } else { db = Math.max(-1, Math.min(1, ds / ws)) * mainConf; }
+    } catch (e) { db = mainSide * (mainConf - 0.4); }
+    layers[4][0].act = Math.max(0, db);
+    layers[4][1].act = Math.max(0.05, 1 - Math.abs(db));
+    layers[4][2].act = Math.max(0, -db);
+    _trnet._db = db;
+    // laag 5 — output
+    layers[5][0].act = Math.max(Math.abs(db), 0.2);
+    // laag 6 — LEARN (self-tuning): activatie ~ #adjustments + winrate voortgang
+    let learnAct = 0.25;
+    try { const nadj = (typeof trinityAdj !== 'undefined' && trinityAdj) ? trinityAdj.length : 0; const wr = (typeof trinity !== 'undefined') ? (trinity.wr || 0) : 0; learnAct = Math.max(0.2, Math.min(1, 0.25 + Math.min(0.4, nadj * 0.03) + wr * 0.4)); } catch (e) {}
+    layers[6][0].act = learnAct;
+
+    // ---- META live ----
+    const setM = (id, act, sign, val) => { const m = _trnet.meta.find(x => x.id === id); if (m) { m.act = m.ghost ? 0.16 : Math.max(0.14, Math.min(1, act)); m.sign = sign; m.val = val; } };
+    // present
+    try { let n = 0, agg = 0; SESS.forEach(k => { const s = TrinityTrust.stats(k); if (s) { agg += s.reliability; n++; } }); setM('trust', n ? (0.3 + (agg / n) * 0.7) : 0.3, 1, n ? '×' + (0.5 + 0.5 * (agg / n)).toFixed(2) : '—'); } catch (e) { setM('trust', 0.3, 1, '—'); }
+    try { const s = getSession(); const pr = (typeof activePreset === 'function') ? activePreset() : null; const ok = pr && s && pr.sessions && pr.sessions.indexOf(s.key) >= 0; setM('session', ok ? 0.85 : 0.3, ok ? 1 : -1, s ? SESSLAB[s.key] : '—'); } catch (e) { setM('session', 0.3, 1, '—'); }
+    try { const F = TrinityFSO; setM('fso', Math.max(0.2, Math.min(1, F.level || 0)), (F.regime === 'CRISIS') ? -1 : 1, (F.regime || 'RUST') + ' ×' + (F.sizeMult ? F.sizeMult().toFixed(2) : '1.00')); } catch (e) { setM('fso', 0.3, 1, '—'); }
+    try { let kind = 'major', cr = 0.3; const best = (ranked && ranked[0]) ? ranked[0] : null; if (best && best.p) { kind = /JPY|USD|EUR|GBP|CHF|CAD|AUD|NZD/.test(best.p) ? 'major' : 'cross'; cr = Math.min(1, (COST_PCT[kind] || 0.02) / 0.07); } setM('cost', 0.4 + cr * 0.4, 1, (kind === 'major' ? '~0.01%' : '~0.02%')); } catch (e) { setM('cost', 0.4, 1, '—'); }
+    try { let filled = 0, tot = 0, ok = 0; for (const k in calibB) { tot++; const cb = calibB[k]; if (cb.n >= 3) { filled++; } } const overall = (typeof trinity !== 'undefined') ? (trinity.wr || 0) : 0; setM('calib', filled ? Math.max(0.3, filled / Math.max(1, tot)) : 0.25, 1, filled ? filled + '/' + tot + ' bins' : 'kalibr'); } catch (e) { setM('calib', 0.25, 1, '—'); }
+    try { const nadj = (typeof trinityAdj !== 'undefined') ? trinityAdj.length : 0; setM('selftune', nadj ? Math.max(0.3, Math.min(1, 0.3 + nadj * 0.04)) : 0.22, 1, nadj ? nadj + ' adj' : 'wacht'); } catch (e) { setM('selftune', 0.22, 1, '—'); }
+    // ghost — altijd gedimd + "planned"
+    _trnet.meta.forEach(m => { if (m.ghost) { m.act = 0.16; m.sign = 1; m.val = 'planned'; } });
+  }
+
+  function _trNetDraw(now, canvasId, outId) {
+    const cv = document.getElementById(canvasId); if (!cv) return;
+    const rect = cv.getBoundingClientRect(); if (rect.width < 10) return;
+    if (cv.width !== Math.round(rect.width * 2)) { cv.width = rect.width * 2; cv.height = rect.height * 2; }
+    const ctx = cv.getContext('2d'); ctx.setTransform(2, 0, 0, 2, 0, 0);
+    const w = rect.width, h = rect.height; ctx.clearRect(0, 0, w, h);
+    if (!_trnet.built) buildTrinityNet();
+    _trnet._outId = outId;
+    const layers = _trnet.layers;
+
+    const inp = trnNetInputs();
+    const running = (typeof trinityOn !== 'undefined' && trinityOn) || false;
+    _trnet.actLevel += ((running ? 1 : 0.7) - _trnet.actLevel) * 0.05;
+    _trnet.pulse = (_trnet.pulse + 0.010 + 0.010 * _trnet.actLevel) % 1;
+    // feedback-flits vuurt vers als Trinity leert (een trade sluit → trinity.trades groeit)
+    try { const lc = (typeof trinity !== 'undefined' && trinity.trades) ? trinity.trades.length : 0; if (_trnet._lastLearn == null) _trnet._lastLearn = lc; if (lc > _trnet._lastLearn) { _trnet.fbPulse = 0; _trnet._lastLearn = lc; } } catch (e) {}
+    _trnet.fbPulse = (_trnet.fbPulse || 0) + 0.0075 + 0.005 * _trnet.actLevel;
+    const _fbCycle = _trnet.fbPulse % 1.7, _fbActive = _fbCycle < 1.0;
+
+    _trInject(now, inp);
+    const decisionBias = _trnet._db || 0;
+
+    const isBig = true;
+    const S = Math.min(w, h) / 520;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 900);
+
+    // ---- 1. LAYOUT (organisch, gecachet) ----
+    const _okey = Math.round(w) + 'x' + Math.round(h) + '#' + layers.length + '#' + _trnet.meta.length;
+    if (!_trnet._org || _trnet._org.key !== _okey) {
+      const MX = (bx) => w * (0.15 + bx * 0.83), MY = (by) => h * (0.11 + by * 0.85);
+      const specs = [];
+      const inN = layers[0].length;
+      for (let i = 0; i < inN; i++) specs.push({ ref: ['n', 0, i], bx: 0.008, by: 0.02 + (i / Math.max(1, inN - 1)) * 0.96, imp: 0.10, grp: 'in' });
+      // 4 sessie-cores
+      const coreY = [0.26, 0.44, 0.60, 0.77];
+      for (let i = 0; i < 4; i++) specs.push({ ref: ['n', 1, i], bx: 0.30, by: coreY[i], imp: 0.62, grp: 'core' });
+      specs.push({ ref: ['n', 2, 0], bx: 0.55, by: 0.47, imp: 1.0, grp: 'main' });
+      specs.push({ ref: ['n', 3, 0], bx: 0.655, by: 0.37, imp: 0.44, grp: 'gate' });
+      specs.push({ ref: ['n', 3, 1], bx: 0.655, by: 0.58, imp: 0.44, grp: 'gate' });
+      specs.push({ ref: ['n', 4, 0], bx: 0.77, by: 0.31, imp: 0.5, grp: 'dec' });
+      specs.push({ ref: ['n', 4, 1], bx: 0.78, by: 0.49, imp: 0.46, grp: 'dec' });
+      specs.push({ ref: ['n', 4, 2], bx: 0.77, by: 0.67, imp: 0.5, grp: 'dec' });
+      specs.push({ ref: ['n', 5, 0], bx: 0.86, by: 0.47, imp: 0.8, grp: 'out' });
+      specs.push({ ref: ['n', 6, 0], bx: 0.94, by: 0.46, imp: 0.72, grp: 'learn' });
+      (_trnet.meta || []).forEach(m => { specs.push({ ref: ['m', m.id], bx: Math.max(0.02, Math.min(0.97, m.mx)), by: Math.max(0.06, Math.min(0.94, 0.47 + m.yoff)), imp: 0.3, grp: m.ghost ? 'ghost' : 'meta' }); });
+      const cells = specs.map((sp, k) => {
+        const jx = (SRf(k * 2 + 1) - 0.5) * (sp.grp === 'in' ? 0 : 0.02), jy = (SRf(k * 2 + 7) - 0.5) * (sp.grp === 'in' ? 0 : 0.028);
+        return { ref: sp.ref, grp: sp.grp, imp: sp.imp, x: MX(sp.bx + jx), y: MY(sp.by + jy), baseR: (sp.grp === 'in' ? 8 * S : (5 + sp.imp * 58) * S), k, key: sp.ref.join(':') };
+      });
+      const idxOf = {}; cells.forEach((c, i) => idxOf[c.key] = i);
+      const edgeSet = new Set(), edges = [];
+      const addEdge = (ai, bi, opt) => { if (ai == null || bi == null || ai === bi) return; const kk = ai < bi ? ai + '_' + bi : bi + '_' + ai; if (edgeSet.has(kk)) return; edgeSet.add(kk); edges.push(Object.assign({ a: ai, b: bi, bow: (SRf(ai * 13 + bi * 7) - 0.5) * 0.5, sp: 0.6 + SRf(ai + bi) }, opt || {})); };
+      // INPUTS → alle 4 sessie-cores
+      const coreIdx = [idxOf['n:1:0'], idxOf['n:1:1'], idxOf['n:1:2'], idxOf['n:1:3']].filter(x => x != null);
+      for (let i = 0; i < inN; i++) { const ci = idxOf['n:0:' + i]; if (ci == null) continue; for (const cj of coreIdx) addEdge(ci, cj, { input: true }); }
+      // cores → TRINITY mainbrain
+      for (const cj of coreIdx) addEdge(cj, idxOf['n:2:0']);
+      // mainbrain → gates → decision → output → learn
+      addEdge(idxOf['n:2:0'], idxOf['n:3:0']); addEdge(idxOf['n:2:0'], idxOf['n:3:1']);
+      for (let g = 0; g < 2; g++) for (let d = 0; d < 3; d++) addEdge(idxOf['n:3:' + g], idxOf['n:4:' + d]);
+      for (let d = 0; d < 3; d++) addEdge(idxOf['n:4:' + d], idxOf['n:5:0']);
+      addEdge(idxOf['n:5:0'], idxOf['n:6:0']);
+      // meta → targets
+      const metaT = { cores: ['n:1:0', 'n:1:1', 'n:1:2', 'n:1:3'], gate: ['n:3:0', 'n:3:1'], dec: ['n:4:0', 'n:4:1', 'n:4:2'], osiris: ['n:2:0'], learn: ['n:6:0'] };
+      (_trnet.meta || []).forEach(m => { const mi = idxOf['m:' + m.id]; const tg = metaT[m.conn]; if (mi != null && tg) tg.forEach(t => addEdge(mi, idxOf[t], m.ghost ? { ghost: true } : null)); });
+      // relaxatie (duw overlappende cellen uiteen; inputs blijven in kolom)
+      const _rr = (c) => c.baseR + 5 * S;
+      for (let it = 0; it < 44; it++) {
+        for (let i = 0; i < cells.length; i++) for (let j = i + 1; j < cells.length; j++) {
+          const A = cells[i], B = cells[j]; const dx = B.x - A.x, dy = B.y - A.y; let d = Math.hypot(dx, dy) || 0.01; const mn = _rr(A) + _rr(B);
+          if (d < mn) { const p = (mn - d) / d * 0.5, ox = dx * p, oy = dy * p; if (A.grp === 'in') A.y -= oy; else { A.x -= ox; A.y -= oy; } if (B.grp === 'in') B.y += oy; else { B.x += ox; B.y += oy; } }
+        }
+        for (const c of cells) { const m = c.baseR + 4; if (c.grp === 'in') { c.x = MX(0.008); c.y = Math.max(h * 0.05 + m, Math.min(h - m, c.y)); } else { c.x = Math.max(w * 0.155 + m, Math.min(w - m - 2, c.x)); c.y = Math.max(h * 0.10 + m, Math.min(h - m - 2, c.y)); } }
+      }
+      const bg = []; for (let i = 0; i < 22; i++) bg.push({ cx: SRf(i * 3 + 1) * w, cy: SRf(i * 3 + 2) * h, r: (0.05 + SRf(i * 3 + 3) * 0.28) * Math.min(w, h) });
+      const xs = []; for (let i = 0; i < 10; i++) xs.push({ x: SRf(i * 5 + 11) * w, y: SRf(i * 5 + 13) * h, g: SRf(i * 5 + 17) > 0.5 });
+      const decs = []; for (let i = 0; i < 14; i++) decs.push({ x: SRf(i * 9 + 2) * w, y: SRf(i * 9 + 4) * h, slot: i, big: SRf(i * 9 + 6) > 0.72 });
+      _trnet._org = { key: _okey, cells, idxOf, edges, bg, xs, decs };
+    }
+    const ORG = _trnet._org, cells = ORG.cells;
+
+    // ---- 2. LIVE per cel ----
+    const liveCell = (c) => {
+      const r = c.ref; let act = 0.3, tag = null, tagBg = CYAN, ring = '228,238,248', dot = null, ghost = false;
+      if (r[0] === 'n') {
+        const nd = layers[r[1]] && layers[r[1]][r[2]]; if (!nd) return { act, tag: null, tagBg, ring, dot };
+        act = nd.act || 0.3;
+        if (c.grp === 'in') ring = _trHex2(TRN_INPUTS[r[2]].c);
+        else if (c.grp === 'core') { const key = SESS[r[2]]; ring = _trHex2(SESSCOL[key]); tagBg = nd.inv ? '#ff5f7e' : (nd.active ? GREEN : CYAN); tag = SESSLAB[key] + ' ' + (nd.wr != null ? Math.round(nd.wr * 100) + '%' : 'n' + nd.n) + ' ×' + (nd.wf || 1).toFixed(2); if (nd.inv) dot = '#ff5f7e'; else if (nd.active) dot = GREEN; }
+        else if (c.grp === 'main') { ring = '0,217,255'; tagBg = nd.sign < 0 ? '#ff5f7e' : CYAN; tag = 'TRINITY ' + Math.round(act * 100) + '%'; }
+        else if (c.grp === 'gate') { ring = r[2] === 1 ? '255,95,126' : '143,184,255'; tagBg = nd.sign < 0 ? '#ff5f7e' : CYAN; tag = (nd.label || 'GATE') + ' ' + Math.round(act * 100) + '%'; }
+        else if (c.grp === 'dec') { const dc = ['#00ff9f', '#5c7488', '#ff4f6d'][r[2]]; ring = _trHex2(dc); tagBg = r[2] === 0 ? GREEN : (r[2] === 2 ? '#ff4f6d' : CYAN); tag = ['LONG', 'NEUT', 'SHORT'][r[2]] + ' ' + Math.round(act * 100) + '%'; }
+        else if (c.grp === 'out') { ring = '0,217,255'; tagBg = decisionBias >= 0 ? GREEN : '#ff4f6d'; tag = 'OUT ' + Math.round(Math.abs(decisionBias) * 100) + '%'; }
+        else if (c.grp === 'learn') { ring = '20,241,149'; tagBg = GREEN; let v = '—'; try { v = (typeof trinityAdj !== 'undefined' && trinityAdj.length) ? trinityAdj.length + ' adj' : 'wacht'; } catch (e) {} tag = 'LEARN ' + v; }
+      } else {
+        const m = (_trnet.meta || []).find(x => x.id === r[1]); if (!m) return { act, tag: null, tagBg, ring, dot };
+        act = m.act != null ? m.act : 0.3; ghost = !!m.ghost; ring = ghost ? GHOST : _trHex2(m.col);
+        tagBg = ghost ? '#38475a' : ((m.sign != null && m.sign < 0) ? '#ff5f7e' : (m.col || CYAN));
+        tag = ghost ? ('◌ ' + m.label) : (m.label + (m.val ? ' ' + m.val : ''));
+      }
+      return { act, tag, tagBg, ring, dot, ghost };
+    };
+    const LV = cells.map(liveCell);
+
+    // ---- 3. TEKENEN ----
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    // 3a. achtergrond-bogen
+    ctx.lineWidth = 0.6; for (const b of ORG.bg) { ctx.strokeStyle = 'rgba(200,220,240,0.03)'; ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, 6.283); ctx.stroke(); }
+    // 3b. filament-web
+    for (const e of ORG.edges) {
+      const A = cells[e.a], B = cells[e.b]; const la = LV[e.a].act || 0.3, lb = LV[e.b].act || 0.3;
+      const gh = e.ghost || LV[e.a].ghost || LV[e.b].ghost;
+      const sig = gh ? 0.05 : Math.max(0, Math.min(1, la * lb)), emph = gh ? 0.1 : Math.max(la, lb);
+      const eb = Math.max(0, emph - 0.72) * 1.6;
+      const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+      const flow2 = 0.5 + 0.5 * Math.sin(now / 1200 + e.a * 0.7);
+      const sway = (0.11 * Math.sin(now / 700 + e.a * 0.9 + e.b * 0.5) + 0.07 * Math.sin(now / 410 + e.b * 1.3)) * (e.input ? 1.7 : 1);
+      const bowNow = e.bow + sway;
+      const cx0 = (A.x + B.x) / 2 + nx * bowNow * len, cy0 = (A.y + B.y) / 2 + ny * bowNow * len;
+      if (gh) { // ghost-edges: gestippeld, zeer ijl
+        ctx.save(); ctx.setLineDash([2, 4]); ctx.strokeStyle = 'rgba(92,116,136,0.14)'; ctx.lineWidth = 0.5;
+        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0, cy0, B.x, B.y); ctx.stroke(); ctx.restore(); continue;
+      }
+      const hot = sig > 0.28 || emph > 0.74, baseA = (e.input ? 0.035 : 0.05) + 0.10 * flow2;
+      for (let s = 0; s < 3; s++) {
+        const off = (s - 1) * (1.6 + 2 * sig), a2 = (s === 0 ? (baseA + 0.30 * sig + 0.18 * eb) : baseA * 0.6);
+        ctx.strokeStyle = hot ? `rgba(120,225,255,${(a2 + 0.12 * sig + 0.10 * eb).toFixed(3)})` : `rgba(228,238,248,${a2.toFixed(3)})`;
+        ctx.lineWidth = (s === 0 ? 0.9 + 1.3 * sig + 0.5 * eb : 0.4);
+        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0 + nx * off, cy0 + ny * off, B.x, B.y); ctx.stroke();
+      }
+      if (sig > 0.12) { const t = ((now / 900) + e.sp) % 1, u = 1 - t; const px = u * u * A.x + 2 * u * t * cx0 + t * t * B.x, py = u * u * A.y + 2 * u * t * cy0 + t * t * B.y; ctx.beginPath(); ctx.arc(px, py, 0.8 + 1.4 * sig, 0, 6.283); ctx.fillStyle = `rgba(${hot ? '120,225,255' : '150,190,230'},${(0.3 + 0.5 * sig).toFixed(3)})`; ctx.fill(); }
+    }
+    // 3c. ring-cellen
+    for (let ci = 0; ci < cells.length; ci++) {
+      const c = cells[ci], L = LV[ci], glow = (L.act || 0.3);
+      const r = c.baseR * (c.imp >= 0.7 ? (0.72 + 0.28 * glow) : (0.5 + 0.6 * glow));
+      if (L.ghost) {
+        ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.fillStyle = 'rgba(3,7,14,0.4)'; ctx.fill();
+        ctx.save(); ctx.setLineDash([2.5, 3.5]); ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(92,116,136,0.5)'; ctx.stroke(); ctx.restore();
+        continue;
+      }
+      const wave = 0.5 + 0.5 * Math.sin(now / 1250 - (c.x / w) * 7 + c.k * 0.35);
+      const actMix = Math.max(0, Math.min(1, (glow - 0.34) / 0.42));
+      let mix = Math.min(1, Math.max(actMix, wave * wave * (0.30 + 0.55 * glow)));
+      if (c.grp === 'main') mix = 1;
+      const ringRGB = _trMix(RING_WHITE, L.ring, mix);
+      ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.fillStyle = `rgba(3,7,14,${(0.42 + 0.3 * glow).toFixed(3)})`; ctx.fill();
+      ctx.save();
+      if (glow > 0.45 || c.imp >= 0.7 || mix > 0.5) { ctx.shadowColor = `rgb(${ringRGB})`; ctx.shadowBlur = (c.imp >= 0.7 ? 8 : 3) + 10 * glow; }
+      ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = (c.imp >= 0.7 ? 1.6 : 1.05) + glow * 0.9; ctx.strokeStyle = `rgba(${ringRGB},${(0.34 + 0.62 * glow).toFixed(3)})`; ctx.stroke();
+      ctx.restore();
+      if (c.imp >= 0.55) { for (let k = 1; k <= 3; k++) { const rr = r * (1 + k * 0.14), a0 = SRf(c.k * 9 + k) * 6.28, a1 = a0 + 1.2 + SRf(c.k * 9 + k + 2) * 2.5; ctx.beginPath(); ctx.arc(c.x, c.y, rr, a0, a1); ctx.lineWidth = 0.5; ctx.strokeStyle = `rgba(228,238,248,${(0.10 * (1 - k * 0.22)).toFixed(3)})`; ctx.stroke(); } }
+      if (c.imp >= 0.7) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.62, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(${ringRGB},${(0.2 + 0.35 * glow).toFixed(3)})`; ctx.stroke(); }
+      if (L.dot) { ctx.beginPath(); ctx.arc(c.x + r * 0.72, c.y - r * 0.72, 2.2, 0, 6.283); ctx.fillStyle = L.dot; ctx.fill(); }
+      if (glow > 0.5) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.34, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${(0.4 * glow * pulse).toFixed(3)})`; ctx.fill(); }
+    }
+    // 3d. feedback-flits
+    if (_fbActive) { for (const e of ORG.edges) { if (e.ghost || SRf(e.a * 3 + e.b) > 0.4) continue; const A = cells[e.a], B = cells[e.b], tt = (Math.sin(now / 400 + e.a) * 0.5 + 0.5); ctx.beginPath(); ctx.arc(A.x + (B.x - A.x) * tt, A.y + (B.y - A.y) * tt, 0.8, 0, 6.283); ctx.fillStyle = 'rgba(150,255,210,0.45)'; ctx.fill(); } }
+    // 3e. input-mini-labels
+    ctx.textBaseline = 'middle';
+    for (let ci = 0; ci < cells.length; ci++) { const c = cells[ci], L = LV[ci]; if (c.grp !== 'in') continue; const nd = layers[0][c.ref[2]]; if ((nd.act || 0) > 0.30) { ctx.font = "6px 'JetBrains Mono',monospace"; ctx.textAlign = 'right'; ctx.fillStyle = `rgba(${L.ring},0.9)`; ctx.fillText(TRN_INPUTS[c.ref[2]].label, c.x - 6, c.y); } }
+    // 3f. data-tags (botsing-vermijdend)
+    const placedTags = [];
+    const _tagHit = (x, y, ww, hh) => { for (const p of placedTags) { if (x < p.x + p.w + 2 && x + ww + 2 > p.x && y < p.y + p.h + 2 && y + hh + 2 > p.y) return true; } return false; };
+    const tagCells = [];
+    for (let ci = 0; ci < cells.length; ci++) { const c = cells[ci], L = LV[ci]; if (c.grp === 'in' || !L.tag) continue; tagCells.push({ c, L }); }
+    tagCells.sort((a, b) => (b.c.imp - a.c.imp) + ((a.L.ghost ? 1 : 0) - (b.L.ghost ? 1 : 0)) * 0.01);
+    for (const o of tagCells) {
+      const c = o.c, L = o.L;
+      ctx.font = (c.imp >= 0.7 ? "bold 7px 'JetBrains Mono',monospace" : "6.5px 'JetBrains Mono',monospace");
+      const tw = ctx.measureText(L.tag).width, ph = 9, pw = tw + 7;
+      const baseAng = SRf(c.k * 3 + 1) * 6.283; let best = null;
+      for (let att = 0; att < 8 && !best; att++) {
+        const ang = baseAng + att * 0.85 * (att % 2 ? 1 : -1);
+        for (const rf of [1.16, 1.5, 1.9, 2.35]) {
+          const rr = c.baseR * rf + 7 * S;
+          let tx = c.x + Math.cos(ang) * rr, ty = c.y + Math.sin(ang) * rr;
+          tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(46, Math.min(h - 12, ty));
+          if (!_tagHit(tx, ty - ph / 2, pw, ph)) { best = { tx, ty }; break; }
+        }
+      }
+      if (!best) { const rr = c.baseR * 1.16 + 7 * S; let tx = c.x + Math.cos(baseAng) * rr, ty = c.y + Math.sin(baseAng) * rr; tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(46, Math.min(h - 12, ty)); best = { tx, ty }; }
+      placedTags.push({ x: best.tx, y: best.ty - ph / 2, w: pw, h: ph });
+      ctx.fillStyle = L.tagBg; ctx.globalAlpha = L.ghost ? 0.5 : 0.92; _trRR(ctx, best.tx, best.ty - ph / 2, pw, ph, 1.5); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.fillStyle = L.ghost ? 'rgba(200,214,228,0.85)' : '#04121a'; ctx.textAlign = 'left'; ctx.fillText(L.tag, best.tx + 3.5, best.ty + 0.5);
+    }
+    // 3g. verspreide echte readouts
+    {
+      const pool = [];
+      try { if (typeof TrinityFSO !== 'undefined') { pool.push({ t: 'FSO ' + (TrinityFSO.level || 0).toFixed(3), g: true }); pool.push({ t: 'σ² ' + (TrinityFSO.variance || 0).toFixed(4), g: false }); } } catch (e) {}
+      try { if (typeof ranked !== 'undefined' && ranked) ranked.slice(0, 3).forEach(rk => { if (rk && rk.p) pool.push({ t: rk.p + ' ' + Math.round(rk.pred || 0) + '%', g: false }); }); } catch (e) {}
+      try { if (typeof trinity !== 'undefined') { pool.push({ t: trinity.trades.length + ' trades', g: true }); if (trinity.wr) pool.push({ t: 'WR ' + Math.round(trinity.wr * 100) + '%', g: true }); } } catch (e) {}
+      try { const s = getSession(); if (s) pool.push({ t: s.window, g: false }); } catch (e) {}
+      const seen = new Set(), upool = []; for (const rd of pool) { if (seen.has(rd.t)) continue; seen.add(rd.t); upool.push(rd); }
+      let _rc = 0;
+      ORG.decs.forEach((d, i) => {
+        if (d.x < w * 0.135 || d.y < 48 || d.y > h - 10) return;
+        const rd = upool.length ? upool[_rc++ % upool.length] : null;
+        const txt = rd ? rd.t : (10 + SRf(i * 11 + 3) * 60).toFixed(3);
+        ctx.font = d.big && rd ? "6.5px 'JetBrains Mono',monospace" : "7px 'JetBrains Mono',monospace";
+        const tw = ctx.measureText(txt).width, ww = (d.big && rd ? tw + 6 : tw), hh = 9;
+        if (_tagHit(d.x, d.y - hh / 2, ww, hh)) return;
+        placedTags.push({ x: d.x, y: d.y - hh / 2, w: ww, h: hh });
+        if (d.big && rd) { ctx.fillStyle = rd.g ? GREEN : CYAN; ctx.globalAlpha = 0.85; _trRR(ctx, d.x, d.y - 4.5, tw + 6, 9, 1.5); ctx.fill(); ctx.globalAlpha = 1; ctx.fillStyle = '#04121a'; ctx.textAlign = 'left'; ctx.fillText(txt, d.x + 3, d.y + 0.5); }
+        else { ctx.fillStyle = rd ? 'rgba(150,170,190,0.55)' : 'rgba(140,160,180,0.4)'; ctx.textAlign = 'left'; ctx.fillText(txt, d.x, d.y); }
+      });
+    }
+    // 3h. deco X-markers
+    for (const x of ORG.xs) { ctx.strokeStyle = x.g ? 'rgba(20,241,149,0.6)' : 'rgba(44,224,255,0.6)'; ctx.lineWidth = 1; const s2 = 3; ctx.beginPath(); ctx.moveTo(x.x - s2, x.y - s2); ctx.lineTo(x.x + s2, x.y + s2); ctx.moveTo(x.x + s2, x.y - s2); ctx.lineTo(x.x - s2, x.y + s2); ctx.stroke(); }
+    // 3i. watermerk
+    ctx.save(); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.font = "800 " + Math.round(h * 0.15) + "px 'Orbitron','JetBrains Mono',monospace";
+    ctx.strokeStyle = 'rgba(150,170,190,0.05)'; ctx.fillStyle = 'rgba(150,170,190,0.026)'; ctx.lineWidth = 1;
+    ctx.fillText('TRINITY', w * 0.03, h * 0.60); ctx.strokeText('TRINITY', w * 0.03, h * 0.60);
+    ctx.fillText('FX·NET', w * 0.03, h * 0.60 + h * 0.145); ctx.strokeText('FX·NET', w * 0.03, h * 0.60 + h * 0.145);
+    ctx.restore();
+    // 3j. data-paneel links
+    {
+      ctx.save(); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      const px0 = w * 0.02; let py0 = h * 0.235;
+      let confPct = 0, wrPct = null, wrN = 0;
+      try { confPct = Math.round((layers[2][0].act || 0) * 100); } catch (e) {}
+      try { if (typeof trinity !== 'undefined' && trinity.trades && trinity.trades.length >= 5) { wrPct = Math.round((trinity.wr || 0) * 100); wrN = trinity.trades.length; } } catch (e) {}
+      ctx.font = "600 18px 'Orbitron','JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(220,235,250,0.85)';
+      ctx.fillText(confPct + '%', px0 + 4, py0);
+      ctx.strokeStyle = 'rgba(160,180,200,0.4)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px0 + 4, py0 + 14); ctx.lineTo(px0 + 58, py0 + 14); ctx.stroke();
+      if (wrPct != null) ctx.fillText(wrPct + '%', px0 + 4, py0 + 28);
+      ctx.font = "6px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(120,140,160,0.7)';
+      ctx.fillText('CONFIDENCE', px0 + 66, py0 - 4); if (wrPct != null) ctx.fillText('WIN-RATE · n=' + wrN, px0 + 66, py0 + 28);
+      py0 += 54; ctx.font = "8px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(150,175,195,0.55)';
+      const bitCells = [layers[2][0], layers[1][0], layers[1][1], layers[1][2], layers[1][3], layers[6][0]];
+      for (let b = 0; b < 6; b++) { const v = Math.round((bitCells[b] ? bitCells[b].act : 0.5) * 31); ctx.fillText(v.toString(2).padStart(5, '0'), px0 + 4, py0 + b * 11); }
+      const cx0 = px0 + 58, cy0 = py0; ctx.font = "6.5px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(130,150,170,0.6)';
+      const lines = [];
+      try { if (typeof wallet !== 'undefined' && wallet.balance != null) lines.push('EQ  | ' + (+wallet.balance).toFixed(2)); } catch (e) {}
+      try { if (typeof trinity !== 'undefined') lines.push('R   | ' + (trinity.avgR || 0).toFixed(2) + ' · ×' + (trinity.mult || 1).toFixed(2)); } catch (e) {}
+      try { if (typeof TrinityFSO !== 'undefined') lines.push('FSO | ' + (TrinityFSO.level || 0).toFixed(3) + ' ' + (TrinityFSO.regime || 'RUST')); } catch (e) {}
+      try { const s = getSession(); if (s) lines.push('SES | ' + SESSLAB[s.key] + ' ' + s.window.slice(0, 11)); } catch (e) {}
+      lines.slice(0, 6).forEach((ln, i) => ctx.fillText(ln, cx0, cy0 + i * 11));
+      ctx.restore();
+    }
+    // 3k. FSO-regime titel bovenaan gecentreerd
+    try {
+      const F = TrinityFSO; const rc = { RUST: '#8aa0ff', SPANNING: '#ffb627', CRISIS: '#ff5f7e' };
+      const lab = F ? (F.regime || 'RUST') : '—', col = rc[lab] || '#8aa0ff';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = "bold 10px 'Orbitron','JetBrains Mono',monospace";
+      ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.fillStyle = col; ctx.fillText('FSO · ' + lab + (F && F.level != null ? '  ' + Math.round(F.level * 100) + '%' : ''), w / 2, 16); ctx.restore();
+    } catch (e) {}
+    ctx.textBaseline = 'alphabetic';
+    // uitkomst-tekst onderin
+    const outEl = document.getElementById(_trnet._outId || 'tr-deepnet-out');
+    if (outEl) { const dz = decisionBias; outEl.textContent = dz > 0.15 ? `LONG (${Math.round(Math.abs(dz) * 100)}%)` : dz < -0.15 ? `SHORT (${Math.round(Math.abs(dz) * 100)}%)` : 'NEUTRAAL'; outEl.style.color = dz > 0.15 ? '#00ff9f' : dz < -0.15 ? '#ff4f6d' : '#5c7488'; }
+  }
+
+  function _trNetFrame(now) {
+    _trnet.raf = requestAnimationFrame(_trNetFrame);
+    if (now - _trnet.last < 40) return;
+    _trnet.last = now;
+    // alleen tekenen als een Trinity-tab zichtbaar is én dit canvas bestaat/zichtbaar is
+    if (!document.querySelector('.tab.show .trn')) return;
+    const cv = document.getElementById('tr-deepnet-canvas');
+    if (!cv || cv.offsetParent === null) return;
+    try { _trNetDraw(now, 'tr-deepnet-canvas', 'tr-deepnet-out'); } catch (e) {}
+  }
+  function startTrinityNet() { if (!_trnet.raf) _trnet.raf = requestAnimationFrame(_trNetFrame); }
+
+  // expose + autostart
+  try { window.startTrinityNet = startTrinityNet; } catch (e) {}
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', startTrinityNet); else startTrinityNet();
 })();
