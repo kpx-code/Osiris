@@ -20808,12 +20808,34 @@ const GSD_GDELT_Q = {
 const GSD_ACLED_REG = { na:[16,15,13], eu:[12,11], ap:[7,8,17,18], me:[9,5,1,2,3,4], latam:[14,15] };
 function _gsdRe(r){ return ({RUST:'CALM',SPANNING:'TENSION',CRISIS:'CRISIS'}[r])||r; }   // English regime display
 
+// ---- de-saturatie-helpers ------------------------------------------------------------
+// soft saturation: mapt [0,∞) → [0,1) zonder ooit exact 1 te raken (geen plafond-artefact)
+function _gsdSoft(x){ if(x==null||!isFinite(x)) return null; if(x<0)x=0; return 1-Math.exp(-x); }
+// rollende percentiel-normalisatie per zone×categorie: "waar zit deze ruwe waarde t.o.v. de
+// eigen recente verdeling". Vroeg (weinig historie) valt het terug op soft-absoluut, zodat je
+// niet meteen overal 0.5 krijgt. Buffers persisteren in localStorage (overleeft reloads).
+const GSD_ROLL = (function(){ try{ return JSON.parse(localStorage.getItem('trinityGSDroll')||'{}')||{}; }catch(e){ return {}; } })();
+let _gsdRollDirty=false, _gsdRollSaved=0;
+function _gsdRelNorm(zk,ck,raw){
+  if(raw==null||!isFinite(raw)) return null;
+  const key=zk+'|'+ck; let buf=GSD_ROLL[key]; if(!buf){ buf=GSD_ROLL[key]=[]; }
+  buf.push(+raw.toFixed(5)); if(buf.length>300) buf.shift(); _gsdRollDirty=true;
+  let below=0; for(let i=0;i<buf.length;i++){ if(buf[i]<raw) below++; else if(buf[i]===raw) below+=0.5; }
+  const pct = buf.length? below/buf.length : 0.5;
+  const soft = _gsdSoft(raw);
+  const wRel = Math.min(1, buf.length/40);              // pas na ~40 samples volledig relatief
+  return _clamp01(pct*wRel + soft*(1-wRel));
+}
+function _gsdRollSave(){ try{ if(!_gsdRollDirty)return; const now=Date.now(); if(now-_gsdRollSaved<20000)return; _gsdRollSaved=now; _gsdRollDirty=false; localStorage.setItem('trinityGSDroll',JSON.stringify(GSD_ROLL)); }catch(e){} }
+
 const TrinityGSD = {
   proxy:'', cells:{}, zoneStress:{}, catStress:{},
   stress:0, sysVar:0, nodeTh:GSD_TH_DEFAULT, vfm:0, escapeVel:0, compressionAge:0, compressionPeak:0,
   killSwitch:false, killTs:0, regime:'RUST', spanT:0.35, crisT:0.60, escapeCrit:0.10, calibrated:false, _varMax:0.02, histCal:null,
+  tippingRisk:0, tippingTier:'low',
   hist:[], histV:[], histVFM:[], histMove:[], histEsc:[], t:[],
   scales:null, ranking:[], predictions:{}, _lastCompute:0, _built:false, _shadow:null, _cal:null, _calTs:0,
+  predLog:[], predStats:null, _predLogTs:0,
   anchorTs: Date.UTC(2020,2,23),   // TAM-anker (COVID-krach 23-03-2020, hoog-energie release)
 
   init(){
@@ -20822,6 +20844,7 @@ const TrinityGSD = {
     try{ const p=localStorage.getItem('trinityGSDproxy'); if(p) this.proxy=p; }catch(e){}
     try{ const v=JSON.parse(localStorage.getItem('trinityGSDcal')||'null'); if(v){ this._cal=v; if(v.nodeTh)this.nodeTh=v.nodeTh; if(v.spanT)this.spanT=v.spanT; if(v.crisT)this.crisT=v.crisT; this.calibrated=!!v.calibrated; } }catch(e){}
     try{ const h=JSON.parse(localStorage.getItem('trinityGSDhistCal')||'null'); if(h&&h.nodeTh){ this.histCal=h; this.nodeTh=h.nodeTh; this.spanT=h.spanT; this.crisT=h.crisT; if(h.escapeCrit!=null)this.escapeCrit=h.escapeCrit; this.calibrated=true; } }catch(e){}
+    try{ const pl=JSON.parse(localStorage.getItem('trinityGSDpredlog')||'null'); if(Array.isArray(pl)) this.predLog=pl; }catch(e){}
     GSDData.start();
     // als de proxy al is ingesteld (herstart), start de historische kalibratie zodra mogelijk
     try{ if(this.proxy && !this.histCal) setTimeout(()=>{ try{ TrinityGSDBackfill.run(); }catch(e){} }, 8000); }catch(e){}
@@ -20840,7 +20863,7 @@ const TrinityGSD = {
     try{ localStorage.setItem('trinityGSDhistCal',JSON.stringify(this.histCal)); }catch(e){}
     try{ pushAdj('GSD historical calibration', 'live distribution', 'node '+th.nodeTh+' · span '+th.spanT+' · crisis '+th.crisT, (meta&&meta.years?meta.years+'y':'')+' of real data · '+((meta&&meta.sources)||[]).join('/')); }catch(e){}
   },
-  setCell(zoneKey,catKey,v,src){ const c=this.cells[zoneKey]&&this.cells[zoneKey][catKey]; if(!c)return; c.v=(v==null?null:_clamp01(v)); c.at=Date.now(); c.status=(v==null?'nodata':'ok'); if(src)c.src=src; },
+  setCell(zoneKey,catKey,v,src,why){ const c=this.cells[zoneKey]&&this.cells[zoneKey][catKey]; if(!c)return; c.v=(v==null?null:_clamp01(v)); c.at=Date.now(); c.status=(v==null?'nodata':'ok'); if(src)c.src=src; if(why!=null)c.why=why; },
 
   // ---- compute: zone-stress → globale macro-osc → σ² → VFM/ΔV/regime → scales → predictor ----
   compute(){
@@ -20857,8 +20880,14 @@ const TrinityGSD = {
       // globale/systemische zone = gemiddelde over zones (de macro-oscillator)
       const gmean = zVals.length? zVals.reduce((a,b)=>a+b,0)/zVals.length : 0;
       this.zoneStress.global=gmean;
-      // per-categorie globale stress (voor de ranking + toggles)
-      GSD_CATS.forEach(c=>{ let s=0,n=0; GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cell=this.cells[z.key][c.key]; if(cell&&cell.v!=null){s+=cell.v;n++;} }); this.catStress[c.key]= n? s/n : null; });
+      // per-categorie globale stress (voor de ranking + toggles) + de systemische zone-rij vullen
+      GSD_CATS.forEach(c=>{ let s=0,n=0,worst=0,worstZ=null; GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cell=this.cells[z.key][c.key]; if(cell&&cell.v!=null){s+=cell.v;n++; if(cell.v>worst){worst=cell.v;worstZ=z.name;}} });
+        const gv = n? s/n : null; this.catStress[c.key]=gv;
+        // GLOBAL/SYSTEMIC-rij: schrijf de cross-zone-aggregatie zodat de rij niet leeg is
+        const gc=this.cells.global&&this.cells.global[c.key];
+        if(gc){ gc.v=(gv==null?null:_clamp01(gv)); gc.at=gv==null?gc.at:Date.now(); gc.status=gv==null?'idle':'ok'; gc.src='aggregate'; if(gv!=null) gc.why=n+' zones · worst '+(worstZ||'—')+' '+(worst*100|0); }
+      });
+      this.zoneStress.global=gmean;
 
       const stress=_clamp01(gmean);
       // σ² = spread between zones (asynchrony). Normalised against a FIXED reference so it is an
@@ -20876,6 +20905,13 @@ const TrinityGSD = {
       else if(this.killSwitch&&Date.now()-this.killTs>30000) this.killSwitch=false;
       if(!compressed&&!kill) this.vfm=Math.max(0,this.vfm*0.994);
       let regime = stress>this.crisT?'CRISIS':stress>this.spanT?'SPANNING':'RUST'; if(this.killSwitch)regime='CRISIS';
+      // TIPPING RISK — los van het NIVEAU. Vangt de "opgeladen veer": compressie (σ² dicht bij de
+      // node-drempel), opgebouwde VFM-energie, en een ΔV die begint op te lopen. Zo schreeuwt de
+      // banner niet meer CRISIS puur omdat een (soms te laag geijkt) niveau een drempel kruist.
+      const nodeProx = compressed ? 1 : _clamp01(1-(sysVar-this.nodeTh)/0.25);   // 1 = op de node, 0 = ver weg
+      let tipping = _clamp01(0.42*this.vfm + 0.30*nodeProx + 0.18*_clamp01(Math.max(0,escapeVel)*5) + (this.killSwitch?0.35:0));
+      this.tippingRisk=+tipping.toFixed(3);
+      this.tippingTier = tipping>=0.75?'critical':tipping>=0.5?'high':tipping>=0.28?'elevated':'low';
 
       this.stress=+stress.toFixed(4); this.sysVar=+sysVar.toFixed(4); this.escapeVel=+escapeVel.toFixed(4); this.regime=regime;
       const move = zVals.length? Math.max.apply(null, zVals.map(v=>Math.abs(v-m))) : 0;
@@ -20886,6 +20922,8 @@ const TrinityGSD = {
       this._rank();
       if(now-this._calTs>15000){ this._calTs=now; this._calibrate(); }
       this._predict();
+      this._scorePredictor(now);
+      _gsdRollSave();
       try{ TrinityFeeds.markOk('gsd', GSD_ZONES.length+' zones · '+this.regime); }catch(e){}
       this._lastCompute=now;
     }catch(e){}
@@ -20922,7 +20960,7 @@ const TrinityGSD = {
   _rank(){
     const rows=[];
     GSD_ZONES.forEach(z=>{ if(z.synthetic)return;
-      GSD_CATS.forEach(c=>{ const cell=this.cells[z.key][c.key]; if(cell&&cell.v!=null&&cell.v>=0.02) rows.push({zone:z.key,zoneName:z.name,zoneCol:z.col,cat:c.key,catName:c.name,catCol:c.col,v:cell.v,at:cell.at,src:cell.src}); });
+      GSD_CATS.forEach(c=>{ const cell=this.cells[z.key][c.key]; if(cell&&cell.v!=null&&cell.v>=0.02) rows.push({zone:z.key,zoneName:z.name,zoneCol:z.col,cat:c.key,catName:c.name,catCol:c.col,v:cell.v,at:cell.at,src:cell.src,why:cell.why||''}); });
     });
     rows.sort((a,b)=>b.v-a.v); this.ranking=rows.slice(0,40);
   },
@@ -20995,6 +21033,34 @@ const TrinityGSD = {
     return `Global stress (${scaleKey}) · zones: ${topZ.join(', ')||'—'} · categories: ${topC.join(', ')||'—'} · σ² ${this.sysVar.toFixed(2)}${this.sysVar<=this.nodeTh?' (danger zone)':''} · VFM ${(this.vfm*100|0)}% · regime ${_gsdRe(this.regime)}${this.killSwitch?' ⚡KILL':''} · forecast: ${Math.round(prob*100)}% chance of ${this.stress>this.spanT?'escalation':'shift'} in window ${fmt(from)}–${fmt(to)} ${new Date(to).getUTCFullYear()}`;
   },
 
+  // ---- predictor zelf-scoring: Brier + hit-rate (out-of-sample, eerlijk naar 50% getrokken) ----
+  _scorePredictor(now){
+    try{
+      // 1) nieuwe voorspelling loggen (throttled: elke ~5 min één 'meso'-forecast als open weddenschap)
+      const p=this.predictions&&this.predictions.meso;
+      if(p && now-this._predLogTs>300000){ this._predLogTs=now;
+        this.predLog.push({ ts:now, prob:p.prob, base:this.stress, due:now+3*864e5, rise:p.dir==='rising stress', done:false });
+        if(this.predLog.length>600) this.predLog.shift();
+      }
+      // 2) gerijpte voorspellingen resolven: kwam de "rising stress"-richting uit? (stress ≥ base+0.02)
+      let changed=false;
+      for(const e of this.predLog){ if(e.done||now<e.due) continue; e.done=true; changed=true;
+        const rose = this.stress >= e.base+0.02;
+        e.hit = e.rise ? (rose?1:0) : (rose?0:1);        // klopte de richting?
+        e.pForHit = e.rise ? e.prob : (1-e.prob);          // kans die het model aan de UITKOMST gaf
+      }
+      // 3) statistiek over geresolvede weddenschappen
+      const done=this.predLog.filter(e=>e.done);
+      if(done.length){ let hits=0,brier=0; done.forEach(e=>{ hits+=e.hit; brier+=(e.pForHit-e.hit)*(e.pForHit-e.hit); });
+        const n=done.length, raw=hits/n;
+        // naar 50% trekken tot bewezen (n<25): pseudo-tellingen 12.5/12.5
+        const shrunk=(hits+12.5)/(n+25);
+        this.predStats={ n, hitRate:+raw.toFixed(3), hitRateAdj:+shrunk.toFixed(3), brier:+(brier/n).toFixed(3), proven:n>=25 };
+      }
+      if(changed){ try{ localStorage.setItem('trinityGSDpredlog',JSON.stringify(this.predLog)); }catch(e){} }
+    }catch(e){}
+  },
+
   // ---- Trinity-integratie: globale risico-weging voor FX (autonoom) ----
   riskWeight(ccy){
     try{
@@ -21009,8 +21075,8 @@ const TrinityGSD = {
   },
   globalRisk(){ return { regime:this.regime, stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, vfm:this.vfm, kill:this.killSwitch }; },
   bundle(){ return { zones:GSD_ZONES.map(z=>({key:z.key,name:z.name,ccy:z.ccy})), categories:GSD_CATS.map(c=>({key:c.key,name:c.name,src:c.src,direct:c.direct})),
-    live:{ stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, spanT:this.spanT, crisT:this.crisT, vfm:this.vfm, escapeVel:this.escapeVel, regime:this.regime, killSwitch:this.killSwitch, calibrated:this.calibrated },
-    zoneStress:this.zoneStress, catStress:this.catStress, cells:this.cells, ranking:this.ranking, predictions:this.predictions,
+    live:{ stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, spanT:this.spanT, crisT:this.crisT, vfm:this.vfm, escapeVel:this.escapeVel, regime:this.regime, tippingRisk:this.tippingRisk, tippingTier:this.tippingTier, killSwitch:this.killSwitch, calibrated:this.calibrated },
+    zoneStress:this.zoneStress, catStress:this.catStress, cells:this.cells, ranking:this.ranking, predictions:this.predictions, predictorScore:this.predStats,
     calibration:this._cal, shadow:this._shadow, histCal:this.histCal, historicalBackfill:(typeof TrinityGSDBackfill!=='undefined'?TrinityGSDBackfill.bundle():null), proxy:this.proxy?'(ingesteld)':'(geen)', tamAnchor:new Date(this.anchorTs).toISOString(),
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
@@ -21047,20 +21113,20 @@ const GSDData = {
   // USGS aardbevingen (direct, GeoJSON) → disaster-stress per zone
   usgs(){
     const url='https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime='+new Date(Date.now()-7*864e5).toISOString().slice(0,10)+'&minmagnitude=4.5&orderby=time';
-    this._get(url,true).then(d=>{ const acc={}; GSD_ZONES.forEach(z=>acc[z.key]=0);
+    this._get(url,true).then(d=>{ const acc={},mx={}; GSD_ZONES.forEach(z=>{acc[z.key]=0;mx[z.key]=0;});
       (d.features||[]).forEach(f=>{ const c=f.geometry&&f.geometry.coordinates; const mag=f.properties&&f.properties.mag; if(!c||mag==null)return; const lon=c[0],lat=c[1];
-        GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const b=z.bbox; if(lon>=b[0]&&lon<=b[2]&&lat>=b[1]&&lat<=b[3]) acc[z.key]+=Math.pow(10,Math.max(0,mag-4.5))/60; }); });
-      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].disaster.v; const q=_clamp01(acc[z.key]); TrinityGSD.setCell(z.key,'disaster', cur!=null?Math.max(cur*0.5,q):q, 'USGS'); });
+        GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const b=z.bbox; if(lon>=b[0]&&lon<=b[2]&&lat>=b[1]&&lat<=b[3]){ acc[z.key]+=Math.pow(10,Math.max(0,mag-4.5))/200; if(mag>mx[z.key])mx[z.key]=mag; } }); });
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].disaster.v; const q=_gsdSoft(acc[z.key]); const why=mx[z.key]?('max M'+mx[z.key].toFixed(1)):'no strong quakes'; TrinityGSD.setCell(z.key,'disaster', cur!=null?Math.max(cur*0.5,q):q, 'USGS', why); });
       TrinityFeeds.markOk('gsd-usgs',(d.features||[]).length+' quakes 7d');
     }).catch(e=>TrinityFeeds.markErr('gsd-usgs',e.message,e.http));
   },
   // NASA EONET open natuur-events (direct) → disaster blend
   eonet(){
     const url='https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=20';
-    this._get(url,true).then(d=>{ const acc={}; GSD_ZONES.forEach(z=>acc[z.key]=0);
+    this._get(url,true).then(d=>{ const acc={},cnt={}; GSD_ZONES.forEach(z=>{acc[z.key]=0;cnt[z.key]=0;});
       (d.events||[]).forEach(ev=>{ const g=ev.geometry&&ev.geometry[ev.geometry.length-1]; const c=g&&g.coordinates; if(!c)return; const lon=c[0],lat=c[1];
-        GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const b=z.bbox; if(lon>=b[0]&&lon<=b[2]&&lat>=b[1]&&lat<=b[3]) acc[z.key]+=0.12; }); });
-      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].disaster.v; const e=_clamp01(acc[z.key]); TrinityGSD.setCell(z.key,'disaster', cur!=null?Math.max(cur,e):e, 'USGS+EONET'); });
+        GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const b=z.bbox; if(lon>=b[0]&&lon<=b[2]&&lat>=b[1]&&lat<=b[3]){ acc[z.key]+=0.12; cnt[z.key]++; } }); });
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].disaster.v; const e=_gsdSoft(acc[z.key]); if(cnt[z.key]){ const why=cnt[z.key]+' open nat. events'; TrinityGSD.setCell(z.key,'disaster', cur!=null?Math.max(cur,e):e, 'USGS+EONET', why); } else if(cur!=null){ TrinityGSD.setCell(z.key,'disaster', cur, 'USGS+EONET'); } });
       TrinityFeeds.markOk('gsd-eonet',(d.events||[]).length+' open events');
     }).catch(e=>TrinityFeeds.markErr('gsd-eonet',e.message,e.http));
   },
@@ -21081,8 +21147,8 @@ const GSDData = {
   worldbank(){
     GSD_ZONES.forEach(z=>{ if(z.synthetic||!z.wb.length)return;
       const url='https://api.worldbank.org/v2/country/'+z.wb.join(';')+'/indicator/FP.CPI.TOTL.ZG?format=json&mrnev=1&per_page=200';
-      this._get(url,true).then(d=>{ const arr=Array.isArray(d)&&d[1]?d[1]:[]; let s=0,n=0; arr.forEach(r=>{ if(r.value!=null){ s+=Math.abs(r.value-2)/10; n++; } }); // afwijking van 2% inflatiedoel
-        if(n){ TrinityGSD.setCell(z.key,'econ',_clamp01(s/n),'World Bank'); }
+      this._get(url,true).then(d=>{ const arr=Array.isArray(d)&&d[1]?d[1]:[]; let s=0,n=0,ci=0; arr.forEach(r=>{ if(r.value!=null){ s+=Math.abs(r.value-2)/10; ci+=r.value; n++; } }); // afwijking van 2% inflatiedoel
+        if(n){ const why='CPI '+(ci/n).toFixed(1)+'% avg ('+n+' ctry)'; TrinityGSD.setCell(z.key,'econ',_gsdSoft(s/n),'World Bank',why); }
         TrinityFeeds.markOk('gsd-worldbank','inflation '+n+' countries');
       }).catch(e=>TrinityFeeds.markErr('gsd-worldbank',e.message,e.http));
     });
@@ -21095,11 +21161,13 @@ const GSDData = {
       const url='https://api.gdeltproject.org/api/v2/doc/doc?query='+encodeURIComponent(q)+'&mode=tonechart&format=json&timespan=3d';
       this._get(url,false).then(d=>{ let neg=0,tot=0; (d.tonechart||[]).forEach(b=>{ const c=b.count||0; tot+=c; if((b.bin||0)<=-2) neg+=c; });
         const negFrac = tot? neg/tot : 0;
-        const geo=_clamp01(negFrac*1.4), tone=_clamp01(negFrac);
+        const why='tone '+(negFrac*100|0)+'% neg · '+tot+' art';
         // GDELT owns geo + tone. Conflict is owned by ACLED (hard event data); GDELT only fills
-        // conflict when ACLED has no data (no key), so the two sources never overwrite each other.
-        TrinityGSD.setCell(z.key,'geo',geo,'GDELT'); TrinityGSD.setCell(z.key,'tone',tone,'GDELT');
-        const cc=TrinityGSD.cells[z.key].conflict; if(!cc||cc.src!=='ACLED'||cc.v==null) TrinityGSD.setCell(z.key,'conflict',_clamp01(negFrac*1.6),'GDELT');
+        // conflict when ACLED has no data. De ruwe negatief-fractie wordt ROLLEND-RELATIEF
+        // genormaliseerd (percentiel t.o.v. eigen historie) i.p.v. hard geclampt → geen 1.0-plafond.
+        TrinityGSD.setCell(z.key,'geo', _gsdRelNorm(z.key,'geo',negFrac*1.4),'GDELT',why);
+        TrinityGSD.setCell(z.key,'tone', _gsdRelNorm(z.key,'tone',negFrac),'GDELT',why);
+        const cc=TrinityGSD.cells[z.key].conflict; if(!cc||cc.src!=='ACLED'||cc.v==null) TrinityGSD.setCell(z.key,'conflict', _gsdRelNorm(z.key,'conflict',negFrac*1.6),'GDELT',why);
         okAny=true; TrinityFeeds.markOk('gsd-gdelt','tone ok · '+z.key);
       }).catch(e=>TrinityFeeds.markErr('gsd-gdelt',e.message,e.http));
     });
@@ -21109,13 +21177,26 @@ const GSDData = {
     if(!TrinityGSD.proxy) return;
     const latest=(sid,cb)=>{ const url='https://api.stlouisfed.org/fred/series/observations?series_id='+sid+'&sort_order=desc&limit=1';
       return this._get(url,false).then(d=>{ const o=(d.observations||[])[0]; const v=o?parseFloat(o.value):NaN; cb(isNaN(v)?null:v); }).catch(()=>cb(null)); };
-    Promise.all([ new Promise(r=>latest('VIXCLS',v=>r(v))), new Promise(r=>latest('NFCI',v=>r(v))) ]).then(([vix,nfci])=>{
+    Promise.all([
+      new Promise(r=>latest('VIXCLS',v=>r(v))),        // aandelen-volatiliteit
+      new Promise(r=>latest('NFCI',v=>r(v))),          // financiële condities (Chicago Fed)
+      new Promise(r=>latest('BAMLH0A0HYM2',v=>r(v))),  // high-yield credit-spread (kredietstress)
+      new Promise(r=>latest('DTWEXBGS',v=>r(v))),      // brede dollar-index
+      new Promise(r=>latest('DCOILWTICO',v=>r(v)))     // WTI-olie
+    ]).then(([vix,nfci,hy,usd,oil])=>{
       let parts=[]; if(vix!=null) parts.push(_clamp01((vix-11)/40));           // VIX ~11 calm → ~50 crisis
       if(nfci!=null) parts.push(_clamp01((nfci+0.7)/1.4));                     // NFCI <0 loose, >0 tight
+      if(hy!=null) parts.push(_clamp01((hy-2.5)/8));                          // HY OAS 2.5% calm → 10%+ crisis
       if(!parts.length){ TrinityFeeds.markErr('gsd-fred','no data'); return; }
       const fc=parts.reduce((a,b)=>a+b,0)/parts.length;
-      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const extra=z.key==='na'?0.08:0; TrinityGSD.setCell(z.key,'cb',_clamp01(fc+extra),'FRED'); });
-      TrinityFeeds.markOk('gsd-fred','VIX '+(vix!=null?vix.toFixed(1):'—')+' · NFCI '+(nfci!=null?nfci.toFixed(2):'—'));
+      const cbWhy='VIX '+(vix!=null?vix.toFixed(1):'—')+' · NFCI '+(nfci!=null?nfci.toFixed(2):'—')+(hy!=null?' · HY '+hy.toFixed(1)+'%':'');
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const extra=z.key==='na'?0.08:0; TrinityGSD.setCell(z.key,'cb',_clamp01(fc+extra),'FRED',cbWhy); });
+      // TRADE & COMMODITIES (was leeg): dollar-sterkte + olie → begrensde absolute stress-schaal.
+      // Sterke dollar verkrapt mondiale condities; hoge olie = inflatoire druk.
+      if(usd!=null||oil!=null){ const dStress=usd!=null?_clamp01((usd-95)/40):null; const oStress=oil!=null?_clamp01((oil-50)/80):null;
+        const tv=[dStress,oStress].filter(x=>x!=null); if(tv.length){ const tstress=tv.reduce((a,b)=>a+b,0)/tv.length; const tWhy='USD idx '+(usd!=null?usd.toFixed(1):'—')+' · WTI '+(oil!=null?('$'+oil.toFixed(0)):'—');
+          GSD_ZONES.forEach(z=>{ if(z.synthetic)return; TrinityGSD.setCell(z.key,'trade',tstress,'FRED',tWhy); }); } }
+      TrinityFeeds.markOk('gsd-fred',cbWhy);
     }).catch(e=>TrinityFeeds.markErr('gsd-fred',e.message,e.http));
   },
   // ECB euro-area systemic stress CISS (proxy, no key) → EU 'econ'/'cb'
@@ -21126,7 +21207,8 @@ const GSDData = {
       try{ const ds=d.dataSets&&d.dataSets[0]; const s=ds&&ds.series; const first=s&&s[Object.keys(s)[0]]; const obs=first&&first.observations; const k=obs&&Object.keys(obs)[0]; if(k!=null) val=obs[k][0]; }catch(e){}
       if(val==null){ TrinityFeeds.markErr('gsd-ecb','no CISS'); return; }
       const ciss=_clamp01(val);   // CISS is al 0..1
-      TrinityGSD.setCell('eu','econ',_clamp01(ciss*0.9+0.05),'ECB CISS'); TrinityGSD.setCell('eu','cb',_clamp01(ciss),'ECB CISS');
+      const why='CISS '+ciss.toFixed(2);
+      TrinityGSD.setCell('eu','econ',_clamp01(ciss*0.9+0.05),'ECB CISS',why); TrinityGSD.setCell('eu','cb',_clamp01(ciss),'ECB CISS',why);
       TrinityFeeds.markOk('gsd-ecb','CISS '+ciss.toFixed(2));
     }).catch(e=>TrinityFeeds.markErr('gsd-ecb',e.message,e.http));
   },
@@ -21138,8 +21220,9 @@ const GSDData = {
       const url='https://api.acleddata.com/acled/read?region='+regs.join('|')+'&event_date='+since+'&event_date_where=%3E%3D&fields=event_date|fatalities&limit=3000';
       this._get(url,false).then(d=>{ const rows=(d&&d.data)||[]; if(!d||d.success===false){ TrinityFeeds.markErr('gsd-acled', (d&&d.error&&d.error.message)||'key?'); return; }
         let ev=rows.length, fat=0; rows.forEach(r=>fat+=(+r.fatalities||0));
-        const conflict=_clamp01(ev/400 + fat/2000);   // events + fatalities → stress
-        TrinityGSD.setCell(z.key,'conflict',conflict,'ACLED');
+        const conflict=_gsdSoft(ev/400 + fat/2000);   // events + fatalities → stress (soft, geen plafond)
+        const why=ev+' events · '+fat+' fatalities 30d';
+        TrinityGSD.setCell(z.key,'conflict',conflict,'ACLED',why);
         TrinityFeeds.markOk('gsd-acled',ev+' events '+z.key);
       }).catch(e=>TrinityFeeds.markErr('gsd-acled',e.message,e.http));
     });
@@ -21207,11 +21290,28 @@ const TrinityGSDBackfill = {
       let proven=false, lift=null; try{ const fwd=_fsoFwd(Mv,3); const lr=_fsoLift(H,fwd,crisT,0,H.length,1); lift=+lr.lift.toFixed(2); proven=(lr.n>=6&&lr.lift>=1.15); }catch(e){}
       const years=+((mx-mn+1)/12).toFixed(1);
       const th={nodeTh,spanT,crisT,escapeCrit};
+      // VALIDATIE tegen benoemde historische crises: piekte H boven de spanning/crisis-drempel?
+      const crises=this._validateCrises(H,months,spanT,crisT);
+      // sparkline-reeks (gedownsampled) + startjaar voor de "plot de geschiedenis"-mini-chart
+      const startYear=Math.floor(mn/12); const spark=[]; const step=Math.max(1,Math.floor(H.length/120)); for(let i=0;i<H.length;i+=step) spark.push(+H[i].toFixed(3));
       TrinityGSD.applyHistCal(th,{years,months:H.length,sources:srcNames});
-      this.status={ state:'calibrated', years, months:H.length, sources:srcNames, thresholds:th, proven, lift, ts:Date.now(), note:'from '+srcNames.length+' sources' };
+      this.status={ state:'calibrated', years, months:H.length, sources:srcNames, thresholds:th, proven, lift, crises, spark, startYear, ts:Date.now(), note:'from '+srcNames.length+' sources' };
       try{ localStorage.setItem('trinityGSDbackfill',JSON.stringify(this.status)); }catch(e){}
     }catch(e){ this.status={state:'error: '+e.message, years:0, months:0, sources:[], thresholds:null, proven:false, ts:Date.now(), note:''}; }
     this._busy=false; try{ renderGSD(); }catch(e){}
+  },
+  // ---- validatie tegen benoemde crises: piekte de historische stress H daar boven de drempels? ----
+  _validateCrises(H,months,spanT,crisT){
+    const CR=[ {name:'1998 LTCM/Rusland',y:1998,m:8}, {name:'2000–02 dotcom',y:2001,m:8}, {name:'2008 GFC',y:2008,m:9},
+      {name:'2011 euro-schuld',y:2011,m:8}, {name:'2020 COVID',y:2020,m:2}, {name:'2022 rente/energie',y:2022,m:5} ];
+    const idxByKey={}; months.forEach((k,i)=>idxByKey[k]=i);
+    const out=[];
+    CR.forEach(c=>{ const center=c.y*12+(c.m-1); let peak=-1;
+      for(let d=-4;d<=4;d++){ const i=idxByKey[center+d]; if(i!=null&&H[i]>peak) peak=H[i]; }
+      if(peak<0) return;   // deze crisis valt buiten de gedekte periode/bronnen
+      out.push({ name:c.name, peak:+peak.toFixed(3), tension:peak>=spanT, crisis:peak>=crisT });
+    });
+    return out;
   },
   bundle(){ return { status:this.status, histCal:TrinityGSD.histCal }; }
 };
@@ -21306,7 +21406,13 @@ function renderGSD(){
   // status-regel
   const st=document.getElementById('gsd-status');
   if(st){ const c=TrinityGSD, comp=c.sysVar<=c.nodeTh; const rc={RUST:'#14f195',SPANNING:'#ffb627',CRISIS:'#ff4f6d'}[c.regime]||'#7fd4ff';
-    st.innerHTML=`<span style="color:${rc};font-weight:700">◉ GSD ${_gsdRe(c.regime)}</span>${c.killSwitch?' <b style="color:#ff4f6d">⚡ KILL-SWITCH</b>':''} · global stress <b style="color:var(--tx)">${c.stress.toFixed(3)}</b> · σ² <b style="color:${comp?'#ff4f6d':'var(--tx)'}">${c.sysVar.toFixed(2)}</b>${comp?' <small style="color:#ff8a94">danger zone</small>':''} · <b style="color:#7fd8ff">node threshold ${c.nodeTh.toFixed(2)}${c.calibrated?' (calibrated)':''}</b> · VFM ${(c.vfm*100|0)}% · ΔV ${c.escapeVel>=0?'+':''}${c.escapeVel.toFixed(3)}`;
+    const tip=c.tippingRisk||0, tc = tip>=0.75?'#ff4f6d':tip>=0.5?'#ff8a3c':tip>=0.28?'#ffb627':'#14f195';
+    // TWEE APARTE meters: NIVEAU (waar staat de stress) en TIPPING (bouwt het gevaarlijk op).
+    st.innerHTML=`<span style="color:${rc};font-weight:700">◉ LEVEL ${_gsdRe(c.regime)}</span> stress <b style="color:var(--tx)">${c.stress.toFixed(3)}</b>`
+      +` &nbsp;·&nbsp; <span style="color:${tc};font-weight:700">◈ TIPPING ${(c.tippingTier||'low').toUpperCase()}</span> <b style="color:${tc}">${Math.round(tip*100)}%</b>`
+      +`${c.killSwitch?' <b style="color:#ff4f6d">⚡ KILL-SWITCH</b>':''}`
+      +` &nbsp;·&nbsp; σ² <b style="color:${comp?'#ff4f6d':'var(--tx)'}">${c.sysVar.toFixed(2)}</b>${comp?' <small style="color:#ff8a94">danger zone</small>':''}`
+      +` · <b style="color:#7fd8ff">node ${c.nodeTh.toFixed(2)}${c.calibrated?' (cal)':''}</b> · VFM ${(c.vfm*100|0)}% · ΔV ${c.escapeVel>=0?'+':''}${c.escapeVel.toFixed(3)}`;
   }
   // ranking-feed per categorie
   const rk=document.getElementById('gsd-ranking');
@@ -21315,7 +21421,8 @@ function renderGSD(){
     const head=`<div class="gsdrow gsdhdr"><span class="gsdrk">#</span><span class="gsddot"></span><span class="gsdzone">Zone</span><span class="gsdcat">Category</span><div class="gsdbar" style="background:none;color:var(--dimmer);font-size:0.48rem;text-align:left;">as of ${nowUTC}</div><span class="gsdval">score</span><span class="gsdwin">period</span><span class="gsdupd">updated</span></div>`;
     if(!rows.length) rk.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.56rem;">no zones under pressure measured yet…</div>';
     else rk.innerHTML=head+rows.map((r,i)=>{ const bad=r.v>=TrinityGSD.crisT?'#ff4f6d':r.v>=TrinityGSD.spanT?'#ffb627':'#14f195'; const win=GSD_CAT_WINDOW[r.cat]||'';
-      return `<div class="gsdrow"><span class="gsdrk">#${i+1}</span><span class="gsddot" style="background:${r.zoneCol}"></span><span class="gsdzone">${r.zoneName}</span><span class="gsdcat" style="color:${r.catCol}">${r.catName}</span><div class="gsdbar"><i style="width:${Math.round(r.v*100)}%;background:${bad}"></i></div><span class="gsdval" style="color:${bad}">${Math.round(r.v*100)}</span><span class="gsdwin">${win}</span><span class="gsdupd">${_gsdWhen(r.at)} <small style="color:var(--dimmer)">${r.src||''}</small></span></div>`;
+      const why=r.why?` <small style="color:var(--dimmer)" title="what's driving this">— ${r.why}</small>`:'';
+      return `<div class="gsdrow" title="${r.why?String(r.why).replace(/"/g,'')+' · ':''}${r.src||''}"><span class="gsdrk">#${i+1}</span><span class="gsddot" style="background:${r.zoneCol}"></span><span class="gsdzone">${r.zoneName}</span><span class="gsdcat" style="color:${r.catCol}">${r.catName}${why}</span><div class="gsdbar"><i style="width:${Math.round(r.v*100)}%;background:${bad}"></i></div><span class="gsdval" style="color:${bad}">${Math.round(r.v*100)}</span><span class="gsdwin">${win}</span><span class="gsdupd">${_gsdWhen(r.at)} <small style="color:var(--dimmer)">${r.src||''}</small></span></div>`;
     }).join('');
   }
   // predictor + shadow (micro/meso/macro)
@@ -21323,7 +21430,14 @@ function renderGSD(){
   if(pr){ const P=TrinityGSD.predictions||{}; const blocks=['micro','meso','macro'].map(k=>{ const p=P[k]; if(!p)return `<div class="gsdpred"><b>${k.toUpperCase()}</b> <span style="color:var(--dimmer)">gathering…</span></div>`;
       const col=p.prob>=0.66?'#ff4f6d':p.prob>=0.4?'#ffb627':'#14f195';
       return `<div class="gsdpred"><div style="display:flex;justify-content:space-between;"><b style="color:#7fd8ff">${k.toUpperCase()}</b><span style="color:${col};font-weight:700">${Math.round(p.prob*100)}% · ${p.dir}</span></div><div class="mono" style="font-size:0.52rem;color:var(--dim);margin-top:2px;line-height:1.5;">${p.desc}</div></div>`;
-    }).join(''); pr.innerHTML=blocks;
+    }).join('');
+    // EERLIJKHEIDS-regel: out-of-sample zelf-score van de predictor (hit-rate + Brier, naar 50% getrokken tot bewezen)
+    const ps=TrinityGSD.predStats;
+    let scoreLine;
+    if(ps){ const hr=Math.round(ps.hitRateAdj*100), bc=ps.brier<=0.24?'#14f195':ps.brier<=0.27?'#ffb627':'#ff4f6d';
+      scoreLine=`<div class="mono" style="font-size:0.55rem;color:var(--dim);margin-top:6px;border-top:1px solid var(--line);padding-top:6px;">self-score · hit-rate <b style="color:${ps.proven?'#14f195':'var(--tx)'}">${hr}%</b> · Brier <b style="color:${bc}">${ps.brier}</b> · n=${ps.n} ${ps.proven?'<small style="color:#14f195">✓ proven</small>':'<small style="color:var(--dimmer)">(pulled to 50% until n≥25)</small>'}</div>`;
+    } else scoreLine=`<div class="mono" style="font-size:0.52rem;color:var(--dimmer);margin-top:6px;border-top:1px solid var(--line);padding-top:6px;">self-score: collecting resolved forecasts…</div>`;
+    pr.innerHTML=blocks+scoreLine;
   }
   // feeds-health voor GSD-bronnen
   const fe=document.getElementById('gsd-feeds');
@@ -21345,6 +21459,24 @@ function renderGSD(){
         +`<div style="margin-top:2px;">${S.years} yrs · ${S.months} months · ${(S.sources||[]).join(', ')}</div>`
         +(S.lift!=null?`<div style="margin-top:2px;">shadow-backtest lift <b style="color:${S.proven?'#14f195':'var(--tx)'}">${S.lift}×</b> ${S.proven?'<small style="color:#14f195">✓ crisis-threshold predictive</small>':'<small style="color:var(--dimmer)">(not yet proven)</small>'}</div>`:'')
         +`</div>`;
+      // mini-sparkline van de 36-jaars historische stress-reeks (met crisis/tension-lijnen)
+      if(S.spark&&S.spark.length>4){ const sp=S.spark, w=100, h=26, n=sp.length, mxv=Math.max.apply(null,sp)||1;
+        const X=i=>(i/(n-1))*w, Y=v=>h-(v/mxv)*h;
+        let d=''; sp.forEach((v,i)=>{ d+=(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1); });
+        const yC=Y(S.thresholds.crisT), yT=Y(S.thresholds.spanT);
+        body+=`<div style="margin-top:6px;"><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:38px;background:rgba(0,0,0,0.25);border:1px solid var(--line);border-radius:4px;">`
+          +`<line x1="0" y1="${yC.toFixed(1)}" x2="${w}" y2="${yC.toFixed(1)}" stroke="#ff4f6d" stroke-width="0.4" stroke-dasharray="2 2"/>`
+          +`<line x1="0" y1="${yT.toFixed(1)}" x2="${w}" y2="${yT.toFixed(1)}" stroke="#ffb627" stroke-width="0.4" stroke-dasharray="2 2"/>`
+          +`<path d="${d}" fill="none" stroke="#7fd8ff" stroke-width="0.6"/></svg>`
+          +`<div class="mono" style="font-size:0.46rem;color:var(--dimmer);display:flex;justify-content:space-between;"><span>${S.startYear||''}</span><span>historical global stress · crisis/tension lines</span><span>now</span></div></div>`;
+      }
+      // validatie tegen benoemde crises: ving het model 2008 / 2020 / 2022?
+      if(S.crises&&S.crises.length){
+        body+=`<div class="mono" style="font-size:0.5rem;color:var(--dim);margin-top:6px;line-height:1.65;"><div style="color:var(--dimmer);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">crisis back-test</div>`
+          +S.crises.map(c=>{ const col=c.crisis?'#ff4f6d':c.tension?'#ffb627':'#5c7488'; const tag=c.crisis?'✓ crisis':c.tension?'✓ tension':'· missed';
+            return `<div style="display:flex;justify-content:space-between;"><span>${c.name}</span><span style="color:${col}">peak ${c.peak} · ${tag}</span></div>`; }).join('')
+          +`</div>`;
+      }
     } else if(S.note){ body=`<div class="mono" style="font-size:0.52rem;color:var(--dimmer);margin-top:2px;">${S.note}</div>`; }
     const when=S.ts?' · '+_gsdWhen(S.ts):'';
     hc.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span class="feeddot" style="background:${stateCol}"></span><b style="color:${stateCol};font-size:0.6rem;">${busy?'pulling history…':(S.state||'idle')}</b><small style="color:var(--dimmer)">${when}</small></div>${body}`;
