@@ -20923,6 +20923,7 @@ const TrinityGSD = {
       if(now-this._calTs>15000){ this._calTs=now; this._calibrate(); }
       this._predict();
       this._scorePredictor(now);
+      try{ TrinityGSDHistory.push(now, stress); }catch(e){}
       _gsdRollSave();
       try{ TrinityFeeds.markOk('gsd', GSD_ZONES.length+' zones · '+this.regime); }catch(e){}
       this._lastCompute=now;
@@ -21231,6 +21232,38 @@ const GSDData = {
 try{ Object.assign(window,{TrinityGSD,GSDData,GSD_ZONES,GSD_CATS}); }catch(e){}
 
 // ==================================================================================
+// GSD · LANGE-HORIZON HISTORIE — doorlopende buffer voor week/maand/kwartaal/jaar/2y/5y/10y
+// ----------------------------------------------------------------------------------
+// Eén doorlopende reeks van de globale stress. Kort venster (week/maand): live-buffer die
+// elke ~4.5 min een punt bijzet en PERSISTEERT (overleeft reloads/sessies) + VIX-dagproxy uit
+// de backfill zodat het meteen gevuld is. Lang venster (jaar→10y): de 36-jaars composiet-reeks
+// uit de historische kalibratie. series(dagen) kiest automatisch de juiste bron + resolutie.
+// ==================================================================================
+const GSD_HZ_DAYS = { week:7, month:30, quarter:91, year:365, '2y':730, '5y':1825, '10y':3650 };
+const TrinityGSDHistory = {
+  buf:[], _lastPush:0, _saved:0,
+  _load(){ try{ const a=JSON.parse(localStorage.getItem('trinityGSDhist')||'null'); if(Array.isArray(a)) this.buf=a; }catch(e){} },
+  push(t,s){ if(s==null||!isFinite(s))return; if(t-this._lastPush<270000)return; this._lastPush=t; this.buf.push({t,s:+s.toFixed(4)});
+    if(this.buf.length>2600){ const half=this.buf.length/2, keep=[]; for(let i=0;i<this.buf.length;i++){ if(i<half){ if(i%2===0)keep.push(this.buf[i]); } else keep.push(this.buf[i]); } this.buf=keep; }   // oudste helft uitdunnen → langere horizon
+    try{ if(t-this._saved>60000){ this._saved=t; localStorage.setItem('trinityGSDhist',JSON.stringify(this.buf)); } }catch(e){}
+  },
+  _monthly(){ const S=TrinityGSDBackfill&&TrinityGSDBackfill.status; return (S&&S.histMonthly)||[]; },
+  _recent(){ const S=TrinityGSDBackfill&&TrinityGSDBackfill.status; return (S&&S.recentDaily)||[]; },
+  series(days){ const now=Date.now(), cut=now-days*864e5;
+    const live=this.buf.filter(p=>p.t>=cut), recent=this._recent().filter(p=>p.t>=cut), monthly=this._monthly().filter(p=>p.t>=cut);
+    let pts, src;
+    if(days<=45){ if(live.length>=6){ pts=live; src='live global stress'; } else if(recent.length>=4){ pts=recent; src='VIX daily proxy'; } else { pts=live.length>=recent.length?live:recent; src=(pts===live)?'live global stress':'VIX daily proxy'; } }
+    else if(days<=140){ pts=recent.length>=4?recent:(monthly.length?monthly:live); src=recent.length>=4?'VIX daily proxy':'composite monthly'; }
+    else { pts=monthly.length?monthly:recent; src='composite monthly'; }
+    pts=(pts||[]).slice().sort((a,b)=>a.t-b.t);
+    if(pts.length>220){ const st=Math.ceil(pts.length/220), o=[]; for(let i=0;i<pts.length;i+=st)o.push(pts[i]); const last=pts[pts.length-1]; if(o[o.length-1]!==last)o.push(last); pts=o; }
+    return { pts, src };
+  }
+};
+TrinityGSDHistory._load();
+try{ Object.assign(window,{TrinityGSDHistory}); }catch(e){}
+
+// ==================================================================================
 // GSD · HISTORICAL CALIBRATION BACKFILL
 // ----------------------------------------------------------------------------------
 // IJkt de node-drempel + regime-drempels + ΔV op ECHTE crises uit decennia data i.p.v.
@@ -21294,8 +21327,12 @@ const TrinityGSDBackfill = {
       const crises=this._validateCrises(H,months,spanT,crisT);
       // sparkline-reeks (gedownsampled) + startjaar voor de "plot de geschiedenis"-mini-chart
       const startYear=Math.floor(mn/12); const spark=[]; const step=Math.max(1,Math.floor(H.length/120)); for(let i=0;i<H.length;i+=step) spark.push(+H[i].toFixed(3));
+      // volledige maand-reeks met tijdstempels (voor de jaar/2y/5y/10y-horizoncharts + grote histcal-chart)
+      const histMonthly=months.map((k,i)=>({ t:Date.UTC(Math.floor(k/12), k%12, 1), s:+H[i].toFixed(4) }));
+      // recente VIX-dagreeks (laatste ~210d) als fijne proxy voor week/maand/kwartaal (meteen gevuld)
+      let recentDaily=[]; if(vix&&vix.length){ const rc=Date.now()-210*864e5; recentDaily=vix.filter(x=>x.t>=rc).map(x=>({ t:x.t, s:+_clamp01((x.v-11)/40).toFixed(4) })); }
       TrinityGSD.applyHistCal(th,{years,months:H.length,sources:srcNames});
-      this.status={ state:'calibrated', years, months:H.length, sources:srcNames, thresholds:th, proven, lift, crises, spark, startYear, ts:Date.now(), note:'from '+srcNames.length+' sources' };
+      this.status={ state:'calibrated', years, months:H.length, sources:srcNames, thresholds:th, proven, lift, crises, spark, startYear, histMonthly, recentDaily, ts:Date.now(), note:'from '+srcNames.length+' sources' };
       try{ localStorage.setItem('trinityGSDbackfill',JSON.stringify(this.status)); }catch(e){}
     }catch(e){ this.status={state:'error: '+e.message, years:0, months:0, sources:[], thresholds:null, proven:false, ts:Date.now(), note:''}; }
     this._busy=false; try{ renderGSD(); }catch(e){}
@@ -21324,7 +21361,7 @@ try{ Object.assign(window,{TrinityGSDBackfill}); window.gsdBackfill=()=>TrinityG
 const GSD_VIS = {
   zones:{ na:true, eu:true, ap:true, me:true, latam:true, global:true },
   cats:{ econ:true, cb:true, geo:true, conflict:true, disaster:true, weather:true, trade:true, tone:true, market:true },
-  scales:{ micro:false, meso:true, macro:true, full:false },
+  scales:{ micro:false, meso:true, macro:true, full:false, week:false, month:false, quarter:false, year:false, '2y':false, '5y':false, '10y':false },
   series:{ GLOBAL:true, VAR:true, VFM:true, ZONES:true },
   tam:{ micro:false, meso:true, macro:false }
 };
@@ -21341,15 +21378,23 @@ function _gsdBuildToggles(){
   let el;
   if(el=document.getElementById('gsd-zonetoggles')) el.innerHTML=GSD_ZONES.map(z=>cb(GSD_VIS.zones[z.key],z.name,`gsdToggle('zones','${z.key}')`,z.col)).join('');
   if(el=document.getElementById('gsd-cattoggles')) el.innerHTML=GSD_CATS.map(c=>cb(GSD_VIS.cats[c.key],c.name,`gsdToggle('cats','${c.key}')`,c.col)).join('');
-  if(el=document.getElementById('gsd-scaletoggles')) el.innerHTML=[['micro','MICRO'],['meso','MESO'],['macro','MACRO'],['full','FULL']].map(([k,l])=>cb(GSD_VIS.scales[k],l,`gsdToggle('scales','${k}')`)).join('');
+  if(el=document.getElementById('gsd-scaletoggles')) el.innerHTML=
+      '<div style="width:100%;font-size:0.42rem;color:var(--dimmer);letter-spacing:0.06em;margin:0 0 2px;">LIVE SESSION</div>'
+      +[['micro','MICRO'],['meso','MESO'],['macro','MACRO'],['full','FULL']].map(([k,l])=>cb(GSD_VIS.scales[k],l,`gsdToggle('scales','${k}')`)).join('')
+      +'<div style="width:100%;font-size:0.42rem;color:var(--dimmer);letter-spacing:0.06em;margin:5px 0 2px;">HISTORICAL HORIZON</div>'
+      +[['week','WEEK'],['month','MONTH'],['quarter','QUARTER'],['year','YEAR'],['2y','2Y'],['5y','5Y'],['10y','10Y']].map(([k,l])=>cb(GSD_VIS.scales[k],l,`gsdToggle('scales','${k}')`)).join('');
   if(el=document.getElementById('gsd-seriestoggles')) el.innerHTML=[['GLOBAL','global stress','#ff5f7e'],['VAR','σ² variance','#7fb4ff'],['VFM','VFM','#c792ea'],['ZONES','zone lines','#14f195']].map(([k,l,c])=>cb(GSD_VIS.series[k],l,`gsdToggle('series','${k}')`,c)).join('');
   if(el=document.getElementById('gsd-tamtoggles')) el.innerHTML=[['micro','9-candle'],['meso','12.25-day'],['macro','49-day']].map(([k,l])=>cb(GSD_VIS.tam[k],'TAM '+l,`gsdToggle('tam','${k}')`,'#ffd24a')).join('');
   const px=document.getElementById('gsd-proxy'); if(px&&!px.value&&TrinityGSD.proxy) px.value=TrinityGSD.proxy;
   _gsdBuilt=true;
 }
+const GSD_LIVE_SCALES=['micro','meso','macro','full'];
+const GSD_HZ_SCALES=['week','month','quarter','year','2y','5y','10y'];
+const GSD_SCALE_LABELS={ micro:'MICRO · fast', meso:'MESO · swing', macro:'MACRO · cycle', full:'FULL · session overview',
+  week:'WEEK', month:'MONTH', quarter:'QUARTER', year:'YEAR', '2y':'2 YEARS', '5y':'5 YEARS', '10y':'10 YEARS' };
 function _gsdBuildCharts(){
   const wrap=document.getElementById('gsd-charts'); if(!wrap)return;
-  const want=[['micro','MICRO · fast'],['meso','MESO · swing'],['macro','MACRO · cycle'],['full','FULL · overview']].filter(([k])=>GSD_VIS.scales[k]);
+  const want=[...GSD_LIVE_SCALES,...GSD_HZ_SCALES].filter(k=>GSD_VIS.scales[k]).map(k=>[k,GSD_SCALE_LABELS[k]]);
   if(!want.length){ wrap.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.56rem;padding:8px;">no scale selected</div>'; return; }
   // één zichtbare schaal → extra groot (620px); meerdere → elk 460px. Veel groter/zichtbaarder.
   const big = want.length<=1 ? 620 : 460;
@@ -21397,12 +21442,76 @@ function drawGSDChart(key){
   ctx.textAlign='left'; ctx.save(); ctx.shadowColor=rc; ctx.shadowBlur=6; ctx.fillStyle=rc; ctx.font="bold 13px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText('● '+_gsdRe(TrinityGSD.regime)+(TrinityGSD.killSwitch?' ⚡':''),padL+2,padT-10); ctx.restore();
   ctx.fillStyle='#a7bacb'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText('stress '+sc.S[L-1].toFixed(3)+' · σ² '+sc.V[L-1].toFixed(2)+' · node '+TrinityGSD.nodeTh.toFixed(2)+' · VFM '+(sc.VFM[L-1]*100|0)+'% · '+L+'pt',padL+118,padT-10);
 }
+// ---- horizon-chart (week/maand/kwartaal/jaar/2y/5y/10y) uit de doorlopende historie ----
+function drawHorizonChart(key){
+  const cv=document.getElementById('gsd-chart-'+key); if(!cv||!cv.getContext)return;
+  const days=GSD_HZ_DAYS[key]; const {pts,src}=TrinityGSDHistory.series(days);
+  const r=cv.getBoundingClientRect(); if(r.width<10)return;
+  if(cv.width!==Math.round(r.width*2)){ cv.width=r.width*2; cv.height=r.height*2; }
+  const ctx=cv.getContext('2d'); ctx.setTransform(2,0,0,2,0,0); const W=r.width,H=r.height; ctx.clearRect(0,0,W,H);
+  const padL=42,padR=54,padT=30,padB=26;
+  const spanT=TrinityGSD.spanT, crisT=TrinityGSD.crisT;
+  const yS=v=>padT+(1-_clamp01(v))*(H-padT-padB);
+  // gridlijnen + drempelbanden
+  ctx.strokeStyle='rgba(255,255,255,0.045)'; ctx.lineWidth=1; [0,0.25,0.5,0.75,1].forEach(v=>{ ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); });
+  const plotW=W-padL-padR;
+  ctx.fillStyle='rgba(20,241,149,0.05)'; ctx.fillRect(padL,yS(spanT),plotW,yS(0)-yS(spanT));
+  ctx.fillStyle='rgba(255,182,39,0.06)'; ctx.fillRect(padL,yS(crisT),plotW,yS(spanT)-yS(crisT));
+  ctx.fillStyle='rgba(255,79,109,0.10)'; ctx.fillRect(padL,yS(1),plotW,yS(crisT)-yS(1));
+  const thr=(v,col,lab)=>{ ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.setLineDash([6,5]); ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText(lab+' '+v.toFixed(2),W-padR-3,yS(v)-3); };
+  thr(crisT,'rgba(255,79,109,0.9)','CRISIS'); thr(spanT,'rgba(255,182,39,0.85)','TENSION');
+  // y-as
+  ctx.fillStyle='#8398ac'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; [0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v.toFixed(2),padL-5,yS(v)+3));
+  if(!pts||pts.length<2){ ctx.fillStyle='#5c7488'; ctx.font="12px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('collecting '+key+' history…',W/2,H/2); return; }
+  const t0=pts[0].t, t1=pts[pts.length-1].t, span=(t1-t0)||1, x=t=>padL+((t-t0)/span)*plotW;
+  // lijn (glow)
+  ctx.save(); ctx.shadowColor='rgba(255,95,126,0.5)'; ctx.shadowBlur=6; ctx.strokeStyle='#ff5f7e'; ctx.lineWidth=2.2; ctx.beginPath();
+  pts.forEach((p,i)=>{ const px=x(p.t),py=yS(p.s); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke(); ctx.restore();
+  // eindpunt
+  const last=pts[pts.length-1]; ctx.beginPath(); ctx.arc(x(last.t),yS(last.s),3,0,6.283); ctx.fillStyle='#ffd0d8'; ctx.fill();
+  // tijd-as
+  const fmt=ms=>{ const d=new Date(ms),p=n=>String(n).padStart(2,'0'); if(days<=31)return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1); if(days<=400)return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]+" '"+p(d.getUTCFullYear()%100); return String(d.getUTCFullYear()); };
+  ctx.fillStyle='#6d8296'; ctx.font="8.5px 'JetBrains Mono',monospace"; for(let s2=0;s2<=5;s2++){ const tt=t0+s2/5*span; ctx.textAlign=s2===0?'left':s2===5?'right':'center'; ctx.fillText(fmt(tt),x(tt),H-6); }
+  // titel + bron
+  ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="bold 12px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText((GSD_SCALE_LABELS[key]||key.toUpperCase()),padL+2,padT-10);
+  ctx.fillStyle='#a7bacb'; ctx.font="9.5px 'JetBrains Mono',monospace"; ctx.fillText('now '+last.s.toFixed(3)+' · '+pts.length+'pt · '+src,padL+110,padT-10);
+}
+// ---- grote, duidelijke historische-kalibratie chart (36 jaar composiet-stress) ----
+function drawHistCalChart(){
+  const cv=document.getElementById('gsd-histcal-chart'); if(!cv||!cv.getContext)return;
+  const S=TrinityGSDBackfill&&TrinityGSDBackfill.status; const mm=(S&&S.histMonthly)||[];
+  const r=cv.getBoundingClientRect(); if(r.width<10)return;
+  if(cv.width!==Math.round(r.width*2)){ cv.width=r.width*2; cv.height=r.height*2; }
+  const ctx=cv.getContext('2d'); ctx.setTransform(2,0,0,2,0,0); const W=r.width,H=r.height; ctx.clearRect(0,0,W,H);
+  const padL=40,padR=20,padT=26,padB=24;
+  const yS=v=>padT+(1-_clamp01(v))*(H-padT-padB);
+  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1; [0,0.25,0.5,0.75,1].forEach(v=>{ ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); });
+  ctx.fillStyle='#8398ac'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; [0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v.toFixed(2),padL-5,yS(v)+3));
+  if(mm.length<4){ ctx.fillStyle='#5c7488'; ctx.font="12px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText(S&&/pulling|calibrated/.test(S.state||'')?'run “Calibrate from history”…':'no historical series yet',W/2,H/2); return; }
+  const t0=mm[0].t,t1=mm[mm.length-1].t,span=(t1-t0)||1,plotW=W-padL-padR,x=t=>padL+((t-t0)/span)*plotW;
+  const th=(S&&S.thresholds)||{spanT:TrinityGSD.spanT,crisT:TrinityGSD.crisT};
+  // drempelbanden
+  ctx.fillStyle='rgba(255,182,39,0.06)'; ctx.fillRect(padL,yS(th.crisT),plotW,yS(th.spanT)-yS(th.crisT));
+  ctx.fillStyle='rgba(255,79,109,0.10)'; ctx.fillRect(padL,yS(1),plotW,yS(th.crisT)-yS(1));
+  // benoemde crisis-markers (verticale lijn + label)
+  const CR=[['1998',1998,8],['dotcom',2001,8],['GFC 2008',2008,9],['euro 2011',2011,8],['COVID',2020,2],['2022',2022,5]];
+  CR.forEach(([lab,y,mo])=>{ const tt=Date.UTC(y,mo-1,1); if(tt<t0||tt>t1)return; const px=x(tt); ctx.strokeStyle='rgba(199,146,234,0.35)'; ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(px,padT); ctx.lineTo(px,H-padB); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle='rgba(199,146,234,0.85)'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText(lab,px,padT-3); });
+  // drempellijnen
+  [[th.crisT,'rgba(255,79,109,0.9)','CRISIS'],[th.spanT,'rgba(255,182,39,0.85)','TENSION']].forEach(([v,col,l])=>{ ctx.strokeStyle=col; ctx.lineWidth=1.1; ctx.setLineDash([6,5]); ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font="8.5px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText(l+' '+(+v).toFixed(2),W-padR-3,yS(v)-2); });
+  // de stress-reeks
+  ctx.save(); ctx.shadowColor='rgba(127,216,255,0.4)'; ctx.shadowBlur=4; ctx.strokeStyle='#7fd8ff'; ctx.lineWidth=1.6; ctx.beginPath();
+  mm.forEach((p,i)=>{ const px=x(p.t),py=yS(p.s); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke(); ctx.restore();
+  // jaren-as
+  ctx.fillStyle='#6d8296'; ctx.font="8.5px 'JetBrains Mono',monospace"; const yrs=6; for(let i=0;i<=yrs;i++){ const tt=t0+i/yrs*span; ctx.textAlign=i===0?'left':i===yrs?'right':'center'; ctx.fillText(String(new Date(tt).getUTCFullYear()),x(tt),H-6); }
+  ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="bold 11px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText('HISTORICAL GLOBAL STRESS · '+(S.years||'')+'y',padL+2,padT-9);
+}
 const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
 function renderGSD(){
   if(!TrinityGSD._built) return;
   if(!_gsdBuilt) _gsdBuildToggles();
-  if(!document.getElementById('gsd-chart-'+(['micro','meso','macro','full'].find(k=>GSD_VIS.scales[k])||'x'))) _gsdBuildCharts();
-  ['micro','meso','macro','full'].forEach(k=>{ if(GSD_VIS.scales[k]){ try{ drawGSDChart(k); }catch(e){} } });
+  if(!document.getElementById('gsd-chart-'+([...GSD_LIVE_SCALES,...GSD_HZ_SCALES].find(k=>GSD_VIS.scales[k])||'x'))) _gsdBuildCharts();
+  GSD_LIVE_SCALES.forEach(k=>{ if(GSD_VIS.scales[k]){ try{ drawGSDChart(k); }catch(e){} } });
+  GSD_HZ_SCALES.forEach(k=>{ if(GSD_VIS.scales[k]){ try{ drawHorizonChart(k); }catch(e){} } });
   // status-regel
   const st=document.getElementById('gsd-status');
   if(st){ const c=TrinityGSD, comp=c.sysVar<=c.nodeTh; const rc={RUST:'#14f195',SPANNING:'#ffb627',CRISIS:'#ff4f6d'}[c.regime]||'#7fd4ff';
@@ -21459,17 +21568,7 @@ function renderGSD(){
         +`<div style="margin-top:2px;">${S.years} yrs · ${S.months} months · ${(S.sources||[]).join(', ')}</div>`
         +(S.lift!=null?`<div style="margin-top:2px;">shadow-backtest lift <b style="color:${S.proven?'#14f195':'var(--tx)'}">${S.lift}×</b> ${S.proven?'<small style="color:#14f195">✓ crisis-threshold predictive</small>':'<small style="color:var(--dimmer)">(not yet proven)</small>'}</div>`:'')
         +`</div>`;
-      // mini-sparkline van de 36-jaars historische stress-reeks (met crisis/tension-lijnen)
-      if(S.spark&&S.spark.length>4){ const sp=S.spark, w=100, h=26, n=sp.length, mxv=Math.max.apply(null,sp)||1;
-        const X=i=>(i/(n-1))*w, Y=v=>h-(v/mxv)*h;
-        let d=''; sp.forEach((v,i)=>{ d+=(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1); });
-        const yC=Y(S.thresholds.crisT), yT=Y(S.thresholds.spanT);
-        body+=`<div style="margin-top:6px;"><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:38px;background:rgba(0,0,0,0.25);border:1px solid var(--line);border-radius:4px;">`
-          +`<line x1="0" y1="${yC.toFixed(1)}" x2="${w}" y2="${yC.toFixed(1)}" stroke="#ff4f6d" stroke-width="0.4" stroke-dasharray="2 2"/>`
-          +`<line x1="0" y1="${yT.toFixed(1)}" x2="${w}" y2="${yT.toFixed(1)}" stroke="#ffb627" stroke-width="0.4" stroke-dasharray="2 2"/>`
-          +`<path d="${d}" fill="none" stroke="#7fd8ff" stroke-width="0.6"/></svg>`
-          +`<div class="mono" style="font-size:0.46rem;color:var(--dimmer);display:flex;justify-content:space-between;"><span>${S.startYear||''}</span><span>historical global stress · crisis/tension lines</span><span>now</span></div></div>`;
-      }
+      // (de grote 36-jaars stress-chart wordt los in het <canvas id="gsd-histcal-chart"> getekend)
       // validatie tegen benoemde crises: ving het model 2008 / 2020 / 2022?
       if(S.crises&&S.crises.length){
         body+=`<div class="mono" style="font-size:0.5rem;color:var(--dim);margin-top:6px;line-height:1.65;"><div style="color:var(--dimmer);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:2px;">crisis back-test</div>`
@@ -21481,6 +21580,7 @@ function renderGSD(){
     const when=S.ts?' · '+_gsdWhen(S.ts):'';
     hc.innerHTML=`<div style="display:flex;align-items:center;gap:6px;"><span class="feeddot" style="background:${stateCol}"></span><b style="color:${stateCol};font-size:0.6rem;">${busy?'pulling history…':(S.state||'idle')}</b><small style="color:var(--dimmer)">${when}</small></div>${body}`;
   }
+  try{ drawHistCalChart(); }catch(e){}
 }
 
 // self-init (trinity-gsd.js laadt ná app.js, dus init hier — niet vanuit app.js' init-regel waar TrinityGSD nog in TDZ zit)
