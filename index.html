@@ -2498,7 +2498,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <details class="fsodetails"><summary>Filter categories (for ranking)</summary><div id="gsd-cattoggles" class="fsocbwrap fsocbgrid"></div></details>
       </div>
       <div id="gsd-charts"></div>
-      <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;"><span style="color:#ff5f7e;">— global stress</span><span style="color:#7fb4ff;">-- σ² variance</span><span style="color:#c792ea;">— VFM (stored energy)</span><span style="color:#ffd24a;">┊ TAM nodes</span><span style="color:#ff8a94;">▧ danger zone (σ² ≤ node)</span><span style="color:var(--dimmer);">● zone stress (right)</span></div>
+      <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;"><span style="color:#ff5f7e;">— global stress</span><span style="color:#7fb4ff;">-- σ² variance</span><span style="color:#c792ea;">— VFM (stored energy)</span><span style="color:#ffd24a;">┊ TAM nodes</span><span style="color:#ff8a94;">▧ danger zone (σ² ≤ node)</span><span style="color:#ff3b5c;">★ ΔV kill-switch</span><span style="color:var(--dimmer);">● zone stress (right)</span></div>
+      <div class="mono" style="font-size:0.5rem;color:var(--dim);margin-top:6px;line-height:1.65;background:rgba(255,255,255,0.02);border:1px solid var(--line);border-radius:6px;padding:7px 9px;">
+        <b style="color:#7fd8ff;">What the boundaries mean</b> &mdash; <b style="color:#ffd24a;">σ² drops below the node threshold</b> → <b>compression</b> (danger zone): the sub-oscillators sync up and the system stores kinetic energy (<b style="color:#c792ea;">VFM</b> rises). When that compression <b style="color:#ff3b5c;">breaks out</b> (ΔV escape) while VFM is loaded, the <b style="color:#ff3b5c;">kill-switch (★)</b> fires — the release, historically the onset of a crisis. Separately, <b style="color:#ffb627;">stress above TENSION</b> = elevated level, <b style="color:#ff4f6d;">above CRISIS</b> = severe. The <b>tipping-risk</b> meter (top) tracks how loaded the spring is, independent of the level.
+      </div>
     </div>
 
     <div class="secdiv"><h3>Zones under pressure</h3><span class="sub">— strict live ranking per category</span></div>
@@ -2520,7 +2523,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="oarow" style="margin-top:10px;"><span>GSD proxy URL (optional)</span><div style="display:flex;gap:6px;"><input id="gsd-proxy" type="text" placeholder="https://…worker.dev  (for GDELT/FRED/ACLED)" style="flex:1;"><button class="btn" style="padding:7px 12px;" onclick="gsdSetProxy()">Set</button></div></div>
       <div class="mono" style="font-size:0.46rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Browser-direct (no account/key): USGS · NASA EONET · Open-Meteo · World Bank. Proxy required for GDELT (geopolitics/tone, no key), ECB (no key), FRED &amp; ACLED (free registration) — add a free Cloudflare Worker later, just like the capital proxy. Everything runs in the background; toggles are display-only.</div>
       <div class="secdiv" style="margin-top:16px;"><h3>Historical calibration</h3><span class="sub">— calibrate node/regime thresholds on decades of real crises (FRED · ECB · GDELT · USGS)</span></div>
-      <canvas id="gsd-histcal-chart" style="width:100%;height:320px;display:block;background:rgba(0,0,0,0.3);border:1px solid var(--line);border-radius:8px;margin-bottom:8px;"></canvas>
+      <canvas id="gsd-histcal-chart" style="width:100%;height:340px;display:block;background:rgba(0,0,0,0.3);border:1px solid var(--line);border-radius:8px;margin-bottom:6px;"></canvas>
+      <div class="mono" style="font-size:0.48rem;color:var(--dimmer);margin-bottom:8px;line-height:1.6;">The <b style="color:#c792ea;">purple mountains</b> are stored energy (VFM) building during <b style="color:#ffd24a;">compression</b> (σ² under the red node line); each <b style="color:#ff3b5c;">★</b> is a ΔV kill-switch — energy releasing, historically clustering on real crises. This is the model's back-test: the thresholds are calibrated so the stars land on 2008 / 2020 / 2022, then the same thresholds drive the live charts above.</div>
       <div class="mono" id="gsd-histcal" style="font-size:0.56rem;color:var(--dim);line-height:1.7;">not yet run — set the proxy above, then it starts automatically (or press below).</div>
       <div style="margin-top:8px;"><button class="btn" style="padding:7px 12px;" onclick="gsdBackfill()">⟳ Calibrate from history</button> <span class="mono" style="font-size:0.46rem;color:var(--dimmer);">pulls deep series via the proxy · sets crisis-anchored thresholds · live data keeps refining</span></div>
 
@@ -2631,7 +2635,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260831-jarvis48-horizons"></script>
+<script src="app.js?v=20260831-jarvis49-panorama"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260830-mobile-pull"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
