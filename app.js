@@ -21327,15 +21327,45 @@ const TrinityGSDBackfill = {
       const crises=this._validateCrises(H,months,spanT,crisT);
       // sparkline-reeks (gedownsampled) + startjaar voor de "plot de geschiedenis"-mini-chart
       const startYear=Math.floor(mn/12); const spark=[]; const step=Math.max(1,Math.floor(H.length/120)); for(let i=0;i<H.length;i+=step) spark.push(+H[i].toFixed(3));
-      // volledige maand-reeks met tijdstempels (voor de jaar/2y/5y/10y-horizoncharts + grote histcal-chart)
-      const histMonthly=months.map((k,i)=>({ t:Date.UTC(Math.floor(k/12), k%12, 1), s:+H[i].toFixed(4) }));
+      // UOTAM-toestandsmachine over de HISTORIE draaien → VFM-ophoping, compressie (gevarenzone)
+      // en ΔV-uitbraak/kill-switch triggerpunten (zoals de sterren in de referentie-panorama).
+      const sim=this._simUOTAM(H,V,nodeTh,escapeCrit);
+      // volledige maand-reeks met tijdstempels + UOTAM-velden (voor histcal-chart + jaar/2y/5y/10y horizons)
+      const histMonthly=months.map((k,i)=>({ t:Date.UTC(Math.floor(k/12), k%12, 1), s:+H[i].toFixed(4), v:+V[i].toFixed(4), vfm:sim.vfm[i], comp:sim.comp[i], kill:sim.kill[i] }));
+      const killCount=sim.kill.reduce((a,b)=>a+(b?1:0),0);
       // recente VIX-dagreeks (laatste ~210d) als fijne proxy voor week/maand/kwartaal (meteen gevuld)
       let recentDaily=[]; if(vix&&vix.length){ const rc=Date.now()-210*864e5; recentDaily=vix.filter(x=>x.t>=rc).map(x=>({ t:x.t, s:+_clamp01((x.v-11)/40).toFixed(4) })); }
       TrinityGSD.applyHistCal(th,{years,months:H.length,sources:srcNames});
-      this.status={ state:'calibrated', years, months:H.length, sources:srcNames, thresholds:th, proven, lift, crises, spark, startYear, histMonthly, recentDaily, ts:Date.now(), note:'from '+srcNames.length+' sources' };
+      this.status={ state:'calibrated', years, months:H.length, sources:srcNames, thresholds:th, proven, lift, crises, spark, startYear, histMonthly, recentDaily, killCount, ts:Date.now(), note:'from '+srcNames.length+' sources' };
       try{ localStorage.setItem('trinityGSDbackfill',JSON.stringify(this.status)); }catch(e){}
     }catch(e){ this.status={state:'error: '+e.message, years:0, months:0, sources:[], thresholds:null, proven:false, ts:Date.now(), note:''}; }
     this._busy=false; try{ renderGSD(); }catch(e){}
+  },
+  // ---- UOTAM-toestandsmachine over een historische reeks: VFM-ophoping + ΔV-uitbraak/kill-switch ----
+  // Zelfde mechaniek als de live compute(), maar met maand-geschaalde constanten. Compressie
+  // (σ² ≤ node) laadt VFM op; als de compressie daarna uitbreekt (ΔV > escapeCrit) met genoeg
+  // opgebouwde energie → KILL-SWITCH (de rode ster). Kalibreert killVFM op de eigen VFM-verdeling.
+  _simUOTAM(H,V,nodeTh,escapeCrit){
+    const n=H.length, W=3; let vfm=0, compAge=0, compPeak=0;
+    const vfmA=new Array(n), compA=new Array(n), killA=new Array(n), escA=new Array(n);
+    // eerste pass: VFM + compressie (zonder kill), om killVFM te kunnen kalibreren
+    for(let i=0;i<n;i++){ const sv=V[i], compressed=sv<=nodeTh; compA[i]=compressed;
+      if(compressed){ compAge++; compPeak=Math.max(compPeak,compAge); vfm=_clamp01(vfm+0.06*(1-sv/(nodeTh||0.2))+0.02); }
+      else { compAge=Math.max(0,compAge-1); vfm=Math.max(0,vfm*0.88); }
+      vfmA[i]=+vfm.toFixed(3); escA[i]= i>=W ? +(V[i]-V[i-W]).toFixed(4) : 0;
+    }
+    const sorted=vfmA.slice().sort((a,b)=>a-b); const killVFM=Math.max(0.35, sorted[Math.floor(0.6*sorted.length)]||0.5);
+    // tweede pass: kill-switch bepalen + VFM ontladen op trigger (herberekening zodat bergen kloppen)
+    vfm=0; compAge=0; compPeak=0;
+    for(let i=0;i<n;i++){ const sv=V[i], compressed=sv<=nodeTh;
+      if(compressed){ compAge++; compPeak=Math.max(compPeak,compAge); vfm=_clamp01(vfm+0.06*(1-sv/(nodeTh||0.2))+0.02); }
+      else { compAge=Math.max(0,compAge-1); vfm=Math.max(0,vfm*0.88); }
+      const esc = i>=W ? (V[i]-V[i-W]) : 0;
+      const kill = (compPeak>=2) && (esc>escapeCrit) && (vfm>=killVFM) && !compressed;
+      killA[i]=kill; if(kill){ vfm=_clamp01(vfm*0.35); compPeak=0; }
+      vfmA[i]=+vfm.toFixed(3);
+    }
+    return { vfm:vfmA, comp:compA, kill:killA, esc:escA, killVFM:+killVFM.toFixed(3) };
   },
   // ---- validatie tegen benoemde crises: piekte de historische stress H daar boven de drempels? ----
   _validateCrises(H,months,spanT,crisT){
@@ -21442,6 +21472,33 @@ function drawGSDChart(key){
   ctx.textAlign='left'; ctx.save(); ctx.shadowColor=rc; ctx.shadowBlur=6; ctx.fillStyle=rc; ctx.font="bold 13px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText('● '+_gsdRe(TrinityGSD.regime)+(TrinityGSD.killSwitch?' ⚡':''),padL+2,padT-10); ctx.restore();
   ctx.fillStyle='#a7bacb'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText('stress '+sc.S[L-1].toFixed(3)+' · σ² '+sc.V[L-1].toFixed(2)+' · node '+TrinityGSD.nodeTh.toFixed(2)+' · VFM '+(sc.VFM[L-1]*100|0)+'% · '+L+'pt',padL+118,padT-10);
 }
+// ---- gedeelde teken-helpers: kill-switch ster + legenda-box ----
+function _gsdStar(ctx,cx,cy,rad,fill,stroke){ ctx.beginPath(); for(let i=0;i<10;i++){ const ang=-Math.PI/2+i*Math.PI/5, rr=i%2?rad*0.45:rad; const px=cx+Math.cos(ang)*rr, py=cy+Math.sin(ang)*rr; i?ctx.lineTo(px,py):ctx.moveTo(px,py); } ctx.closePath(); if(fill){ctx.fillStyle=fill;ctx.fill();} if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=1;ctx.stroke();} }
+function _gsdLegend(ctx,x,y,items){ ctx.save(); ctx.font="8.5px 'JetBrains Mono',monospace"; ctx.textAlign='left'; const pad=5,lh=13; let w=0; items.forEach(it=>w=Math.max(w,ctx.measureText(it.label).width)); const bw=w+28+pad*2, bh=items.length*lh+pad*2;
+  ctx.fillStyle='rgba(4,8,14,0.85)'; ctx.strokeStyle='rgba(0,217,255,0.25)'; ctx.lineWidth=1; ctx.fillRect(x,y,bw,bh); ctx.strokeRect(x,y,bw,bh);
+  items.forEach((it,i)=>{ const cy=y+pad+i*lh+7;
+    if(it.type==='star'){ _gsdStar(ctx,x+pad+7,cy-1,5,it.c,'#ffd0d8'); }
+    else if(it.type==='area'){ ctx.fillStyle=it.c; ctx.fillRect(x+pad,cy-4,15,7); }
+    else { ctx.strokeStyle=it.c; ctx.lineWidth=it.type==='dash'?1.4:2; if(it.type==='dash')ctx.setLineDash([4,3]); ctx.beginPath(); ctx.moveTo(x+pad,cy-1); ctx.lineTo(x+pad+15,cy-1); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.fillStyle='#a7bacb'; ctx.fillText(it.label,x+pad+21,cy+2); });
+  ctx.restore();
+}
+// tekent VFM-bergen + gevarenzone + node-lijn + kill-sterren op een reeks met UOTAM-velden
+function _gsdDrawUOTAM(ctx,arr,x,yS,W,H,padL,padR,padB,nodeTh){
+  if(!arr.length||arr[0].vfm===undefined) return false;
+  const plotW=W-padL-padR, bw=Math.max(1,plotW/arr.length+0.6);
+  // gevarenzone (compressie): gele strips onderin
+  ctx.fillStyle='rgba(240,214,90,0.18)'; arr.forEach(p=>{ if(p.comp) ctx.fillRect(x(p.t)-bw/2,H-padB-8,bw,8); });
+  // VFM paarse bergen vanaf de bodem
+  ctx.beginPath(); ctx.moveTo(x(arr[0].t),yS(0)); arr.forEach(p=>ctx.lineTo(x(p.t),yS(p.vfm||0))); ctx.lineTo(x(arr[arr.length-1].t),yS(0)); ctx.closePath(); ctx.fillStyle='rgba(170,90,200,0.28)'; ctx.fill();
+  // node-drempel rode streeplijn
+  if(nodeTh!=null){ ctx.strokeStyle='rgba(255,79,109,0.9)'; ctx.lineWidth=1.2; ctx.setLineDash([7,4]); ctx.beginPath(); ctx.moveTo(padL,yS(nodeTh)); ctx.lineTo(W-padR,yS(nodeTh)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle='rgba(255,120,140,0.95)'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText('node '+(+nodeTh).toFixed(2),padL+2,yS(nodeTh)-2); }
+  // σ² chaos-lijn
+  ctx.strokeStyle='rgba(90,150,240,0.8)'; ctx.lineWidth=1; ctx.beginPath(); arr.forEach((p,i)=>{ const px=x(p.t),py=yS(p.v!=null?p.v:0); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke();
+  // kill-switch sterren op node-hoogte
+  arr.forEach(p=>{ if(p.kill) _gsdStar(ctx,x(p.t),yS(nodeTh!=null?nodeTh:0.1),6,'#ff3b5c','#ffd0d8'); });
+  return true;
+}
 // ---- horizon-chart (week/maand/kwartaal/jaar/2y/5y/10y) uit de doorlopende historie ----
 function drawHorizonChart(key){
   const cv=document.getElementById('gsd-chart-'+key); if(!cv||!cv.getContext)return;
@@ -21464,17 +21521,31 @@ function drawHorizonChart(key){
   ctx.fillStyle='#8398ac'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; [0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v.toFixed(2),padL-5,yS(v)+3));
   if(!pts||pts.length<2){ ctx.fillStyle='#5c7488'; ctx.font="12px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('collecting '+key+' history…',W/2,H/2); return; }
   const t0=pts[0].t, t1=pts[pts.length-1].t, span=(t1-t0)||1, x=t=>padL+((t-t0)/span)*plotW;
-  // lijn (glow)
+  const nodeTh=TrinityGSD.nodeTh;
+  // UOTAM-lagen (VFM-bergen, gevarenzone, node-lijn, σ², kill-sterren) als de bron ze draagt (composiet-maand)
+  const hasUOTAM=_gsdDrawUOTAM(ctx,pts,x,yS,W,H,padL,padR,padB,nodeTh);
+  // stress-hoofdlijn (glow)
   ctx.save(); ctx.shadowColor='rgba(255,95,126,0.5)'; ctx.shadowBlur=6; ctx.strokeStyle='#ff5f7e'; ctx.lineWidth=2.2; ctx.beginPath();
   pts.forEach((p,i)=>{ const px=x(p.t),py=yS(p.s); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke(); ctx.restore();
-  // eindpunt
   const last=pts[pts.length-1]; ctx.beginPath(); ctx.arc(x(last.t),yS(last.s),3,0,6.283); ctx.fillStyle='#ffd0d8'; ctx.fill();
+  // GEPROJECTEERDE (toekomstige) kill-switch: als het venster 'nu' bevat en tipping hoog is,
+  // markeer de eerstvolgende TAM-node aan de rechterrand als hol ster + label.
+  const now=Date.now();
+  if(t1>=now-3*864e5 && TrinityGSD.tippingRisk>=0.5){
+    const hk = days<=30?'micro':days<=200?'meso':'macro';
+    const nodes=TrinityGSD.tamNodes(now, now+span*0.25, hk); const nn=nodes.find(t=>t>now);
+    ctx.save(); ctx.globalAlpha=0.9; _gsdStar(ctx, W-padR-8, yS(nodeTh), 6, 'rgba(255,59,92,0.35)', '#ff3b5c'); ctx.restore();
+    ctx.fillStyle='#ff8a94'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='right';
+    ctx.fillText('⤳ projected · tipping '+Math.round(TrinityGSD.tippingRisk*100)+'%', W-padR-16, yS(nodeTh)-4);
+  }
   // tijd-as
   const fmt=ms=>{ const d=new Date(ms),p=n=>String(n).padStart(2,'0'); if(days<=31)return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1); if(days<=400)return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]+" '"+p(d.getUTCFullYear()%100); return String(d.getUTCFullYear()); };
   ctx.fillStyle='#6d8296'; ctx.font="8.5px 'JetBrains Mono',monospace"; for(let s2=0;s2<=5;s2++){ const tt=t0+s2/5*span; ctx.textAlign=s2===0?'left':s2===5?'right':'center'; ctx.fillText(fmt(tt),x(tt),H-6); }
   // titel + bron
   ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="bold 12px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText((GSD_SCALE_LABELS[key]||key.toUpperCase()),padL+2,padT-10);
   ctx.fillStyle='#a7bacb'; ctx.font="9.5px 'JetBrains Mono',monospace"; ctx.fillText('now '+last.s.toFixed(3)+' · '+pts.length+'pt · '+src,padL+110,padT-10);
+  // compacte legenda alleen als UOTAM-lagen zichtbaar zijn
+  if(hasUOTAM) _gsdLegend(ctx, padL+4, padT+3, [ {c:'#ff5f7e',label:'stress',type:'line'},{c:'rgba(90,150,240,0.9)',label:'σ²',type:'line'},{c:'rgba(170,90,200,0.5)',label:'VFM',type:'area'},{c:'#ff3b5c',label:'ΔV kill',type:'star'} ]);
 }
 // ---- grote, duidelijke historische-kalibratie chart (36 jaar composiet-stress) ----
 function drawHistCalChart(){
@@ -21489,21 +21560,31 @@ function drawHistCalChart(){
   ctx.fillStyle='#8398ac'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; [0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v.toFixed(2),padL-5,yS(v)+3));
   if(mm.length<4){ ctx.fillStyle='#5c7488'; ctx.font="12px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText(S&&/pulling|calibrated/.test(S.state||'')?'run “Calibrate from history”…':'no historical series yet',W/2,H/2); return; }
   const t0=mm[0].t,t1=mm[mm.length-1].t,span=(t1-t0)||1,plotW=W-padL-padR,x=t=>padL+((t-t0)/span)*plotW;
-  const th=(S&&S.thresholds)||{spanT:TrinityGSD.spanT,crisT:TrinityGSD.crisT};
-  // drempelbanden
-  ctx.fillStyle='rgba(255,182,39,0.06)'; ctx.fillRect(padL,yS(th.crisT),plotW,yS(th.spanT)-yS(th.crisT));
-  ctx.fillStyle='rgba(255,79,109,0.10)'; ctx.fillRect(padL,yS(1),plotW,yS(th.crisT)-yS(1));
-  // benoemde crisis-markers (verticale lijn + label)
+  const th=(S&&S.thresholds)||{spanT:TrinityGSD.spanT,crisT:TrinityGSD.crisT,nodeTh:TrinityGSD.nodeTh};
+  const nodeTh=th.nodeTh!=null?th.nodeTh:TrinityGSD.nodeTh;
+  // stress-drempelbanden
+  ctx.fillStyle='rgba(255,182,39,0.05)'; ctx.fillRect(padL,yS(th.crisT),plotW,yS(th.spanT)-yS(th.crisT));
+  ctx.fillStyle='rgba(255,79,109,0.09)'; ctx.fillRect(padL,yS(1),plotW,yS(th.crisT)-yS(1));
+  // UOTAM-lagen: gevarenzone (compressie) + VFM-bergen + node-drempel + σ² + kill-sterren
+  _gsdDrawUOTAM(ctx,mm,x,yS,W,H,padL,padR,padB,nodeTh);
+  // benoemde crisis-markers
   const CR=[['1998',1998,8],['dotcom',2001,8],['GFC 2008',2008,9],['euro 2011',2011,8],['COVID',2020,2],['2022',2022,5]];
-  CR.forEach(([lab,y,mo])=>{ const tt=Date.UTC(y,mo-1,1); if(tt<t0||tt>t1)return; const px=x(tt); ctx.strokeStyle='rgba(199,146,234,0.35)'; ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(px,padT); ctx.lineTo(px,H-padB); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle='rgba(199,146,234,0.85)'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText(lab,px,padT-3); });
-  // drempellijnen
-  [[th.crisT,'rgba(255,79,109,0.9)','CRISIS'],[th.spanT,'rgba(255,182,39,0.85)','TENSION']].forEach(([v,col,l])=>{ ctx.strokeStyle=col; ctx.lineWidth=1.1; ctx.setLineDash([6,5]); ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font="8.5px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText(l+' '+(+v).toFixed(2),W-padR-3,yS(v)-2); });
-  // de stress-reeks
-  ctx.save(); ctx.shadowColor='rgba(127,216,255,0.4)'; ctx.shadowBlur=4; ctx.strokeStyle='#7fd8ff'; ctx.lineWidth=1.6; ctx.beginPath();
-  mm.forEach((p,i)=>{ const px=x(p.t),py=yS(p.s); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke(); ctx.restore();
+  CR.forEach(([lab,y,mo])=>{ const tt=Date.UTC(y,mo-1,1); if(tt<t0||tt>t1)return; const px=x(tt); ctx.strokeStyle='rgba(199,146,234,0.28)'; ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(px,padT); ctx.lineTo(px,H-padB); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle='rgba(199,146,234,0.8)'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText(lab,px,padT-3); });
+  // stress crisis/tension lijnen
+  [[th.crisT,'rgba(255,79,109,0.75)','CRISIS'],[th.spanT,'rgba(255,182,39,0.7)','TENSION']].forEach(([v,col,l])=>{ ctx.strokeStyle=col; ctx.lineWidth=1; ctx.setLineDash([6,5]); ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText(l,W-padR-3,yS(v)-2); });
+  // stress-hoofdlijn (cyaan glow) — bovenop
+  ctx.save(); ctx.shadowColor='rgba(127,216,255,0.4)'; ctx.shadowBlur=4; ctx.strokeStyle='#7fd8ff'; ctx.lineWidth=1.8; ctx.beginPath(); mm.forEach((p,i)=>{ const px=x(p.t),py=yS(p.s); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke(); ctx.restore();
   // jaren-as
-  ctx.fillStyle='#6d8296'; ctx.font="8.5px 'JetBrains Mono',monospace"; const yrs=6; for(let i=0;i<=yrs;i++){ const tt=t0+i/yrs*span; ctx.textAlign=i===0?'left':i===yrs?'right':'center'; ctx.fillText(String(new Date(tt).getUTCFullYear()),x(tt),H-6); }
-  ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="bold 11px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText('HISTORICAL GLOBAL STRESS · '+(S.years||'')+'y',padL+2,padT-9);
+  ctx.fillStyle='#6d8296'; ctx.font="8.5px 'JetBrains Mono',monospace"; const yrs=7; for(let i=0;i<=yrs;i++){ const tt=t0+i/yrs*span; ctx.textAlign=i===0?'left':i===yrs?'right':'center'; ctx.fillText(String(new Date(tt).getUTCFullYear()),x(tt),H-6); }
+  ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="bold 11px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText('UOTAM PANORAMA · HISTORICAL GLOBAL STRESS · '+(S.years||'')+'y · '+(S.killCount||0)+' kill-triggers',padL+2,padT-9);
+  // legenda
+  _gsdLegend(ctx, padL+5, padT+4, [
+    {c:'#7fd8ff',label:'global stress',type:'line'},
+    {c:'rgba(90,150,240,0.9)',label:'σ² chaos meter',type:'line'},
+    {c:'rgba(170,90,200,0.55)',label:'VFM stored energy',type:'area'},
+    {c:'rgba(255,79,109,0.9)',label:'critical node threshold',type:'dash'},
+    {c:'rgba(240,214,90,0.55)',label:'danger zone (compression)',type:'area'},
+    {c:'#ff3b5c',label:'ΔV kill-switch trigger',type:'star'} ]);
 }
 const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
 function renderGSD(){
