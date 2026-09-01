@@ -19436,10 +19436,14 @@ function closeTrade(p,reason){
   if(netPl>=0)wallet.wins++; else wallet.losses++;
   wallet.peak=Math.max(wallet.peak,wallet.balance); wallet.maxDD=Math.max(wallet.maxDD,(wallet.peak-wallet.balance)/wallet.peak*100);
   const now=new Date(); lastUpdated.trinity=now; lastUpdated.calib=now; lastUpdated.wallet=now; lastUpdated.learning=now;
-  tradeLog.unshift({pair:p.pair,side:p.side,type:'FX',openedAt:p.openedAt||now,closedAt:now,entry:p.entry,exit:p.current,size:p.alloc,
-    allocPct:wallet.balance?(p.alloc/wallet.balance*100):0,fill:p.current,session:p.session,
-    plCur:netPl,plPct:p.pnlPct,plPctGross:p.pnlPctGross,costPct:costPct(p.pair),reason,conf:p.conf});
-  if(tradeLog.length>500)tradeLog.pop();
+  // Op LIVE komt de Closed-tabel uit /transactions (broker = bron van waarheid) → hier niet loggen
+  // om dubbele rijen te voorkomen. In sim/mock is dit wél de bron.
+  if(!(feed.mode==='live'&&feed.provider==='capital')){
+    tradeLog.unshift({pair:p.pair,side:p.side,type:'FX',openedAt:p.openedAt||now,closedAt:now,entry:p.entry,exit:p.current,size:p.alloc,
+      allocPct:wallet.balance?(p.alloc/wallet.balance*100):0,fill:p.current,session:p.session,
+      plCur:netPl,plPct:p.pnlPct,plPctGross:p.pnlPctGross,costPct:costPct(p.pair),reason,conf:p.conf});
+    if(tradeLog.length>500)tradeLog.pop();
+  }
   pushReason(`CLOSE ${p.pair} ${p.side} · ${reason} · net ${p.pnlPct>=0?'+':''}${p.pnlPct.toFixed(2)}% (gross ${p.pnlPctGross>=0?'+':''}${p.pnlPctGross.toFixed(2)}%)`);
   try{ if(p.gsdAtOpen) TrinityGSDShadow.record(p.gsdAtOpen, win, R); }catch(e){}
   if(trinity.trades.length-lastTuneAt>=10){ lastTuneAt=trinity.trades.length; autoTune(); }
@@ -19607,9 +19611,9 @@ window.disconnectCapital=disconnectCapital;
 // ============================================================
 function startCapitalSync(){
   if(syncTimer) clearInterval(syncTimer);
-  syncCapitalPositions(); syncCapitalActivity();
+  syncCapitalPositions(); syncCapitalActivity(); syncCapitalTransactions();
   syncTimer=setInterval(()=>{ if(feed.mode==='live'&&feed.provider==='capital'){ syncCapitalPositions(); } },4000);
-  setInterval(()=>{ if(feed.mode==='live'&&feed.provider==='capital') syncCapitalActivity(); },12000);
+  setInterval(()=>{ if(feed.mode==='live'&&feed.provider==='capital'){ syncCapitalActivity(); syncCapitalTransactions(); } },12000);
 }
 function stopCapitalSync(){ if(syncTimer){ clearInterval(syncTimer); syncTimer=null; } }
 
@@ -19649,45 +19653,52 @@ function reconcileInternalWithBroker(){
     if(match) ip.brokerDealId=match.dealId;
   });
 }
-// Read broker-settled deals so Trinity learns outcomes even when Capital.com guards the stop/target
+function isLiveCapital(){ return feed.mode==='live'&&feed.provider==='capital'; }
+// ACTIVITY (learning only): Capital's /activity reports open/close EVENTS with status 'ACCEPTED';
+// the actual close is in details.actions[].actionType. We only use it to feed Trinity's learning
+// for positions Trinity itself opened (meta). The Closed TABLE is filled from /transactions below.
+function _isCloseActivity(a){
+  try{ const acts=(a.details&&a.details.actions)||[]; if(acts.some(x=>/CLOSED/.test(x.actionType||'')))return true; }catch(e){}
+  return a.status==='CLOSED'||a.status==='DELETED';
+}
 function syncCapitalActivity(){
   if(!capProxy) return;
-  // ruimer venster (7 dagen) zodat óók eerder gesloten posities in Trinity's Closed-tabel verschijnen
   fetch(capProxy+'/activity?seconds=604800').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
-    if(!d.activities){ TrinityFeeds.markErr('activity','geen activity'); return; }
-    TrinityFeeds.markOk('activity', d.activities.length+' events');
+    if(!d.activities){ return; }
     let added=0;
     d.activities.forEach(a=>{
-      if(a.type!=='POSITION' || (a.status!=='CLOSED'&&a.status!=='DELETED'))return;
-      const key=a.dealId+'|'+a.date; if(seenClosed[key])return;
-      seenClosed[key]=true;
+      if(!_isCloseActivity(a))return;
+      const key=(a.dealId||'')+'|'+a.date; if(seenClosed[key])return; seenClosed[key]=true;
       const meta=brokerMeta[a.dealId];
-      // ELKE broker-afgewikkelde close loggen (ook posities die Trinity niet zelf opende) → zichtbaar
-      // in de Closed-tabel; als Trinity ze wél opende (meta) telt hij ook mee voor de learning.
-      if(meta && !meta.logged){ meta.logged=true; recordBrokerClose(a,meta); added++; }
-      else if(!meta){ recordExternalClose(a); added++; }
+      if(meta && !meta.logged){ meta.logged=true; recordBrokerClose(a,meta); added++; }   // learning-attributie
     });
     if(added){ try{ localStorage.setItem('oif_seenClosed', JSON.stringify(seenClosed)); }catch(e){} }
+  }).catch(e=>{ /* transactions is de primaire bron; activity-fouten niet luid melden */ });
+}
+// TRANSACTIONS = de gezaghebbende gesloten-trade historie MET echte P/L. Vult de Closed-tabel op live.
+function syncCapitalTransactions(){
+  if(!capProxy) return;
+  fetch(capProxy+'/transactions?seconds=604800').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
+    if(!d.transactions){ TrinityFeeds.markErr('activity','geen transactions'); return; }
+    const rows=d.transactions
+      .filter(t=> t.instrument && (t.pnl!=null || t.openLevel!=null) && !/DEPOSIT|WITHDRAW|DIVIDEND|FEE|INTEREST|TRANSFER/i.test(t.type||''))
+      .map(t=>{ const open=t.openLevel||0, close=t.closeLevel||0;
+        const pricePct = (open&&close)? (close/open-1)*100 : 0;
+        // side-heuristiek: long wint als de prijs stijgt; short wint als de prijs daalt
+        let side='—'; if(open&&close&&t.pnl!=null){ side=((close>=open)===(t.pnl>=0))?'LONG':'SHORT'; }
+        const sidePct = side==='SHORT'? -pricePct : pricePct;   // werkelijk trade-rendement (getekend)
+        // notional in REKEN-valuta uit P/L ÷ rendement — klopt óók voor JPY/cross-pairs (size×prijs zou fout zijn)
+        const notional = (t.pnl!=null && Math.abs(sidePct)>1e-6)? Math.abs(t.pnl/(sidePct/100)) : (t.size!=null?Math.abs(t.size):0);
+        return { pair:t.instrument, side, type:'FX', openedAt:null, closedAt:t.date?new Date(t.date):new Date(),
+          entry:open, exit:close, fill:close, size:notional, allocPct:(wallet.balance&&notional)?(notional/wallet.balance*100):null,
+          plCur:(t.pnl!=null?t.pnl:null), plPct:sidePct, reason:'BROKER', conf:null, ref:t.ref }; });
+    rows.sort((a,b)=>b.closedAt-a.closedAt);
+    tradeLog = rows.slice(0,500);   // op live ZIJN de broker-transacties de gesloten-historie (bron van waarheid)
+    TrinityFeeds.markOk('activity', rows.length+' closed trades');
+    try{ renderClosed(); renderWallet&&renderWallet(); }catch(e){}
   }).catch(e=>{ TrinityFeeds.markErr('activity',e.message,e.http); });
 }
-// een broker-close die NIET door Trinity is geopend (handmatig / vóór deze sessie) — tonen in de Closed-tabel
-function recordExternalClose(a){
-  try{
-    const now=a.date?new Date(a.date):new Date();
-    const name=(typeof fromEpic==='function'&&a.epic)?fromEpic(a.epic):(a.marketName||a.epic||'—');
-    const lp=livePositions.find(x=>x.dealId===a.dealId);
-    const side=(a.direction==='SELL'||a.direction==='SHORT')?'SHORT':(a.direction==='BUY'||a.direction==='LONG')?'LONG':(lp?lp.side:'—');
-    const pnlPct=(a.profitPct!=null)?+a.profitPct:(lp?lp.pnlPct:0);
-    const pnlCur=(a.profit!=null)?+a.profit:(a.pnl!=null?+a.pnl:0);
-    const size=(a.size!=null)?+a.size:(lp?lp.size:0);
-    const entry=(a.level!=null)?+a.level:(lp?lp.entry:0), fill=(a.closeLevel!=null)?+a.closeLevel:(lp?lp.current:0);
-    tradeLog.unshift({pair:name,side,type:'FX·ext',openedAt:a.openDate?new Date(a.openDate):now,closedAt:now,entry,exit:fill,fill,size,
-      allocPct:(wallet.balance&&size&&entry)?(size*entry/wallet.balance*100):null,plCur:pnlCur,plPct:pnlPct,plPctGross:pnlPct,costPct:0,reason:'BROKER (external)',conf:null});
-    if(tradeLog.length>500)tradeLog.pop();
-    pushReason(`SYNCED external close · ${name} ${side} · settled at Capital.com · shown in Closed table`);
-    persistState(); renderClosed();
-  }catch(e){}
-}
+window.syncCapitalTransactions=syncCapitalTransactions;
 function recordBrokerClose(a,meta){
   // Trinity didn't see the tick-by-tick exit (broker did), so we log the outcome from activity + last known P/L.
   const now=new Date();
@@ -19699,11 +19710,12 @@ function recordBrokerClose(a,meta){
   const recent=trinity.trades.slice(-60), wr=recent.length?recent.filter(t=>t.win).length/recent.length:0.5;
   trinity.wr=wr; trinity.mult=0.8+wr*0.5; trinity.avgR=recent.length?recent.reduce((x,t)=>x+t.R,0)/recent.length:0;
   if(meta.conf!=null) for(const k in calibB){ const cb=calibB[k]; if(meta.conf>=cb.lo&&meta.conf<cb.hi){ cb.n++; if(win)cb.w++; break; } }
-  tradeLog.unshift({pair:meta.pair,side:meta.side,type:'FX',openedAt:meta.openedAt||now,closedAt:now,entry:meta.entry||0,exit:lp?lp.current:0,fill:lp?lp.current:0,session:meta.session,
-    size:meta.size||0,allocPct:(wallet.balance&&meta.size&&meta.entry)?(meta.size*meta.entry/wallet.balance*100):null,plCur:0,plPct:pnlPct,plPctGross:pnlPct,costPct:0,reason,conf:meta.conf});
-  if(tradeLog.length>500)tradeLog.pop();
-  pushReason(`SYNCED close · ${meta.pair} ${meta.side} · settled by Capital.com · ${pnlPct>=0?'+':''}${pnlPct.toFixed(2)}% · logged to Trinity's data`);
-  persistState(); renderTrinity(); renderCalib(); renderClosed();
+  // GSD-shadow leert ook van broker-settled closes (als we de GSD-toestand bij open onthielden)
+  try{ if(meta.gsdAtOpen) TrinityGSDShadow.record(meta.gsdAtOpen, win, pnlPct/(meta.stopPctUsed||0.4)); }catch(e){}
+  // NB: de Closed-TABEL komt op live uit /transactions (echte P/L). Hier alléén de learning bijwerken,
+  // zodat er geen dubbele rijen ontstaan.
+  pushReason(`learned from broker-settled close · ${meta.pair} ${meta.side} · ${pnlPct>=0?'+':''}${pnlPct.toFixed(2)}%`);
+  persistState(); renderTrinity(); renderCalib();
 }
 // close a real Capital.com position from Trinity (manual button or Trinity logic)
 function closeLivePosition(dealId){
@@ -19923,7 +19935,7 @@ function renderClosed(){
   el.innerHTML=head+tradeLog.map(t=>{ const win=win0(t); const sc=t.side==='LONG'?'var(--bull2)':'var(--bear)'; const plc=win?'var(--bull2)':'var(--bear)';
     const plCurTxt=(t.plCur!=null)?`${t.plCur>=0?'+':''}$${t.plCur.toFixed(2)} · `:''; const allocTxt=(t.allocPct!=null)?t.allocPct.toFixed(1)+'%':'—';
     return `<tr style="text-align:right;border-top:1px solid rgba(255,255,255,0.04);">`
-      +_trTd(fmtTime(t.openedAt),'text-align:left;color:var(--dim);')+_trTd(fmtTime(t.closedAt),'text-align:left;color:var(--dim);')
+      +_trTd(t.openedAt?fmtTime(t.openedAt):'—','text-align:left;color:var(--dim);')+_trTd(t.closedAt?fmtTime(t.closedAt):'—','text-align:left;color:var(--dim);')
       +_trTd(`<span style="color:#7fd8ff">${t.type||'FX'}</span>`,'text-align:left;')+_trTd(`<b>${t.pair}</b>`,'text-align:left;')
       +_trTd(`<span style="color:${sc}">${t.side}</span>`)+_trTd(fmtRate(t.entry))+_trTd('$'+(t.size||0).toFixed(2))+_trTd(allocTxt)
       +_trTd(`<span style="color:${plc}">${plCurTxt}${t.plPct>=0?'+':''}${(t.plPct||0).toFixed(2)}%</span>`)
