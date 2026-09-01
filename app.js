@@ -18749,9 +18749,9 @@ let lastTuneAt=0, scanTick=0;
 function pushReason(msg){ reasonLog.unshift({t:new Date(),msg}); if(reasonLog.length>150)reasonLog.pop(); renderReasoning(); }
 function pushAdj(field,from,to,reason){ trinityAdj.unshift({t:new Date(),field,from,to,reason}); if(trinityAdj.length>60)trinityAdj.pop(); renderAdjustments(); lastUpdated.learning=new Date(); }
 const PRESETS={
-  conservative:{label:'Conservative',riskPct:0.5,maxAllocPct:20,maxPos:2,stopPct:0.25,tgtPct:0.40,minConf:70,sessions:['eu','us','overlap']},
-  balanced:{label:'Balanced',riskPct:1.0,maxAllocPct:40,maxPos:3,stopPct:0.30,tgtPct:0.45,minConf:58,sessions:['eu','us','overlap','asia']},
-  aggressive:{label:'Aggressive',riskPct:2.0,maxAllocPct:70,maxPos:5,stopPct:0.35,tgtPct:0.70,minConf:46,sessions:['eu','us','overlap','asia']}
+  conservative:{label:'Conservative',riskPct:0.5,maxAllocPct:60,allocPerPos:20,maxPos:2,stopPct:0.25,tgtPct:0.40,minConf:70,sessions:['eu','us','overlap']},
+  balanced:{label:'Balanced',riskPct:1.0,maxAllocPct:105,allocPerPos:35,maxPos:3,stopPct:0.30,tgtPct:0.45,minConf:58,sessions:['eu','us','overlap','asia']},
+  aggressive:{label:'Aggressive',riskPct:2.0,maxAllocPct:180,allocPerPos:45,maxPos:5,stopPct:0.35,tgtPct:0.70,minConf:46,sessions:['eu','us','overlap','asia']}
 };
 const SESSION_TUNE={asia:{label:'Asian',volMult:0.7},eu:{label:'EU',volMult:1.0},us:{label:'US',volMult:1.05},overlap:{label:'Overlap',volMult:1.2}};
 let preset='balanced';
@@ -18799,7 +18799,7 @@ function activePreset(){
 function applyCustomSettings(){
   const g=id=>document.getElementById(id);
   const sessions=['asia','eu','us','overlap'].filter(s=>g('cs-'+s)&&g('cs-'+s).checked);
-  customPreset={ label:'Custom', riskPct:+(g('cs-risk')&&g('cs-risk').value)||1, maxAllocPct:+(g('cs-alloc')&&g('cs-alloc').value)||40,
+  customPreset={ label:'Custom', riskPct:+(g('cs-risk')&&g('cs-risk').value)||1, allocPerPos:+(g('cs-alloc')&&g('cs-alloc').value)||35, maxAllocPct:(+(g('cs-alloc')&&g('cs-alloc').value)||35)*(+(g('cs-maxpos')&&g('cs-maxpos').value)||3),
     maxPos:+(g('cs-maxpos')&&g('cs-maxpos').value)||3, stopPct:+(g('cs-stop')&&g('cs-stop').value)||0.4, tgtPct:+(g('cs-tgt')&&g('cs-tgt').value)||0.9,
     minConf:+(g('cs-minconf')&&g('cs-minconf').value)||52, sessions: sessions.length?sessions:['eu','us','overlap','asia'] };
   renderSettings();
@@ -19347,8 +19347,11 @@ function manageTrinity(){
     const liveOpenCount = liveMode ? heldSet.size : openPs.length;   // union count = true concurrent exposure
     // trust-gewogen confidence voor DEZE sessie (vlakke/kleine sessie ⇒ conf naar de basisrate getrokken)
     const _ec = r => TrinityTrust.effConf(S.key, Math.min(99, r.pred*trinity.mult));
+    let gsdBlock=false, gsdWhy=''; try{ if(TrinityGSD.regime==='CRISIS'||TrinityGSD.tippingTier==='critical'){ gsdBlock=true; gsdWhy=`GSD ${_gsdRe?_gsdRe(TrinityGSD.regime):TrinityGSD.regime} · tipping ${Math.round((TrinityGSD.tippingRisk||0)*100)}%`; } }catch(e){}
     if(TrinityFSO.blockEntries()){
       if(scanTick%6===0) pushReason(`FSO CRISIS · stress ${TrinityFSO.level.toFixed(2)} (σ² ${TrinityFSO.variance.toFixed(4)}) — nieuwe entries gepauzeerd tot de FX-markt kalmeert`);
+    } else if(gsdBlock){
+      if(scanTick%6===0) pushReason(`FSO-GSD gate · ${gsdWhy} — wereldwijde systeemstress hoog, nieuwe Trinity-entries gepauzeerd (open posities blijven beheerd)`);
     } else {
       const cands=tradablePairs.map(p=>({p,...pair[p]}))
         .filter(r=>_ec(r)>=pr.minConf).sort((a,b)=>_ec(b)-_ec(a));
@@ -19391,9 +19394,17 @@ function openTrade(c,S,pr){
   // grootte: basis micro-margin × FSO-risicoschaal × sessie-trust × GLOBALE risico-weging (FSO-GSD)
   // (weinig trades/vlakke sessie ⇒ kleiner; wereldzone onder druk / kill-switch ⇒ kleiner)
   let gsdW=1; try{ const b=splitPair(c.p)[0], q=splitPair(c.p)[1]; gsdW=Math.min(TrinityGSD.riskWeight(b),TrinityGSD.riskWeight(q)); }catch(e){}
-  const alloc=wallet.balance*(pr.maxAllocPct/100)/pr.maxPos * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key) * gsdW;
+  // GROOTTE: per-positie doel-allocatie (30-40% bij Balanced) × FSO-risicoschaal × sessie-trust × GSD-weging,
+  // begrensd door de resterende totale-blootstelling (maxAllocPct). Node/kill-switch en drukke zones verkleinen automatisch.
+  const perPosPct = pr.allocPerPos || (pr.maxAllocPct/Math.max(1,pr.maxPos));
+  let alloc = wallet.balance*(perPosPct/100) * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key) * gsdW;
+  const openAllocNow = positions.filter(p=>p.status==='open').reduce((a,p)=>a+(p.alloc||0),0);
+  const totalBudget = wallet.balance*(pr.maxAllocPct/100);
+  alloc = Math.max(0, Math.min(alloc, totalBudget-openAllocNow));
+  if(alloc < wallet.balance*0.01){ pushReason(`skip ${c.p} — total-exposure budget full (${(openAllocNow/wallet.balance*100|0)}% of ${pr.maxAllocPct}% used)`); return; }
   const localId='t'+(Date.now())+Math.floor(Math.random()*1000);
-  positions.push({localId,pair:c.p,side:long?'LONG':'SHORT',entry,current:entry,stop,target,horizonH,ageH:0,openClock:mockClock,openedAt:new Date(),
+  let gsdAtOpen=null; try{ gsdAtOpen={regime:TrinityGSD.regime,tip:TrinityGSD.tippingRisk,tier:TrinityGSD.tippingTier,stress:TrinityGSD.stress,w:gsdW}; }catch(e){}
+  positions.push({localId,pair:c.p,side:long?'LONG':'SHORT',entry,current:entry,stop,target,horizonH,ageH:0,openClock:mockClock,openedAt:new Date(),gsdAtOpen,
     status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,extended:false,session:S.key,sessionName:S.name,sessionWindow:S.window,sessionDesc:S.desc,conf,stopPctUsed,alloc,
     factors:{liquidity:Math.min(100,60+st.vol*40),strength:Math.min(100,Math.abs(st._gap)*90),carry:Math.min(100,Math.abs(st._carry)*120),news:Math.min(100,Math.max(0,(st._news)*Math.sign(st.mom||1))*90+40),fib:Math.round(st.fib*100)}});
   pushReason(`OPEN ${long?'LONG':'SHORT'} ${c.p} · conf ${conf}% · stop ${stopPctUsed.toFixed(3)}% · target ${tgtPctUsed.toFixed(3)}% · session ${S.name} · size $${alloc.toFixed(2)}`);
@@ -19402,7 +19413,7 @@ function openTrade(c,S,pr){
     // Capital wants size as a clean multiple of sizeStep, at or above minSize. Compute target notional
     // in contracts, then snap UP to the next step multiple and enforce the minimum. Round to kill float noise.
     const minSz=st._minSize||100, step=st._sizeStep||100;
-    const wantContracts=(wallet.balance*(pr.maxAllocPct/100)/pr.maxPos)/entry;   // notional → contracts
+    const wantContracts=alloc/entry;   // notional (per-positie alloc) → contracts
     let steps=Math.max(1,Math.round(wantContracts/step));                        // whole number of steps
     let sz=steps*step; if(sz<minSz) sz=Math.ceil(minSz/step)*step;               // never below minimum
     sz=Math.round(sz*1e6)/1e6;                                                    // strip float noise
@@ -19425,10 +19436,12 @@ function closeTrade(p,reason){
   if(netPl>=0)wallet.wins++; else wallet.losses++;
   wallet.peak=Math.max(wallet.peak,wallet.balance); wallet.maxDD=Math.max(wallet.maxDD,(wallet.peak-wallet.balance)/wallet.peak*100);
   const now=new Date(); lastUpdated.trinity=now; lastUpdated.calib=now; lastUpdated.wallet=now; lastUpdated.learning=now;
-  tradeLog.unshift({pair:p.pair,side:p.side,openedAt:p.openedAt||now,closedAt:now,entry:p.entry,exit:p.current,size:p.alloc,
+  tradeLog.unshift({pair:p.pair,side:p.side,type:'FX',openedAt:p.openedAt||now,closedAt:now,entry:p.entry,exit:p.current,size:p.alloc,
+    allocPct:wallet.balance?(p.alloc/wallet.balance*100):0,fill:p.current,session:p.session,
     plCur:netPl,plPct:p.pnlPct,plPctGross:p.pnlPctGross,costPct:costPct(p.pair),reason,conf:p.conf});
   if(tradeLog.length>500)tradeLog.pop();
   pushReason(`CLOSE ${p.pair} ${p.side} · ${reason} · net ${p.pnlPct>=0?'+':''}${p.pnlPct.toFixed(2)}% (gross ${p.pnlPctGross>=0?'+':''}${p.pnlPctGross.toFixed(2)}%)`);
+  try{ if(p.gsdAtOpen) TrinityGSDShadow.record(p.gsdAtOpen, win, R); }catch(e){}
   if(trinity.trades.length-lastTuneAt>=10){ lastTuneAt=trinity.trades.length; autoTune(); }
   persistState&&persistState();
   renderTrinity(); renderWallet(); renderCalib(); renderPositions(); renderClosed(); renderSettings();
@@ -19639,20 +19652,41 @@ function reconcileInternalWithBroker(){
 // Read broker-settled deals so Trinity learns outcomes even when Capital.com guards the stop/target
 function syncCapitalActivity(){
   if(!capProxy) return;
-  fetch(capProxy+'/activity?seconds=3600').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
+  // ruimer venster (7 dagen) zodat óók eerder gesloten posities in Trinity's Closed-tabel verschijnen
+  fetch(capProxy+'/activity?seconds=604800').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
     if(!d.activities){ TrinityFeeds.markErr('activity','geen activity'); return; }
     TrinityFeeds.markOk('activity', d.activities.length+' events');
+    let added=0;
     d.activities.forEach(a=>{
-      if(a.type!=='POSITION' || (a.status!=='CLOSED'&&a.status!=='DELETED'&&a.status!=='ACCEPTED'))return;
+      if(a.type!=='POSITION' || (a.status!=='CLOSED'&&a.status!=='DELETED'))return;
       const key=a.dealId+'|'+a.date; if(seenClosed[key])return;
-      // only log a close we haven't already recorded, and only if we have meta (Trinity opened it)
+      seenClosed[key]=true;
       const meta=brokerMeta[a.dealId];
-      if(a.status==='CLOSED' || a.status==='DELETED'){
-        seenClosed[key]=true;
-        if(meta && !meta.logged){ meta.logged=true; recordBrokerClose(a,meta); }
-      }
+      // ELKE broker-afgewikkelde close loggen (ook posities die Trinity niet zelf opende) → zichtbaar
+      // in de Closed-tabel; als Trinity ze wél opende (meta) telt hij ook mee voor de learning.
+      if(meta && !meta.logged){ meta.logged=true; recordBrokerClose(a,meta); added++; }
+      else if(!meta){ recordExternalClose(a); added++; }
     });
+    if(added){ try{ localStorage.setItem('oif_seenClosed', JSON.stringify(seenClosed)); }catch(e){} }
   }).catch(e=>{ TrinityFeeds.markErr('activity',e.message,e.http); });
+}
+// een broker-close die NIET door Trinity is geopend (handmatig / vóór deze sessie) — tonen in de Closed-tabel
+function recordExternalClose(a){
+  try{
+    const now=a.date?new Date(a.date):new Date();
+    const name=(typeof fromEpic==='function'&&a.epic)?fromEpic(a.epic):(a.marketName||a.epic||'—');
+    const lp=livePositions.find(x=>x.dealId===a.dealId);
+    const side=(a.direction==='SELL'||a.direction==='SHORT')?'SHORT':(a.direction==='BUY'||a.direction==='LONG')?'LONG':(lp?lp.side:'—');
+    const pnlPct=(a.profitPct!=null)?+a.profitPct:(lp?lp.pnlPct:0);
+    const pnlCur=(a.profit!=null)?+a.profit:(a.pnl!=null?+a.pnl:0);
+    const size=(a.size!=null)?+a.size:(lp?lp.size:0);
+    const entry=(a.level!=null)?+a.level:(lp?lp.entry:0), fill=(a.closeLevel!=null)?+a.closeLevel:(lp?lp.current:0);
+    tradeLog.unshift({pair:name,side,type:'FX·ext',openedAt:a.openDate?new Date(a.openDate):now,closedAt:now,entry,exit:fill,fill,size,
+      allocPct:(wallet.balance&&size&&entry)?(size*entry/wallet.balance*100):null,plCur:pnlCur,plPct:pnlPct,plPctGross:pnlPct,costPct:0,reason:'BROKER (external)',conf:null});
+    if(tradeLog.length>500)tradeLog.pop();
+    pushReason(`SYNCED external close · ${name} ${side} · settled at Capital.com · shown in Closed table`);
+    persistState(); renderClosed();
+  }catch(e){}
 }
 function recordBrokerClose(a,meta){
   // Trinity didn't see the tick-by-tick exit (broker did), so we log the outcome from activity + last known P/L.
@@ -19665,8 +19699,8 @@ function recordBrokerClose(a,meta){
   const recent=trinity.trades.slice(-60), wr=recent.length?recent.filter(t=>t.win).length/recent.length:0.5;
   trinity.wr=wr; trinity.mult=0.8+wr*0.5; trinity.avgR=recent.length?recent.reduce((x,t)=>x+t.R,0)/recent.length:0;
   if(meta.conf!=null) for(const k in calibB){ const cb=calibB[k]; if(meta.conf>=cb.lo&&meta.conf<cb.hi){ cb.n++; if(win)cb.w++; break; } }
-  tradeLog.unshift({pair:meta.pair,side:meta.side,openedAt:meta.openedAt||now,closedAt:now,entry:meta.entry||0,exit:lp?lp.current:0,
-    size:meta.size||0,plCur:0,plPct:pnlPct,plPctGross:pnlPct,costPct:0,reason,conf:meta.conf});
+  tradeLog.unshift({pair:meta.pair,side:meta.side,type:'FX',openedAt:meta.openedAt||now,closedAt:now,entry:meta.entry||0,exit:lp?lp.current:0,fill:lp?lp.current:0,session:meta.session,
+    size:meta.size||0,allocPct:(wallet.balance&&meta.size&&meta.entry)?(meta.size*meta.entry/wallet.balance*100):null,plCur:0,plPct:pnlPct,plPctGross:pnlPct,costPct:0,reason,conf:meta.conf});
   if(tradeLog.length>500)tradeLog.pop();
   pushReason(`SYNCED close · ${meta.pair} ${meta.side} · settled by Capital.com · ${pnlPct>=0?'+':''}${pnlPct.toFixed(2)}% · logged to Trinity's data`);
   persistState(); renderTrinity(); renderCalib(); renderClosed();
@@ -19712,6 +19746,7 @@ function restoreState(){
     if(s.trinityAdj) trinityAdj=s.trinityAdj;
     if(s.tradeLog) tradeLog=s.tradeLog.map(t=>({...t,openedAt:new Date(t.openedAt),closedAt:new Date(t.closedAt)}));
     if(s.brokerMeta) brokerMeta=s.brokerMeta;
+    try{ const sc=JSON.parse(localStorage.getItem('oif_seenClosed')||'null'); if(sc) seenClosed=sc; }catch(e){}
     trinityWasRunning=!!s.trinityWasRunning;
     return s;
   }catch(e){ return null; }
@@ -19816,22 +19851,84 @@ function renderOpp(){
 }
 function predFactors(best){ predFactorsObj({liquidity:Math.min(100,60+best.vol*40),strength:Math.min(100,Math.abs(best._gap)*90),carry:Math.min(100,Math.abs(best._carry)*120),news:Math.min(100,Math.max(0,(best._news)*Math.sign(best.mom||1))*90+40),fib:Math.round(best.fib*100)}); }
 function predFactorsObj(f){ document.getElementById('pred-factors').innerHTML=[['session liquidity',f.liquidity],['strength gap',f.strength],['carry / rate diff',f.carry],['fib confluence',f.fib],['news sentiment',f.news]].map(([n,v])=>`<div class="frow"><span>${n}</span><div class="fbar"><i style="width:${Math.round(v)}%"></i></div><span style="text-align:right;color:var(--tx)">${Math.round(v)}</span></div>`).join(''); }
+// ==================================================================================
+// TRINITY · FSO-GSD SHADOW-BACKTESTER — meet of de wereldwijde stress-toestand (regime +
+// tipping-risk) op het OPEN-moment de uitkomst van Trinity-trades voorspelt. Puur observationeel
+// (schaduw): het handelt niet, maar leert of "alleen traden bij GSD-CALM / lage tipping" beter is.
+// ==================================================================================
+const TrinityGSDShadow = {
+  log:[],
+  _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityGSDShadow')||'null'); if(Array.isArray(d)) this.log=d; }catch(e){} },
+  _save(){ try{ localStorage.setItem('trinityGSDShadow', JSON.stringify(this.log.slice(-600))); }catch(e){} },
+  record(g,win,R){ if(!g)return; this.log.push({regime:g.regime||'?',tier:g.tier||'low',tip:+(g.tip||0).toFixed(3),stress:+(g.stress||0).toFixed(3),win:win?1:0,R:+((R||0)).toFixed(3),t:Date.now()}); if(this.log.length>800)this.log.shift(); this._save(); try{ renderGSDShadow(); }catch(e){} },
+  _wr(rows){ if(!rows.length)return null; const w=rows.reduce((a,r)=>a+r.win,0); return { n:rows.length, wr:w/rows.length, avgR:rows.reduce((a,r)=>a+r.R,0)/rows.length }; },
+  stats(){ const L=this.log; if(!L.length) return null;
+    const overall=this._wr(L);
+    const byRegime={}; ['RUST','SPANNING','CRISIS'].forEach(rg=>{ const s=this._wr(L.filter(r=>r.regime===rg)); if(s)byRegime[rg]=s; });
+    const byTier={}; ['low','elevated','high','critical'].forEach(tr=>{ const s=this._wr(L.filter(r=>r.tier===tr)); if(s)byTier[tr]=s; });
+    // lift = winrate bij (CALM & lage tipping) t.o.v. overall
+    const fav=this._wr(L.filter(r=>r.regime==='RUST'&&(r.tier==='low'||r.tier==='elevated')));
+    const lift = (fav&&overall&&overall.wr>0)? fav.wr/overall.wr : null;
+    return { overall, byRegime, byTier, fav, lift, proven:(overall.n>=25 && lift!=null && lift>=1.1) };
+  },
+  bundle(){ return { n:this.log.length, stats:this.stats() }; }
+};
+TrinityGSDShadow._restore();
+try{ window.TrinityGSDShadow=TrinityGSDShadow; }catch(e){}
+function renderGSDShadow(){
+  const el=document.getElementById('tr-gsd-shadow'); if(!el)return;
+  const S=TrinityGSDShadow.stats();
+  if(!S){ el.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.55rem;">GSD shadow-backtest: verzamelt gesloten trades met hun wereld-stress-toestand…</div>'; return; }
+  const row=(lab,s,col)=> s?`<div style="display:flex;justify-content:space-between;"><span style="color:${col||'var(--dim)'}">${lab}</span><span>win <b style="color:${s.wr>=0.5?'#14f195':'#ff5f7e'}">${Math.round(s.wr*100)}%</b> · avgR ${s.avgR>=0?'+':''}${s.avgR.toFixed(2)} · n=${s.n}</span></div>`:'';
+  el.innerHTML=`<div class="mono" style="font-size:0.55rem;line-height:1.8;color:var(--dim);">`
+    +row('overall',S.overall,'var(--tx)')
+    +row('GSD CALM',S.byRegime.RUST,'#14f195')+row('GSD TENSION',S.byRegime.SPANNING,'#ffb627')+row('GSD CRISIS',S.byRegime.CRISIS,'#ff5f7e')
+    +row('tipping low',S.byTier.low,'#14f195')+row('tipping high',S.byTier.high,'#ff8a3c')+row('tipping critical',S.byTier.critical,'#ff4f6d')
+    +(S.lift!=null?`<div style="margin-top:3px;border-top:1px solid var(--line);padding-top:3px;">edge (CALM+low tipping vs overall) <b style="color:${S.proven?'#14f195':'var(--tx)'}">${S.lift.toFixed(2)}×</b> ${S.proven?'<small style="color:#14f195">✓ GSD improves Trinity</small>':'<small style="color:var(--dimmer)">(building…)</small>'}</div>`:'')
+    +`</div>`;
+}
+try{ window.renderGSDShadow=renderGSDShadow; }catch(e){}
+const TR_REASON={ TARGET:{l:'Target hit',c:'#14f195'}, STOP:{l:'Stop-loss',c:'#ff5f7e'}, TIME:{l:'Horizon reached',c:'#ffb627'},
+  BROKER:{l:'Broker-settled (stop/target)',c:'#7fd8ff'}, 'BROKER (external)':{l:'Broker close (external)',c:'#c792ea'}, MANUAL:{l:'Manual close',c:'#ff8fab'} };
+function _trReason(r){ const m=TR_REASON[r]; return m?`<span style="color:${m.c}">${m.l}</span>`:`<span style="color:var(--dim)">${r||'\u2014'}</span>`; }
+function _trTd(v,extra){ return `<td style="padding:5px 7px;${extra||''}">${v}</td>`; }
 function renderPositions(){
   const el=document.getElementById('positions-body'); if(!el)return;
   const openPs=positions.filter(p=>p.status==='open');
-  if(!openPs.length){ el.innerHTML='<div class="prow" style="color:var(--dimmer)">'+(trinityOn?'no open trades \u2014 scanning all pairs':'Trinity stopped')+'</div>'; return; }
-  el.innerHTML=openPs.map(p=>{const long=p.side==='LONG';return `<div class="prow"><b>${p.pair}</b><span style="color:${long?'var(--bull2)':'var(--bear)'}">${p.side}</span><span>${p.conf}%</span><span style="color:${p.pnlPct>=0?'var(--bull2)':'var(--bear)'}">${p.pnlPct>=0?'+':''}${p.pnlPct.toFixed(2)}%</span><span style="color:var(--dimmer)">${p.ageH.toFixed(1)}h</span></div>`;}).join('');
+  const head=`<table style="width:100%;border-collapse:collapse;font-size:0.58rem;">`
+    +`<thead><tr style="color:var(--dim);text-align:right;"><th style="text-align:left;padding:5px 7px;">Type</th><th style="text-align:left;">Markt</th><th>Side</th><th>Entry</th><th style="text-align:left;">Entry tijd</th><th>Size</th><th>Alloc</th><th>P/L %</th><th>P/L</th><th></th></tr></thead><tbody>`;
+  if(!openPs.length){ el.innerHTML=head+`<tr><td colspan="10" style="text-align:center;color:var(--dimmer);padding:8px;">${trinityOn?'no open trades \u2014 scanning all pairs':'Trinity stopped'}</td></tr></tbody></table>`; return; }
+  const bal=wallet.balance||1;
+  el.innerHTML=head+openPs.map(p=>{ const long=p.side==='LONG'; const sc=long?'var(--bull2)':'var(--bear)';
+    const plCur=(p.alloc||0)*((p.pnlPct||0)/100); const plc=p.pnlPct>=0?'var(--bull2)':'var(--bear)'; const allocPct=bal?((p.alloc||0)/bal*100):0;
+    return `<tr style="text-align:right;border-top:1px solid rgba(255,255,255,0.04);">`
+      +_trTd(`<span style="color:#7fd8ff">FX</span>${p.sessionName?` <small style="color:var(--dimmer)">${p.sessionName}</small>`:''}`,'text-align:left;')
+      +_trTd(`<b>${p.pair}</b>`,'text-align:left;')+_trTd(`<span style="color:${sc}">${p.side}</span>`)
+      +_trTd(fmtRate(p.entry))+_trTd(fmtTime(p.openedAt),'text-align:left;color:var(--dim);')
+      +_trTd('$'+(p.alloc||0).toFixed(2))+_trTd(allocPct.toFixed(1)+'%')
+      +_trTd(`<span style="color:${plc}">${p.pnlPct>=0?'+':''}${(p.pnlPct||0).toFixed(2)}%</span>`)
+      +_trTd(`<span style="color:${plc}">${plCur>=0?'+':''}$${plCur.toFixed(2)}</span>`)
+      +_trTd(`<button class="btn" style="padding:2px 6px;font-size:0.5rem;" onclick="trManualClose('${p.localId}')">\u00d7</button>`)
+      +`</tr>`; }).join('')+'</tbody></table>';
 }
+function trManualClose(localId){ try{ const p=positions.find(x=>x.localId===localId&&x.status==='open'); if(!p)return;
+  if(feed.mode==='live'&&feed.provider==='capital'&&p.brokerDealId){ closeLivePosition(p.brokerDealId); } closeTrade(p,'MANUAL'); }catch(e){} }
+window.trManualClose=trManualClose;
 function renderClosed(){
   const el=document.getElementById('closed-body'); if(!el)return;
-  if(!tradeLog.length){ el.innerHTML='<div class="crow" style="color:var(--dimmer)">no closed trades yet — press Start Trinity</div>'; return; }
-  el.innerHTML=tradeLog.map(t=>{const win=t.plCur>=0;return `<div class="crow">
-    <span><b>${t.pair}</b> <small style="color:${t.side==='LONG'?'var(--bull2)':'var(--bear)'}">${t.side}</small></span>
-    <span>${fmtTime(t.openedAt)}</span><span>${fmtTime(t.closedAt)}</span>
-    <span>${fmtRate(t.entry)} → ${fmtRate(t.exit)}</span>
-    <span>$${t.size.toFixed(2)}</span>
-    <span style="color:${win?'var(--bull2)':'var(--bear)'}">${win?'+':''}$${t.plCur.toFixed(2)} · ${t.plPct>=0?'+':''}${t.plPct.toFixed(2)}%</span>
-    <span style="color:var(--dimmer)">${t.reason}</span></div>`;}).join('');
+  const head=`<table style="width:100%;border-collapse:collapse;font-size:0.55rem;">`
+    +`<thead><tr style="position:sticky;top:0;background:#0a0f1a;color:var(--dim);text-align:right;"><th style="text-align:left;padding:5px 7px;">Opened</th><th style="text-align:left;">Closed</th><th style="text-align:left;">Type</th><th style="text-align:left;">Market</th><th>Side</th><th>Price</th><th>Size</th><th>Alloc</th><th>P/L</th><th>Fill</th><th style="text-align:left;">Reason</th></tr></thead><tbody>`;
+  if(!tradeLog.length){ el.innerHTML=head+'<tr><td colspan="11" style="text-align:center;color:var(--dimmer);padding:8px;">no closed trades yet</td></tr></tbody></table>'; return; }
+  const win0=t=>((t.plCur||0)>=0)||(t.plCur==null&&(t.plPct||0)>=0);
+  el.innerHTML=head+tradeLog.map(t=>{ const win=win0(t); const sc=t.side==='LONG'?'var(--bull2)':'var(--bear)'; const plc=win?'var(--bull2)':'var(--bear)';
+    const plCurTxt=(t.plCur!=null)?`${t.plCur>=0?'+':''}$${t.plCur.toFixed(2)} · `:''; const allocTxt=(t.allocPct!=null)?t.allocPct.toFixed(1)+'%':'—';
+    return `<tr style="text-align:right;border-top:1px solid rgba(255,255,255,0.04);">`
+      +_trTd(fmtTime(t.openedAt),'text-align:left;color:var(--dim);')+_trTd(fmtTime(t.closedAt),'text-align:left;color:var(--dim);')
+      +_trTd(`<span style="color:#7fd8ff">${t.type||'FX'}</span>`,'text-align:left;')+_trTd(`<b>${t.pair}</b>`,'text-align:left;')
+      +_trTd(`<span style="color:${sc}">${t.side}</span>`)+_trTd(fmtRate(t.entry))+_trTd('$'+(t.size||0).toFixed(2))+_trTd(allocTxt)
+      +_trTd(`<span style="color:${plc}">${plCurTxt}${t.plPct>=0?'+':''}${(t.plPct||0).toFixed(2)}%</span>`)
+      +_trTd(fmtRate(t.fill!=null?t.fill:t.exit))+_trTd(_trReason(t.reason),'text-align:left;')
+      +`</tr>`; }).join('')+'</tbody></table>';
 }
 function downloadFile(name,content,mime){ try{ const blob=new Blob([content],{type:mime||'text/plain'}), url=URL.createObjectURL(blob), a=document.createElement('a');
   a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }catch(e){ console.error('download failed',e); } }
@@ -20205,14 +20302,22 @@ if(restored && restored.capProxy){
   pushReason('restoring session — auto-reconnecting to Capital.com proxy…');
   setTimeout(()=>{ try{ connectCapital(); }catch(e){} }, 400);
 }
-if(restored && restored.trinityWasRunning){ pushReason('Trinity was RUNNING before the restart — positions will resync from Capital.com; press Start to resume opening new trades.'); }
+if(restored && restored.trinityWasRunning){
+  // AUTO-RESUME (net als Osiris Crypto): was Trinity aan vóór de refresh/netwerkfout, dan gaat hij
+  // vanzelf weer door — geen handmatige Start nodig. Posities resyncen uit Capital.com.
+  trinityOn=true; if(!trinityStartedAt) trinityStartedAt=restored.trinityStartedAt||Date.now();
+  const b=document.getElementById('trinity-toggle'); if(b){ b.textContent='■  STOP TRINITY'; b.className='bigbtn on'; }
+  const st=document.getElementById('trinity-state'); if(st){ st.textContent='RUNNING'; st.style.color='var(--bull2)'; }
+  pushReason('Trinity was RUNNING before the restart — auto-resumed. Open positions resync from Capital.com; new trades continue automatically.');
+  try{ renderTrinity(); }catch(e){}
+}
 let lastFrame=0;
 function loop(now){requestAnimationFrame(loop);
   if(!document.querySelector('.tab.show .trn')){return;}
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
