@@ -2294,6 +2294,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="mono" id="tr-fso-shadow" style="font-size:0.54rem;margin-top:6px;color:var(--dim);line-height:1.7;">shadow-backtest verzamelt data…</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">FSO-GSD shadow-backtest <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— does world stress predict Trinity's outcomes? (observational)</span></div>
       <div class="mono" id="tr-gsd-shadow" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.7;">GSD shadow-backtest: collecting closed trades with their world-stress state…</div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Per-pair / category learning <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— which markets win, which bleed (drives sizing &amp; skips)</span></div>
+      <div class="mono" id="tr-pairtrust" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.7;">no per-pair learning yet — import your Capital history or let Trinity trade.</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Trinity self-tuning <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— autonomous adjustments as it learns</span></div>
       <div class="feedwrap" id="adj-feed"></div>
     </div>
@@ -2393,7 +2395,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         </div>
         <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin:12px 0 4px;display:flex;justify-content:space-between;align-items:center;">Open positions <span style="display:flex;gap:8px;align-items:center;"><button class="btn" style="padding:3px 8px;font-size:0.5rem;" onclick="closeAllLive()">Close all (live)</button><span class="upd" id="w-updated">updated —</span></span></div>
         <div id="positions-body"></div>
-        <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin:16px 0 6px;">Closed positions</div>
+        <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin:16px 0 6px;display:flex;justify-content:space-between;align-items:center;">Closed positions <span><input type="file" id="tr-import-file" accept=".csv" style="display:none" onchange="trImportFile(event)"><button class="btn" style="padding:3px 8px;font-size:0.5rem;" onclick="document.getElementById('tr-import-file').click()" title="Import your downloaded Capital.com history (leveraged trades or funds CSV) to seed Trinity's learnings">⭱ Import Capital history (CSV)</button></span></div>
         <div class="closedwrap"><div id="closed-body"></div></div>
       </div>
 </div>
@@ -2517,6 +2519,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div id="gsd-predict"><div class="mono" style="color:var(--dimmer);font-size:0.56rem;">predictor gathering data…</div></div>
     </div>
 
+    <div class="secdiv"><h3>ΔV kill-switch projection</h3><span class="sub">— forward crisis-release forecast per horizon · week → 10y · with likely topic &amp; zone</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div id="gsd-killproj"><div class="mono" style="color:var(--dimmer);font-size:0.56rem;">kill-switch projection warming up…</div></div>
+    </div>
+
     <div class="secdiv"><h3>Live data &amp; feeds</h3><span class="sub">— free sources · browser-direct + optional proxy</span></div>
     <div class="panel">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
@@ -2636,9 +2644,9 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260901-jarvis51-txclosed"></script>
+<script src="app.js?v=20260902-jarvis53-killproj"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="osiris-sync.js?v=20260830-mobile-pull"></script>
+<script src="osiris-sync.js?v=20260902-trinity-sync"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
 <script>(function(){function r(){try{window.dispatchEvent(new Event("resize"));}catch(e){}}var o=window.showTab;if(typeof o==="function"){window.showTab=function(id){o(id);setTimeout(r,60);};}window.addEventListener("load",function(){setTimeout(r,300);});})();</script>
 </body>
