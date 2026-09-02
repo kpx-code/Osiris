@@ -18825,6 +18825,16 @@ function autoTune(){
     pushAdj('max open positions',from+' vs preset',autoAdj.maxPosDelta+' vs preset',`drawdown ${wallet.maxDD.toFixed(1)}% \u2192 trading smaller`); }
   else if(wallet.maxDD<3 && autoAdj.maxPosDelta<0){ const from=autoAdj.maxPosDelta; autoAdj.maxPosDelta=Math.min(0,autoAdj.maxPosDelta+1);
     pushAdj('max open positions',from+' vs preset',autoAdj.maxPosDelta+' vs preset',`drawdown recovered to ${wallet.maxDD.toFixed(1)}%`); }
+  // ---- GSD-gekalibreerde risico-gevoeligheid: leert autonoom uit Trinity's eigen trades onder elke
+  // wereldstress-toestand. De live multiplier draait continu in openTrade; hier loggen we materi\u00eble
+  // verschuivingen in de self-tuning-feed zodat elke autonome aanpassing zichtbaar/traceerbaar is. ----
+  try{
+    const gm=TrinityGSDShadow.riskMod(); const prev=(autoAdj.gsdRiskMod!=null)?autoAdj.gsdRiskMod:1;
+    if(Math.abs(gm-prev)>=0.06){ autoAdj.gsdRiskMod=+gm.toFixed(2);
+      const st=TrinityGSDShadow.stats();
+      pushAdj('GSD risk-sensitivity','\u00d7'+prev.toFixed(2),'\u00d7'+gm.toFixed(2),
+        `gekalibreerd op ${st?st.overall.n:0} gesloten trades over wereldstress-regimes \u2014 ${gm<1?'kleiner traden in stress-toestanden die historisch bloedden':'size herstellen waar stress niet schaadde'}`); }
+  }catch(e){}
 }
 function renderAdjustments(){ const el=document.getElementById('adj-feed'); if(!el)return;
   if(!trinityAdj.length){ el.innerHTML='<div class="rline" style="color:var(--dimmer)">no autonomous adjustments yet — Trinity needs ~20 closed trades before it starts tuning</div>'; return; }
@@ -19157,7 +19167,7 @@ function _trFsoBuildCharts(){
   const wrap=document.getElementById('tr-fso-charts'); if(!wrap)return;
   const want=TRN_FSO_SCALES.filter(([k])=>TRN_FSO_VIS.scales[k]);
   if(!want.length){ wrap.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.56rem;padding:8px;">geen schaal geselecteerd — vink hierboven MICRO/MESO/MACRO/VOLLEDIG aan</div>'; return; }
-  wrap.innerHTML=want.map(([k,f,lab])=>`<div style="margin-top:10px;"><div class="mono" style="font-size:0.56rem;color:#7fd8ff;letter-spacing:1px;margin-bottom:4px;">${lab}</div><canvas id="tr-fso-${k}" style="width:100%;height:300px;display:block;background:rgba(0,0,0,0.28);border-radius:6px;"></canvas></div>`).join('');
+  wrap.innerHTML=want.map(([k,f,lab])=>`<div style="margin-top:10px;"><div class="mono" style="font-size:0.68rem;color:#7fd8ff;letter-spacing:1.5px;margin-bottom:5px;font-weight:600;">${lab}</div><canvas id="tr-fso-${k}" style="width:100%;height:300px;display:block;background:rgba(0,0,0,0.28);border-radius:6px;"></canvas></div>`).join('');
 }
 function drawTrinityFSO(key){
   const cv=document.getElementById('tr-fso-'+key); if(!cv||!cv.getContext)return;
@@ -19176,7 +19186,7 @@ function drawTrinityFSO(key){
   // gevarenzone (σ² ≤ node-drempel) arcering per kolom
   for(let i=0;i<L;i++){ if(sc.V[i]<=TrinityFSO.nodeTh){ const px=x(i),bw=plotW/(L-1)+0.6; ctx.fillStyle='rgba(255,138,148,0.07)'; ctx.fillRect(px-bw/2,padT,bw,H-padT-padB); } }
   // drempellijnen
-  const thr=(v,col,lab)=>{ ctx.strokeStyle=col; ctx.lineWidth=1; ctx.setLineDash([5,4]); ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font="7px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText(lab+' '+v.toFixed(2),W-padR-2,yS(v)-2); };
+  const thr=(v,col,lab)=>{ ctx.strokeStyle=col; ctx.lineWidth=1; ctx.setLineDash([5,4]); ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText(lab+' '+v.toFixed(2),W-padR-2,yS(v)-2); };
   thr(crisT,'rgba(255,79,109,0.85)','CRISIS'); thr(spanT,'rgba(255,182,39,0.8)','SPANNING');
   const line=(arr,col,w,dash)=>{ if(!arr)return; ctx.strokeStyle=col; ctx.lineWidth=w; if(dash)ctx.setLineDash(dash); ctx.beginPath(); for(let i=0;i<L;i++){ const px=x(i),py=yS(arr[i]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); } ctx.stroke(); if(dash)ctx.setLineDash([]); };
   // overlays: valuta + pairs (individuele oscillator-lijnen)
@@ -19189,15 +19199,21 @@ function drawTrinityFSO(key){
   // huidige-waarde marker
   if(TRN_FSO_VIS.series.STRESS){ const cx=x(L-1),cy=yS(sc.S[L-1]); ctx.beginPath(); ctx.arc(cx,cy,3.5,0,6.283); ctx.fillStyle='rgba(255,95,126,0.25)'; ctx.fill(); ctx.beginPath(); ctx.arc(cx,cy,2,0,6.283); ctx.fillStyle='#ffd0d8'; ctx.fill(); }
   // assen
-  ctx.fillStyle='#7d99ac'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='right';
+  ctx.fillStyle='#7d99ac'; ctx.font="9.5px 'JetBrains Mono',monospace"; ctx.textAlign='right';
   [0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v.toFixed(2),padL-4,yS(v)+3));
   // tijd-as
   try{ if(sc.t&&sc.t.length===L){ const fmt=ms=>{const d=new Date(ms),p=n=>String(n).padStart(2,'0'); return key==='micro'||key==='meso'?`${p(d.getHours())}:${p(d.getMinutes())}`:`${p(d.getDate())}/${p(d.getMonth()+1)}`; };
-    ctx.fillStyle='#6d8296'; ctx.font="7.5px 'JetBrains Mono',monospace"; for(let s=0;s<=4;s++){ const i=Math.round(s/4*(L-1)); ctx.textAlign=s===0?'left':s===4?'right':'center'; ctx.fillText(fmt(sc.t[i]),x(i),H-4); } } }catch(e){}
+    ctx.fillStyle='#6d8296'; ctx.font="9px 'JetBrains Mono',monospace"; for(let s=0;s<=4;s++){ const i=Math.round(s/4*(L-1)); ctx.textAlign=s===0?'left':s===4?'right':'center'; ctx.fillText(fmt(sc.t[i]),x(i),H-4); } } }catch(e){}
   // regime-badge + huidige waarden
   const F=TrinityFSO, rc={RUST:'#14f195',SPANNING:'#ffb627',CRISIS:'#ff4f6d'}[F.regime]||'#7fd4ff';
-  ctx.textAlign='left'; ctx.fillStyle=rc; ctx.font="bold 10px 'JetBrains Mono',monospace"; ctx.fillText('● '+F.regime+(F.killSwitch?' ⚡':''),padL+2,padT+9);
-  ctx.fillStyle='#9fb2c4'; ctx.font="8.5px 'JetBrains Mono',monospace"; ctx.fillText('stress '+sc.S[L-1].toFixed(3)+' · σ² '+sc.V[L-1].toFixed(2)+' · VFM '+(sc.VFM[L-1]*100|0)+'% · '+L+'pt',padL+70,padT+9);
+  ctx.textAlign='left'; ctx.fillStyle=rc; ctx.font="bold 12px 'JetBrains Mono',monospace"; ctx.fillText('● '+F.regime+(F.killSwitch?' ⚡':''),padL+2,padT+10);
+  ctx.fillStyle='#9fb2c4'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText('stress '+sc.S[L-1].toFixed(3)+' · σ² '+sc.V[L-1].toFixed(2)+' · VFM '+(sc.VFM[L-1]*100|0)+'% · '+L+'pt',padL+86,padT+10);
+  // in-canvas legenda-chip voor de rode node-compressie-banden (alleen tonen als er compressie is)
+  try{ let nComp=0; for(let i=0;i<L;i++) if(sc.V[i]<=TrinityFSO.nodeTh) nComp++;
+    if(nComp>0){ ctx.textAlign='right'; ctx.font="9px 'JetBrains Mono',monospace";
+      const lx=W-padR-2, ly=padT+9; const txt='▧ node-compressie '+Math.round(nComp/L*100)+'%';
+      ctx.fillStyle='rgba(255,138,148,0.16)'; const tw=ctx.measureText(txt).width; ctx.fillRect(lx-tw-6,ly-9,tw+8,13);
+      ctx.fillStyle='#ff8a94'; ctx.fillText(txt,lx-2,ly+1); ctx.textAlign='left'; } }catch(e){}
 }
 function renderTrinityFSO(){
   if(!_trFsoTogglesBuilt) _trFsoBuildToggles();
@@ -19396,17 +19412,21 @@ function openTrade(c,S,pr){
   let gsdW=1; try{ const b=splitPair(c.p)[0], q=splitPair(c.p)[1]; gsdW=Math.min(TrinityGSD.riskWeight(b),TrinityGSD.riskWeight(q)); }catch(e){}
   // GROOTTE: per-positie doel-allocatie (30-40% bij Balanced) × FSO-risicoschaal × sessie-trust × GSD-weging,
   // begrensd door de resterende totale-blootstelling (maxAllocPct). Node/kill-switch en drukke zones verkleinen automatisch.
-  // per-pair/categorie learning: hopeloze categorie (bv. 0/6 JPY-crosses) volledig overslaan
-  if(TrinityPairTrust.block(c.p)){ if(scanTick%6===0) pushReason(`skip ${c.p} — ${TrinityPairTrust._cat(c.p)} category has a losing track record (learned); standing aside`); return; }
+  // SCAN ALLES — geen harde skip meer. De per-pair/categorie learning WEEGT alleen de grootte:
+  // winnende pairs/categorieën groter, historisch verliezende kleiner. De weging kalibreert op
+  // Trinity's eigen gesloten trades + de shadow-scan. (block() blijft bestaan voor de export/inzicht.)
   const perPosPct = pr.allocPerPos || (pr.maxAllocPct/Math.max(1,pr.maxPos));
-  const pairW = TrinityPairTrust.factor(c.p);   // winnende pairs groter, verliezers kleiner
-  let alloc = wallet.balance*(perPosPct/100) * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key) * gsdW * pairW;
+  const pairW = TrinityPairTrust.factor(c.p);
+  // GSD-GEKALIBREERDE weging: de theoretische riskWeight (zone-stress/kill-switch) × een multiplier die is
+  // gekalibreerd op Trinity's ECHTE outcomes onder dit wereldstress-regime/tipping-tier (backtest → aanpassing).
+  let gsdMod=1; try{ gsdMod=TrinityGSDShadow.riskMod(); }catch(e){}
+  let alloc = wallet.balance*(perPosPct/100) * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key) * gsdW * gsdMod * pairW;
   const openAllocNow = positions.filter(p=>p.status==='open').reduce((a,p)=>a+(p.alloc||0),0);
   const totalBudget = wallet.balance*(pr.maxAllocPct/100);
   alloc = Math.max(0, Math.min(alloc, totalBudget-openAllocNow));
   if(alloc < wallet.balance*0.01){ pushReason(`skip ${c.p} — total-exposure budget full (${(openAllocNow/wallet.balance*100|0)}% of ${pr.maxAllocPct}% used)`); return; }
   const localId='t'+(Date.now())+Math.floor(Math.random()*1000);
-  let gsdAtOpen=null; try{ gsdAtOpen={regime:TrinityGSD.regime,tip:TrinityGSD.tippingRisk,tier:TrinityGSD.tippingTier,stress:TrinityGSD.stress,w:gsdW}; }catch(e){}
+  let gsdAtOpen=null; try{ gsdAtOpen={regime:TrinityGSD.regime,tip:TrinityGSD.tippingRisk,tier:TrinityGSD.tippingTier,stress:TrinityGSD.stress,w:gsdW,mod:+gsdMod.toFixed(3)}; }catch(e){}
   positions.push({localId,pair:c.p,side:long?'LONG':'SHORT',entry,current:entry,stop,target,horizonH,ageH:0,openClock:mockClock,openedAt:new Date(),gsdAtOpen,
     status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,extended:false,session:S.key,sessionName:S.name,sessionWindow:S.window,sessionDesc:S.desc,conf,stopPctUsed,alloc,
     factors:{liquidity:Math.min(100,60+st.vol*40),strength:Math.min(100,Math.abs(st._gap)*90),carry:Math.min(100,Math.abs(st._carry)*120),news:Math.min(100,Math.max(0,(st._news)*Math.sign(st.mom||1))*90+40),fib:Math.round(st.fib*100)}});
@@ -19458,7 +19478,7 @@ function setStartEquity(){
   wallet={start:v,balance:v,equity:v,realized:0,realizedGross:0,costPaid:0,wins:0,losses:0,peak:v,maxDD:0};
   positions=[]; tradeLog=[]; trinity={trades:[],byS:{overlap:{n:0,w:0},eu:{n:0,w:0},us:{n:0,w:0},asia:{n:0,w:0}},mult:1,wr:0,avgR:0};
   calibB={}; CALIB_BANDS.forEach(([a,b])=>calibB[a+'-'+b]={lo:a,hi:b,n:0,w:0});
-  autoAdj={minConfDelta:0,tgtMult:1,maxPosDelta:0,disabledSessions:{}}; trinityAdj=[]; reasonLog=[]; lastTuneAt=0;
+  autoAdj={minConfDelta:0,tgtMult:1,maxPosDelta:0,disabledSessions:{},gsdRiskMod:1}; trinityAdj=[]; reasonLog=[]; lastTuneAt=0;
   lastUpdated.wallet=new Date();
   renderWallet(); renderTrinity(); renderCalib(); renderClosed(); renderPositions(); renderAdjustments(); renderReasoning();
   pushReason('wallet reset — starting equity $'+v.toLocaleString('en-US'));
@@ -19669,14 +19689,12 @@ const _normInst=s=>String(s||'').replace(/[^A-Za-z]/g,'').toUpperCase();
 const _refCore=s=>String(s||'').replace(/^p_/i,'').toLowerCase();
 function syncCapitalActivity(){
   if(!capProxy) return;
-  fetch(capProxy+'/activity?seconds=2592000').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
+  fetch(capProxy+'/activity?seconds=86400').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{   // Capital: activity max 1 dag
     if(!d.activities){ return; }
     let added=0; const ev=[];
     d.activities.forEach(a=>{
-      // élk event bewaren (open/swap/close dragen dezelfde dealReference) → vroegste = open-tijd
-      const inst=_normInst((a.details&&a.details.marketName)||a.epic);
-      const ref=_refCore((a.details&&a.details.dealReference)||a.dealId);
-      if(inst&&a.date) ev.push({inst,ref,t:new Date(a.date)});
+      // alleen ECHTE positie-events (geen SWAP/financiering) dragen bij aan open-tijd-matching
+      if(String(a.type||'').toUpperCase()!=='SWAP'){ const inst=_normInst((a.details&&a.details.marketName)||a.epic); const ref=_refCore((a.details&&a.details.dealReference)||a.dealId); if(inst&&a.date) ev.push({inst,ref,t:new Date(a.date)}); }
       if(!_isCloseActivity(a))return;
       const key=(a.dealId||'')+'|'+a.date; if(seenClosed[key])return; seenClosed[key]=true;
       const meta=brokerMeta[a.dealId];
@@ -19686,10 +19704,10 @@ function syncCapitalActivity(){
     if(added){ try{ localStorage.setItem('oif_seenClosed', JSON.stringify(seenClosed)); }catch(e){} }
   }).catch(e=>{ /* transactions is de primaire bron; activity-fouten niet luid melden */ });
 }
-// open-tijd: eerst op dealReference (zelfde positie), anders vroegste event voor dit instrument
-function _openTimeFor(inst, ref, closeMs){ const ni=_normInst(inst), rc=_refCore(ref);
-  if(rc){ let best=null; for(const e of actEvents){ if(e.ref && (e.ref===rc || e.ref.indexOf(rc)>=0 || rc.indexOf(e.ref)>=0)){ if(!best||e.t<best) best=e.t; } } if(best) return best; }
-  let best=null; for(const e of actEvents){ if(e.inst===ni && e.t.getTime()<=closeMs+3600e3){ if(!best||e.t<best) best=e.t; } } return best; }
+// open-tijd via dealReference (betrouwbaar). Zit de open buiten het 1-daags activity-venster
+// (lang aangehouden trade), dan laten we 'm leeg i.p.v. een swap-tijd te gokken.
+function _openTimeFor(inst, ref, closeMs){ const rc=_refCore(ref); if(!rc) return null;
+  let best=null; for(const e of actEvents){ if(e.ref && (e.ref===rc || e.ref.indexOf(rc)>=0 || rc.indexOf(e.ref)>=0)){ if(!best||e.t<best) best=e.t; } } return best; }
 // TRANSACTIONS = de gezaghebbende gesloten-trade historie MET echte P/L. Vult de Closed-tabel op live.
 function syncCapitalTransactions(){
   if(!capProxy) return;
@@ -19710,7 +19728,13 @@ function syncCapitalTransactions(){
           entry:open, exit:close, fill:close, size:notional, allocPct:(wallet.balance&&notional)?(notional/wallet.balance*100):null,
           plCur:(t.pnl!=null?t.pnl:null), plPct:sidePct, reason:'BROKER', conf:null, ref:t.ref }; });
     rows.sort((a,b)=>b.closedAt-a.closedAt);
-    tradeLog = rows.slice(0,500);   // op live ZIJN de broker-transacties de gesloten-historie (bron van waarheid)
+    // MERGE i.p.v. overschrijven: behoud je geïmporteerde CSV-historie (FX·hist) en sim-trades,
+    // vervang alléén de broker-transactie-rijen. Dedup op pair+sluittijd+P/L zodat er niets dubbelt.
+    const keep = tradeLog.filter(t=> t.reason!=='BROKER');   // imports + sim/manual blijven staan
+    const seen2={}, merged=[];
+    rows.concat(keep).forEach(t=>{ const pl=(t.plCur!=null?t.plCur:(t.plPct||0)); const k=(t.pair||'')+'|'+(t.closedAt?new Date(t.closedAt).getTime():0)+'|'+Number(pl).toFixed(2); if(seen2[k])return; seen2[k]=1; merged.push(t); });
+    merged.sort((a,b)=> new Date(b.closedAt||0) - new Date(a.closedAt||0));
+    tradeLog = merged.slice(0,800);
     // LEARNING: elke NIEUWE gesloten trade voedt de win-rate, per-sessie en per-pair learning (dedup)
     try{ let sl={}; try{ sl=JSON.parse(localStorage.getItem('trinityTxLearn')||'{}')||{}; }catch(e){} let fed=0;
       rows.forEach(r=>{ const key=r.ref||(r.pair+'|'+r.closedAt.getTime()+'|'+(r.plCur||0)); if(sl[key])return; sl[key]=1;
@@ -19909,7 +19933,35 @@ const TrinityGSDShadow = {
     const lift = (fav&&overall&&overall.wr>0)? fav.wr/overall.wr : null;
     return { overall, byRegime, byTier, fav, lift, proven:(overall.n>=25 && lift!=null && lift>=1.1) };
   },
-  bundle(){ return { n:this.log.length, stats:this.stats() }; }
+  // ---- GEKALIBREERDE risico-multiplier voor de HUIDIGE wereldstress-toestand ----
+  // Leert uit Trinity's EIGEN gesloten trades: hoe presteerde de winrate/avgR onder het regime en de
+  // tipping-tier waarin we nu zitten, t.o.v. het gemiddelde? Krimpt met de sample-grootte (weinig trades ⇒
+  // dicht bij 1). Slechter-dan-gemiddeld → kleiner traden (tot ×0.4), beter → tot ×1.15. Dit is de autonome
+  // "backtest → aanpassing"-lus: de GSD-weging wordt zo gekalibreerd op wat Trinity écht heeft meegemaakt.
+  riskMod(){
+    try{
+      const S=this.stats(); if(!S||!S.overall||S.overall.n<15) return 1;   // te weinig data ⇒ neutraal
+      const base=S.overall.wr||0.5;
+      const edge=(s)=>{ if(!s||s.n<6) return 0; const shrink=s.n/(s.n+12); return (s.wr-base)*shrink; };
+      let rg=null,tier=null; try{ rg=TrinityGSD.regime; tier=TrinityGSD.tippingTier; }catch(e){}
+      const e = edge(S.byRegime&&S.byRegime[rg])*0.6 + edge(S.byTier&&S.byTier[tier])*0.4;
+      return Math.max(0.4, Math.min(1.15, 1 + e*2.4));
+    }catch(e){ return 1; }
+  },
+  // menselijk leesbare uitleg van de huidige gekalibreerde risico-modifier
+  riskModWhy(){
+    try{
+      const S=this.stats(); if(!S||!S.overall||S.overall.n<15) return {mod:1, txt:`kalibreert — ${S?S.overall.n:0}/15 trades verzameld`};
+      let rg=null,tier=null; try{ rg=TrinityGSD.regime; tier=TrinityGSD.tippingTier; }catch(e){}
+      const m=this.riskMod(); const rgS=S.byRegime&&S.byRegime[rg], tS=S.byTier&&S.byTier[tier];
+      const parts=[];
+      if(rgS&&rgS.n>=6) parts.push(`${_gsdRe?_gsdRe(rg):rg} ${Math.round(rgS.wr*100)}% (n=${rgS.n})`);
+      if(tS&&tS.n>=6) parts.push(`tipping-${tier} ${Math.round(tS.wr*100)}% (n=${tS.n})`);
+      const dir = m<0.94 ? 'kleiner traden (deze toestand bloedde historisch)' : (m>1.06 ? 'grotere size (deze toestand presteerde goed)' : 'neutraal (geen bewezen edge)');
+      return {mod:m, txt:`×${m.toFixed(2)} — ${dir}${parts.length?' · '+parts.join(' · '):''}`};
+    }catch(e){ return {mod:1, txt:'—'}; }
+  },
+  bundle(){ return { n:this.log.length, stats:this.stats(), riskMod:this.riskMod() }; }
 };
 TrinityGSDShadow._restore();
 try{ window.TrinityGSDShadow=TrinityGSDShadow; }catch(e){}
@@ -19926,6 +19978,101 @@ function renderGSDShadow(){
     +`</div>`;
 }
 try{ window.renderGSDShadow=renderGSDShadow; }catch(e){}
+// ==================================================================================
+// TRINITY · GECONSOLIDEERDE LEARNINGS — één dashboard dat samenvat wat Trinity heeft geleerd:
+// brain-trust per sessie, pair/categorie-edges, GSD-regime edges (gekalibreerd op eigen trades),
+// kalibratie-kwaliteit, de actieve autonome staat, plus een plain-language conclusie.
+// ==================================================================================
+function renderTrinityLearnings(){
+  const el=document.getElementById('tr-learnings-rich'); if(!el)return;
+  const G='#14f195', R='#ff5f7e', A='#ffb627', D='var(--dim)', DD='var(--dimmer)';
+  const nT=(trinity&&trinity.trades)?trinity.trades.length:0;
+  const wr=(trinity&&trinity.wr!=null)?trinity.wr:null, avgR=(trinity&&trinity.avgR!=null)?trinity.avgR:null, mult=(trinity&&trinity.mult)||1;
+  const wrc=wr==null?DD:(wr>=0.5?G:(wr>=0.4?A:R));
+  const chip=(lab,val,col)=>`<div style="flex:1 1 auto;min-width:78px;background:rgba(255,255,255,0.02);border:1px solid var(--line);border-radius:6px;padding:6px 8px;"><div style="font-size:0.86rem;font-weight:700;color:${col||'var(--tx)'};">${val}</div><div style="font-size:0.5rem;color:${DD};text-transform:uppercase;letter-spacing:0.06em;">${lab}</div></div>`;
+  // ---- top-strip KPI's ----
+  let gsdMod=1, gsdWhy='—'; try{ const w=TrinityGSDShadow.riskModWhy(); gsdMod=w.mod; gsdWhy=w.txt; }catch(e){}
+  const nAdj=(typeof trinityAdj!=='undefined')?trinityAdj.length:0;
+  let html=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">`
+    +chip('trades',nT,'var(--tx)')
+    +chip('win rate',wr==null?'—':Math.round(wr*100)+'%',wrc)
+    +chip('avg R',avgR==null?'—':(avgR>=0?'+':'')+avgR.toFixed(2),avgR==null?DD:(avgR>=0?G:R))
+    +chip('adaptive conf',mult.toFixed(2)+'×',mult>=1?G:A)
+    +chip('GSD risk',gsdMod.toFixed(2)+'×',gsdMod<0.94?R:(gsdMod>1.06?G:'var(--tx)'))
+    +chip('autonome aanp.',nAdj,nAdj?G:DD)
+    +`</div>`;
+  // ---- sectie-helper ----
+  const sec=(title,sub,body)=>`<div style="margin-top:12px;"><div style="font-size:0.56rem;color:${D};letter-spacing:0.08em;text-transform:uppercase;margin-bottom:5px;">${title}${sub?` <span style="color:${DD};text-transform:none;letter-spacing:0;">— ${sub}</span>`:''}</div>${body}</div>`;
+  const bar=(v,col)=>`<div style="flex:0 0 46px;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;"><i style="display:block;height:100%;width:${Math.round(Math.max(0,Math.min(1,v))*100)}%;background:${col};"></i></div>`;
+  // ---- 1) brain-trust per sessie ----
+  const sessRows=['asia','eu','us','overlap'].map(k=>{ let s=null; try{ s=TrinityTrust.stats(k); }catch(e){} if(!s) return null;
+    const lab=(typeof SESSION_TUNE!=='undefined'&&SESSION_TUNE[k])?SESSION_TUNE[k].label:k.toUpperCase();
+    const wrv=s.wr, col=wrv==null?DD:(wrv>=0.5?G:(wrv>=0.4?A:R)); let wf=1; try{ wf=TrinityTrust.weightFactor(k); }catch(e){}
+    const dis=(typeof autoAdj!=='undefined'&&autoAdj.disabledSessions&&autoAdj.disabledSessions[k]);
+    return {k,lab,s,col,wf,dis,wrv:wrv==null?-1:wrv}; }).filter(Boolean).sort((a,b)=>b.wrv-a.wrv);
+  const sessBody=sessRows.length?`<div style="display:flex;flex-direction:column;gap:3px;">`+sessRows.map(r=>
+    `<div style="display:flex;align-items:center;gap:8px;font-size:0.56rem;">
+      <span style="flex:0 0 62px;color:${r.dis?R:'var(--tx)'};">${r.lab}${r.dis?' ⏸':''}</span>
+      ${bar(r.wrv<0?0:r.wrv,r.col)}
+      <span style="flex:0 0 40px;color:${r.col};font-weight:600;">${r.s.wr==null?'—':Math.round(r.s.wr*100)+'%'}</span>
+      <span style="flex:1 1 auto;color:${DD};">n=${r.s.n} · AUC ${r.s.auc!=null?r.s.auc.toFixed(2):'—'} · ×${r.wf.toFixed(2)}${r.s.inverted?' <span style="color:'+R+'">⚠inv</span>':''}</span>
+    </div>`).join('')+`</div>`
+    :`<div style="font-size:0.54rem;color:${DD};">nog geen sessie-data — Trinity heeft ~6 trades per sessie nodig.</div>`;
+  html+=sec('Brain-trust · per sessie','sample-size-bewuste winrate, onderscheidend vermogen (AUC) &amp; ×gewicht',sessBody);
+  // ---- 2) per-pair / categorie edges ----
+  const catArr=Object.entries(TrinityPairTrust.cats||{}).map(([k,o])=>({k,...o,wr:o.n?o.w/o.n:0})).filter(o=>o.n>=1).sort((a,b)=>b.wr-a.wr);
+  const pairArr=Object.entries(TrinityPairTrust.pairs||{}).map(([k,o])=>({k,...o,wr:o.n?o.w/o.n:0})).filter(o=>o.n>=2);
+  const bestP=pairArr.slice().sort((a,b)=>b.wr-a.wr).slice(0,3), worstP=pairArr.slice().sort((a,b)=>a.wr-b.wr).slice(0,3);
+  const catBody = catArr.length?`<div style="display:flex;flex-direction:column;gap:3px;">`+catArr.map(o=>{ const col=o.wr>=0.5?G:(o.wr>=0.4?A:R);
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:0.56rem;"><span style="flex:0 0 72px;color:var(--tx);">${o.k}</span>${bar(o.wr,col)}<span style="flex:0 0 40px;color:${col};font-weight:600;">${Math.round(o.wr*100)}%</span><span style="flex:1 1 auto;color:${DD};">n=${o.n} · net ${o.net>=0?'+':''}${o.net.toFixed(2)}</span></div>`; }).join('')
+    +(bestP.length||worstP.length?`<div style="margin-top:4px;font-size:0.54rem;color:${DD};line-height:1.7;">`
+      +(bestP.length?`<span style="color:${G};">↑ sterkst:</span> ${bestP.map(p=>p.k+' '+Math.round(p.wr*100)+'% (n'+p.n+')').join(' · ')}<br>`:'')
+      +(worstP.length?`<span style="color:${R};">↓ zwakst:</span> ${worstP.map(p=>p.k+' '+Math.round(p.wr*100)+'% (n'+p.n+')').join(' · ')}`:'')
+      +`</div>`:'')+`</div>`
+    :`<div style="font-size:0.54rem;color:${DD};">nog geen pair-data — importeer je Capital-historie of laat Trinity traden.</div>`;
+  html+=sec('Markt-edges · pair &amp; categorie','welke markten winnen, welke bloeden (stuurt de sizing)',catBody);
+  // ---- 3) GSD-regime edges (gekalibreerd op eigen trades) ----
+  let gsdBody; try{ const S=TrinityGSDShadow.stats();
+    if(S){ const rr=(lab,s,col)=> s?`<div style="display:flex;align-items:center;gap:8px;font-size:0.56rem;"><span style="flex:0 0 92px;color:${col};">${lab}</span>${bar(s.wr,s.wr>=0.5?G:R)}<span style="flex:0 0 40px;color:${s.wr>=0.5?G:R};font-weight:600;">${Math.round(s.wr*100)}%</span><span style="flex:1 1 auto;color:${DD};">avgR ${s.avgR>=0?'+':''}${s.avgR.toFixed(2)} · n=${s.n}</span></div>`:'';
+      gsdBody=`<div style="display:flex;flex-direction:column;gap:3px;">`
+        +rr('CALM',S.byRegime.RUST,G)+rr('TENSION',S.byRegime.SPANNING,A)+rr('CRISIS',S.byRegime.CRISIS,R)
+        +rr('tipping low',S.byTier.low,G)+rr('tipping high',S.byTier.high,'#ff8a3c')+rr('tipping critical',S.byTier.critical,R)
+        +`<div style="margin-top:4px;font-size:0.54rem;color:${D};border-top:1px solid var(--line);padding-top:4px;">gekalibreerde risico-modifier <b style="color:${gsdMod<0.94?R:(gsdMod>1.06?G:'var(--tx)')}">×${gsdMod.toFixed(2)}</b> <span style="color:${DD};">${gsdWhy.replace(/^×[0-9.]+ — /,'')}</span></div>`
+        +`</div>`;
+    } else gsdBody=`<div style="font-size:0.54rem;color:${DD};">GSD-shadow verzamelt gesloten trades met hun wereldstress-toestand… (≥15 nodig voor kalibratie)</div>`;
+  }catch(e){ gsdBody=`<div style="font-size:0.54rem;color:${DD};">—</div>`; }
+  html+=sec('Wereldstress-edges · FSO-GSD','presteert Trinity anders per wereld-regime? → autonome size-kalibratie',gsdBody);
+  // ---- 4) kalibratie-kwaliteit ----
+  let calBody; try{ let filled=0,tot=0,best=null; for(const k in calibB){ tot++; const cb=calibB[k]; if(cb.n>=3){ filled++; } }
+    calBody=`<div style="font-size:0.56rem;color:${D};line-height:1.7;">${filled}/${tot} confidence-bins met ≥3 trades gevuld · <span style="color:${DD};">de kalibratie-chart hierboven toont voorspeld vs. gemeten per band.</span></div>`;
+  }catch(e){ calBody=`<div style="font-size:0.54rem;color:${DD};">—</div>`; }
+  html+=sec('Kalibratie','voorspelde vs. gemeten winrate per confidence-band',calBody);
+  // ---- 5) actieve autonome staat ----
+  const stStates=[];
+  try{ if(autoAdj.minConfDelta>0) stStates.push(['min-confidence','+'+autoAdj.minConfDelta+'pp',A]);
+    if(autoAdj.tgtMult&&autoAdj.tgtMult!==1) stStates.push(['target-afstand','×'+autoAdj.tgtMult.toFixed(2),'#7fd8ff']);
+    if(autoAdj.maxPosDelta&&autoAdj.maxPosDelta!==0) stStates.push(['max posities',autoAdj.maxPosDelta+' vs preset',A]);
+    if(gsdMod!==1) stStates.push(['GSD risk-sens.','×'+gsdMod.toFixed(2),gsdMod<1?R:G]);
+    const dz=Object.keys(autoAdj.disabledSessions||{}); if(dz.length) stStates.push(['sessies gepauzeerd',dz.map(k=>(SESSION_TUNE[k]?SESSION_TUNE[k].label:k)).join(', '),R]);
+  }catch(e){}
+  const stateBody = stStates.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;">`+stStates.map(([l,v,c])=>`<span style="font-size:0.54rem;background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 7px;"><span style="color:${DD};">${l}</span> <b style="color:${c};">${v}</b></span>`).join('')+`</div>`
+    :`<div style="font-size:0.54rem;color:${DD};">baseline — nog geen autonome afwijkingen (Trinity tuned na ~20 gesloten trades).</div>`;
+  html+=sec('Actieve autonome staat','wat Trinity nú anders doet dan de baseline-preset',stateBody);
+  // ---- 6) plain-language conclusie ----
+  const concl=[];
+  if(nT<20) concl.push(`Trinity heeft <b>${nT}</b> trades — nog te weinig voor harde conclusies (autonome tuning start rond 20).`);
+  else {
+    if(wr!=null) concl.push(`Over de laatste trades wint Trinity <b style="color:${wrc}">${Math.round(wr*100)}%</b> met gem. R <b>${avgR>=0?'+':''}${avgR.toFixed(2)}</b>.`);
+    const bestS=sessRows[0], worstS=sessRows[sessRows.length-1];
+    if(bestS&&worstS&&bestS!==worstS&&bestS.s.wr!=null&&worstS.s.wr!=null) concl.push(`Sterkste sessie <b style="color:${G}">${bestS.lab}</b> (${Math.round(bestS.s.wr*100)}%), zwakste <b style="color:${R}">${worstS.lab}</b> (${Math.round(worstS.s.wr*100)}%).`);
+    if(catArr.length){ const cb=catArr[0], cw=catArr[catArr.length-1]; if(cb!==cw) concl.push(`Beste categorie <b style="color:${G}">${cb.k}</b>, zwakste <b style="color:${R}">${cw.k}</b> — sizing volgt automatisch.`); }
+    if(gsdMod<0.94) concl.push(`Onder de huidige wereldstress traadt Trinity <b style="color:${R}">${Math.round((1-gsdMod)*100)}% kleiner</b> (gekalibreerd op eigen resultaten).`);
+    else if(gsdMod>1.06) concl.push(`De huidige wereld-toestand presteerde goed → <b style="color:${G}">grotere size</b>.`);
+  }
+  html+=`<div style="margin-top:12px;padding:8px 10px;background:rgba(127,216,255,0.05);border-left:3px solid #7fd8ff;border-radius:0 5px 5px 0;font-size:0.58rem;color:${D};line-height:1.75;"><b style="color:#7fd8ff;">Conclusie</b><br>${concl.join(' ')}</div>`;
+  el.innerHTML=html;
+}
+try{ window.renderTrinityLearnings=renderTrinityLearnings; }catch(e){}
 // ==================================================================================
 // TRINITY · PER-PAIR / PER-CATEGORY LEARNING — leert welke markten winnen en welke bloeden.
 // Uit de echte Capital-historie: majors 55% win, JPY-crosses 0/4, exotics 0/2. Deze module
@@ -20443,7 +20590,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
@@ -20585,14 +20732,17 @@ addEventListener('beforeunload',persistState);
     { id: 'trust',   label: 'BRAIN-TRUST', mx: 0.30, yoff: -0.34, conn: 'cores', col: '#7fd8ff', ghost: false },
     { id: 'session', label: 'SESSION',     mx: 0.55, yoff: 0.34,  conn: 'gate',  col: '#8fb8ff', ghost: false },
     { id: 'fso',     label: 'FSO',         mx: 0.63, yoff: -0.30, conn: 'gate',  col: '#ff5f7e', ghost: false },
+    { id: 'gsd',     label: 'FSO-GSD',     mx: 0.585, yoff: -0.52,conn: 'gate',  col: '#ff8a3c', ghost: false },
+    { id: 'node',    label: 'NODE-TIME',   mx: 0.66, yoff: 0.34,  conn: 'gate',  col: '#c792ea', ghost: false },
     { id: 'cost',    label: 'COST-GUARD',  mx: 0.80, yoff: -0.31, conn: 'dec',   col: '#ffd24a', ghost: false },
     { id: 'calib',   label: 'CALIB',       mx: 0.90, yoff: -0.22, conn: 'learn', col: '#14f195', ghost: false },
     { id: 'selftune',label: 'SELF-TUNE',   mx: 0.945, yoff: 0.22, conn: 'learn', col: '#14f195', ghost: false },
+    { id: 'gsdrisk', label: 'GSD-RISK',    mx: 0.905, yoff: 0.02, conn: 'learn', col: '#ff8a3c', ghost: false },
+    { id: 'cloud',   label: 'CLOUD-SYNC',  mx: 0.615, yoff: 0.66, conn: 'osiris',col: '#7fd8ff', ghost: false },
     // ---- ontbreekt (ghost · planned) ----
     { id: 'g_deep',  label: 'DEEPNET',     mx: 0.25, yoff: 0.32,  conn: 'cores', col: '#5c7488', ghost: true },
     { id: 'g_pred',  label: 'PREDICT·INV', mx: 0.40, yoff: 0.34,  conn: 'cores', col: '#5c7488', ghost: true },
     { id: 'g_kin',   label: 'KINETIC',     mx: 0.485, yoff: -0.34,conn: 'osiris',col: '#5c7488', ghost: true },
-    { id: 'g_node',  label: 'NODE-TIME',   mx: 0.66, yoff: 0.34,  conn: 'gate',  col: '#5c7488', ghost: true },
     { id: 'g_regime',label: 'REGIME·HMM',  mx: 0.49, yoff: 0.71,  conn: 'osiris',col: '#5c7488', ghost: true },
     { id: 'g_llm',   label: 'LLM·VERIFY',  mx: 0.56, yoff: -0.32, conn: 'osiris',col: '#5c7488', ghost: true },
     { id: 'g_mtf',   label: 'MULTI-TF',    mx: 0.645, yoff: -0.20,conn: 'gate',  col: '#5c7488', ghost: true },
@@ -20601,7 +20751,6 @@ addEventListener('beforeunload',persistState);
     { id: 'g_guard', label: 'GUARDIAN',    mx: 0.785, yoff: 0.42, conn: 'dec',   col: '#5c7488', ghost: true },
     { id: 'g_risk',  label: 'RISK-BREAK',  mx: 0.84, yoff: 0.30,  conn: 'dec',   col: '#5c7488', ghost: true },
     { id: 'g_rl',    label: 'RL-EXIT',     mx: 0.915, yoff: -0.30,conn: 'learn', col: '#5c7488', ghost: true },
-    { id: 'g_cloud', label: 'CLOUD-SYNC',  mx: 0.615, yoff: 0.66, conn: 'osiris',col: '#5c7488', ghost: true },
     { id: 'g_margin',label: 'MARGIN',      mx: 0.72, yoff: 0.52,  conn: 'dec',   col: '#5c7488', ghost: true }
   ];
 
@@ -20708,6 +20857,19 @@ addEventListener('beforeunload',persistState);
     try { let kind = 'major', cr = 0.3; const best = (ranked && ranked[0]) ? ranked[0] : null; if (best && best.p) { kind = /JPY|USD|EUR|GBP|CHF|CAD|AUD|NZD/.test(best.p) ? 'major' : 'cross'; cr = Math.min(1, (COST_PCT[kind] || 0.02) / 0.07); } setM('cost', 0.4 + cr * 0.4, 1, (kind === 'major' ? '~0.01%' : '~0.02%')); } catch (e) { setM('cost', 0.4, 1, '—'); }
     try { let filled = 0, tot = 0, ok = 0; for (const k in calibB) { tot++; const cb = calibB[k]; if (cb.n >= 3) { filled++; } } const overall = (typeof trinity !== 'undefined') ? (trinity.wr || 0) : 0; setM('calib', filled ? Math.max(0.3, filled / Math.max(1, tot)) : 0.25, 1, filled ? filled + '/' + tot + ' bins' : 'kalibr'); } catch (e) { setM('calib', 0.25, 1, '—'); }
     try { const nadj = (typeof trinityAdj !== 'undefined') ? trinityAdj.length : 0; setM('selftune', nadj ? Math.max(0.3, Math.min(1, 0.3 + nadj * 0.04)) : 0.22, 1, nadj ? nadj + ' adj' : 'wacht'); } catch (e) { setM('selftune', 0.22, 1, '—'); }
+    // FSO-GSD wereld-systeemstress (data-true): activatie ~ stress-niveau; sign- bij CRISIS/critical tipping
+    try { const G = TrinityGSD; const crit = (G.regime === 'CRISIS' || G.tippingTier === 'critical'); const rl = { RUST: 'CALM', SPANNING: 'TENSION', CRISIS: 'CRISIS' }[G.regime] || G.regime;
+      setM('gsd', Math.max(0.2, Math.min(1, (G.stress || 0) + (G.tippingRisk || 0) * 0.4)), crit ? -1 : 1, rl + ' ' + Math.round((G.tippingRisk || 0) * 100) + '%'); } catch (e) { setM('gsd', 0.3, 1, '—'); }
+    // NODE-TIME (data-true): nabijheid van de eerstvolgende geprojecteerde ΔV kill-switch / tipping
+    try { const G = TrinityGSD; let act = Math.max(0.18, Math.min(1, (G.tippingRisk || 0))); let val = 'tipping ' + (G.tippingTier || 'low');
+      const proj = (G.killProjection || []).filter(z => z && z.eta).sort((a, b) => a.eta - b.eta)[0];
+      if (proj) { const dd = Math.max(0, (proj.eta - Date.now()) / 864e5); val = '★ ' + (dd < 1 ? '<1d' : dd < 30 ? Math.round(dd) + 'd' : dd < 365 ? Math.round(dd / 30) + 'mo' : (dd / 365).toFixed(1) + 'y'); act = Math.max(act, Math.min(1, 1 - dd / 90)); }
+      setM('node', act, (G.tippingTier === 'critical') ? -1 : 1, val); } catch (e) { setM('node', 0.25, 1, '—'); }
+    // GSD-RISK: de gekalibreerde risico-multiplier uit Trinity's eigen trades onder wereldstress
+    try { let m = 1; if (typeof TrinityGSDShadow !== 'undefined') m = TrinityGSDShadow.riskMod(); setM('gsdrisk', Math.max(0.2, Math.min(1, 0.4 + m * 0.5)), m < 0.94 ? -1 : 1, '×' + m.toFixed(2)); } catch (e) { setM('gsdrisk', 0.3, 1, '—'); }
+    // CLOUD-SYNC (nu echt geïmplementeerd): actief als Trinity-state naar de cloud sync't
+    try { let on = false; try { on = (typeof osirisSyncEnabled === 'function') ? osirisSyncEnabled() : (typeof trinityOn !== 'undefined' && trinityOn); } catch (e) { on = (typeof trinityOn !== 'undefined' && trinityOn); }
+      setM('cloud', on ? 0.7 : 0.3, 1, on ? 'synced' : 'lokaal'); } catch (e) { setM('cloud', 0.3, 1, '—'); }
     // ghost — altijd gedimd + "planned"
     _trnet.meta.forEach(m => { if (m.ghost) { m.act = 0.16; m.sign = 1; m.val = 'planned'; } });
   }
@@ -21064,6 +21226,7 @@ const TrinityGSD = {
   stress:0, sysVar:0, nodeTh:GSD_TH_DEFAULT, vfm:0, escapeVel:0, compressionAge:0, compressionPeak:0,
   killSwitch:false, killTs:0, regime:'RUST', spanT:0.35, crisT:0.60, escapeCrit:0.10, calibrated:false, _varMax:0.02, histCal:null,
   tippingRisk:0, tippingTier:'low', killProjection:null, _projTs:0,
+  killProjHistory:[], killProjBets:[], killProjScore:null, _prevProj:null, _killTrig:[], _lastBetTs:0,
   hist:[], histV:[], histVFM:[], histMove:[], histEsc:[], t:[],
   scales:null, ranking:[], predictions:{}, _lastCompute:0, _built:false, _shadow:null, _cal:null, _calTs:0,
   predLog:[], predStats:null, _predLogTs:0,
@@ -21076,6 +21239,8 @@ const TrinityGSD = {
     try{ const v=JSON.parse(localStorage.getItem('trinityGSDcal')||'null'); if(v){ this._cal=v; if(v.nodeTh)this.nodeTh=v.nodeTh; if(v.spanT)this.spanT=v.spanT; if(v.crisT)this.crisT=v.crisT; this.calibrated=!!v.calibrated; } }catch(e){}
     try{ const h=JSON.parse(localStorage.getItem('trinityGSDhistCal')||'null'); if(h&&h.nodeTh){ this.histCal=h; this.nodeTh=h.nodeTh; this.spanT=h.spanT; this.crisT=h.crisT; if(h.escapeCrit!=null)this.escapeCrit=h.escapeCrit; this.calibrated=true; } }catch(e){}
     try{ const pl=JSON.parse(localStorage.getItem('trinityGSDpredlog')||'null'); if(Array.isArray(pl)) this.predLog=pl; }catch(e){}
+    try{ const ph=JSON.parse(localStorage.getItem('trinityGSDprojHist')||'null'); if(Array.isArray(ph)) this.killProjHistory=ph; }catch(e){}
+    try{ const pb=JSON.parse(localStorage.getItem('trinityGSDprojBets')||'null'); if(Array.isArray(pb)) this.killProjBets=pb; }catch(e){}
     GSDData.start();
     // als de proxy al is ingesteld (herstart), start de historische kalibratie zodra mogelijk
     try{ if(this.proxy && !this.histCal) setTimeout(()=>{ try{ TrinityGSDBackfill.run(); }catch(e){} }, 8000); }catch(e){}
@@ -21328,6 +21493,32 @@ const TrinityGSD = {
         const halfw = days<=30? days*0.25*864e5 : days<=365? days*0.12*864e5 : days*0.08*864e5;
         out.push({ key, days, prob:+_clamp01(prob).toFixed(2), eta, window:[eta-halfw, eta+halfw], topic:topCats.join(' + ')||'—', zone:topZone, basis, estimate:est });
       });
+      // ---- 1) trigger-events loggen (voor predicted-vs-outcome scoring) ----
+      if(this.tippingRisk>=0.75 || this.killSwitch){ this._killTrig=this._killTrig||[]; const last=this._killTrig[this._killTrig.length-1]; if(!last||now-last>3600e3){ this._killTrig.push(now); if(this._killTrig.length>300)this._killTrig.shift(); } }
+      // ---- 2) REVISIE-feed: autonome wijziging van datum/topic/kans t.o.v. de vorige projectie ----
+      const prev=this._prevProj||[];
+      out.forEach(p=>{ const pv=prev.find(x=>x.key===p.key); if(!pv)return;
+        const dDays=Math.abs(p.eta-pv.eta)/864e5; const thr = p.days<=30?2 : p.days<=365?21 : p.days*0.06;
+        const topicCh=p.topic!==pv.topic, probCh=Math.abs(p.prob-pv.prob)>=0.1;
+        if(dDays>=thr || topicCh || probCh){
+          this.killProjHistory=this.killProjHistory||[];
+          this.killProjHistory.unshift({ key:p.key, ts:now, fromEta:pv.eta, toEta:p.eta, fromTopic:pv.topic, toTopic:p.topic, fromProb:pv.prob, toProb:p.prob, dDays:+dDays.toFixed(1) });
+          if(this.killProjHistory.length>80)this.killProjHistory.pop();
+          try{ localStorage.setItem('trinityGSDprojHist',JSON.stringify(this.killProjHistory.slice(0,80))); }catch(e){}
+        }
+      });
+      this._prevProj=out.map(p=>({key:p.key,eta:p.eta,topic:p.topic,prob:p.prob}));
+      // ---- 3) predicted-vs-outcome (continue shadow-screening op de WEEK-horizon) ----
+      this.killProjBets=this.killProjBets||[];
+      const wk=out.find(x=>x.key==='week');
+      if(wk && now-(this._lastBetTs||0)>6*3600e3){ this._lastBetTs=now; this.killProjBets.push({made:now,due:now+7*864e5,prob:wk.prob,topic:wk.topic,done:false}); if(this.killProjBets.length>400)this.killProjBets.shift(); }
+      let changed=false;
+      this.killProjBets.forEach(bt=>{ if(bt.done||now<bt.due)return; bt.done=true; changed=true;
+        const trig=(this._killTrig||[]).some(t=>t>=bt.made && t<=bt.due); bt.hit=trig?1:0; bt.pForHit=bt.prob; });
+      const done=this.killProjBets.filter(b=>b.done);
+      if(done.length){ let hits=0,brier=0; done.forEach(b=>{ hits+=b.hit; const p=b.prob, o=b.hit; brier+=(p-o)*(p-o); });
+        const n=done.length; this.killProjScore={ n, hitRate:+(hits/n).toFixed(3), brier:+(brier/n).toFixed(3), proven:n>=20 }; }
+      if(changed){ try{ localStorage.setItem('trinityGSDprojBets',JSON.stringify(this.killProjBets.slice(-400))); }catch(e){} }
       this.killProjection=out; return out;
     }catch(e){ return this.killProjection||[]; }
   },
@@ -21347,7 +21538,7 @@ const TrinityGSD = {
   globalRisk(){ return { regime:this.regime, stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, vfm:this.vfm, kill:this.killSwitch }; },
   bundle(){ return { zones:GSD_ZONES.map(z=>({key:z.key,name:z.name,ccy:z.ccy})), categories:GSD_CATS.map(c=>({key:c.key,name:c.name,src:c.src,direct:c.direct})),
     live:{ stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, spanT:this.spanT, crisT:this.crisT, vfm:this.vfm, escapeVel:this.escapeVel, regime:this.regime, tippingRisk:this.tippingRisk, tippingTier:this.tippingTier, killSwitch:this.killSwitch, calibrated:this.calibrated },
-    zoneStress:this.zoneStress, catStress:this.catStress, cells:this.cells, ranking:this.ranking, predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection,
+    zoneStress:this.zoneStress, catStress:this.catStress, cells:this.cells, ranking:this.ranking, predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
     calibration:this._cal, shadow:this._shadow, histCal:this.histCal, historicalBackfill:(typeof TrinityGSDBackfill!=='undefined'?TrinityGSDBackfill.bundle():null), proxy:this.proxy?'(ingesteld)':'(geen)', tamAnchor:new Date(this.anchorTs).toISOString(),
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
@@ -21790,7 +21981,11 @@ function drawHorizonChart(key){
   // y-as
   ctx.fillStyle='#8398ac'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; [0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v.toFixed(2),padL-5,yS(v)+3));
   if(!pts||pts.length<2){ ctx.fillStyle='#5c7488'; ctx.font="12px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('collecting '+key+' history…',W/2,H/2); return; }
-  const t0=pts[0].t, t1=pts[pts.length-1].t, span=(t1-t0)||1, x=t=>padL+((t-t0)/span)*plotW;
+  const t0=pts[0].t, dataT1=pts[pts.length-1].t;
+  // strek de tijd-as naar de geprojecteerde ΔV-triggerdatum voor déze horizon (indien binnen bereik)
+  const proj=(TrinityGSD.killProjection||[]).find(z=>z.key===key);
+  const t1x=(proj && proj.eta>dataT1 && proj.eta < dataT1 + days*864e5*1.25) ? proj.eta : dataT1;
+  const spanx=(t1x-t0)||1, x=t=>padL+((t-t0)/spanx)*plotW;
   const nodeTh=TrinityGSD.nodeTh;
   // UOTAM-lagen (VFM-bergen, gevarenzone, node-lijn, σ², kill-sterren) als de bron ze draagt (composiet-maand)
   const hasUOTAM=_gsdDrawUOTAM(ctx,pts,x,yS,W,H,padL,padR,padB,nodeTh);
@@ -21798,19 +21993,19 @@ function drawHorizonChart(key){
   ctx.save(); ctx.shadowColor='rgba(255,95,126,0.5)'; ctx.shadowBlur=6; ctx.strokeStyle='#ff5f7e'; ctx.lineWidth=2.2; ctx.beginPath();
   pts.forEach((p,i)=>{ const px=x(p.t),py=yS(p.s); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke(); ctx.restore();
   const last=pts[pts.length-1]; ctx.beginPath(); ctx.arc(x(last.t),yS(last.s),3,0,6.283); ctx.fillStyle='#ffd0d8'; ctx.fill();
-  // GEPROJECTEERDE (toekomstige) kill-switch: als het venster 'nu' bevat en tipping hoog is,
-  // markeer de eerstvolgende TAM-node aan de rechterrand als hol ster + label.
-  const now=Date.now();
-  if(t1>=now-3*864e5 && TrinityGSD.tippingRisk>=0.5){
-    const hk = days<=30?'micro':days<=200?'meso':'macro';
-    const nodes=TrinityGSD.tamNodes(now, now+span*0.25, hk); const nn=nodes.find(t=>t>now);
-    ctx.save(); ctx.globalAlpha=0.9; _gsdStar(ctx, W-padR-8, yS(nodeTh), 6, 'rgba(255,59,92,0.35)', '#ff3b5c'); ctx.restore();
-    ctx.fillStyle='#ff8a94'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='right';
-    ctx.fillText('⤳ projected · tipping '+Math.round(TrinityGSD.tippingRisk*100)+'%', W-padR-16, yS(nodeTh)-4);
+  // GEPROJECTEERDE ΔV kill-switch als STER op de geschatte datum (rechts van de 'now'-lijn)
+  if(proj && t1x>dataT1){
+    ctx.strokeStyle='rgba(127,216,255,0.3)'; ctx.lineWidth=1; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(x(dataT1),padT); ctx.lineTo(x(dataT1),H-padB); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#6d8296'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('now', x(dataT1), padT-1);
+    const wlo=Math.max(dataT1,proj.window[0]), whi=Math.min(t1x,proj.window[1]);
+    if(whi>wlo){ ctx.fillStyle='rgba(255,59,92,0.08)'; ctx.fillRect(x(wlo),padT,Math.max(1,x(whi)-x(wlo)),H-padT-padB); }
+    const col=proj.prob>=0.6?'#ff3b5c':proj.prob>=0.35?'#ffb627':'#14f195';
+    const sx=Math.min(W-padR-2, x(proj.eta)); _gsdStar(ctx, sx, yS(nodeTh), 7, col, '#ffd0d8');
+    ctx.fillStyle=col; ctx.font="bold 8px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('★ '+Math.round(proj.prob*100)+'%', sx, yS(nodeTh)-9);
   }
   // tijd-as
   const fmt=ms=>{ const d=new Date(ms),p=n=>String(n).padStart(2,'0'); if(days<=31)return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1); if(days<=400)return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]+" '"+p(d.getUTCFullYear()%100); return String(d.getUTCFullYear()); };
-  ctx.fillStyle='#6d8296'; ctx.font="8.5px 'JetBrains Mono',monospace"; for(let s2=0;s2<=5;s2++){ const tt=t0+s2/5*span; ctx.textAlign=s2===0?'left':s2===5?'right':'center'; ctx.fillText(fmt(tt),x(tt),H-6); }
+  ctx.fillStyle='#6d8296'; ctx.font="8.5px 'JetBrains Mono',monospace"; for(let s2=0;s2<=5;s2++){ const tt=t0+s2/5*spanx; ctx.textAlign=s2===0?'left':s2===5?'right':'center'; ctx.fillText(fmt(tt),x(tt),H-6); }
   // titel + bron
   ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="bold 12px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText((GSD_SCALE_LABELS[key]||key.toUpperCase()),padL+2,padT-10);
   ctx.fillStyle='#a7bacb'; ctx.font="9.5px 'JetBrains Mono',monospace"; ctx.fillText('now '+last.s.toFixed(3)+' · '+pts.length+'pt · '+src,padL+110,padT-10);
@@ -21915,7 +22110,20 @@ function renderGSD(){
           +`<span class="mono" style="font-size:0.52rem;color:#ff8a94">★ ${p.topic}</span>`
           +`<span class="mono" style="font-size:0.52rem;color:var(--dim)">${p.zone}</span>`
           +`</div>`; }).join('')
-        +`<div class="mono" style="font-size:0.46rem;color:var(--dimmer);margin-top:5px;line-height:1.6;">★ = projected ΔV kill-switch (crisis release). Week–quarter are live estimates from current VFM loading, compression and the next TAM node (wide error bars). Year–10y use the historical crisis cadence from the 36-year calibration. "Topic/zone" = the categories loading fastest now, projected forward.</div>`;
+        +`<div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:8px;line-height:1.75;border-top:1px solid var(--line);padding-top:8px;"><b style="color:#ff8a94;">★ = projected ΔV kill-switch</b> (a crisis release). <b style="color:#7fd8ff;">Week–quarter</b> are live estimates from the current VFM loading, compression and the next TAM node — wide error bars, they shift as data changes. <b style="color:#7fd8ff;">Year–10y</b> use the historical crisis cadence from the 36-year calibration. <b>Topic / zone</b> = the categories loading fastest right now, projected forward. Trinity re-computes this continuously and adapts autonomously; every material change is logged in the revision feed below.</div>`;
+      // ---- predicted-vs-outcome zelf-score (continue shadow-screening op de WEEK-horizon) ----
+      const ks=TrinityGSD.killProjScore; const fmtDT=ms=>{ const d=new Date(ms),p=n=>String(n).padStart(2,'0'); return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes()); };
+      let scoreHtml;
+      if(ks){ const bc=ks.brier<=0.2?'#14f195':ks.brier<=0.28?'#ffb627':'#ff4f6d';
+        scoreHtml=`<div class="mono" style="font-size:0.58rem;color:var(--dim);margin-top:8px;">predicted-vs-outcome (week trigger) · hit-rate <b style="color:${ks.hitRate>=0.5?'#14f195':'var(--tx)'}">${Math.round(ks.hitRate*100)}%</b> · Brier <b style="color:${bc}">${ks.brier}</b> · n=${ks.n} ${ks.proven?'<small style="color:#14f195">✓ shadow-proven</small>':'<small style="color:var(--dimmer)">(building…)</small>'}</div>`;
+      } else scoreHtml=`<div class="mono" style="font-size:0.54rem;color:var(--dimmer);margin-top:8px;">predicted-vs-outcome: continuously screening — resolves as each week-window elapses…</div>`;
+      // ---- before/after revisie-feed: autonome wijzigingen (first predicted → new data date) ----
+      const H=TrinityGSD.killProjHistory||[]; const LAB2={week:'WEEK',month:'MONTH',quarter:'QUARTER',year:'YEAR','2y':'2Y','3y':'3Y','5y':'5Y','10y':'10Y'};
+      let revHtml=`<div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.08em;text-transform:uppercase;margin-top:10px;border-top:1px solid var(--line);padding-top:8px;">Autonomous revision feed <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— when the data moves the forecast</span></div>`;
+      if(!H.length) revHtml+='<div class="mono" style="font-size:0.54rem;color:var(--dimmer);margin-top:3px;">no revisions yet — the projection has been stable.</div>';
+      else revHtml+=H.slice(0,10).map(r=>{ const dc=r.toEta>r.fromEta?'#ffb627':'#14f195';
+        return `<div class="mono" style="font-size:0.54rem;color:var(--dim);line-height:1.7;"><span style="color:var(--dimmer)">${fmtDT(r.ts)}</span> · <b style="color:#7fd8ff">${LAB2[r.key]||r.key}</b> trigger <span style="color:var(--dimmer)">${fmtD(r.fromEta)}</span> → <b style="color:${dc}">${fmtD(r.toEta)}</b>${r.fromTopic!==r.toTopic?` · topic <span style="color:var(--dimmer)">${r.fromTopic}</span>→<b style="color:#ff8a94">${r.toTopic}</b>`:''}${Math.abs(r.toProb-r.fromProb)>=0.1?` · prob ${Math.round(r.fromProb*100)}%→${Math.round(r.toProb*100)}%`:''}</div>`; }).join('');
+      kp.innerHTML+=scoreHtml+revHtml;
     }
   }
   // feeds-health voor GSD-bronnen
