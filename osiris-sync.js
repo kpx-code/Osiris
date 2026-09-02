@@ -43,10 +43,30 @@ const OSIRIS_STATE_KEYS = [
     // osiris_access_log-tabel, niet via de state-sync.
 ];
 
+// TRINITY (FX) — dezelfde spiegel-aanpak: al Trinity's leerdata/instellingen/FSO-GSD-state gaat
+// óók mee naar de cloud, zodat een tweede apparaat (mobiel) ALLES terugkrijgt (Osiris Crypto ÉN Trinity).
+// 'oif_state' is de hoofd-blob (wallet, tradeLog, learnings, brokerMeta, running-vlag).
+const TRINITY_STATE_KEYS = [
+    'oif_state', 'oif_seenClosed', 'trinityTxLearn', 'trinityImportKeys',
+    'trinityPairTrust', 'trinityGSDShadow',
+    'trinityFSOCal', 'trinityFSOShadow', 'trinityFSOvis',
+    'trinityGSDproxy', 'trinityGSDcal', 'trinityGSDhistCal', 'trinityGSDbackfill',
+    'trinityGSDvis', 'trinityGSDroll', 'trinityGSDhist', 'trinityGSDpredlog'
+];
+// alle sleutels die naar de cloud gespiegeld worden = Osiris Crypto + Trinity
+const ALL_STATE_KEYS = OSIRIS_STATE_KEYS.concat(TRINITY_STATE_KEYS);
+
 // Deze run-vlaggen worden wel gespiegeld (voor backup/Fase 2) maar NIET teruggezet bij
 // 'herstel', zodat een tweede apparaat niet per ongeluk een tweede engine start en zo
 // dubbel op dezelfde testnet-wallet gaat traden. In Fase 1 draait de engine op 1 plek.
 const OSIRIS_NO_RESTORE = ['botIsRunning', 'multiEngineRunning', 'botStartTime'];
+// na een pull/herstel op een KIJK-apparaat: zet Trinity's running-vlag in oif_state op false,
+// zodat het mobiel niet ineens live gaat handelen op dezelfde Capital-account.
+function _osTrinityDisableRunAfterPull() {
+    try { const raw = localStorage.getItem('oif_state'); if (!raw) return; const os = JSON.parse(raw);
+        if (os && os.trinityWasRunning) { os.trinityWasRunning = false; localStorage.setItem('oif_state', JSON.stringify(os)); }
+    } catch (e) {}
+}
 
 let _sb = null, _sbUser = null, _syncTimer = null;
 
@@ -132,6 +152,10 @@ function _osirisEngineActive() {
     try { if (localStorage.getItem('multiEngineRunning') === 'true') return true; } catch (e) {}
     try { if (typeof marginEngineEnabled !== 'undefined' && marginEngineEnabled) return true; } catch (e) {}
     try { if (localStorage.getItem('osirisMarginEnabled') === '1') return true; } catch (e) {}
+    // Trinity (FX) draait op dit apparaat? Dan is dit óók een bron-van-waarheid en mag het pushen,
+    // ook als de Osiris-crypto-bot uit staat.
+    try { if (typeof trinityOn !== 'undefined' && trinityOn) return true; } catch (e) {}
+    try { const os = JSON.parse(localStorage.getItem('oif_state') || 'null'); if (os && os.trinityWasRunning) return true; } catch (e) {}
     return false;
 }
 window._osirisEngineActive = _osirisEngineActive;
@@ -172,7 +196,7 @@ async function osirisSyncPush() {
         // de volgende keer gewoon opnieuw wordt geprobeerd.
         const rows = []; const pushedRaw = [];
         _osLastPushRaw = (typeof _osLastPushRaw !== 'undefined' && _osLastPushRaw) ? _osLastPushRaw : {};
-        for (const k of OSIRIS_STATE_KEYS) {
+        for (const k of ALL_STATE_KEYS) {   // Osiris Crypto + Trinity samen naar de cloud
             const v = localStorage.getItem(k);
             if (v == null) continue;
             if (_osLastPushRaw[k] === v) continue;   // ongewijzigd sinds vorige geslaagde push -> overslaan
@@ -245,14 +269,19 @@ window.osirisSyncPush = osirisSyncPush;
 
 /* ---- RESTORE (handmatig): haal de cloud-staat terug naar localStorage en herlaad ---- */
 async function osirisRestoreFromCloud() {
-    if (!_sb || !_sbUser) { alert('Log eerst in.'); return; }
+    if (!_sb) { alert('Cloud niet geladen.'); return; }
+    if (!_sbUser) { try { const { data } = await _sb.auth.getSession(); _sbUser = data && data.session ? data.session.user : null; } catch (e) {} }
+    if (!_sbUser) { alert('Log eerst in.'); return; }
     if (!confirm('Cloud-staat over je lokale staat heen zetten en de pagina herladen?')) return;
     const { data, error } = await _sb.from('osiris_state').select('key,value').eq('user_id', _sbUser.id);
     if (error) { alert('Restore-fout: ' + error.message); return; }
+    let n = 0;
     (data || []).forEach(r => {
         if (OSIRIS_NO_RESTORE.includes(r.key)) return;   // engine niet auto-starten op dit apparaat
-        localStorage.setItem(r.key, typeof r.value === 'string' ? r.value : JSON.stringify(r.value));
+        try { localStorage.setItem(r.key, typeof r.value === 'string' ? r.value : JSON.stringify(r.value)); n++; } catch (e) {}
     });
+    _osTrinityDisableRunAfterPull();
+    try { sessionStorage.setItem('osirisJustPulled', String(n)); } catch (e) {}
     location.reload();
 }
 window.osirisRestoreFromCloud = osirisRestoreFromCloud;
@@ -279,6 +308,7 @@ async function osirisPullLatest() {
             if (OSIRIS_NO_RESTORE.includes(r.key)) return;   // run-vlaggen niet terugzetten (geen 2e engine)
             try { localStorage.setItem(r.key, typeof r.value === 'string' ? r.value : JSON.stringify(r.value)); n++; } catch (e) {}
         });
+        _osTrinityDisableRunAfterPull();   // mobiel niet ineens live laten handelen na de pull
         try { sessionStorage.setItem('osirisJustPulled', String(n)); } catch (e) {}
         _osirisSyncStamp('nieuwste opgehaald (' + n + ') · herladen…', 'ok');
         setTimeout(() => { try { location.reload(); } catch (e) { _osPulling = false; } }, 220);
