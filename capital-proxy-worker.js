@@ -253,10 +253,15 @@ export default {
       }
 
       // ---- ACTIVITY: recently closed/settled deals, so Trinity can learn outcomes the broker settled ----
+      // Capital caps lastPeriod (transactions rejects >1 day with error.invalid.lastPeriod), so for any
+      // window beyond a day we use an explicit from/to range instead. Format: yyyy-MM-ddTHH:mm:ss (no ms/Z).
+      const isoRange = secs => { const to = new Date(); const from = new Date(to.getTime() - secs * 1000);
+        const f = d => d.toISOString().slice(0, 19); return 'from=' + f(from) + '&to=' + f(to); };
+
       if (request.method === 'GET' && path === '/activity') {
-        const lastPeriod = Math.min(86400, parseInt(url.searchParams.get('seconds') || '3600', 10) || 3600);
-        const resp = await capFetch(env, '/api/v1/history/activity?lastPeriod=' + lastPeriod + '&detailed=true');
-        if (!resp.ok) return j({ error: 'activity HTTP ' + resp.status }, resp.status, env);
+        const secs = Math.min(31536000, parseInt(url.searchParams.get('seconds') || '86400', 10) || 86400); // up to 1y via from/to
+        const resp = await capFetch(env, '/api/v1/history/activity?' + isoRange(secs) + '&detailed=true');
+        if (!resp.ok) return j({ error: 'activity HTTP ' + resp.status, detail: (await resp.text()).slice(0, 200) }, resp.status, env);
         const data = await resp.json();
         const activities = (data.activities || []).map(a => ({
           date: a.dateUTC || a.date, epic: a.epic, dealId: a.dealId,
@@ -270,8 +275,9 @@ export default {
       //      Capital's /activity only reports open/close EVENTS (no P/L); /history/transactions gives
       //      instrument, size, open/close level, currency and profitAndLoss per settled deal. ----
       if (request.method === 'GET' && path === '/transactions') {
-        const lastPeriod = Math.min(2592000, parseInt(url.searchParams.get('seconds') || '604800', 10) || 604800); // up to 30d
-        const resp = await capFetch(env, '/api/v1/history/transactions?lastPeriod=' + lastPeriod);
+        const secs = Math.min(31536000, parseInt(url.searchParams.get('seconds') || '2592000', 10) || 2592000); // default 30d, up to 1y
+        // from/to range (lastPeriod is rejected beyond ~1 day → error.invalid.lastPeriod)
+        const resp = await capFetch(env, '/api/v1/history/transactions?' + isoRange(secs));
         if (!resp.ok) return j({ error: 'transactions HTTP ' + resp.status, detail: (await resp.text()).slice(0, 200) }, resp.status, env);
         const data = await resp.json();
         const num = s => { if (s == null) return null; const n = parseFloat(String(s).replace(/[^0-9.\-]/g, '')); return isFinite(n) ? n : null; };
