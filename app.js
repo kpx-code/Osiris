@@ -19664,32 +19664,36 @@ function _isCloseActivity(a){
   try{ const acts=(a.details&&a.details.actions)||[]; if(acts.some(x=>/CLOSED/.test(x.actionType||'')))return true; }catch(e){}
   return a.status==='CLOSED'||a.status==='DELETED';
 }
-let openEvents=[];   // {inst(normalized), t:Date} uit POSITION_OPENED — voor open-tijd-matching op de Closed-tabel
+let actEvents=[];   // ALLE activity-events {inst, ref, t} — voor open-tijd-matching op de Closed-tabel
 const _normInst=s=>String(s||'').replace(/[^A-Za-z]/g,'').toUpperCase();
+const _refCore=s=>String(s||'').replace(/^p_/i,'').toLowerCase();
 function syncCapitalActivity(){
   if(!capProxy) return;
-  fetch(capProxy+'/activity?seconds=604800').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
+  fetch(capProxy+'/activity?seconds=2592000').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
     if(!d.activities){ return; }
-    let added=0; const oev=[];
+    let added=0; const ev=[];
     d.activities.forEach(a=>{
-      // OPEN-events verzamelen (voor open-tijd op de Closed-tabel)
-      try{ const acts=(a.details&&a.details.actions)||[]; if(acts.some(x=>/OPENED/.test(x.actionType||''))||/OPEN/i.test(a.type||'')){ const inst=_normInst(a.epic||(a.details&&a.details.marketName)); if(inst&&a.date) oev.push({inst,t:new Date(a.date)}); } }catch(e){}
+      // élk event bewaren (open/swap/close dragen dezelfde dealReference) → vroegste = open-tijd
+      const inst=_normInst((a.details&&a.details.marketName)||a.epic);
+      const ref=_refCore((a.details&&a.details.dealReference)||a.dealId);
+      if(inst&&a.date) ev.push({inst,ref,t:new Date(a.date)});
       if(!_isCloseActivity(a))return;
       const key=(a.dealId||'')+'|'+a.date; if(seenClosed[key])return; seenClosed[key]=true;
       const meta=brokerMeta[a.dealId];
       if(meta && !meta.logged){ meta.logged=true; recordBrokerClose(a,meta); added++; }   // learning-attributie
     });
-    if(oev.length) openEvents=oev.sort((a,b)=>a.t-b.t);
+    if(ev.length) actEvents=ev.sort((a,b)=>a.t-b.t);
     if(added){ try{ localStorage.setItem('oif_seenClosed', JSON.stringify(seenClosed)); }catch(e){} }
   }).catch(e=>{ /* transactions is de primaire bron; activity-fouten niet luid melden */ });
 }
-// zoek de laatste open-tijd vóór een close voor dit instrument (open-tijd-matching)
-function _openTimeFor(inst, closeMs){ let best=null; const ni=_normInst(inst);
-  for(const e of openEvents){ if(e.inst===ni && e.t.getTime()<=closeMs){ if(!best||e.t>best) best=e.t; } } return best; }
+// open-tijd: eerst op dealReference (zelfde positie), anders vroegste event voor dit instrument
+function _openTimeFor(inst, ref, closeMs){ const ni=_normInst(inst), rc=_refCore(ref);
+  if(rc){ let best=null; for(const e of actEvents){ if(e.ref && (e.ref===rc || e.ref.indexOf(rc)>=0 || rc.indexOf(e.ref)>=0)){ if(!best||e.t<best) best=e.t; } } if(best) return best; }
+  let best=null; for(const e of actEvents){ if(e.inst===ni && e.t.getTime()<=closeMs+3600e3){ if(!best||e.t<best) best=e.t; } } return best; }
 // TRANSACTIONS = de gezaghebbende gesloten-trade historie MET echte P/L. Vult de Closed-tabel op live.
 function syncCapitalTransactions(){
   if(!capProxy) return;
-  fetch(capProxy+'/transactions?seconds=604800').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
+  fetch(capProxy+'/transactions?seconds=2592000').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
     if(!d.transactions){ TrinityFeeds.markErr('activity','geen transactions'); return; }
     const rows=d.transactions
       .filter(t=> t.instrument && (t.pnl!=null || t.openLevel!=null) && !/DEPOSIT|WITHDRAW|DIVIDEND|FEE|INTEREST|TRANSFER/i.test(t.type||''))
@@ -19701,7 +19705,7 @@ function syncCapitalTransactions(){
         // notional in REKEN-valuta uit P/L ÷ rendement — klopt óók voor JPY/cross-pairs (size×prijs zou fout zijn)
         const notional = (t.pnl!=null && Math.abs(sidePct)>1e-6)? Math.abs(t.pnl/(sidePct/100)) : (t.size!=null?Math.abs(t.size):0);
         const closedAt=t.date?new Date(t.date):new Date();
-        const openedAt=_openTimeFor(t.instrument, closedAt.getTime());   // open-tijd uit /activity gekoppeld
+        const openedAt=_openTimeFor(t.instrument, t.ref, closedAt.getTime());   // open-tijd uit /activity gekoppeld (op dealReference)
         return { pair:t.instrument, side, type:'FX', openedAt, closedAt,
           entry:open, exit:close, fill:close, size:notional, allocPct:(wallet.balance&&notional)?(notional/wallet.balance*100):null,
           plCur:(t.pnl!=null?t.pnl:null), plPct:sidePct, reason:'BROKER', conf:null, ref:t.ref }; });
