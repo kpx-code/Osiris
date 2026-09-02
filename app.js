@@ -19396,8 +19396,11 @@ function openTrade(c,S,pr){
   let gsdW=1; try{ const b=splitPair(c.p)[0], q=splitPair(c.p)[1]; gsdW=Math.min(TrinityGSD.riskWeight(b),TrinityGSD.riskWeight(q)); }catch(e){}
   // GROOTTE: per-positie doel-allocatie (30-40% bij Balanced) × FSO-risicoschaal × sessie-trust × GSD-weging,
   // begrensd door de resterende totale-blootstelling (maxAllocPct). Node/kill-switch en drukke zones verkleinen automatisch.
+  // per-pair/categorie learning: hopeloze categorie (bv. 0/6 JPY-crosses) volledig overslaan
+  if(TrinityPairTrust.block(c.p)){ if(scanTick%6===0) pushReason(`skip ${c.p} — ${TrinityPairTrust._cat(c.p)} category has a losing track record (learned); standing aside`); return; }
   const perPosPct = pr.allocPerPos || (pr.maxAllocPct/Math.max(1,pr.maxPos));
-  let alloc = wallet.balance*(perPosPct/100) * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key) * gsdW;
+  const pairW = TrinityPairTrust.factor(c.p);   // winnende pairs groter, verliezers kleiner
+  let alloc = wallet.balance*(perPosPct/100) * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key) * gsdW * pairW;
   const openAllocNow = positions.filter(p=>p.status==='open').reduce((a,p)=>a+(p.alloc||0),0);
   const totalBudget = wallet.balance*(pr.maxAllocPct/100);
   alloc = Math.max(0, Math.min(alloc, totalBudget-openAllocNow));
@@ -19661,20 +19664,28 @@ function _isCloseActivity(a){
   try{ const acts=(a.details&&a.details.actions)||[]; if(acts.some(x=>/CLOSED/.test(x.actionType||'')))return true; }catch(e){}
   return a.status==='CLOSED'||a.status==='DELETED';
 }
+let openEvents=[];   // {inst(normalized), t:Date} uit POSITION_OPENED — voor open-tijd-matching op de Closed-tabel
+const _normInst=s=>String(s||'').replace(/[^A-Za-z]/g,'').toUpperCase();
 function syncCapitalActivity(){
   if(!capProxy) return;
   fetch(capProxy+'/activity?seconds=604800').then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); }).then(d=>{
     if(!d.activities){ return; }
-    let added=0;
+    let added=0; const oev=[];
     d.activities.forEach(a=>{
+      // OPEN-events verzamelen (voor open-tijd op de Closed-tabel)
+      try{ const acts=(a.details&&a.details.actions)||[]; if(acts.some(x=>/OPENED/.test(x.actionType||''))||/OPEN/i.test(a.type||'')){ const inst=_normInst(a.epic||(a.details&&a.details.marketName)); if(inst&&a.date) oev.push({inst,t:new Date(a.date)}); } }catch(e){}
       if(!_isCloseActivity(a))return;
       const key=(a.dealId||'')+'|'+a.date; if(seenClosed[key])return; seenClosed[key]=true;
       const meta=brokerMeta[a.dealId];
       if(meta && !meta.logged){ meta.logged=true; recordBrokerClose(a,meta); added++; }   // learning-attributie
     });
+    if(oev.length) openEvents=oev.sort((a,b)=>a.t-b.t);
     if(added){ try{ localStorage.setItem('oif_seenClosed', JSON.stringify(seenClosed)); }catch(e){} }
   }).catch(e=>{ /* transactions is de primaire bron; activity-fouten niet luid melden */ });
 }
+// zoek de laatste open-tijd vóór een close voor dit instrument (open-tijd-matching)
+function _openTimeFor(inst, closeMs){ let best=null; const ni=_normInst(inst);
+  for(const e of openEvents){ if(e.inst===ni && e.t.getTime()<=closeMs){ if(!best||e.t>best) best=e.t; } } return best; }
 // TRANSACTIONS = de gezaghebbende gesloten-trade historie MET echte P/L. Vult de Closed-tabel op live.
 function syncCapitalTransactions(){
   if(!capProxy) return;
@@ -19689,11 +19700,22 @@ function syncCapitalTransactions(){
         const sidePct = side==='SHORT'? -pricePct : pricePct;   // werkelijk trade-rendement (getekend)
         // notional in REKEN-valuta uit P/L ÷ rendement — klopt óók voor JPY/cross-pairs (size×prijs zou fout zijn)
         const notional = (t.pnl!=null && Math.abs(sidePct)>1e-6)? Math.abs(t.pnl/(sidePct/100)) : (t.size!=null?Math.abs(t.size):0);
-        return { pair:t.instrument, side, type:'FX', openedAt:null, closedAt:t.date?new Date(t.date):new Date(),
+        const closedAt=t.date?new Date(t.date):new Date();
+        const openedAt=_openTimeFor(t.instrument, closedAt.getTime());   // open-tijd uit /activity gekoppeld
+        return { pair:t.instrument, side, type:'FX', openedAt, closedAt,
           entry:open, exit:close, fill:close, size:notional, allocPct:(wallet.balance&&notional)?(notional/wallet.balance*100):null,
           plCur:(t.pnl!=null?t.pnl:null), plPct:sidePct, reason:'BROKER', conf:null, ref:t.ref }; });
     rows.sort((a,b)=>b.closedAt-a.closedAt);
     tradeLog = rows.slice(0,500);   // op live ZIJN de broker-transacties de gesloten-historie (bron van waarheid)
+    // LEARNING: elke NIEUWE gesloten trade voedt de win-rate, per-sessie en per-pair learning (dedup)
+    try{ let sl={}; try{ sl=JSON.parse(localStorage.getItem('trinityTxLearn')||'{}')||{}; }catch(e){} let fed=0;
+      rows.forEach(r=>{ const key=r.ref||(r.pair+'|'+r.closedAt.getTime()+'|'+(r.plCur||0)); if(sl[key])return; sl[key]=1;
+        const win=(r.plCur||0)>=0, sess=_hourSession(r.openedAt?r.openedAt.getUTCHours():(r.closedAt?r.closedAt.getUTCHours():12));
+        trinity.trades.push({win,R:win?1.1:-1,session:sess,conf:null}); const b=trinity.byS[sess]; if(b){b.n++; if(win)b.w++;}
+        TrinityPairTrust.record(r.pair,win,win?1.1:-1,r.plCur||0); fed++; });
+      if(fed){ const rec=trinity.trades.slice(-120); trinity.wr=rec.filter(t=>t.win).length/rec.length; trinity.mult=0.8+trinity.wr*0.5; trinity.avgR=rec.reduce((a,t)=>a+t.R,0)/rec.length;
+        try{ localStorage.setItem('trinityTxLearn',JSON.stringify(sl)); }catch(e){} persistState(); try{ renderTrinity(); renderPairTrust(); }catch(e){} }
+    }catch(e){}
     TrinityFeeds.markOk('activity', rows.length+' closed trades');
     try{ renderClosed(); renderWallet&&renderWallet(); }catch(e){}
   }).catch(e=>{ TrinityFeeds.markErr('activity',e.message,e.http); });
@@ -19900,29 +19922,120 @@ function renderGSDShadow(){
     +`</div>`;
 }
 try{ window.renderGSDShadow=renderGSDShadow; }catch(e){}
+// ==================================================================================
+// TRINITY · PER-PAIR / PER-CATEGORY LEARNING — leert welke markten winnen en welke bloeden.
+// Uit de echte Capital-historie: majors 55% win, JPY-crosses 0/4, exotics 0/2. Deze module
+// weegt de positiegrootte per pair en kan hopeloze categorieën overslaan.
+// ==================================================================================
+const TrinityPairTrust = {
+  pairs:{}, cats:{},
+  _cat(p){ if(/JPY/.test(p))return 'JPY-cross'; if(/ZAR|MXN|NOK|TRY|SEK|HUF|PLN|CNH|INR|THB/.test(p))return 'exotic'; return 'major'; },
+  _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityPairTrust')||'null'); if(d){ this.pairs=d.pairs||{}; this.cats=d.cats||{}; } }catch(e){} },
+  _save(){ try{ localStorage.setItem('trinityPairTrust', JSON.stringify({pairs:this.pairs,cats:this.cats})); }catch(e){} },
+  record(pair,win,R,net){ if(!pair)return; const c=this._cat(pair);
+    this.pairs[pair]=this.pairs[pair]||{n:0,w:0,net:0,rSum:0}; this.cats[c]=this.cats[c]||{n:0,w:0,net:0,rSum:0};
+    [this.pairs[pair],this.cats[c]].forEach(o=>{ o.n++; if(win)o.w++; o.net+=(+net||0); o.rSum+=(+R||0); }); this._save(); },
+  factor(pair){ try{ const c=this._cat(pair), cs=this.cats[c], ps=this.pairs[pair]; let f=1;
+    if(cs&&cs.n>=4) f*=(0.5+(cs.w/cs.n)*1.1);      // categorie-winrate
+    if(ps&&ps.n>=4) f*=(0.6+(ps.w/ps.n)*0.8);      // pair-winrate
+    return Math.max(0.25,Math.min(1.4,f)); }catch(e){ return 1; } },
+  block(pair){ const c=this._cat(pair), cs=this.cats[c]; return !!(cs&&cs.n>=6 && cs.w/cs.n<0.15 && cs.net<0); },
+  bundle(){ return { pairs:this.pairs, cats:this.cats }; }
+};
+TrinityPairTrust._restore(); try{ window.TrinityPairTrust=TrinityPairTrust; }catch(e){}
+function _hourSession(h){ if(h==null)h=12; if(h>=7&&h<12)return 'eu'; if(h>=12&&h<16)return 'overlap'; if(h>=16&&h<21)return 'us'; return 'asia'; }
+// ---- CSV-import: leer van je gedownloade Capital-historie (leveraged trades of funds export) ----
+function _csvRow(l){ const out=[]; let cur='',q=false; for(let i=0;i<l.length;i++){ const ch=l[i];
+  if(ch==='"'){ if(q&&l[i+1]==='"'){cur+='"';i++;} else q=!q; } else if(ch===','&&!q){ out.push(cur); cur=''; } else cur+=ch; } out.push(cur); return out; }
+function trinityImportCapitalCSV(text){
+  try{
+    const lines=text.split(/\r?\n/).filter(l=>l.trim()); if(!lines.length) return {error:'leeg bestand'};
+    const cols=_csvRow(lines[0]).map(c=>c.trim()); const idx=n=>cols.findIndex(c=>c.toLowerCase()===n.toLowerCase());
+    let imported=[];
+    if(idx('Trade Id')>=0 && idx('Status')>=0){                       // leveraged_trades_history
+      const I={tid:idx('Trade Id'),sym:idx('Instrument Symbol'),qty:idx('Quantity'),price:idx('Price'),status:idx('Status'),src:idx('Source'),rplc:idx('Rpl Converted'),ts:idx('Timestamp (UTC)')};
+      const opens={};
+      for(let i=1;i<lines.length;i++){ const r=_csvRow(lines[i]); if(r[I.status]==='OPENED') opens[r[I.tid]]={sym:r[I.sym],qty:parseFloat(r[I.qty])||0,entry:parseFloat(r[I.price])||0,ts:r[I.ts]}; }
+      for(let i=1;i<lines.length;i++){ const r=_csvRow(lines[i]); if(r[I.status]!=='CLOSED')continue; const o=opens[r[I.tid]]||{};
+        imported.push({pair:o.sym||r[I.sym],side:(o.qty>0)?'LONG':'SHORT',entry:o.entry||0,exit:parseFloat(r[I.price])||0,
+          openedAt:o.ts?new Date(o.ts.replace(' ','T').slice(0,19)+'Z'):null,closedAt:r[I.ts]?new Date(r[I.ts].replace(' ','T').slice(0,19)+'Z'):null,
+          pnl:parseFloat(r[I.rplc])||0,reason:r[I.src]==='TP'?'TARGET':r[I.src]==='SL'?'STOP':'BROKER'}); }
+    } else if(idx('Type')>=0 && idx('Amount')>=0 && idx('Instrument Symbol')>=0){   // funds_history (TRADE rows)
+      const I={amt:idx('Amount'),typ:idx('Type'),sym:idx('Instrument Symbol'),ts:idx('Modified (UTC)')};
+      for(let i=1;i<lines.length;i++){ const r=_csvRow(lines[i]); if(r[I.typ]!=='TRADE')continue;
+        imported.push({pair:r[I.sym],side:'—',entry:0,exit:0,openedAt:null,closedAt:r[I.ts]?new Date(r[I.ts].replace(' ','T').slice(0,19)+'Z'):null,pnl:parseFloat(r[I.amt])||0,reason:'BROKER'}); }
+    } else return {error:'onbekend CSV-formaat (verwacht Capital leveraged-trades of funds export)'};
+    if(!imported.length) return {error:'geen gesloten trades gevonden'};
+    imported.sort((a,b)=>(a.closedAt||0)-(b.closedAt||0));
+    let seen={}; try{ seen=JSON.parse(localStorage.getItem('trinityImportKeys')||'{}')||{}; }catch(e){}
+    let seeded=0;
+    imported.forEach(t=>{ const key=t.pair+'|'+(t.closedAt?t.closedAt.getTime():0)+'|'+t.pnl.toFixed(2); if(seen[key])return; seen[key]=1;
+      const win=t.pnl>=0, R=win?1.1:-1, sess=_hourSession(t.openedAt?t.openedAt.getUTCHours():12);
+      trinity.trades.push({win,R,session:sess,conf:null}); const b=trinity.byS[sess]; if(b){b.n++; if(win)b.w++;}
+      TrinityPairTrust.record(t.pair,win,R,t.pnl);
+      const plPct=(t.entry&&t.exit)?((t.side==='SHORT'?-1:1)*(t.exit/t.entry-1)*100):0;
+      const size=(t.pnl!=null&&Math.abs(plPct)>1e-6)?Math.abs(t.pnl/(plPct/100)):0;
+      tradeLog.unshift({pair:t.pair,side:t.side,type:'FX·hist',openedAt:t.openedAt,closedAt:t.closedAt,entry:t.entry,exit:t.exit,fill:t.exit,size,
+        allocPct:(wallet.balance&&size)?size/wallet.balance*100:null,plCur:t.pnl,plPct,reason:t.reason,conf:null}); seeded++; });
+    if(tradeLog.length>800)tradeLog.length=800;
+    try{ localStorage.setItem('trinityImportKeys',JSON.stringify(seen)); }catch(e){}
+    const recent=trinity.trades.slice(-120); if(recent.length){ trinity.wr=recent.filter(t=>t.win).length/recent.length; trinity.mult=0.8+trinity.wr*0.5; trinity.avgR=recent.reduce((a,t)=>a+t.R,0)/recent.length; }
+    persistState(); try{ renderTrinity(); renderClosed(); renderPairTrust(); renderAdjustments(); }catch(e){}
+    pushReason(`imported ${seeded} closed trades from Capital history — learnings seeded (win-rate, per-pair, per-session)`);
+    return {ok:true,seeded,total:imported.length,wins:imported.filter(t=>t.pnl>=0).length,net:+imported.reduce((a,t)=>a+t.pnl,0).toFixed(2)};
+  }catch(e){ return {error:e.message}; }
+}
+function trImportFile(ev){ const f=ev&&ev.target&&ev.target.files&&ev.target.files[0]; if(!f)return;
+  const rd=new FileReader(); rd.onload=()=>{ const res=trinityImportCapitalCSV(String(rd.result));
+    if(res.error) alert('Import mislukt: '+res.error); else alert(`Geïmporteerd: ${res.seeded} nieuwe gesloten trades (van ${res.total}) · ${res.wins} winst · netto €${res.net}. Learnings bijgewerkt.`);
+    try{ ev.target.value=''; }catch(e){} };
+  rd.readAsText(f); }
+window.trinityImportCapitalCSV=trinityImportCapitalCSV; window.trImportFile=trImportFile;
+function renderPairTrust(){ const el=document.getElementById('tr-pairtrust'); if(!el)return; const S=TrinityPairTrust;
+  const catRows=['major','JPY-cross','exotic'].map(c=>{ const o=S.cats[c]; if(!o||!o.n)return ''; const wr=o.w/o.n;
+    return `<div style="display:flex;justify-content:space-between;"><span style="color:${c==='major'?'#14f195':c==='JPY-cross'?'#ff5f7e':'#ffb627'}">${c}</span><span>win <b style="color:${wr>=0.5?'#14f195':'#ff5f7e'}">${Math.round(wr*100)}%</b> · net €${o.net.toFixed(2)} · n=${o.n} · size ×${S.factor(Object.keys(S.pairs).find(p=>S._cat(p)===c)||'').toFixed(2)}${S.block(c==='JPY-cross'?'USD/JPY':c==='exotic'?'USD/ZAR':'EUR/USD')?' <small style="color:#ff5f7e">⛔ skipped</small>':''}</span></div>`; }).join('');
+  const top=Object.entries(S.pairs).sort((a,b)=>b[1].net-a[1].net);
+  const pairRows=top.slice(0,6).map(([p,o])=>`<div style="display:flex;justify-content:space-between;color:var(--dim);"><span>${p}</span><span>${o.w}/${o.n} · €${o.net.toFixed(2)} · ×${S.factor(p).toFixed(2)}</span></div>`).join('');
+  const bot=top.slice(-4).reverse().map(([p,o])=>`<div style="display:flex;justify-content:space-between;color:var(--dim);"><span>${p}</span><span>${o.w}/${o.n} · €${o.net.toFixed(2)} · ×${S.factor(p).toFixed(2)}</span></div>`).join('');
+  if(!catRows){ el.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.55rem;">no per-pair learning yet — import your Capital history or let Trinity trade.</div>'; return; }
+  el.innerHTML=`<div class="mono" style="font-size:0.55rem;line-height:1.75;">${catRows}<div style="margin-top:4px;border-top:1px solid var(--line);padding-top:4px;color:var(--dimmer)">best → worst pairs:</div>${pairRows}${bot}</div>`;
+}
+try{ window.renderPairTrust=renderPairTrust; }catch(e){}
 const TR_REASON={ TARGET:{l:'Target hit',c:'#14f195'}, STOP:{l:'Stop-loss',c:'#ff5f7e'}, TIME:{l:'Horizon reached',c:'#ffb627'},
   BROKER:{l:'Broker-settled (stop/target)',c:'#7fd8ff'}, 'BROKER (external)':{l:'Broker close (external)',c:'#c792ea'}, MANUAL:{l:'Manual close',c:'#ff8fab'} };
 function _trReason(r){ const m=TR_REASON[r]; return m?`<span style="color:${m.c}">${m.l}</span>`:`<span style="color:var(--dim)">${r||'\u2014'}</span>`; }
 function _trTd(v,extra){ return `<td style="padding:5px 7px;${extra||''}">${v}</td>`; }
 function renderPositions(){
   const el=document.getElementById('positions-body'); if(!el)return;
-  const openPs=positions.filter(p=>p.status==='open');
+  const bal=wallet.balance||1; const live = feed.mode==='live'&&feed.provider==='capital';
+  // BRON: op live = de broker-posities (bron van waarheid, met echte entry/size/tijd); anders intern.
+  let rows;
+  if(live){
+    rows=(livePositions||[]).map(p=>{ const meta=brokerMeta[p.dealId]||{}; const pnlPct=p.pnlPct||0;
+      const notional=(p.upl!=null && Math.abs(pnlPct)>1e-6)? Math.abs(p.upl/(pnlPct/100)) : (p.size!=null?Math.abs(p.size*(p.entry||1)):0);
+      return { pair:p.pair, side:p.side, entry:p.entry, openedAt:p.createdUTC?new Date(p.createdUTC):null, size:notional,
+        pnlPct, plCur:(p.upl!=null?p.upl:notional*(pnlPct/100)), sessionName:meta.sessionName||meta.session||null, closeId:p.dealId, live:true }; });
+  } else {
+    rows=positions.filter(p=>p.status==='open').map(p=>({ pair:p.pair, side:p.side, entry:p.entry, openedAt:p.openedAt, size:p.alloc,
+      pnlPct:p.pnlPct||0, plCur:(p.alloc||0)*((p.pnlPct||0)/100), sessionName:p.sessionName, closeId:p.localId, live:false }));
+  }
   const head=`<table style="width:100%;border-collapse:collapse;font-size:0.58rem;">`
     +`<thead><tr style="color:var(--dim);text-align:right;"><th style="text-align:left;padding:5px 7px;">Type</th><th style="text-align:left;">Markt</th><th>Side</th><th>Entry</th><th style="text-align:left;">Entry tijd</th><th>Size</th><th>Alloc</th><th>P/L %</th><th>P/L</th><th></th></tr></thead><tbody>`;
-  if(!openPs.length){ el.innerHTML=head+`<tr><td colspan="10" style="text-align:center;color:var(--dimmer);padding:8px;">${trinityOn?'no open trades \u2014 scanning all pairs':'Trinity stopped'}</td></tr></tbody></table>`; return; }
-  const bal=wallet.balance||1;
-  el.innerHTML=head+openPs.map(p=>{ const long=p.side==='LONG'; const sc=long?'var(--bull2)':'var(--bear)';
-    const plCur=(p.alloc||0)*((p.pnlPct||0)/100); const plc=p.pnlPct>=0?'var(--bull2)':'var(--bear)'; const allocPct=bal?((p.alloc||0)/bal*100):0;
+  if(!rows.length){ el.innerHTML=head+`<tr><td colspan="10" style="text-align:center;color:var(--dimmer);padding:8px;">${live?('no open positions at Capital.com'+(trinityOn?' \u2014 scanning':'')):(trinityOn?'no open trades \u2014 scanning all pairs':'Trinity stopped')}</td></tr></tbody></table>`; return; }
+  el.innerHTML=head+rows.map(r=>{ const sc=r.side==='LONG'?'var(--bull2)':'var(--bear)'; const plc=r.pnlPct>=0?'var(--bull2)':'var(--bear)'; const allocPct=bal?((r.size||0)/bal*100):0;
+    const closeCall=r.live?`closeLivePosition('${r.closeId}')`:`trManualClose('${r.closeId}')`;
     return `<tr style="text-align:right;border-top:1px solid rgba(255,255,255,0.04);">`
-      +_trTd(`<span style="color:#7fd8ff">FX</span>${p.sessionName?` <small style="color:var(--dimmer)">${p.sessionName}</small>`:''}`,'text-align:left;')
-      +_trTd(`<b>${p.pair}</b>`,'text-align:left;')+_trTd(`<span style="color:${sc}">${p.side}</span>`)
-      +_trTd(fmtRate(p.entry))+_trTd(fmtTime(p.openedAt),'text-align:left;color:var(--dim);')
-      +_trTd('$'+(p.alloc||0).toFixed(2))+_trTd(allocPct.toFixed(1)+'%')
-      +_trTd(`<span style="color:${plc}">${p.pnlPct>=0?'+':''}${(p.pnlPct||0).toFixed(2)}%</span>`)
-      +_trTd(`<span style="color:${plc}">${plCur>=0?'+':''}$${plCur.toFixed(2)}</span>`)
-      +_trTd(`<button class="btn" style="padding:2px 6px;font-size:0.5rem;" onclick="trManualClose('${p.localId}')">\u00d7</button>`)
+      +_trTd(`<span style="color:#7fd8ff">FX</span>${r.sessionName?` <small style="color:var(--dimmer)">${r.sessionName}</small>`:''}`,'text-align:left;')
+      +_trTd(`<b>${r.pair}</b>`,'text-align:left;')+_trTd(`<span style="color:${sc}">${r.side}</span>`)
+      +_trTd(fmtRate(r.entry))+_trTd(r.openedAt?fmtTime(r.openedAt):'\u2014','text-align:left;color:var(--dim);')
+      +_trTd('$'+(r.size||0).toFixed(2))+_trTd(allocPct.toFixed(1)+'%')
+      +_trTd(`<span style="color:${plc}">${r.pnlPct>=0?'+':''}${(r.pnlPct||0).toFixed(2)}%</span>`)
+      +_trTd(`<span style="color:${plc}">${r.plCur>=0?'+':''}$${(r.plCur||0).toFixed(2)}</span>`)
+      +_trTd(`<button class="btn" style="padding:2px 6px;font-size:0.5rem;" onclick="${closeCall}">\u00d7</button>`)
       +`</tr>`; }).join('')+'</tbody></table>';
 }
+// op live update de 4s-sync dezelfde rijke tabel (geen simpele oude lijst meer)
+function renderLivePositions(){ renderPositions(); }
 function trManualClose(localId){ try{ const p=positions.find(x=>x.localId===localId&&x.status==='open'); if(!p)return;
   if(feed.mode==='live'&&feed.provider==='capital'&&p.brokerDealId){ closeLivePosition(p.brokerDealId); } closeTrade(p,'MANUAL'); }catch(e){} }
 window.trManualClose=trManualClose;
@@ -19973,6 +20086,7 @@ function exportAll(){
       calibrationBins: g(()=>calibB,{}),
       brainTrust: trustBySession,
       autoAdj: g(()=>autoAdj,{}), autoAdjustments: g(()=>trinityAdj,[]),
+      pairTrust: g(()=>TrinityPairTrust.bundle(),null), gsdShadow: g(()=>TrinityGSDShadow.bundle(),null),
     },
     // ---- FSO (FX) volledig incl. shadow + kalibratie ----
     fso:{ live:{ stress:g(()=>TrinityFSO.stress,0), sysVar:g(()=>TrinityFSO.sysVar,0), variance:g(()=>TrinityFSO.variance,0), vfm:g(()=>TrinityFSO.vfm,0),
@@ -20095,11 +20209,7 @@ function renderWallet(){
   renderPositions();
 }
 // live positions (source of truth = Capital.com), each with a manual close button
-function renderLivePositions(){
-  const el=document.getElementById('positions-body'); if(!el)return;
-  if(!livePositions.length){ el.innerHTML='<div class="prow" style="color:var(--dimmer)">no open positions at Capital.com'+(trinityOn?' — scanning':'')+'</div>'; return; }
-  el.innerHTML=livePositions.map(p=>{const long=p.side==='LONG';return `<div class="prow"><b>${p.pair}</b><span style="color:${long?'var(--bull2)':'var(--bear)'}">${p.side}</span><span>${p.conf!=null?p.conf+'%':'·'}</span><span style="color:${p.pnlPct>=0?'var(--bull2)':'var(--bear)'}">${p.pnlPct>=0?'+':''}${p.pnlPct.toFixed(2)}%</span><span>${p.upl!=null?((p.upl>=0?'+':'')+p.upl.toFixed(2)):''}</span><button class="xbtn" onclick="closeLivePosition('${p.dealId}')" title="close at Capital.com">✕</button></div>`;}).join('');
-}
+/* (renderLivePositions vervangen door de unified renderPositions hierboven — rijke tabel op live) */
 function setWalletMode(m){ walletMode=m; const lm=document.getElementById('wm-live'),mm=document.getElementById('wm-mock');
   if(lm)lm.className='tog'+(m==='live'?' on':''); if(mm)mm.className='tog'+(m==='mock'?' on':'');
   persistState(); renderWallet(); }
@@ -20329,7 +20439,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
@@ -20949,7 +21059,7 @@ const TrinityGSD = {
   proxy:'', cells:{}, zoneStress:{}, catStress:{},
   stress:0, sysVar:0, nodeTh:GSD_TH_DEFAULT, vfm:0, escapeVel:0, compressionAge:0, compressionPeak:0,
   killSwitch:false, killTs:0, regime:'RUST', spanT:0.35, crisT:0.60, escapeCrit:0.10, calibrated:false, _varMax:0.02, histCal:null,
-  tippingRisk:0, tippingTier:'low',
+  tippingRisk:0, tippingTier:'low', killProjection:null, _projTs:0,
   hist:[], histV:[], histVFM:[], histMove:[], histEsc:[], t:[],
   scales:null, ranking:[], predictions:{}, _lastCompute:0, _built:false, _shadow:null, _cal:null, _calTs:0,
   predLog:[], predStats:null, _predLogTs:0,
@@ -21040,6 +21150,7 @@ const TrinityGSD = {
       if(now-this._calTs>15000){ this._calTs=now; this._calibrate(); }
       this._predict();
       this._scorePredictor(now);
+      if(now-(this._projTs||0)>10000){ this._projTs=now; this.projectKillSwitch(); }
       try{ TrinityGSDHistory.push(now, stress); }catch(e){}
       _gsdRollSave();
       try{ TrinityFeeds.markOk('gsd', GSD_ZONES.length+' zones · '+this.regime); }catch(e){}
@@ -21179,6 +21290,44 @@ const TrinityGSD = {
     }catch(e){}
   },
 
+  // ---- ΔV KILL-SWITCH VOORUIT-PROJECTIE per horizon (week→10y) ----
+  // Nabij (week/maand/kwartaal): live-loading — VFM-ophoping, compressie, tipping + eerstvolgende
+  // TAM-node. Lang (jaar→10y): historische kadans (kills/jaar uit de 36-jaars backfill, Poisson).
+  // Onderwerp = de categorieën die nu het hardst opladen + de zwaarst belaste zone (schatting).
+  projectKillSwitch(){
+    try{
+      const now=Date.now();
+      const HZ=[['week',7,'micro'],['month',30,'meso'],['quarter',91,'meso'],['year',365,'macro'],['2y',730,'macro'],['3y',1095,'macro'],['5y',1825,'macro'],['10y',3650,'macro']];
+      const vfm=this.vfm||0, tip=this.tippingRisk||0, sv=this.sysVar||0, node=this.nodeTh||0.1, comp=sv<=node;
+      const hv=this.histVFM||[]; const dVfm = hv.length>=6 ? (hv[hv.length-1]-hv[hv.length-6]) : 0;
+      const kb=(typeof TrinityGSDBackfill!=='undefined'&&TrinityGSDBackfill.status)||{};
+      const yrs=kb.years||36.7, kills=kb.killCount||0; const killsPerYear = kills>0? kills/Math.max(1,yrs) : 0.33;
+      const catN={econ:'economy',cb:'central banks',geo:'geopolitics',conflict:'conflict',disaster:'natural disasters',weather:'extreme weather',trade:'trade/commodities',tone:'media tone',market:'markets/FX'};
+      const cats=Object.entries(this.catStress||{}).filter(([k,v])=>v!=null).sort((a,b)=>b[1]-a[1]);
+      const topCats=cats.slice(0,2).map(([k])=>catN[k]||k);
+      const zones=Object.entries(this.zoneStress||{}).filter(([k,v])=>k!=='global'&&v!=null).sort((a,b)=>b[1]-a[1]);
+      const zn=GSD_ZONES.find(z=>z.key===(zones[0]&&zones[0][0])); const topZone=zn?zn.name:'Global';
+      const out=[];
+      HZ.forEach(([key,days,hk])=>{
+        const horizonMs=days*864e5; const nodes=this.tamNodes(now, now+horizonMs*1.05, hk); const nn=nodes.find(t=>t>now);
+        let prob, eta, basis, est;
+        if(days<=120){
+          prob=_clamp01(0.12 + tip*0.5 + Math.max(0,dVfm)*3 + (comp?0.15:0) + vfm*0.2);
+          eta = nn || (now+horizonMs*0.6);
+          basis='live loading · VFM '+(vfm*100|0)+'% · tipping '+(tip*100|0)+'%'; est=true;
+        } else {
+          prob = 1 - Math.exp(-killsPerYear*(days/365));
+          const expNext = now + (1/Math.max(0.15,killsPerYear))*365*864e5;
+          eta = nn? Math.min(nn, expNext) : expNext;
+          basis='historical cadence · '+killsPerYear.toFixed(2)+'/yr over '+yrs+'y'; est=false;
+        }
+        const halfw = days<=30? days*0.25*864e5 : days<=365? days*0.12*864e5 : days*0.08*864e5;
+        out.push({ key, days, prob:+_clamp01(prob).toFixed(2), eta, window:[eta-halfw, eta+halfw], topic:topCats.join(' + ')||'—', zone:topZone, basis, estimate:est });
+      });
+      this.killProjection=out; return out;
+    }catch(e){ return this.killProjection||[]; }
+  },
+
   // ---- Trinity-integratie: globale risico-weging voor FX (autonoom) ----
   riskWeight(ccy){
     try{
@@ -21194,7 +21343,7 @@ const TrinityGSD = {
   globalRisk(){ return { regime:this.regime, stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, vfm:this.vfm, kill:this.killSwitch }; },
   bundle(){ return { zones:GSD_ZONES.map(z=>({key:z.key,name:z.name,ccy:z.ccy})), categories:GSD_CATS.map(c=>({key:c.key,name:c.name,src:c.src,direct:c.direct})),
     live:{ stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, spanT:this.spanT, crisT:this.crisT, vfm:this.vfm, escapeVel:this.escapeVel, regime:this.regime, tippingRisk:this.tippingRisk, tippingTier:this.tippingTier, killSwitch:this.killSwitch, calibrated:this.calibrated },
-    zoneStress:this.zoneStress, catStress:this.catStress, cells:this.cells, ranking:this.ranking, predictions:this.predictions, predictorScore:this.predStats,
+    zoneStress:this.zoneStress, catStress:this.catStress, cells:this.cells, ranking:this.ranking, predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection,
     calibration:this._cal, shadow:this._shadow, histCal:this.histCal, historicalBackfill:(typeof TrinityGSDBackfill!=='undefined'?TrinityGSDBackfill.bundle():null), proxy:this.proxy?'(ingesteld)':'(geen)', tamAnchor:new Date(this.anchorTs).toISOString(),
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
@@ -21745,6 +21894,25 @@ function renderGSD(){
       scoreLine=`<div class="mono" style="font-size:0.55rem;color:var(--dim);margin-top:6px;border-top:1px solid var(--line);padding-top:6px;">self-score · hit-rate <b style="color:${ps.proven?'#14f195':'var(--tx)'}">${hr}%</b> · Brier <b style="color:${bc}">${ps.brier}</b> · n=${ps.n} ${ps.proven?'<small style="color:#14f195">✓ proven</small>':'<small style="color:var(--dimmer)">(pulled to 50% until n≥25)</small>'}</div>`;
     } else scoreLine=`<div class="mono" style="font-size:0.52rem;color:var(--dimmer);margin-top:6px;border-top:1px solid var(--line);padding-top:6px;">self-score: collecting resolved forecasts…</div>`;
     pr.innerHTML=blocks+scoreLine;
+  }
+  // ΔV kill-switch vooruit-projectie per horizon (week→10y)
+  const kp=document.getElementById('gsd-killproj');
+  if(kp){ const P=TrinityGSD.killProjection||[];
+    if(!P.length) kp.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.56rem;">kill-switch projection warming up… (run calibration for the long-horizon base rate)</div>';
+    else{
+      const LAB={week:'WEEK',month:'MONTH',quarter:'QUARTER',year:'YEAR','2y':'2 YEARS','3y':'3 YEARS','5y':'5 YEARS','10y':'10 YEARS'};
+      const fmtD=ms=>{ const d=new Date(ms),p=n=>String(n).padStart(2,'0'); return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+'/'+String(d.getUTCFullYear()).slice(2); };
+      const head=`<div class="gsdrow gsdhdr" style="grid-template-columns:64px 74px 1fr 150px 120px;"><span>horizon</span><span>est. ΔV trigger</span><span>probability</span><span>likely topic</span><span>zone</span></div>`;
+      kp.innerHTML=head+P.map(p=>{ const col=p.prob>=0.6?'#ff4f6d':p.prob>=0.35?'#ffb627':'#14f195';
+        return `<div class="gsdrow" style="grid-template-columns:64px 74px 1fr 150px 120px;" title="${p.basis}">`
+          +`<span style="color:#7fd8ff;font-weight:700">${LAB[p.key]||p.key}</span>`
+          +`<span class="mono" style="font-size:0.52rem;color:var(--dim)">${fmtD(p.eta)}${p.estimate?' <small style="color:var(--dimmer)">~est</small>':''}</span>`
+          +`<div class="gsdbar" title="${Math.round(p.prob*100)}%"><i style="width:${Math.round(p.prob*100)}%;background:${col}"></i></div>`
+          +`<span class="mono" style="font-size:0.52rem;color:#ff8a94">★ ${p.topic}</span>`
+          +`<span class="mono" style="font-size:0.52rem;color:var(--dim)">${p.zone}</span>`
+          +`</div>`; }).join('')
+        +`<div class="mono" style="font-size:0.46rem;color:var(--dimmer);margin-top:5px;line-height:1.6;">★ = projected ΔV kill-switch (crisis release). Week–quarter are live estimates from current VFM loading, compression and the next TAM node (wide error bars). Year–10y use the historical crisis cadence from the 36-year calibration. "Topic/zone" = the categories loading fastest now, projected forward.</div>`;
+    }
   }
   // feeds-health voor GSD-bronnen
   const fe=document.getElementById('gsd-feeds');
