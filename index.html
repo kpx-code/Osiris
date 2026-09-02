@@ -842,14 +842,14 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 /* FSO multi-scale controls + checkboxes */
 .trn .fsoctrl {margin-top:8px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:rgba(0,0,0,0.2);}
 .trn .fsoctrl-row {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:4px 0;}
-.trn .fsoctrl-lbl {font-family:'JetBrains Mono',monospace;font-size:0.5rem;letter-spacing:1px;text-transform:uppercase;color:var(--dimmer);min-width:46px;}
+.trn .fsoctrl-lbl {font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:1px;text-transform:uppercase;color:var(--dimmer);min-width:52px;}
 .trn .fsocbwrap {display:flex;flex-wrap:wrap;gap:6px 12px;}
 .trn .fsocbgrid {display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:4px 10px;margin-top:6px;}
-.trn .fsocb {display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);cursor:pointer;user-select:none;}
+.trn .fsocb {display:inline-flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--dim);cursor:pointer;user-select:none;}
 .trn .fsocb input {appearance:none;-webkit-appearance:none;width:13px;height:13px;border:1px solid var(--line);border-radius:3px;background:#050b12;cursor:pointer;position:relative;flex:0 0 auto;}
 .trn .fsocb input:checked {background:var(--os-cyan,#00d9ff);border-color:var(--os-cyan,#00d9ff);}
 .trn .fsocb input:checked::after {content:"✓";position:absolute;top:-2px;left:1px;font-size:10px;color:#04121a;font-weight:700;}
-.trn .fsodetails {margin:6px 0;font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--dim);}
+.trn .fsodetails {margin:6px 0;font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--dim);}
 .trn .fsodetails summary {cursor:pointer;color:var(--tx);padding:3px 0;}
 /* live-data feeds panel */
 .trn .feeds {display:flex;flex-direction:column;gap:2px;}
@@ -2252,13 +2252,18 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div style="position:absolute;top:12px;left:16px;right:16px;z-index:2;pointer-events:none;">
         <div style="font:800 0.72rem 'Orbitron','JetBrains Mono',monospace;letter-spacing:1.5px;color:#cfe6f5;">TRINITY DEEPNET</div>
-        <div style="font:0.5rem/1.5 'JetBrains Mono',monospace;color:var(--dim);letter-spacing:0.3px;margin-top:3px;max-width:74%;">inputs (15) &rarr; CORES (4 sessies: ASIA&middot;EU&middot;US&middot;OVLP) &rarr; trinity &rarr; gate &rarr; decision &rarr; output &rarr; learn &nbsp;&middot;&nbsp; tools: brain-trust &middot; session &middot; FSO &middot; cost-guard &middot; calib &middot; self-tune &nbsp;&middot;&nbsp; <span style="color:#5c7488;">gestippeld = planned (Neo heeft dit, Trinity nog niet): deepnet &middot; predict-inv &middot; kinetic &middot; node-time &middot; regime-HMM &middot; LLM &middot; multi-TF &middot; node-fade &middot; spike-guard &middot; guardian &middot; risk &middot; RL-exit &middot; cloud &middot; margin</span></div>
+        <div style="font:0.5rem/1.5 'JetBrains Mono',monospace;color:var(--dim);letter-spacing:0.3px;margin-top:3px;max-width:74%;">inputs (15) &rarr; CORES (4 sessies: ASIA&middot;EU&middot;US&middot;OVLP) &rarr; trinity &rarr; gate &rarr; decision &rarr; output &rarr; learn &nbsp;&middot;&nbsp; tools (data-true, lit): brain-trust &middot; session &middot; FSO &middot; <span style="color:#ff8a3c;">FSO-GSD</span> &middot; <span style="color:#c792ea;">node-time</span> &middot; cost-guard &middot; calib &middot; self-tune &middot; <span style="color:#ff8a3c;">GSD-risk</span> &middot; <span style="color:#7fd8ff;">cloud-sync</span> &nbsp;&middot;&nbsp; <span style="color:#5c7488;">gestippeld = planned (Neo heeft dit, Trinity nog niet): deepnet &middot; predict-inv &middot; kinetic &middot; regime-HMM &middot; LLM &middot; multi-TF &middot; node-fade &middot; spike-guard &middot; guardian &middot; risk &middot; RL-exit &middot; margin</span></div>
       </div>
       <canvas id="tr-deepnet-canvas" style="width:100%;height:580px;display:block;"></canvas>
       <div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:6px;">Uitkomst: <b id="tr-deepnet-out" style="color:var(--dim);">&mdash;</b></div>
     </div>
 
-    <div class="secdiv"><h3>Learnings</h3><span class="sub">— self-calibration</span></div>
+    <div class="secdiv"><h3>Learnings</h3><span class="sub">— wat Trinity autonoom heeft geleerd</span></div>
+    <div class="panel trinity" style="margin-bottom:14px;">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="mono" style="font-size:0.58rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:2px;">Geconsolideerde learnings <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— brain-trust · markt-edges · wereldstress · kalibratie · autonome staat</span></div>
+      <div class="mono" id="tr-learnings-rich" style="margin-top:6px;color:var(--dim);">Trinity verzamelt learnings…</div>
+    </div>
     <div class="panel trinity">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div class="trhead">
@@ -2287,10 +2292,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="fsoctrl-row"><span class="fsoctrl-lbl">Series</span><div id="tr-fso-seriestoggles" class="fsocbwrap"></div></div>
         <details class="fsodetails"><summary>Valuta-oscillatoren overlayen (18) <span style="color:var(--dimmer)">— klik om te tonen</span></summary><div id="tr-fso-ccytoggles" class="fsocbwrap fsocbgrid"></div></details>
         <details class="fsodetails"><summary>Pair-oscillatoren overlayen (28) <span style="color:var(--dimmer)">— klik om te tonen</span></summary><div id="tr-fso-pairtoggles" class="fsocbwrap fsocbgrid"></div></details>
-        <div class="fsoctrl-row"><button class="btn btn-mini" type="button" onclick="trFsoClearOverlays()" style="padding:3px 8px;font-size:0.5rem;">✕ overlays wissen</button><span class="mono" style="font-size:0.46rem;color:var(--dimmer);">data draait altijd op de achtergrond — vinkjes tonen/verbergen alleen lijnen</span></div>
+        <div class="fsoctrl-row"><button class="btn btn-mini" type="button" onclick="trFsoClearOverlays()" style="padding:4px 9px;font-size:0.56rem;">✕ overlays wissen</button><span class="mono" style="font-size:0.56rem;color:var(--dimmer);">data draait altijd op de achtergrond — vinkjes tonen/verbergen alleen lijnen</span></div>
       </div>
       <div id="tr-fso-charts"></div>
-      <div class="mono" style="font-size:0.48rem;color:var(--dimmer);margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;"><span style="color:#ff5f7e;">— stress S̄</span><span style="color:#7fb4ff;">-- σ² system-variance</span><span style="color:#c792ea;">— VFM (opgebouwde energie)</span><span style="color:#ff8a94;">▧ gevarenzone (σ² ≤ node-drempel, gekalibreerd)</span><span style="color:var(--dimmer);">gekleurd = valuta/pair-overlay</span></div>
+      <div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;line-height:1.9;"><span style="color:#ff5f7e;font-weight:600;">━ stress S̄ (systeemdruk)</span><span style="color:#7fb4ff;">╌ σ² system-variance</span><span style="color:#c792ea;">━ VFM (opgebouwde kinetische energie)</span><span style="color:var(--dimmer);">gekleurde lijnen = valuta/pair-overlay</span></div>
+      <div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:6px;line-height:1.85;background:rgba(255,138,148,0.06);border-left:3px solid #ff8a94;padding:7px 10px;border-radius:0 5px 5px 0;"><span style="color:#ff8a94;font-weight:700;">▧ Rode verticale banden = node-compressie</span> — ticks waarop de system-variance σ² tot op of onder de gekalibreerde <b>node-drempel</b> zakt. Lage variantie betekent dat het systeem <i>opgespannen</i> is (gecomprimeerd, weinig bewegingsvrijheid). In het UOTAM-model gaat zo'n compressie vaak vooraf aan een sprong of kill-switch — de "stilte vóór de storm". Hoe meer aaneengesloten rode kolommen, hoe langer de markt in die gespannen toestand zit.<br><span style="color:#9fb2c4;">Horizontale achtergrond-zones:</span> <span style="color:#14f195;">groen = RUST</span> · <span style="color:#ffb627;">amber = SPANNING</span> · <span style="color:#ff5f7e;">rood = CRISIS</span> — t.o.v. de stress-drempels (stippellijnen op de chart).</div>
       <div class="mono" id="tr-fso-shadow" style="font-size:0.54rem;margin-top:6px;color:var(--dim);line-height:1.7;">shadow-backtest verzamelt data…</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">FSO-GSD shadow-backtest <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— does world stress predict Trinity's outcomes? (observational)</span></div>
       <div class="mono" id="tr-gsd-shadow" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.7;">GSD shadow-backtest: collecting closed trades with their world-stress state…</div>
@@ -2644,7 +2650,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260902-jarvis54-txfix"></script>
+<script src="app.js?v=20260902-build58-gsdlearn"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260902-trinity-sync"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
