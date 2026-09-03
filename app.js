@@ -19313,6 +19313,8 @@ function tick(){
   topShort=ranked.filter(r=>r.side==='SHORT').sort((a,b)=>b.score-a.score)[0]||ranked[0];
   TrinityFSO.compute();
   try{ TrinityGSD.compute(); }catch(e){}
+  // node-compressie → release backtester: snapshot alle prijzen op de σ²-low, volg naar de release-piek
+  try{ const px={}; for(const p of PAIRS){ const st=pair[p]; if(st&&st.rate) px[p]=st.rate; } TrinityCompRelease.feed(TrinityFSO.sysVar, TrinityFSO.nodeTh, px); }catch(e){}
   try{ TrinityFeeds.markOk('engine', feed.mode==='live'&&feed.ok ? 'live-prijzen actief' : 'sim-tick actief'); }catch(e){}
   manageTrinity();
 }
@@ -19979,6 +19981,97 @@ function renderGSDShadow(){
 }
 try{ window.renderGSDShadow=renderGSDShadow; }catch(e){}
 // ==================================================================================
+// TRINITY · COMPRESSIE-RELEASE BACKTESTER — maakt de node-compressie tradeable.
+// Bij elke σ²-compressie-low (systeem samengedrukt) nemen we een prijs-snapshot van ALLE pairs.
+// Zodra σ² de compressie verlaat, volgen we vooruit tot de "release-piek" (σ² hoogste punt vóór het
+// ≥PULLBACK terugzakt) en meten per pair de ECHTE prijsbeweging: gericht (long-kant), absoluut, en de
+// max-favorable-excursion (MFE = beste kant, hindsight). Aggregatie per pair + categorie.
+// ==================================================================================
+const TrinityCompRelease = {
+  eps:[], _armed:null, _tracking:null, MAXTRACK:160, PULLBACK:0.10,
+  _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityCompRelease')||'null'); if(d&&Array.isArray(d.eps)) this.eps=d.eps; }catch(e){} },
+  _save(){ try{ localStorage.setItem('trinityCompRelease', JSON.stringify({eps:this.eps.slice(-200)})); }catch(e){} },
+  _cat(p){ return /JPY/.test(p)?'JPY-cross':(/ZAR|MXN|NOK|TRY|SEK|HUF|PLN|CNH|INR|THB/.test(p)?'exotic':'major'); },
+  feed(sysVar, nodeTh, prices){
+    if(sysVar==null||nodeTh==null||!prices) return;
+    const inComp = sysVar<=nodeTh;
+    // 1) een lopende release-tracking vooruitzetten
+    if(this._tracking){
+      const t=this._tracking; t.age++;
+      if(sysVar>t.peakVar){ t.peakVar=sysVar; t.peakPrices=Object.assign({},prices); }
+      for(const p in prices){ const e=t.snap.prices[p]; if(e==null||!(e>0))continue; const mv=(prices[p]/e-1)*100;
+        const f=t.maxFav[p]||(t.maxFav[p]={up:0,dn:0}); if(mv>f.up)f.up=mv; if(mv<f.dn)f.dn=mv; }
+      const pulled = t.peakVar>0 && (t.peakVar-sysVar)/t.peakVar>=this.PULLBACK && sysVar<t.peakVar;
+      if(inComp || pulled || t.age>=this.MAXTRACK) this._finalize();
+    }
+    // 2) de compressie-low-snapshot bewapenen/verfijnen (running minimum van σ²)
+    if(inComp){
+      if(!this._armed || sysVar<this._armed.varLow) this._armed={tLow:Date.now(),varLow:sysVar,prices:Object.assign({},prices)};
+    } else if(this._armed && !this._tracking){
+      this._tracking={snap:this._armed,peakVar:sysVar,peakPrices:Object.assign({},prices),age:0,maxFav:{}};
+      this._armed=null;
+    }
+  },
+  _finalize(){
+    const t=this._tracking; this._tracking=null; if(!t)return;
+    const rows={}; let cnt=0;
+    for(const p in t.snap.prices){ const e=t.snap.prices[p], pk=t.peakPrices[p]; if(!(e>0)||pk==null)continue;
+      const dir=(pk/e-1)*100, f=t.maxFav[p]||{up:0,dn:0};
+      const best=Math.abs(f.up)>=Math.abs(f.dn)?f.up:f.dn;
+      rows[p]={dir:+dir.toFixed(4),abs:+Math.abs(dir).toFixed(4),mfe:+best.toFixed(4)}; cnt++;
+    }
+    if(!cnt)return;
+    this.eps.push({t:t.snap.tLow,varLow:+t.snap.varLow.toFixed(3),varPeak:+t.peakVar.toFixed(3),
+      relRise:+((t.snap.varLow>0?(t.peakVar-t.snap.varLow)/t.snap.varLow*100:0)).toFixed(1),age:t.age,rows});
+    if(this.eps.length>200)this.eps.shift();
+    this._save(); try{ renderCompRelease(); }catch(e){}
+  },
+  stats(){ if(!this.eps.length)return null;
+    const perP={}, perC={};
+    for(const ep of this.eps){ for(const p in ep.rows){ const r=ep.rows[p];
+      const a=perP[p]||(perP[p]={n:0,abs:0,mfe:0,dir:0}); a.n++; a.abs+=r.abs; a.mfe+=Math.abs(r.mfe); a.dir+=r.dir;
+      const ck=this._cat(p), c=perC[ck]||(perC[ck]={n:0,abs:0,mfe:0}); c.n++; c.abs+=r.abs; c.mfe+=Math.abs(r.mfe); } }
+    const pairs=Object.entries(perP).map(([p,o])=>({p,n:o.n,abs:o.abs/o.n,mfe:o.mfe/o.n,dir:o.dir/o.n})).sort((a,b)=>b.mfe-a.mfe);
+    const cats=Object.entries(perC).map(([c,o])=>({c,n:o.n,abs:o.abs/o.n,mfe:o.mfe/o.n})).sort((a,b)=>b.mfe-a.mfe);
+    const tot=pairs.reduce((s,x)=>s+x.n,0)||1;
+    return { nEp:this.eps.length, pairs, cats,
+      allAbs:pairs.reduce((s,x)=>s+x.abs*x.n,0)/tot, allMfe:pairs.reduce((s,x)=>s+x.mfe*x.n,0)/tot,
+      avgRelRise:this.eps.reduce((s,e)=>s+(e.relRise||0),0)/this.eps.length };
+  },
+  bundle(){ return { nEpisodes:this.eps.length, stats:this.stats(), note:'Prijs-snapshot bij σ²-compressie-low → release-piek per pair. MFE = beste kant (hindsight), dir = long-kant, abs = |beweging|. Op mock zijn prijzen synthetisch, op live echt.' }; }
+};
+TrinityCompRelease._restore(); try{ window.TrinityCompRelease=TrinityCompRelease; }catch(e){}
+function renderCompRelease(){
+  const el=document.getElementById('tr-comp-release'); if(!el)return;
+  const G='#14f195',R='#ff5f7e',D='var(--dim)',DD='var(--dimmer)';
+  const arming = TrinityCompRelease._armed?'· <span style="color:#ff8a94">compressie actief, prijzen gesnapshot</span>':(TrinityCompRelease._tracking?'· <span style="color:#7fd8ff">release wordt gevolgd…</span>':'');
+  const S=TrinityCompRelease.stats();
+  if(!S){ el.innerHTML=`<div class="mono" style="color:${DD};font-size:0.55rem;line-height:1.7;">verzamelt compressie-episodes… bij elke node-compressie-low neemt Trinity een prijs-snapshot en volgt naar de release-piek. ${arming}</div>`; return; }
+  const bestP=S.pairs.slice(0,8);
+  const bar=(v,mx,col)=>`<div style="flex:0 0 44px;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;"><i style="display:block;height:100%;width:${Math.round(Math.max(0,Math.min(1,mx>0?v/mx:0))*100)}%;background:${col};"></i></div>`;
+  const mxMfe=Math.max(...bestP.map(p=>p.mfe),0.0001);
+  let html=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:0.56rem;">`
+    +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">episodes</span> <b style="color:var(--tx)">${S.nEp}</b></span>`
+    +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">σ²-release gem.</span> <b style="color:#c792ea">+${S.avgRelRise.toFixed(0)}%</b></span>`
+    +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">|prijs-move| gem.</span> <b style="color:var(--tx)">${S.allAbs.toFixed(3)}%</b></span>`
+    +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">beste-kant (MFE) gem.</span> <b style="color:${G}">${S.allMfe.toFixed(3)}%</b></span>`
+    +`${arming}</div>`;
+  html+=`<div style="font-size:0.52rem;color:${DD};text-transform:uppercase;letter-spacing:0.06em;margin:2px 0 4px;">Top pairs · gemiddelde beweging van compressie-low → release-piek</div>`;
+  html+=`<div style="display:flex;flex-direction:column;gap:3px;">`+bestP.map(p=>{
+    const dcol=p.dir>=0?G:R;
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:0.56rem;">
+      <span style="flex:0 0 78px;color:var(--tx);">${p.p}</span>${bar(p.mfe,mxMfe,G)}
+      <span style="flex:0 0 58px;color:${G};font-weight:600;">MFE ${p.mfe.toFixed(2)}%</span>
+      <span style="flex:0 0 66px;color:${dcol};">dir ${p.dir>=0?'+':''}${p.dir.toFixed(2)}%</span>
+      <span style="flex:1 1 auto;color:${DD};">|${p.abs.toFixed(2)}%| · n=${p.n}</span></div>`;
+  }).join('')+`</div>`;
+  if(S.cats.length) html+=`<div style="margin-top:6px;font-size:0.54rem;color:${DD};line-height:1.7;border-top:1px solid var(--line);padding-top:5px;">per categorie: `
+    +S.cats.map(c=>`<span style="color:var(--tx)">${c.c}</span> MFE <b style="color:${G}">${c.mfe.toFixed(2)}%</b> (n${c.n})`).join(' · ')+`</div>`;
+  html+=`<div style="margin-top:6px;font-size:0.52rem;color:${DD};line-height:1.6;"><b style="color:#7fd8ff;">MFE</b> = grootste beweging aan de béste kant tijdens de release (hindsight-plafond, optimistisch) · <b>dir</b> = gerichte move naar de release-piek (long-kant) · <b>|abs|</b> = grootte ongeacht richting. ${(typeof feed!=='undefined'&&feed.mode==='live'&&feed.ok)?'<span style="color:#14f195">live prijzen.</span>':'<span style="color:#ffb627">mock/sim-prijzen — synthetisch.</span>'}</div>`;
+  el.innerHTML=html;
+}
+try{ window.renderCompRelease=renderCompRelease; }catch(e){}
+// ==================================================================================
 // TRINITY · GECONSOLIDEERDE LEARNINGS — één dashboard dat samenvat wat Trinity heeft geleerd:
 // brain-trust per sessie, pair/categorie-edges, GSD-regime edges (gekalibreerd op eigen trades),
 // kalibratie-kwaliteit, de actieve autonome staat, plus een plain-language conclusie.
@@ -20237,7 +20330,7 @@ function exportAll(){
       calibrationBins: g(()=>calibB,{}),
       brainTrust: trustBySession,
       autoAdj: g(()=>autoAdj,{}), autoAdjustments: g(()=>trinityAdj,[]),
-      pairTrust: g(()=>TrinityPairTrust.bundle(),null), gsdShadow: g(()=>TrinityGSDShadow.bundle(),null),
+      pairTrust: g(()=>TrinityPairTrust.bundle(),null), gsdShadow: g(()=>TrinityGSDShadow.bundle(),null), compRelease: g(()=>TrinityCompRelease.bundle(),null),
     },
     // ---- FSO (FX) volledig incl. shadow + kalibratie ----
     fso:{ live:{ stress:g(()=>TrinityFSO.stress,0), sysVar:g(()=>TrinityFSO.sysVar,0), variance:g(()=>TrinityFSO.variance,0), vfm:g(()=>TrinityFSO.vfm,0),
@@ -20590,7 +20683,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
