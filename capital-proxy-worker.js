@@ -253,14 +253,14 @@ export default {
       }
 
       // ---- ACTIVITY: recently closed/settled deals, so Trinity can learn outcomes the broker settled ----
-      // Capital caps lastPeriod (transactions rejects >1 day with error.invalid.lastPeriod), so for any
-      // window beyond a day we use an explicit from/to range instead. Format: yyyy-MM-ddTHH:mm:ss (no ms/Z).
+      // Capital: /history/activity max date range = 1 DAY (lastPeriod max 86400). /history/transactions
+      // accepts from/to over long ranges. Date format: YYYY-MM-DDTHH:MM:SS (colons URL-encoded to be safe).
       const isoRange = secs => { const to = new Date(); const from = new Date(to.getTime() - secs * 1000);
-        const f = d => d.toISOString().slice(0, 19); return 'from=' + f(from) + '&to=' + f(to); };
+        const f = d => encodeURIComponent(d.toISOString().slice(0, 19)); return 'from=' + f(from) + '&to=' + f(to); };
 
       if (request.method === 'GET' && path === '/activity') {
-        const secs = Math.min(31536000, parseInt(url.searchParams.get('seconds') || '86400', 10) || 86400); // up to 1y via from/to
-        const resp = await capFetch(env, '/api/v1/history/activity?' + isoRange(secs) + '&detailed=true');
+        const secs = Math.min(86400, parseInt(url.searchParams.get('seconds') || '86400', 10) || 86400); // activity max = 1 day
+        const resp = await capFetch(env, '/api/v1/history/activity?lastPeriod=' + secs + '&detailed=true');
         if (!resp.ok) return j({ error: 'activity HTTP ' + resp.status, detail: (await resp.text()).slice(0, 200) }, resp.status, env);
         const data = await resp.json();
         const activities = (data.activities || []).map(a => ({
