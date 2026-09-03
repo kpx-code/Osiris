@@ -21,6 +21,26 @@ const OSIRIS_SUPABASE_KEY = 'sb_publishable_bTchUvswyWHLAHkumkbN8w_HEAVP0R9';   
 // GESLAAGDE cloud-push. Laat osirisSyncPush ongewijzigde (vaak grote) blobs overslaan.
 let _osLastPushRaw = {};
 
+// ---- SYNC-VERSIE-LABEL ----------------------------------------------------------
+// Elke geslaagde push van het engine-apparaat bumpt een oplopend versienummer en schrijft
+// een meta-rij (osirisSyncMeta) naar de cloud: {version, at, device, changed}. Zo kan een
+// kijk-apparaat (telefoon) exact zien WELKE versie het ophaalt, en of de cloud iets nieuwers heeft.
+const OSIRIS_SYNC_META_KEY = 'osirisSyncMeta';
+function _osSyncLocalVersion() { try { return parseInt(localStorage.getItem('osirisSyncVersion') || '0') || 0; } catch (e) { return 0; } }
+function _osDeviceLabel() {
+    try {
+        let n = localStorage.getItem('osirisDeviceName') || localStorage.getItem('osirisSyncDevice');
+        if (!n) {
+            const ua = (navigator.userAgent || '');
+            const plat = /iPhone|iPad|iPod/i.test(ua) ? 'iPhone' : /Android/i.test(ua) ? 'Android' : /Macintosh|Mac OS/i.test(ua) ? 'Mac' : /Windows/i.test(ua) ? 'Windows' : /Linux/i.test(ua) ? 'Linux' : 'device';
+            n = plat + '-' + Math.random().toString(36).slice(2, 6);
+            try { localStorage.setItem('osirisSyncDevice', n); } catch (e) {}
+        }
+        return n;
+    } catch (e) { return 'device'; }
+}
+function _osFmtWhen(iso) { try { return new Date(iso).toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch (e) { return iso || '—'; } }
+
 // localStorage-sleutels die we naar de cloud spiegelen (de EXACTE keys die je app schrijft).
 const OSIRIS_STATE_KEYS = [
     'osirisWalletState', 'osirisOpenPositions', 'osirisPendingOrders',
@@ -48,7 +68,7 @@ const OSIRIS_STATE_KEYS = [
 // 'oif_state' is de hoofd-blob (wallet, tradeLog, learnings, brokerMeta, running-vlag).
 const TRINITY_STATE_KEYS = [
     'oif_state', 'oif_seenClosed', 'trinityTxLearn', 'trinityImportKeys',
-    'trinityPairTrust', 'trinityGSDShadow',
+    'trinityPairTrust', 'trinityGSDShadow', 'trinityCompRelease',
     'trinityFSOCal', 'trinityFSOShadow', 'trinityFSOvis',
     'trinityGSDproxy', 'trinityGSDcal', 'trinityGSDhistCal', 'trinityGSDbackfill',
     'trinityGSDvis', 'trinityGSDroll', 'trinityGSDhist', 'trinityGSDpredlog'
@@ -66,6 +86,20 @@ function _osTrinityDisableRunAfterPull() {
     try { const raw = localStorage.getItem('oif_state'); if (!raw) return; const os = JSON.parse(raw);
         if (os && os.trinityWasRunning) { os.trinityWasRunning = false; localStorage.setItem('oif_state', JSON.stringify(os)); }
     } catch (e) {}
+}
+// SPIEGEL van bovenstaande, maar voor de OSIRIS-CRYPTO-engine. Zonder dit bleef de lokale Osiris-bot
+// op een kijk-apparaat gewoon dóórdraaien ná een pull/herstel, en overschreef hij de zojuist opgehaalde
+// cloud-staat (wallet/trades) met zijn eigen sessie — precies waarom Osiris crypto niet leek te syncen,
+// terwijl Trinity dat wél deed. Nu wordt de Osiris-bot op het kijk-apparaat na een pull/herstel gestopt,
+// zodat de gesynchroniseerde data blijft staan. (botStartTime blijft ongemoeid: de runtime-weergave leest
+// de authoritatieve starttijd apart uit de cloud.)
+function _osDisableOsirisEngineAfterPull() {
+    try { if (localStorage.getItem('botIsRunning') != null) localStorage.setItem('botIsRunning', 'false'); } catch (e) {}
+    try { if (localStorage.getItem('multiEngineRunning') != null) localStorage.setItem('multiEngineRunning', 'false'); } catch (e) {}
+    try { if (localStorage.getItem('osirisMarginEnabled') != null) localStorage.setItem('osirisMarginEnabled', '0'); } catch (e) {}
+    try { if (typeof isBotRunning !== 'undefined' && isBotRunning && typeof stopAutonomousBot === 'function') stopAutonomousBot(); } catch (e) {}
+    try { if (typeof multiEngineRunning !== 'undefined' && multiEngineRunning && typeof stopMultiEngine === 'function') stopMultiEngine(); } catch (e) {}
+    try { if (typeof marginEngineEnabled !== 'undefined') marginEngineEnabled = false; } catch (e) {}
 }
 
 let _sb = null, _sbUser = null, _syncTimer = null;
@@ -206,6 +240,17 @@ async function osirisSyncPush() {
         }
         if (rows.length) { await _sb.from('osiris_state').upsert(rows, { onConflict: 'user_id,key' }); for (const [k, v] of pushedRaw) _osLastPushRaw[k] = v; }
 
+        // ---- SYNC-VERSIE bumpen + meta-rij schrijven (alleen als er echt iets veranderde) ----
+        // De telefoon leest deze rij om te tonen welke versie er in de cloud staat.
+        let _ver = _osSyncLocalVersion();
+        if (rows.length) {
+            _ver++;
+            try { localStorage.setItem('osirisSyncVersion', String(_ver)); } catch (e) {}
+            const meta = { version: _ver, at: new Date().toISOString(), device: _osDeviceLabel(), changed: rows.length };
+            try { await _sb.from('osiris_state').upsert([{ user_id: _sbUser.id, key: OSIRIS_SYNC_META_KEY, value: meta, updated_at: meta.at }], { onConflict: 'user_id,key' }); } catch (e) {}
+            try { localStorage.setItem(OSIRIS_SYNC_META_KEY, JSON.stringify(meta)); _osLastPushRaw[OSIRIS_SYNC_META_KEY] = JSON.stringify(meta); } catch (e) {}
+        }
+
         // 2) nieuwe gesloten trades append (ontdubbeld op trade_id)
         const log = (typeof botTradeLog !== 'undefined' && Array.isArray(botTradeLog)) ? botTradeLog : [];
         const _byId = new Map();   // ontdubbel binnen de batch (2x dezelfde trade_id -> 409)
@@ -262,7 +307,7 @@ async function osirisSyncPush() {
         if (ctrl) _osirisApplyDesiredRunning(ctrl.desired_running);
 
         try { localStorage.setItem('osirisSyncLastConnected', new Date().toISOString()); } catch (e) {}
-        _osirisSyncStamp('gesynct ' + new Date().toLocaleTimeString('nl-NL'), 'ok');
+        _osirisSyncStamp('gesynct v#' + _osSyncLocalVersion() + ' · ' + new Date().toLocaleTimeString('nl-NL'), 'ok');
     } catch (e) { console.warn('[osiris-sync] push-fout', e); _osirisSyncStamp('sync-fout (zie console)', 'err'); }
 }
 window.osirisSyncPush = osirisSyncPush;
@@ -281,6 +326,7 @@ async function osirisRestoreFromCloud() {
         try { localStorage.setItem(r.key, typeof r.value === 'string' ? r.value : JSON.stringify(r.value)); n++; } catch (e) {}
     });
     _osTrinityDisableRunAfterPull();
+    _osDisableOsirisEngineAfterPull();   // Osiris-bot niet laten dóórdraaien over de herstelde staat heen
     try { sessionStorage.setItem('osirisJustPulled', String(n)); } catch (e) {}
     location.reload();
 }
@@ -303,18 +349,51 @@ async function osirisPullLatest() {
     try {
         const { data, error } = await _sb.from('osiris_state').select('key,value').eq('user_id', _sbUser.id);
         if (error) { _osirisSyncStamp('ophalen mislukt: ' + error.message, 'err'); _osPulling = false; return; }
-        let n = 0;
+        let n = 0, _meta = null;
         (data || []).forEach(r => {
+            if (r.key === OSIRIS_SYNC_META_KEY) { _meta = (typeof r.value === 'object') ? r.value : (function(){try{return JSON.parse(r.value);}catch(e){return null;}})(); }
             if (OSIRIS_NO_RESTORE.includes(r.key)) return;   // run-vlaggen niet terugzetten (geen 2e engine)
             try { localStorage.setItem(r.key, typeof r.value === 'string' ? r.value : JSON.stringify(r.value)); n++; } catch (e) {}
         });
+        // versie van de opgehaalde staat lokaal vastleggen, zodat de telefoon weet WELKE versie het heeft
+        if (_meta && _meta.version != null) { try { localStorage.setItem('osirisSyncVersion', String(_meta.version)); } catch (e) {} }
         _osTrinityDisableRunAfterPull();   // mobiel niet ineens live laten handelen na de pull
-        try { sessionStorage.setItem('osirisJustPulled', String(n)); } catch (e) {}
-        _osirisSyncStamp('nieuwste opgehaald (' + n + ') · herladen…', 'ok');
+        _osDisableOsirisEngineAfterPull(); // idem voor de Osiris-crypto-bot, anders overschrijft die de pull
+        try { sessionStorage.setItem('osirisJustPulled', String(n)); if (_meta) sessionStorage.setItem('osirisJustPulledMeta', JSON.stringify(_meta)); } catch (e) {}
+        const _vtxt = _meta && _meta.version != null ? ('v#' + _meta.version + ' ') : '';
+        _osirisSyncStamp('nieuwste ' + _vtxt + 'opgehaald (' + n + ') · herladen…', 'ok');
         setTimeout(() => { try { location.reload(); } catch (e) { _osPulling = false; } }, 220);
     } catch (e) { _osirisSyncStamp('ophalen mislukt (zie console)', 'err'); console.warn('[osiris-sync] pull-fout', e); _osPulling = false; }
 }
 window.osirisPullLatest = osirisPullLatest;
+
+/* ---- CLOUD-VERSIE CHECKEN: lees alleen de meta-rij en toon of de cloud nieuwer is dan lokaal.
+ * Zo zie je op de telefoon in één oogopslag: "cloud v#15 (nieuwer) · jij hebt v#12". */
+async function osirisCheckCloudVersion(silent) {
+    if (!_sb) return null;
+    if (!_sbUser) { try { const { data } = await _sb.auth.getSession(); _sbUser = data && data.session ? data.session.user : null; } catch (e) {} }
+    if (!_sbUser) return null;
+    try {
+        const { data } = await _sb.from('osiris_state').select('value').eq('user_id', _sbUser.id).eq('key', OSIRIS_SYNC_META_KEY).maybeSingle();
+        const meta = data ? ((typeof data.value === 'object') ? data.value : (function(){try{return JSON.parse(data.value);}catch(e){return null;}})()) : null;
+        _osirisRenderVersionLine(meta);
+        return meta;
+    } catch (e) { if (!silent) _osirisSyncMsg('versie-check mislukt'); return null; }
+}
+window.osirisCheckCloudVersion = osirisCheckCloudVersion;
+
+// toont de versie-regel: lokale versie vs cloud-versie (+ apparaat + tijd)
+function _osirisRenderVersionLine(cloudMeta) {
+    const el = document.getElementById('osiris-sync-ver'); if (!el) return;
+    const local = _osSyncLocalVersion();
+    if (!cloudMeta || cloudMeta.version == null) { el.innerHTML = '<span style="color:#5c7488">jouw versie: v#' + local + ' · cloud onbekend</span>'; return; }
+    const cv = cloudMeta.version, newer = cv > local;
+    const dev = cloudMeta.device ? (' · ' + cloudMeta.device) : '';
+    const when = cloudMeta.at ? (' · ' + _osFmtWhen(cloudMeta.at)) : '';
+    el.innerHTML = newer
+        ? '<span style="color:#ffb627">cloud v#' + cv + ' (nieuwer!)' + dev + when + '</span><br><span style="color:#5c7488">jij hebt v#' + local + ' — tik op ophalen</span>'
+        : '<span style="color:#14f195">✓ up-to-date · v#' + local + dev + when + '</span>';
+}
 
 /* ---- afstandsbediening toepassen ----
  * In FASE 1 werkt dit alleen als DEZE browser de engine draait. Echte 24/7-
@@ -391,7 +470,9 @@ function _osirisSyncBuildUI() {
     _osirisSyncRenderAuth();
     try { const lc = localStorage.getItem('osirisSyncLastConnected'); if (lc) _osirisSyncStamp('laatst verbonden ' + new Date(lc).toLocaleString('nl-NL')); } catch (e) {}
     // net na een "nieuwste data ophalen" + reload: bevestig kort dat de verse data binnen is
-    try { const jp = sessionStorage.getItem('osirisJustPulled'); if (jp != null) { sessionStorage.removeItem('osirisJustPulled'); _osirisSyncStamp('✓ nieuwste data geladen (' + jp + ' items)', 'ok'); } } catch (e) {}
+    try { const jp = sessionStorage.getItem('osirisJustPulled'); if (jp != null) { sessionStorage.removeItem('osirisJustPulled');
+        let vtxt = ''; try { const m = JSON.parse(sessionStorage.getItem('osirisJustPulledMeta') || 'null'); sessionStorage.removeItem('osirisJustPulledMeta'); if (m && m.version != null) vtxt = 'v#' + m.version + ' '; } catch (e) {}
+        _osirisSyncStamp('✓ ' + vtxt + 'geladen (' + jp + ' items)', 'ok'); } } catch (e) {}
 }
 function _osirisSyncToggleMin() {
     const b = document.getElementById('osiris-sync-box'); if (!b) return;
@@ -408,6 +489,7 @@ function _osirisSyncRenderAuth() {
             // ENGINE-APPARAAT (bron van waarheid): pushen naar de cloud + evt. herstel.
             el.innerHTML =
               '<div class="osb-user">\u2713 ' + (_sbUser.email || 'ingelogd') + '</div>' +
+              '<div class="osb-ver" style="font-size:9.5px;line-height:1.5;margin:5px 0 6px;color:#14f195;">engine \u00b7 pusht als v#' + (_osSyncLocalVersion() + 1) + '</div>' +
               '<div class="osb-row">' +
                 '<button onclick="osirisSyncPush()">sync nu</button>' +
                 '<button onclick="osirisRestoreFromCloud()">herstel</button>' +
@@ -417,10 +499,13 @@ function _osirisSyncRenderAuth() {
             // KIJK-APPARAAT (bv. mobiel): \u00e9\u00e9n tik haalt de VOLLEDIGE nieuwste staat op.
             el.innerHTML =
               '<div class="osb-user">\u2713 ' + (_sbUser.email || 'ingelogd') + '</div>' +
+              '<div class="osb-ver" id="osiris-sync-ver" style="font-size:9.5px;line-height:1.5;margin:5px 0 6px;color:#5c7488;">jouw versie: v#' + _osSyncLocalVersion() + ' \u00b7 cloud checken\u2026</div>' +
               '<button class="osb-primary" onclick="osirisPullLatest()" style="margin-top:2px;">\u2b73 nieuwste data ophalen</button>' +
               '<div class="osb-row">' +
+                '<button onclick="osirisCheckCloudVersion()">check versie</button>' +
                 '<button onclick="osirisSignOut()">uit</button>' +
               '</div>';
+            try { osirisCheckCloudVersion(true); } catch (e) {}
         }
         _osirisSyncDot('ok');
     } else {
