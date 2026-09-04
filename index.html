@@ -991,6 +991,16 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
     <!-- OVERVIEW -->
     <section class="tab show" id="tab-about">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+        <div style="flex:1 1 260px;border:1px solid rgba(97,175,254,0.4);background:rgba(97,175,254,0.06);border-radius:10px;padding:10px 13px;">
+          <div class="mono" style="color:var(--cyan);font-size:0.66rem;font-weight:700;letter-spacing:0.04em;">&#128679; Under construction</div>
+          <div style="font-size:0.62rem;line-height:1.7;color:var(--dim);margin-top:3px;">Actively being built &mdash; <b style="color:#ff8a3c;">Osiris ShockWave</b> &amp; Trinity FX are new and still evolving. Tabs, tools and numbers can change or break without notice.</div>
+        </div>
+        <div style="flex:1 1 260px;border:1px solid rgba(255,182,39,0.4);background:rgba(255,182,39,0.05);border-radius:10px;padding:10px 13px;">
+          <div class="mono" style="color:var(--amber);font-size:0.66rem;font-weight:700;letter-spacing:0.04em;">&#9888; Not financial advice</div>
+          <div style="font-size:0.62rem;line-height:1.7;color:var(--dim);margin-top:3px;">Experimental, educational project on <b style="color:var(--cyan)">testnets / simulated capital</b>. Nothing here is financial advice; the model can be wrong. Never trade real money on it.</div>
+        </div>
+      </div>
       <div class="eyebrow" style="color:var(--cyan);">&mdash; Osiris Deepnet KPX &middot; autonomous trading AI &middot; crypto &amp; FX</div>
       <div class="split-grid" style="margin-top:10px;">
         <div>
@@ -998,9 +1008,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <p class="hero-lead">A self-directed trading intelligence for BTC, ETH and SOL. It scans the market every ten seconds, weighs its own probabilities, and guards every open position &mdash; on the Binance spot <em>and</em> futures testnets, with fake capital.</p>
           <p class="about-para">One principle drives it: <b style="color:var(--cyan)">stay honest about your own certainty</b>. Every closed trade flows back into a calibration table that checks what the model predicted against what really happened, and the whole system is nudged by that truth. A raw score is trusted only as far as its measured win rate earns. Nothing changes silently &mdash; every self-adjustment is written to a live feed.</p>
           <p class="about-para">Osiris runs as two engines that share one brain: <b style="color:var(--cyan)">Osiris Neo</b> for BTC / ETH / SOL, and <b style="color:#ffd24a;">Osiris Trinity (FX)</b> &mdash; the same self-calibrating, session-aware intelligence applied to the foreign-exchange majors.</p>
+          <p class="about-para">Trinity now carries a full engine-intelligence stack: an <b style="color:#ff8a3c;">FSO-GSD</b> world-stress model (UOTAM across six zones), a node-compression <b>timing agent</b>, a <b style="color:#14f195;">guardian</b> (risk-break + spike-guard + kinetic), a <b>regime-HMM</b>, an <b style="color:#ff8fa3;">LLM-verify</b> that scans free news/social sentiment and weighs its meaning against the data, an <b>RL-exit</b> policy, and a <b style="color:#7fd8ff;">DeepNet L3</b> blind-spot check for what the data isn't saying. Everything is autonomously adaptive &mdash; learning starts at just five real trades and re-calibrates every five. The next milestone is <b style="color:#ff8a3c;">Osiris ShockWave</b>: from measuring how tense the world is, to predicting where a shock begins and how it propagates.</p>
         </div>
         <div id="about-eye-wrap" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
-          <div class="eyebrow" style="margin-bottom:8px;color:var(--cyan);text-align:center;">&mdash; Autonomous BTC / ETH / SOL Intelligence</div>
+          <div class="eyebrow" style="margin-bottom:8px;color:var(--cyan);text-align:center;min-height:1.3em;">&mdash; <span id="neo-typewriter"></span><span id="neo-tw-caret" style="animation:neoblink 1s steps(1) infinite;">&#9611;</span></div>
+          <style>@keyframes neoblink{0%,50%{opacity:1}50.01%,100%{opacity:0}}</style>
+          <script>(function(){var el=document.getElementById('neo-typewriter');if(!el)return;var seq=["Maar maar maar..","ik ben de robot","ik ben de robot","jij bent de robot","jij bent de robot"];var i=0,j=0,del=false;function step(){var w=seq[i];el.textContent=w.slice(0,j);if(!del){if(j<w.length){j++;setTimeout(step,72);}else{del=true;setTimeout(step,1150);}}else{if(j>0){j--;setTimeout(step,38);}else{del=false;i=(i+1)%seq.length;setTimeout(step,240);}}}step();})();</script>
           <svg id="about-eye" viewBox="0 0 400 380" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:440px;height:auto;aspect-ratio:400/380;display:block;"></svg>
           <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#5c7488;letter-spacing:0.14em;text-transform:uppercase;margin-top:10px;text-align:center;">Reads price, volume &amp; volatility &middot; tests every prediction</div>
         </div>
@@ -1071,10 +1084,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="toolcard sys"><span class="tc-badge">CALIBRATED</span><h4><span class="tc-ic">◎</span> Self-calibrating</h4><p>Predicted vs. measured win rate per session, the same calibration discipline as the crypto engine &mdash; raw score trusted only as far as it earns.</p></div>
         <div class="toolcard vlt"><span class="tc-badge">FLOW</span><h4><span class="tc-ic">◧</span> Capital &amp; commodity flow</h4><p>A live world map of where capital and commodities are rotating, feeding the FX neural-net view.</p></div>
       </div>
-
-      <div class="panel" style="margin-top:24px;border-color:rgba(97,175,254,0.35);background:rgba(97,175,254,0.05);"><div class="plabel" style="color:var(--cyan)">&#128679; Under construction</div><div style="font-size:0.68rem;line-height:1.9;color:var(--dim)">This dashboard is <b style="color:var(--cyan)">actively being built</b>. <b style="color:#ffd24a;">Osiris Trinity FX</b> in particular is new and still evolving &mdash; tabs, tools and numbers can change, break or be rebuilt without notice. Treat everything you see as a work in progress rather than a finished product.</div></div>
-
-      <div class="panel" style="margin-top:16px;border-color:rgba(255,182,39,0.35);background:rgba(255,182,39,0.04);"><div class="plabel" style="color:var(--amber)">&#9888; Not financial advice</div><div style="font-size:0.68rem;line-height:1.9;color:var(--dim)">Osiris &mdash; both Crypto and Trinity FX &mdash; is an <b style="color:var(--amber)">experimental, educational project</b> running on <b style="color:var(--cyan)">testnets / simulated capital</b>. Nothing in this app is financial, investment or trading advice. Its numbers, probabilities and decisions are the output of a self-learning model and can be wrong. Never trade real money based on this bot without your own research; trading carries a real risk of loss.</div></div>
     </section>
 
     <!-- NEURAL NET -->
@@ -2252,7 +2261,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div style="position:absolute;top:12px;left:16px;right:16px;z-index:2;pointer-events:none;">
         <div style="font:800 0.72rem 'Orbitron','JetBrains Mono',monospace;letter-spacing:1.5px;color:#cfe6f5;">TRINITY DEEPNET</div>
-        <div style="font:0.5rem/1.5 'JetBrains Mono',monospace;color:var(--dim);letter-spacing:0.3px;margin-top:3px;max-width:74%;">inputs (15) &rarr; CORES (4 sessies: ASIA&middot;EU&middot;US&middot;OVLP) &rarr; trinity &rarr; gate &rarr; decision &rarr; output &rarr; learn &nbsp;&middot;&nbsp; tools (data-true, lit): brain-trust &middot; session &middot; FSO &middot; <span style="color:#ff8a3c;">FSO-GSD</span> &middot; <span style="color:#c792ea;">node-time</span> &middot; cost-guard &middot; calib &middot; self-tune &middot; <span style="color:#ff8a3c;">GSD-risk</span> &middot; <span style="color:#7fd8ff;">cloud-sync</span> &nbsp;&middot;&nbsp; <span style="color:#5c7488;">gestippeld = planned (Neo heeft dit, Trinity nog niet): deepnet &middot; predict-inv &middot; kinetic &middot; regime-HMM &middot; LLM &middot; multi-TF &middot; node-fade &middot; spike-guard &middot; guardian &middot; risk &middot; RL-exit &middot; margin</span></div>
+        <div style="font:0.5rem/1.5 'JetBrains Mono',monospace;color:var(--dim);letter-spacing:0.3px;margin-top:3px;max-width:74%;">inputs (15) &rarr; CORES (4 sessies: ASIA&middot;EU&middot;US&middot;OVLP) &rarr; trinity &rarr; gate &rarr; decision &rarr; output &rarr; learn &nbsp;&middot;&nbsp; tools (data-true, lit): brain-trust &middot; session &middot; FSO &middot; <span style="color:#ff8a3c;">FSO-GSD</span> &middot; <span style="color:#c792ea;">node-time</span> &middot; <span style="color:#7fffd4;">timing</span> &middot; cost-guard &middot; calib &middot; self-tune &middot; <span style="color:#ff8a3c;">GSD-risk</span> &middot; comp-rel &middot; <span style="color:#7fd8ff;">cloud-sync</span> &middot; <span style="color:#c792ea;">kinetic</span> &middot; <span style="color:#8fb8ff;">regime-HMM</span> &middot; <span style="color:#ff8fa3;">LLM-verify</span> &middot; spike-guard &middot; <span style="color:#14f195;">guardian</span> &middot; <span style="color:#ff5f7e;">risk-break</span> &middot; RL-exit &middot; <span style="color:#7fd8ff;">deepnet-L3</span> &nbsp;&middot;&nbsp; <span style="color:#5c7488;">gestippeld = planned: <span style="color:#ff8a3c;">shockwave</span> &middot; predict-inv &middot; multi-TF &middot; node-fade &middot; margin</span></div>
       </div>
       <canvas id="tr-deepnet-canvas" style="width:100%;height:580px;display:block;"></canvas>
       <div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:6px;">Uitkomst: <b id="tr-deepnet-out" style="color:var(--dim);">&mdash;</b></div>
@@ -2304,6 +2313,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="mono" id="tr-gsd-shadow" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.7;">GSD shadow-backtest: collecting closed trades with their world-stress state…</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Per-pair / category learning <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— which markets win, which bleed (drives sizing &amp; skips)</span></div>
       <div class="mono" id="tr-pairtrust" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.7;">no per-pair learning yet — import your Capital history or let Trinity trade.</div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Engine intelligence <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— kinetic · regime-HMM · risk-break · LLM-verify · RL-exit · guardian · sentiment-scan (gratis)</span></div>
+      <div class="mono" id="tr-tools" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.6;">engine intelligence initialiseert…</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Trinity self-tuning <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— autonomous adjustments as it learns</span></div>
       <div class="feedwrap" id="adj-feed"></div>
     </div>
@@ -2652,9 +2663,9 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260904-build60-timing"></script>
+<script src="app.js?v=20260904-build62-scalp"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="osiris-sync.js?v=20260903-osdisable"></script>
+<script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
 <script>(function(){function r(){try{window.dispatchEvent(new Event("resize"));}catch(e){}}var o=window.showTab;if(typeof o==="function"){window.showTab=function(id){o(id);setTimeout(r,60);};}window.addEventListener("load",function(){setTimeout(r,300);});})();</script>
 </body>
