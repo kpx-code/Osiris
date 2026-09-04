@@ -984,7 +984,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <div class="navb" data-tab="tr-engine"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2"/></svg><span>Engine</span></div>
     <div class="navb" data-tab="tr-download"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 11l5 5 5-5M5 20h14"/></svg><span>Download</span></div>
     <div style="height:1px;background:linear-gradient(90deg,transparent,rgba(255,210,74,.4),transparent);margin:8px 8px 4px;"></div>
-    <div style="font:700 0.42rem 'JetBrains Mono',monospace;letter-spacing:1px;color:#ffd24a;text-align:center;margin-bottom:2px;text-transform:uppercase;">Osiris Matrix</div>
+    <div style="font:700 0.42rem 'JetBrains Mono',monospace;letter-spacing:1px;color:#ff8a3c;text-align:center;margin-bottom:2px;text-transform:uppercase;">Osiris ShockWave</div>
     <div class="navb" data-tab="tr-gsd"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg><span>FSO GSD</span></div>
   </div>
   <div class="main" id="main">
@@ -2296,7 +2296,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
       <div id="tr-fso-charts"></div>
       <div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;line-height:1.9;"><span style="color:#ff5f7e;font-weight:600;">━ stress S̄ (systeemdruk)</span><span style="color:#7fb4ff;">╌ σ² system-variance</span><span style="color:#c792ea;">━ VFM (opgebouwde kinetische energie)</span><span style="color:var(--dimmer);">gekleurde lijnen = valuta/pair-overlay</span></div>
-      <div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:6px;line-height:1.85;background:rgba(255,138,148,0.06);border-left:3px solid #ff8a94;padding:7px 10px;border-radius:0 5px 5px 0;"><span style="color:#ff8a94;font-weight:700;">▧ Rode verticale banden = node-compressie</span> — ticks waarop de system-variance σ² tot op of onder de gekalibreerde <b>node-drempel</b> zakt. Lage variantie betekent dat het systeem <i>opgespannen</i> is (gecomprimeerd, weinig bewegingsvrijheid). In het UOTAM-model gaat zo'n compressie vaak vooraf aan een sprong of kill-switch — de "stilte vóór de storm". Hoe meer aaneengesloten rode kolommen, hoe langer de markt in die gespannen toestand zit.<br><span style="color:#9fb2c4;">Horizontale achtergrond-zones:</span> <span style="color:#14f195;">groen = RUST</span> · <span style="color:#ffb627;">amber = SPANNING</span> · <span style="color:#ff5f7e;">rood = CRISIS</span> — t.o.v. de stress-drempels (stippellijnen op de chart).</div>
+      <div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:6px;line-height:1.85;background:rgba(255,138,148,0.06);border-left:3px solid #ff8a94;padding:7px 10px;border-radius:0 5px 5px 0;"><span style="color:#ff8a94;font-weight:700;">▧ Rode verticale banden = node-compressie LOW</span> — ticks waarop de system-variance σ² tot op of onder de gekalibreerde <b>node-drempel</b> zakt. Lage variantie betekent dat het systeem <i>opgespannen</i> is (gecomprimeerd, weinig bewegingsvrijheid). In het UOTAM-model gaat zo'n compressie vaak vooraf aan een sprong of kill-switch — de "stilte vóór de storm".<br><span style="color:#ffd76a;font-weight:700;">▧ Gele verticale banden = node-compressie HIGH</span> — ticks waarop σ² in de <b>bovenste band</b> zit (release-piek): de spanning is maximaal ontladen en staat op het punt van <i>inzakken</i>. Dit is het beste moment-signaal voor de omslag ná een release (data-gekalibreerd op de hoogste ~18% σ² per schaal).<br><span style="color:#9fb2c4;">Horizontale achtergrond-zones:</span> <span style="color:#14f195;">groen = RUST</span> · <span style="color:#ffb627;">amber = SPANNING</span> · <span style="color:#ff5f7e;">rood = CRISIS</span> — t.o.v. de stress-drempels (stippellijnen op de chart).</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Compressie-release backtester <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— instap op node-compressie-low → σ²-release-piek, echte prijs-move per pair</span></div>
       <div class="mono" id="tr-comp-release" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.7;">verzamelt compressie-episodes…</div>
       <div class="mono" id="tr-fso-shadow" style="font-size:0.54rem;margin-top:12px;color:var(--dim);line-height:1.7;">shadow-backtest verzamelt data…</div>
@@ -2495,10 +2495,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
     <section class="tab" id="tab-tr-gsd">
       <div class="trn">
-    <div class="eyebrow" style="color:#ffd24a;">Osiris Matrix</div><h2 class="sec" style="margin:2px 0 6px;">FSO · Global Stress Dynamics</h2><div class="sec-line"></div>
+    <div class="eyebrow" style="color:#ff8a3c;">Osiris ShockWave</div><h2 class="sec" style="margin:2px 0 6px;text-shadow:0 0 18px rgba(255,138,60,0.35);">FSO · Global Stress Dynamics</h2><div class="sec-line" style="background:linear-gradient(90deg,#ff8a3c 0%,transparent 60%);opacity:0.6;"></div>
 
-    <div class="secdiv"><h3>Global stress</h3><span class="sub">— UOTAM/TAM across 6 world zones · live micro/meso/macro/full + historical week→10y horizons</span></div>
-    <div class="panel">
+    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Global stress</h3><span class="sub">— UOTAM/TAM across 6 world zones · live micro/meso/macro/full + historical week→10y horizons</span></div>
+    <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div class="mono" id="gsd-status" style="font-size:0.66rem;color:var(--dim);line-height:1.8;">◉ GSD — initialising…</div>
       <div class="fsoctrl">
@@ -2652,7 +2652,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260903-build59-comprel"></script>
+<script src="app.js?v=20260904-build60-timing"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260903-osdisable"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
