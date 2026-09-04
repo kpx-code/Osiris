@@ -18821,10 +18821,20 @@ function autoTune(){
   const stopShare=recent.filter(t=>!t.win).length/recent.length;
   if(stopShare>0.68 && autoAdj.tgtMult<1.6){ const from=autoAdj.tgtMult; autoAdj.tgtMult=+(autoAdj.tgtMult+0.15).toFixed(2);
     pushAdj('target distance','×'+from,'×'+autoAdj.tgtMult,`${Math.round(stopShare*100)}% of recent trades were losses \u2014 widening targets relative to stop`); }
-  if(wallet.maxDD>6 && autoAdj.maxPosDelta>-2){ const from=autoAdj.maxPosDelta; autoAdj.maxPosDelta=Math.max(-2,autoAdj.maxPosDelta-1);
-    pushAdj('max open positions',from+' vs preset',autoAdj.maxPosDelta+' vs preset',`drawdown ${wallet.maxDD.toFixed(1)}% \u2192 trading smaller`); }
-  else if(wallet.maxDD<3 && autoAdj.maxPosDelta<0){ const from=autoAdj.maxPosDelta; autoAdj.maxPosDelta=Math.min(0,autoAdj.maxPosDelta+1);
-    pushAdj('max open positions',from+' vs preset',autoAdj.maxPosDelta+' vs preset',`drawdown recovered to ${wallet.maxDD.toFixed(1)}%`); }
+  // ---- MAX OPEN POSITIONS \u2014 Trinity past dit AUTONOOM aan (niet vast op 3): omhoog zolang de equity het
+  // toelaat en de prestaties goed zijn, omlaag bij drawdown. Begrensd door een harde bovengrens \u00e9n door de
+  // totale-blootstelling-budget (maxAllocPct) in openTrade, zodat meer posities nooit de equity overschrijdt. ----
+  try{
+    const apNow=activePreset(); const curMaxPos=apNow.maxPos; const baseMaxPos=curMaxPos-autoAdj.maxPosDelta;
+    const HARD_MAX=12; const equityOk = wallet.balance >= wallet.start*0.98;      // niet onder water
+    const grow = (wr>=0.5 && avgR>=0.10 && wallet.maxDD<4 && equityOk);
+    if(wallet.maxDD>6 && curMaxPos>1){ autoAdj.maxPosDelta-=1;
+      pushAdj('max open positions','max '+curMaxPos,'max '+Math.max(1,curMaxPos-1),`drawdown ${wallet.maxDD.toFixed(1)}% \u2192 minder gelijktijdige posities`); }
+    else if(grow && curMaxPos<HARD_MAX){ autoAdj.maxPosDelta+=1;
+      pushAdj('max open positions','max '+curMaxPos,'max '+(curMaxPos+1),`winrate ${Math.round(wr*100)}% \u00b7 avgR ${avgR.toFixed(2)} \u00b7 DD ${wallet.maxDD.toFixed(1)}% \u00b7 equity ok \u2192 meer gelijktijdige posities (equity staat het toe)`); }
+    else if(!grow && wallet.maxDD<3 && autoAdj.maxPosDelta<0){ autoAdj.maxPosDelta+=1;
+      pushAdj('max open positions','max '+curMaxPos,'max '+(curMaxPos+1),`drawdown hersteld naar ${wallet.maxDD.toFixed(1)}% \u2192 terug naar baseline`); }
+  }catch(e){}
   // ---- GSD-gekalibreerde risico-gevoeligheid: leert autonoom uit Trinity's eigen trades onder elke
   // wereldstress-toestand. De live multiplier draait continu in openTrade; hier loggen we materi\u00eble
   // verschuivingen in de self-tuning-feed zodat elke autonome aanpassing zichtbaar/traceerbaar is. ----
@@ -19183,8 +19193,15 @@ function drawTrinityFSO(key){
   ctx.fillStyle='rgba(20,241,149,0.04)'; ctx.fillRect(padL,yS(spanT),plotW,yS(0)-yS(spanT));
   ctx.fillStyle='rgba(255,182,39,0.05)'; ctx.fillRect(padL,yS(crisT),plotW,yS(spanT)-yS(crisT));
   ctx.fillStyle='rgba(255,79,109,0.09)'; ctx.fillRect(padL,yS(1),plotW,yS(crisT)-yS(1));
-  // gevarenzone (σ² ≤ node-drempel) arcering per kolom
-  for(let i=0;i<L;i++){ if(sc.V[i]<=TrinityFSO.nodeTh){ const px=x(i),bw=plotW/(L-1)+0.6; ctx.fillStyle='rgba(255,138,148,0.07)'; ctx.fillRect(px-bw/2,padT,bw,H-padT-padB); } }
+  // node-compressie LOW (σ² ≤ node-drempel = opgespannen/gecomprimeerd) — ROOD per kolom
+  // node-compressie HIGH (σ² in de bovenste band = release-piek, "op het punt van inzakken") — GEEL per kolom
+  // De HIGH-drempel is data-gekalibreerd per schaal (hoge kwantiel van deze schaal's σ²-verdeling).
+  let _vsort=sc.V.slice().sort((a,b)=>a-b); const hiTh=Math.max(0.45, _vsort[Math.min(L-1,Math.floor(L*0.82))]||0.6);
+  let nLow=0,nHigh=0;
+  for(let i=0;i<L;i++){ const px=x(i),bw=plotW/(L-1)+0.6;
+    if(sc.V[i]<=TrinityFSO.nodeTh){ ctx.fillStyle='rgba(255,138,148,0.07)'; ctx.fillRect(px-bw/2,padT,bw,H-padT-padB); nLow++; }
+    else if(sc.V[i]>=hiTh){ ctx.fillStyle='rgba(255,200,60,0.09)'; ctx.fillRect(px-bw/2,padT,bw,H-padT-padB); nHigh++; }
+  }
   // drempellijnen
   const thr=(v,col,lab)=>{ ctx.strokeStyle=col; ctx.lineWidth=1; ctx.setLineDash([5,4]); ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText(lab+' '+v.toFixed(2),W-padR-2,yS(v)-2); };
   thr(crisT,'rgba(255,79,109,0.85)','CRISIS'); thr(spanT,'rgba(255,182,39,0.8)','SPANNING');
@@ -19208,12 +19225,13 @@ function drawTrinityFSO(key){
   const F=TrinityFSO, rc={RUST:'#14f195',SPANNING:'#ffb627',CRISIS:'#ff4f6d'}[F.regime]||'#7fd4ff';
   ctx.textAlign='left'; ctx.fillStyle=rc; ctx.font="bold 12px 'JetBrains Mono',monospace"; ctx.fillText('● '+F.regime+(F.killSwitch?' ⚡':''),padL+2,padT+10);
   ctx.fillStyle='#9fb2c4'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText('stress '+sc.S[L-1].toFixed(3)+' · σ² '+sc.V[L-1].toFixed(2)+' · VFM '+(sc.VFM[L-1]*100|0)+'% · '+L+'pt',padL+86,padT+10);
-  // in-canvas legenda-chip voor de rode node-compressie-banden (alleen tonen als er compressie is)
-  try{ let nComp=0; for(let i=0;i<L;i++) if(sc.V[i]<=TrinityFSO.nodeTh) nComp++;
-    if(nComp>0){ ctx.textAlign='right'; ctx.font="9px 'JetBrains Mono',monospace";
-      const lx=W-padR-2, ly=padT+9; const txt='▧ node-compressie '+Math.round(nComp/L*100)+'%';
-      ctx.fillStyle='rgba(255,138,148,0.16)'; const tw=ctx.measureText(txt).width; ctx.fillRect(lx-tw-6,ly-9,tw+8,13);
-      ctx.fillStyle='#ff8a94'; ctx.fillText(txt,lx-2,ly+1); ctx.textAlign='left'; } }catch(e){}
+  // in-canvas legenda-chips: node-compressie LOW (rood) + HIGH (geel)
+  try{ ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right';
+    let lx=W-padR-2; const ly=padT+9;
+    const chip=(txt,bg,fg)=>{ const tw=ctx.measureText(txt).width; ctx.fillStyle=bg; ctx.fillRect(lx-tw-6,ly-9,tw+8,13); ctx.fillStyle=fg; ctx.fillText(txt,lx-2,ly+1); lx-=tw+12; };
+    if(nHigh>0) chip('▧ HIGH '+Math.round(nHigh/L*100)+'%','rgba(255,200,60,0.16)','#ffd76a');
+    if(nLow>0)  chip('▧ LOW '+Math.round(nLow/L*100)+'%','rgba(255,138,148,0.16)','#ff8a94');
+    ctx.textAlign='left'; }catch(e){}
 }
 function renderTrinityFSO(){
   if(!_trFsoTogglesBuilt) _trFsoBuildToggles();
@@ -19422,7 +19440,10 @@ function openTrade(c,S,pr){
   // GSD-GEKALIBREERDE weging: de theoretische riskWeight (zone-stress/kill-switch) × een multiplier die is
   // gekalibreerd op Trinity's ECHTE outcomes onder dit wereldstress-regime/tipping-tier (backtest → aanpassing).
   let gsdMod=1; try{ gsdMod=TrinityGSDShadow.riskMod(); }catch(e){}
-  let alloc = wallet.balance*(perPosPct/100) * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key) * gsdW * gsdMod * pairW;
+  // TIMING-AGENT: node-compressie-timing — grotere/scherpere entry in de LOW-compressie (vóór de release),
+  // kleiner in de uitgeputte HIGH-band. Maakt de momentum sterker voor scalps.
+  let timeFac=1, timePhase='—'; try{ const ts=TrinityTiming.state(); timeFac=ts.factor; timePhase=ts.phase; }catch(e){}
+  let alloc = wallet.balance*(perPosPct/100) * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key) * gsdW * gsdMod * pairW * timeFac;
   const openAllocNow = positions.filter(p=>p.status==='open').reduce((a,p)=>a+(p.alloc||0),0);
   const totalBudget = wallet.balance*(pr.maxAllocPct/100);
   alloc = Math.max(0, Math.min(alloc, totalBudget-openAllocNow));
@@ -19432,7 +19453,7 @@ function openTrade(c,S,pr){
   positions.push({localId,pair:c.p,side:long?'LONG':'SHORT',entry,current:entry,stop,target,horizonH,ageH:0,openClock:mockClock,openedAt:new Date(),gsdAtOpen,
     status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,extended:false,session:S.key,sessionName:S.name,sessionWindow:S.window,sessionDesc:S.desc,conf,stopPctUsed,alloc,
     factors:{liquidity:Math.min(100,60+st.vol*40),strength:Math.min(100,Math.abs(st._gap)*90),carry:Math.min(100,Math.abs(st._carry)*120),news:Math.min(100,Math.max(0,(st._news)*Math.sign(st.mom||1))*90+40),fib:Math.round(st.fib*100)}});
-  pushReason(`OPEN ${long?'LONG':'SHORT'} ${c.p} · conf ${conf}% · stop ${stopPctUsed.toFixed(3)}% · target ${tgtPctUsed.toFixed(3)}% · session ${S.name} · size $${alloc.toFixed(2)}`);
+  pushReason(`OPEN ${long?'LONG':'SHORT'} ${c.p} · conf ${conf}% · stop ${stopPctUsed.toFixed(3)}% · target ${tgtPctUsed.toFixed(3)}% · timing ${timePhase} ×${timeFac.toFixed(2)} · session ${S.name} · size $${alloc.toFixed(2)}`);
   // relay to a real DEMO order when a live provider is connected
   if(live&&feed.provider==='capital'){
     // Capital wants size as a clean multiple of sizeStep, at or above minSize. Compute target notional
@@ -20072,6 +20093,31 @@ function renderCompRelease(){
 }
 try{ window.renderCompRelease=renderCompRelease; }catch(e){}
 // ==================================================================================
+// TRINITY · TIMING-AGENT (node-compressie-timing) — maakt de momentum-timing scherper.
+// Leest de live system-variance σ² t.o.v. de node-drempel (LOW) en de release-band (HIGH):
+//   • LOW  (σ² ≤ nodeTh): het systeem is gecomprimeerd/opgeladen → een release staat op til.
+//     Dit is het gunstige entry-venster (vóór de sprong) → timing-factor > 1 (grotere, scherpere entry, scalps).
+//   • HIGH (σ² ≥ release-band): de spanning is uitgeput en staat op het punt van inzakken →
+//     geen verse entries chasen, liever trimmen → timing-factor < 1.
+//   • MID: neutraal, factor ~1.
+// De HIGH-drempel is data-gekalibreerd (hoge kwantiel van de micro-schaal's σ²-verdeling), net als de chart.
+// ==================================================================================
+const TrinityTiming = {
+  _hiTh(){ try{ const v=TrinityFSO.scales&&TrinityFSO.scales.micro&&TrinityFSO.scales.micro.V;
+    if(v&&v.length>20){ const s=v.slice().sort((a,b)=>a-b); return Math.max(0.45, s[Math.floor(s.length*0.82)]||0.6); } }catch(e){}
+    return Math.max(0.5,(TrinityFSO.nodeTh||0.1)*3); },
+  state(){
+    try{ const sv=TrinityFSO.sysVar, lo=TrinityFSO.nodeTh||0.1, hi=this._hiTh();
+      if(sv<=lo)  return {phase:'LOW',  factor:1.15, strength:Math.min(1,0.5+(lo-sv)/(lo||1)), note:'compressie — laden vóór release, entry-venster'};
+      if(sv>=hi)  return {phase:'HIGH', factor:0.75, strength:Math.min(1,0.5+(sv-hi)/((1-hi)||1)), note:'release-piek — uitgeput, trim / geen verse entries'};
+      const f=1+(((hi-sv)/((hi-lo)||1))-0.5)*0.2;                                  // MID: licht schalen naar LOW-kant
+      return {phase:'MID', factor:Math.max(0.9,Math.min(1.1,f)), strength:0.4, note:'neutraal'};
+    }catch(e){ return {phase:'—', factor:1, strength:0.3, note:''}; }
+  },
+  factor(){ return this.state().factor; }
+};
+try{ window.TrinityTiming=TrinityTiming; }catch(e){}
+// ==================================================================================
 // TRINITY · GECONSOLIDEERDE LEARNINGS — één dashboard dat samenvat wat Trinity heeft geleerd:
 // brain-trust per sessie, pair/categorie-edges, GSD-regime edges (gekalibreerd op eigen trades),
 // kalibratie-kwaliteit, de actieve autonome staat, plus een plain-language conclusie.
@@ -20092,8 +20138,48 @@ function renderTrinityLearnings(){
     +chip('avg R',avgR==null?'—':(avgR>=0?'+':'')+avgR.toFixed(2),avgR==null?DD:(avgR>=0?G:R))
     +chip('adaptive conf',mult.toFixed(2)+'×',mult>=1?G:A)
     +chip('GSD risk',gsdMod.toFixed(2)+'×',gsdMod<0.94?R:(gsdMod>1.06?G:'var(--tx)'))
+    +(function(){ let ph='—',f=1; try{ const t=TrinityTiming.state(); ph=t.phase; f=t.factor; }catch(e){} const c=ph==='LOW'?G:(ph==='HIGH'?A:'var(--tx)'); return chip('timing',ph+' ×'+f.toFixed(2),c); })()
     +chip('autonome aanp.',nAdj,nAdj?G:DD)
     +`</div>`;
+  // ---- mini-charts (SVG, geen library): cirkeldiagrammen + staafdiagram ----
+  const _polar=(cx,cy,r,a)=>[cx+r*Math.cos(a),cy+r*Math.sin(a)];
+  function _donut(segs,size,thick,cLab,cSub){
+    const tot=segs.reduce((s,x)=>s+(x.v>0?x.v:0),0)||1; const cx=size/2,cy=size/2,r=(size-thick)/2;
+    let a0=-Math.PI/2, arcs='';
+    for(const s of segs){ if(!(s.v>0))continue; const a1=a0+(s.v/tot)*2*Math.PI, large=(a1-a0)>Math.PI?1:0;
+      const [x0,y0]=_polar(cx,cy,r,a0),[x1,y1]=_polar(cx,cy,r,a1);
+      arcs+=`<path d="M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}" fill="none" stroke="${s.col}" stroke-width="${thick}"/>`; a0=a1; }
+    return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="flex:0 0 auto;"><circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="${thick}"/>${arcs}<text x="${cx}" y="${cy+1}" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="${(size*0.2).toFixed(0)}" font-weight="700" style="fill:var(--tx)">${cLab}</text><text x="${cx}" y="${(cy+size*0.19).toFixed(1)}" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="${(size*0.1).toFixed(0)}" style="fill:var(--dimmer)">${cSub||''}</text></svg>`;
+  }
+  function _vbars(items,w,h){
+    const padB=15,padT=10,gap=(w-6)/Math.max(1,items.length),bw=gap*0.56; let bars='';
+    const y50=padT+(h-padB-padT)*0.5;
+    items.forEach((it,i)=>{ const x=3+gap*i+(gap-bw)/2, bh=(h-padB-padT)*Math.max(0.015,Math.min(1,it.v)), y=h-padB-bh;
+      bars+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${it.col}"/>`;
+      bars+=`<text x="${(x+bw/2).toFixed(1)}" y="${h-4}" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="7" style="fill:var(--dimmer)">${it.lab}</text>`;
+      bars+=`<text x="${(x+bw/2).toFixed(1)}" y="${(y-2).toFixed(1)}" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="7.5" style="fill:var(--dim)">${it.sub}</text>`; });
+    return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMidYMid meet"><line x1="3" y1="${(h-padB).toFixed(1)}" x2="${w-3}" y2="${(h-padB).toFixed(1)}" stroke="rgba(255,255,255,0.14)"/><line x1="3" y1="${y50.toFixed(1)}" x2="${w-3}" y2="${y50.toFixed(1)}" stroke="rgba(255,255,255,0.07)" stroke-dasharray="3 3"/>${bars}</svg>`;
+  }
+  {
+    const wins=(trinity.trades||[]).filter(t=>t.win).length, losses=nT-wins;
+    const wlDonut = nT>0 ? _donut([{v:wins,col:G},{v:losses,col:R}],96,14,(wr!=null?Math.round(wr*100)+'%':'—'),'win') : '<div style="width:96px;height:96px;display:flex;align-items:center;justify-content:center;font-size:0.5rem;color:'+DD+';text-align:center;">nog geen<br>trades</div>';
+    const catCols={'major':'#7fd8ff','JPY-cross':'#ffb627','exotic':'#ff8a3c'};
+    const catSegs=Object.entries(TrinityPairTrust.cats||{}).map(([k,o])=>({v:o.n||0,col:catCols[k]||'#8fb8ff',lab:k}));
+    const catTot=catSegs.reduce((s,x)=>s+x.v,0);
+    const catDonut = catTot>0 ? _donut(catSegs,96,14,String(catTot),'markten') : '<div style="width:96px;height:96px;display:flex;align-items:center;justify-content:center;font-size:0.5rem;color:'+DD+';text-align:center;">nog geen<br>pair-data</div>';
+    // sessie-winrate staafdiagram
+    const _sl={asia:'AS',eu:'EU',us:'US',overlap:'OV'};
+    const sBars=['asia','eu','us','overlap'].map(k=>{ let s=null; try{s=TrinityTrust.stats(k);}catch(e){} const v=(s&&s.wr!=null)?s.wr:0; const col=(s&&s.wr!=null)?(s.wr>=0.5?G:(s.wr>=0.4?A:R)):'#33485a';
+      return {lab:_sl[k]||k,v,col,sub:(s&&s.wr!=null&&s.n>=1)?Math.round(s.wr*100)+'%':'—'}; });
+    const anySess=sBars.some(b=>b.v>0);
+    const legItem=(c,t)=>`<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:8px;height:8px;border-radius:2px;background:${c};display:inline-block;"></span>${t}</span>`;
+    const card=(inner)=>`<div style="flex:1 1 150px;min-width:140px;background:rgba(255,255,255,0.015);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;">${inner}</div>`;
+    html+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px;">`
+      + card(`<div style="font-size:0.5rem;color:${DD};text-transform:uppercase;letter-spacing:0.08em;">Win / verlies</div>${wlDonut}<div style="font-size:0.52rem;color:${D};display:flex;gap:10px;">${legItem(G,'win '+wins)} ${legItem(R,'verlies '+losses)}</div>`)
+      + card(`<div style="font-size:0.5rem;color:${DD};text-transform:uppercase;letter-spacing:0.08em;">Trades per categorie</div>${catDonut}<div style="font-size:0.52rem;color:${D};display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">${catSegs.filter(s=>s.v>0).map(s=>legItem(s.col,s.lab+' '+s.v)).join(' ')||'<span style="color:'+DD+'">—</span>'}</div>`)
+      + card(`<div style="font-size:0.5rem;color:${DD};text-transform:uppercase;letter-spacing:0.08em;">Winrate per sessie</div><div style="width:100%;">${_vbars(sBars,150,96)}</div><div style="font-size:0.5rem;color:${DD};">${anySess?'stippellijn = 50% break-even':'nog geen sessie-data'}</div>`)
+      +`</div>`;
+  }
   // ---- sectie-helper ----
   const sec=(title,sub,body)=>`<div style="margin-top:12px;"><div style="font-size:0.56rem;color:${D};letter-spacing:0.08em;text-transform:uppercase;margin-bottom:5px;">${title}${sub?` <span style="color:${DD};text-transform:none;letter-spacing:0;">— ${sub}</span>`:''}</div>${body}</div>`;
   const bar=(v,col)=>`<div style="flex:0 0 46px;height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;"><i style="display:block;height:100%;width:${Math.round(Math.max(0,Math.min(1,v))*100)}%;background:${col};"></i></div>`;
@@ -20831,8 +20917,11 @@ addEventListener('beforeunload',persistState);
     { id: 'calib',   label: 'CALIB',       mx: 0.90, yoff: -0.22, conn: 'learn', col: '#14f195', ghost: false },
     { id: 'selftune',label: 'SELF-TUNE',   mx: 0.945, yoff: 0.22, conn: 'learn', col: '#14f195', ghost: false },
     { id: 'gsdrisk', label: 'GSD-RISK',    mx: 0.905, yoff: 0.02, conn: 'learn', col: '#ff8a3c', ghost: false },
+    { id: 'comprel', label: 'COMP-REL',    mx: 0.90, yoff: 0.44,  conn: 'learn', col: '#ffd76a', ghost: false },
+    { id: 'timing',  label: 'TIMING',      mx: 0.675, yoff: -0.42, conn: 'gate',  col: '#7fffd4', ghost: false },
     { id: 'cloud',   label: 'CLOUD-SYNC',  mx: 0.615, yoff: 0.66, conn: 'osiris',col: '#7fd8ff', ghost: false },
     // ---- ontbreekt (ghost · planned) ----
+    { id: 'g_shock', label: 'SHOCKWAVE',   mx: 0.42, yoff: -0.36, conn: 'cores', col: '#5c7488', ghost: true },
     { id: 'g_deep',  label: 'DEEPNET',     mx: 0.25, yoff: 0.32,  conn: 'cores', col: '#5c7488', ghost: true },
     { id: 'g_pred',  label: 'PREDICT·INV', mx: 0.40, yoff: 0.34,  conn: 'cores', col: '#5c7488', ghost: true },
     { id: 'g_kin',   label: 'KINETIC',     mx: 0.485, yoff: -0.34,conn: 'osiris',col: '#5c7488', ghost: true },
@@ -20963,6 +21052,10 @@ addEventListener('beforeunload',persistState);
     // CLOUD-SYNC (nu echt geïmplementeerd): actief als Trinity-state naar de cloud sync't
     try { let on = false; try { on = (typeof osirisSyncEnabled === 'function') ? osirisSyncEnabled() : (typeof trinityOn !== 'undefined' && trinityOn); } catch (e) { on = (typeof trinityOn !== 'undefined' && trinityOn); }
       setM('cloud', on ? 0.7 : 0.3, 1, on ? 'synced' : 'lokaal'); } catch (e) { setM('cloud', 0.3, 1, '—'); }
+    // COMP-REL: compressie-release backtester — activatie ~ aantal verzamelde episodes
+    try { let ne = 0; if (typeof TrinityCompRelease !== 'undefined' && TrinityCompRelease.eps) ne = TrinityCompRelease.eps.length; setM('comprel', ne ? Math.max(0.3, Math.min(1, 0.3 + ne * 0.04)) : 0.2, 1, ne ? ne + ' eps' : 'wacht'); } catch (e) { setM('comprel', 0.22, 1, '—'); }
+    // TIMING: node-compressie-timing (LOW=laden/pre-release, HIGH=uitgeput). Toont de huidige fase.
+    try { let ph = '—', act = 0.3, sign = 1; if (typeof TrinityTiming !== 'undefined') { const t = TrinityTiming.state(); ph = t.phase; act = Math.max(0.2, Math.min(1, t.strength || 0.3)); sign = (t.phase === 'HIGH') ? -1 : 1; } setM('timing', act, sign, ph); } catch (e) { setM('timing', 0.25, 1, '—'); }
     // ghost — altijd gedimd + "planned"
     _trnet.meta.forEach(m => { if (m.ghost) { m.act = 0.16; m.sign = 1; m.val = 'planned'; } });
   }
