@@ -29,6 +29,7 @@ const ALLOW = new Set([
   'stooq.com',                 // Stooq — live grondstoffen (WTI/Brent/gas/goud/koper/tarwe)
   'www.cpc.ncep.noaa.gov',     // NOAA CPC — Oceanic Niño Index (El Niño/La Niña)
   'stats.bis.org',             // BIS — credit-to-GDP gap (systeemrisico)
+  'services9.arcgis.com',      // IMF PortWatch — maritieme chokepoints (Suez/Hormuz/Panama/Malacca/…)
 ]);
 
 const CORS = {
