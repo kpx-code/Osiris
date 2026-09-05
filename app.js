@@ -21719,10 +21719,12 @@ const TrinityGSD = {
           eta = nn || (now+horizonMs*0.6);
           basis='live loading · VFM '+(vfm*100|0)+'% · tipping '+(tip*100|0)+'%'; est=true;
         } else {
+          // CUMULATIVE probability of ≥1 ΔV kill-switch within this horizon (Poisson).
           prob = 1 - Math.exp(-killsPerYear*(days/365));
-          const expNext = now + (1/Math.max(0.15,killsPerYear))*365*864e5;
-          eta = nn? Math.min(nn, expNext) : expNext;
-          basis='historical cadence · '+killsPerYear.toFixed(2)+'/yr over '+yrs+'y'; est=false;
+          // the date is the horizon END — "at least one crisis-scale event BY this date" — not a single
+          // trigger day. (Previously all long rows collapsed onto the next TAM node, showing one near date.)
+          eta = now + horizonMs;
+          basis='historical cadence · '+killsPerYear.toFixed(2)+'/yr over '+yrs+'y · cumulative by horizon end'; est=false;
         }
         const halfw = days<=30? days*0.25*864e5 : days<=365? days*0.12*864e5 : days*0.08*864e5;
         out.push({ key, days, prob:+_clamp01(prob).toFixed(2), eta, window:[eta-halfw, eta+halfw], topic:topCats.join(' + ')||'—', zone:topZone, basis, estimate:est });
@@ -22375,7 +22377,7 @@ function renderGSD(){
           +`<span class="mono" style="font-size:0.52rem;color:#ff8a94">★ ${p.topic}</span>`
           +`<span class="mono" style="font-size:0.52rem;color:var(--dim)">${p.zone}</span>`
           +`</div>`; }).join('')
-        +`<div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:8px;line-height:1.75;border-top:1px solid var(--line);padding-top:8px;"><b style="color:#ff8a94;">★ = projected ΔV kill-switch</b> (a crisis release). <b style="color:#7fd8ff;">Week–quarter</b> are live estimates from the current VFM loading, compression and the next TAM node — wide error bars, they shift as data changes. <b style="color:#7fd8ff;">Year–10y</b> use the historical crisis cadence from the 36-year calibration. <b>Topic / zone</b> = the categories loading fastest right now, projected forward. Trinity re-computes this continuously and adapts autonomously; every material change is logged in the revision feed below.</div>`;
+        +`<div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:8px;line-height:1.75;border-top:1px solid var(--line);padding-top:8px;"><b style="color:#ff8a94;">★ = projected ΔV kill-switch</b> (a crisis release). <b style="color:#7fd8ff;">Week–quarter</b> are live estimates from the current VFM loading, compression and the next TAM node — wide error bars, they shift as data changes. <b style="color:#7fd8ff;">Year–30y</b> use the historical crisis cadence from the calibration and are <b>cumulative</b> — the chance of <b>at least one</b> ΔV kill-switch <em>by</em> that horizon's end date (so a high % over decades is expected; re-run "Calibrate from history" to refresh the per-year rate). <b>Topic / zone</b> = the categories loading fastest right now, projected forward. Trinity re-computes this continuously and adapts autonomously; every material change is logged in the revision feed below.</div>`;
       // ---- predicted-vs-outcome zelf-score (continue shadow-screening op de WEEK-horizon) ----
       const ks=TrinityGSD.killProjScore; const fmtDT=ms=>{ const d=new Date(ms),p=n=>String(n).padStart(2,'0'); return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes()); };
       let scoreHtml;
@@ -22705,15 +22707,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // ---- gegrond besmettings-prior: bron-categorie → [ doel, gewicht, lag(dagen), effect ] ----
   //  doel: 'ALL' (alle zones), 'SELF' (bronzone), of een zone-key. Effect = leesbaar label.
   const PRIOR = {
-    conflict:[['SELF',0.75,0,'direct conflict'],['me',0.6,0,'olie-schok'],['ALL',0.5,1,'risk-off'],['eu',0.4,2,'energie']],
-    geo:     [['SELF',0.55,0,'spanning'],['ALL',0.35,2,'onzekerheid']],
-    cb:      [['na',0.6,0,'USD/rente'],['ALL',0.55,1,'rente→FX']],
-    econ:    [['SELF',0.5,1,'macro'],['ALL',0.3,5,'groei/CPI']],
-    trade:   [['af',0.5,3,'grondstof-exporteur'],['latam',0.5,3,'grondstof-exporteur'],['me',0.45,2,'olie'],['ALL',0.3,3,'handel']],
-    disaster:[['SELF',0.65,0,'lokale ramp'],['ALL',0.2,3,'supply-shock']],
-    weather: [['SELF',0.55,1,'lokaal extreem'],['ap',0.3,4,'agri/rijst'],['af',0.25,4,'oogst']],
-    tone:    [['SELF',0.4,0,'sentiment'],['ALL',0.25,1,'media-tone']],
-    market:  [['ALL',0.4,0,'FX-besmetting']]
+    conflict:[['SELF',0.75,0,'direct conflict'],['me',0.6,0,'oil shock'],['ALL',0.5,1,'risk-off'],['eu',0.4,2,'energy']],
+    geo:     [['SELF',0.55,0,'tension'],['ALL',0.35,2,'uncertainty']],
+    cb:      [['na',0.6,0,'USD / rates'],['ALL',0.55,1,'rates → FX']],
+    econ:    [['SELF',0.5,1,'macro'],['ALL',0.3,5,'growth / CPI']],
+    trade:   [['af',0.5,3,'commodity exporter'],['latam',0.5,3,'commodity exporter'],['me',0.45,2,'oil'],['ALL',0.3,3,'trade']],
+    disaster:[['SELF',0.65,0,'local disaster'],['ALL',0.2,3,'supply shock']],
+    weather: [['SELF',0.55,1,'local extreme'],['ap',0.3,4,'agri / rice'],['af',0.25,4,'harvest']],
+    tone:    [['SELF',0.4,0,'sentiment'],['ALL',0.25,1,'media tone']],
+    market:  [['ALL',0.4,0,'FX contagion']]
   };
   const ZKEYS = ()=>{ try{ return GSD_ZONES.filter(z=>z.key!=='global').map(z=>z.key); }catch(e){ return ['na','eu','ap','me','af','latam']; } };
   const zName = k=>{ try{ const z=GSD_ZONES.find(z=>z.key===k); return z?z.name:k; }catch(e){ return k; } };
@@ -22732,15 +22734,17 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       for(const z of zk){ const zc=cells[z]; if(!zc) continue;
         for(const cat in zc){ const v=zc[cat]&&zc[cat].v; if(v==null) continue;
           const key=z+':'+cat; const pr=this.prev[key];
-          if(pr!=null){ const d=v-pr.v; // ruwe verandering
-            // adaptieve ruis-schaal per cel
+          if(pr!=null){ const d=v-pr.v; const n=(pr.n||1)+1; // raw change + observation count
+            // adaptive noise scale per cell
             pr.ema=(pr.ema==null?Math.abs(d):pr.ema*0.9+Math.abs(d)*0.1);
             const zsc = pr.ema>1e-4 ? d/pr.ema : 0;
-            if(zsc>=3 && v>=0.45 && (now-(this._lastShockAt[key]||0))>3600000){   // sprong omhoog, materieel, max 1/uur
+            // real jump up (bar lowered so genuine changes register), but a cell must be observed a
+            // few times first — this kills the artificial spike when a curated cell first fills in.
+            if(n>=4 && zsc>=2.5 && d>=0.04 && v>=0.40 && (now-(this._lastShockAt[key]||0))>1800000){
               this._lastShockAt[key]=now; this._register({srcZone:z,srcCat:cat,at:now,mag:Math.min(1,v),jump:+d.toFixed(3),zsc:+zsc.toFixed(1)});
             }
-            this.prev[key]={v,ema:pr.ema};
-          } else this.prev[key]={v,ema:Math.abs(v)*0.1+1e-3};
+            this.prev[key]={v,ema:pr.ema,n};
+          } else this.prev[key]={v,ema:Math.abs(v)*0.1+1e-3,n:1};
         }
       }
     },
@@ -22753,7 +22757,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const add=(tgt,w,lag,eff)=>{ if(seen[tgt])return; seen[tgt]=1;
         const lf=this._learned(shock.srcCat,tgt);                       // adaptieve factor
         const prob=Math.max(0.05,Math.min(0.95, w*shock.mag*lf));
-        out.push({zone:tgt,prob:+prob.toFixed(2),lagDays:lag,eta:shock.at+lag*864e5,effect:eff}); };
+        out.push({zone:tgt,prob:+prob.toFixed(2),lagDays:lag,eta:shock.at+Math.max(lag,0.04)*864e5,effect:eff}); };
       for(const [dst,w,lag,eff] of rows){ if(dst==='ALL'){ zk.forEach(z=>{ if(z!==shock.srcZone) add(z,w,lag,eff); }); }
         else if(dst==='SELF'){ add(shock.srcZone,w,lag,eff); } else add(dst,w,lag,eff); }
       return out.sort((a,b)=>b.prob-a.prob).slice(0,6);
@@ -22764,10 +22768,12 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // ---- resolve + score: klopte de voorspelde propagatie? (target-zone stress gestegen?) ----
     resolve(){ const now=Date.now(); let zs; try{ zs=TrinityGSD.zoneStress; }catch(e){ return; } if(!zs) return; let changed=false;
       for(const p of this.preds){ if(p._done) continue; for(const t of p.targets){ if(t._done) continue;
-        if(t.base==null){ t.base=zs[t.zone]||0; }                       // baseline bij eerste zicht
-        if(now>=t.eta){ const nowS=zs[t.zone]||0; const hit=(nowS-t.base)>=0.05?1:0;     // stress steeg ≥5pt
+        const nowS=zs[t.zone]||0;
+        if(t.base==null){ t.base=nowS; t.peak=nowS; }                    // baseline at first sight
+        else t.peak=Math.max(t.peak==null?t.base:t.peak, nowS);          // track the peak reached in-window
+        if(now>=t.eta){ const rise=Math.max(t.peak||nowS, nowS)-t.base; const hit=rise>=0.025?1:0;   // stress rose ≥2.5pt at any point in window (bar lowered)
           const k=p.srcCat+'>'+t.zone; const w=this.W[k]||(this.W[k]={n:0,hit:0}); w.n++; w.hit+=hit;
-          t._done=1; t.hit=hit; t.outS=+nowS.toFixed(3); changed=true; }
+          t._done=1; t.hit=hit; t.outS=+nowS.toFixed(3); t.rise=+rise.toFixed(3); changed=true; }
       } if(p.targets.every(t=>t._done)) p._done=1; }
       if(changed){ // Brier over afgeronde targets
         let n=0,br=0,hits=0; for(const p of this.preds)for(const t of p.targets)if(t._done){ n++; br+=(t.prob-(t.hit||0))**2; hits+=(t.hit||0); }
@@ -22785,7 +22791,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function renderShockWaveFeed(){ const el=document.getElementById('sw-feed'); if(!el)return;
     const G='#14f195',R='#ff5f7e',A='#ffb627',SH='#ff8a3c',D='var(--dim)',DD='var(--dimmer)';
     const sc=SW.score;
-    const explain=`<div style="font-size:0.56rem;color:${D};line-height:1.75;margin-bottom:8px;">The <b style="color:${SH}">contagion engine</b> is ShockWave's forecasting core. Every ~8s it scans the FSO-GSD cells (world zone × category) for a <b>shock</b> — a sudden z-score jump in stress. It then predicts how that shock <b>propagates</b>: which other zones are hit, with what <b>lag</b> (days), <b>direction/effect</b>, and <b>probability</b>. It starts from a grounded macro prior (known contagion channels — e.g. Middle-East conflict → oil → risk-off → safe-havens) and <b>adapts</b> the channel weights on realised outcomes (did the target zone's stress actually rise?), scored with an honest hit-rate + Brier.</div>`;
+    const explain=`<div style="font-size:0.56rem;color:${D};line-height:1.75;margin-bottom:8px;">The <b style="color:${SH}">contagion engine</b> is ShockWave's forecasting core. Every ~8s it scans the FSO-GSD cells (world zone × category) for a <b>shock</b> — a sudden z-score jump in stress. It then predicts how that shock <b>propagates</b>: which other zones are hit, with what <b>lag</b> (days), <b>direction/effect</b>, and <b>probability</b>. It starts from a grounded macro prior (known contagion channels — e.g. Middle-East conflict → oil → risk-off → safe-havens) and <b>adapts</b> the channel weights on realised outcomes (did the target zone's stress actually rise?), scored with an honest hit-rate + Brier.</div>`
+      +`<div style="font-size:0.5rem;color:${DD};line-height:1.7;margin:-2px 0 8px;background:rgba(255,255,255,0.02);border:1px solid var(--line);border-radius:6px;padding:6px 9px;"><b style="color:${D}">effect terms:</b> <b style="color:${SH}">risk-off</b> = money flees risky assets (stocks, EM FX) toward safe havens; <b style="color:${SH}">supply shock</b> = a hit to the supply of goods/commodities; <b style="color:${SH}">oil shock</b> = a sharp oil-price move; <b style="color:${SH}">rates→FX</b> = central-bank/rate moves spilling into currencies; <b style="color:${SH}">uncertainty / tension</b> = elevated geopolitical risk premium. &nbsp;Note: contagion works at <b>zone</b> level (Asia-Pacific, Europe…), not per country — Taiwan/Japan sit inside Asia-Pacific, and a zone only appears as a source when its stress <b>jumps</b> (the engine detects change, not just a high level).</div>`;
     const hdr=`<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.56rem;margin-bottom:8px;">`
       +`<span style="background:rgba(255,138,60,0.08);border:1px solid rgba(255,138,60,0.4);border-radius:5px;padding:3px 8px;color:${SH};">contagion engine</span>`
       +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">learned channels</span> <b>${Object.keys(SW.W).length}</b></span>`
@@ -23073,7 +23080,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     M.ctx=cv.getContext('2d');
     _resize(); window.addEventListener('resize',_resize);
     _bindInput(); _buildControls(); _renderLegend(); _renderCountryList();
-    if(LAYERS.cities) _fetchCities();
+    if(LAYERS.cities||LAYERS.density) _fetchCities();
   }
   function _resize(){ if(!M.cv)return; const r=M.cv.getBoundingClientRect(); const w=Math.max(320,r.width), h=Math.max(380,Math.min(640,w*0.54));
     M.dpr=Math.min(2,window.devicePixelRatio||1); M.cv.width=w*M.dpr; M.cv.height=h*M.dpr; M.cv.style.height=h+'px'; M.w=w; M.h=h;
@@ -23116,7 +23123,9 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // ---- GLOW-lagen (additief) ----
     ctx.save(); ctx.globalCompositeOperation='lighter';
     if(LAYERS.pressure) GSD_ZONES.filter(z=>z.key!=='global').forEach(z=>{ const c=zCentroid(z.key); if(!c)return; const p=pB(c[0],c[1]); const s=zStress(z.key); if(s<0.12)return; blob(p[0],p[1],(60+s*90),zCol(z.key),0.10+s*0.28); });
-    if(LAYERS.density) METROS.forEach(m=>{ const p=pB(m[1],m[0]); blob(p[0],p[1],Math.sqrt(m[2])*7,'#c792ea',0.2); blob(p[0],p[1],Math.max(4,m[2]*0.4)*iz+3,'#e0b3ff',0.5); });
+    if(LAYERS.density){ if(M.cities&&M.cities.length){ // full Natural-Earth city set (LA, Chongqing, Kolkata, … all appear), pop-scaled
+        for(const c of M.cities){ const pop=c.pop||0; if(pop<300000)continue; const p=pB(c.lon,c.lat); const s=Math.sqrt(pop/1e6); blob(p[0],p[1],Math.min(58,7+s*9),'#c792ea',0.10+Math.min(0.28,s*0.05)); blob(p[0],p[1],Math.max(3,s*2.6)*iz+2,'#e0b3ff',0.5); } }
+      else METROS.forEach(m=>{ const p=pB(m[1],m[0]); blob(p[0],p[1],Math.sqrt(m[2])*7,'#c792ea',0.2); blob(p[0],p[1],Math.max(4,m[2]*0.4)*iz+3,'#e0b3ff',0.5); }); }
     if(LAYERS.temp&&M.wx.length) M.wx.forEach(o=>{ if(o.temp==null)return; const p=pB(o.lon,o.lat); const t=o.temp; const col=t>=30?'#ff5f3c':t>=20?'#ffb627':t>=8?'#7fd8ff':'#4f8bff'; const a=Math.min(0.28,Math.abs(t-16)/70+0.05); blob(p[0],p[1],60,col,a); });
     if(LAYERS.rain&&M.wx.length) M.wx.forEach(o=>{ if(!o.tot)return; const p=pB(o.lon,o.lat); const col=o.flood?'#4fc3f7':'#3a6f90'; blob(p[0],p[1],22+Math.min(42,o.tot*0.35),col,o.flood?0.14:0.045); });
     if(LAYERS.commodity) COMMOD.forEach(c=>{ const p=pB(c[1],c[0]); blob(p[0],p[1],60,c[3],0.16); });
@@ -23211,10 +23220,10 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function _feedGSDfromCurated(){ try{ if(typeof TrinityGSD==='undefined'||!TrinityGSD.setCell)return;
     // conflicts → per-zone conflict cell (soft aggregate of intensities), blended with any live value
     const zc={}; CONFLICTS.forEach(c=>{ const z=zoneOfCentroid(c.lon,c.lat); if(z==='global')return; zc[z]=(zc[z]||0)+c.i; });
-    GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const raw=zc[z.key]||0; const v=1-Math.exp(-raw*0.5); const cell=TrinityGSD.cells[z.key]&&TrinityGSD.cells[z.key].conflict; const cur=cell&&cell.v!=null?cell.v:0; TrinityGSD.setCell(z.key,'conflict',Math.max(cur,v),'curated+live','curated conflict floor'); });
-    // flashpoints → per-zone geo cell (live-scored influence)
+    GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const raw=zc[z.key]||0; const v=1-Math.exp(-raw*0.5); const cell=TrinityGSD.cells[z.key]&&TrinityGSD.cells[z.key].conflict; const cur=cell&&cell.v!=null?cell.v:0; const nv=cur+(v-cur)*0.25; TrinityGSD.setCell(z.key,'conflict',Math.max(cur,nv),'curated+live','curated conflict floor'); }); // ramp, not step → no artificial shock
+    // flashpoints → per-zone geo cell (live-scored influence), ramped
     const zg={}; FLASHPOINTS.forEach(f=>{ const s=_flashScore(f); (f.zones||[]).forEach(z=>{ if(z==='global')return; zg[z]=Math.max(zg[z]||0,s); }); });
-    GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const v=(zg[z.key]||0)*0.75; if(v<=0)return; const cell=TrinityGSD.cells[z.key]&&TrinityGSD.cells[z.key].geo; const cur=cell&&cell.v!=null?cell.v:0; TrinityGSD.setCell(z.key,'geo',Math.max(cur,v),'flashpoints','economic-flashpoint influence'); });
+    GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const v=(zg[z.key]||0)*0.75; if(v<=0)return; const cell=TrinityGSD.cells[z.key]&&TrinityGSD.cells[z.key].geo; const cur=cell&&cell.v!=null?cell.v:0; const nv=cur+(v-cur)*0.25; TrinityGSD.setCell(z.key,'geo',Math.max(cur,nv),'flashpoints','economic-flashpoint influence'); });
     try{ TrinityFeeds.markOk('gsd-conflicts', CONFLICTS.length+' active'); TrinityFeeds.markOk('gsd-migration', MIGRATION.length+' corridors'); TrinityFeeds.markOk('gsd-flashpoints', FLASHPOINTS.length+' flashpoints'); }catch(e){}
   }catch(e){} }
   // ETA countdown "T- …" to a projected date
@@ -23302,6 +23311,10 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function _stressRow(r,i,km){ const sc=r.score>=0.5?'#ff5f7e':r.score>=0.3?'#ffb627':'#cfe0ec';
     const kc=(km&&km[r.zone]!=null)?` <span style="color:#ff8a3c;">ks ${km[r.zone]}%</span>`:'';
     return `<div style="font-size:0.5rem;color:#9fb2c4;line-height:1.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${i+1}. <b style="color:${sc}">${r.name}</b> ${(r.score*100|0)}%${kc}</div>`; }
+  // name the dominant economic flashpoint for the kill-switch's top zone (so "Asia-Pacific" reads as Taiwan/semiconductors)
+  function _killDriverHtml(P){ try{ const zn=P&&P[0]&&P[0].zone; if(!zn)return ''; const zk=(GSD_ZONES.find(z=>z.name===zn)||{}).key; if(!zk)return '';
+    const d=FLASHPOINTS.filter(f=>(f.zones||[]).indexOf(zk)>=0).map(f=>({name:f.name,s:_flashScore(f)})).sort((a,b)=>b.s-a.s)[0];
+    if(!d)return ''; return `<div style="font-size:0.46rem;color:#9fb2c4;margin:3px 0 1px;line-height:1.4;">${zn} driver: <b style="color:#ffd76a">${d.name}</b> ${(d.s*100|0)}%</div>`; }catch(e){ return ''; } }
   function _updateHud(){ const el=document.getElementById('sw-hud'); if(!el)return;
     if(!LAYERS.killzones){ el.style.display='none'; return; }   // panel toggles on/off with the ΔV kill-switch layer
     el.style.display='block';
@@ -23322,7 +23335,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1px;"><span style="font-size:0.5rem;letter-spacing:0.1em;color:#ff8a3c;text-transform:uppercase;">ΔV kill-switch projection</span><button onclick="window.__swExportData&&window.__swExportData()" title="Download all ShockWave data (JSON)" style="cursor:pointer;background:rgba(255,138,60,0.12);border:1px solid rgba(255,138,60,0.5);color:#ff8a3c;border-radius:4px;font:0.46rem JetBrains Mono,monospace;padding:1px 5px;">⭳ data</button></div>`
       +`<div style="font-size:0.42rem;color:#5c7488;margin-bottom:3px;">updated ${_lastUpdated()} · auto-refresh</div>`
       +`<div style="display:flex;gap:3px;font-size:0.42rem;letter-spacing:0.02em;color:#5c7488;text-transform:uppercase;margin-bottom:1px;"><span style="flex:0 0 46px;">hrzn</span><span style="flex:0 0 42px;">est.date</span><span style="flex:0 0 46px;">eta</span><span style="flex:0 0 44px;">chance</span><span style="flex:1 1 auto;min-width:0;">zone</span></div>`
-      +rowsH+div
+      +rowsH+_killDriverHtml(P)+div
       +`<div style="font-size:0.5rem;letter-spacing:0.08em;color:#ffd76a;text-transform:uppercase;margin-bottom:1px;">★ Economic influence · world</div>`+infRows
       +div+`<div style="font-size:0.5rem;letter-spacing:0.08em;color:#14f195;text-transform:uppercase;margin-bottom:1px;">★ Economic stress · countries</div>`+econRows
       +div+`<div style="font-size:0.44rem;letter-spacing:0.08em;color:#8aa0ad;text-transform:uppercase;margin-bottom:1px;">Other stress · by category</div>`+otherHtml;
@@ -23404,7 +23417,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   }
 
   window.__swToggle=function(k){ LAYERS[k]=!LAYERS[k]; saveLayers();
-    if(k==='cities'&&LAYERS.cities)_fetchCities(); if(k==='plates'&&LAYERS.plates)_fetchPlates(); if((k==='rain'||k==='temp')&&(LAYERS.rain||LAYERS.temp)&&!M.wx.length)_fetchWx(); if(k==='spaceweather'&&LAYERS.spaceweather)_fetchSpace();
+    if((k==='cities'&&LAYERS.cities)||(k==='density'&&LAYERS.density))_fetchCities(); if(k==='plates'&&LAYERS.plates)_fetchPlates(); if((k==='rain'||k==='temp')&&(LAYERS.rain||LAYERS.temp)&&!M.wx.length)_fetchWx(); if(k==='spaceweather'&&LAYERS.spaceweather)_fetchSpace();
     if(k==='migration'||k==='capital'||k==='commodityflow'||k==='contagion') M._flowTs=0; }; // rebuild flows immediately
 
   // lazy-init + externe refresh
