@@ -19328,6 +19328,9 @@ function tick(){
     // confidence spread across bands; higher = stronger estimated drift + confluence
     const predRaw=Math.min(97, 34 + sigMag*52 + st.fib*7 + carryAlign*5 + newsAlign*4);
     st.pred=st.pred*0.8+predRaw*0.2; st._carry=carry; st._news=news[b]-news[q]; st._gap=diff; st._sigMag=sigMag;
+    // ShockWave→Trinity macro bridge: bounded (+≤5), alignment-only, shadow-gated confidence nudge.
+    // Only reinforces when Trinity's own price signal already agrees with the world-stress macro lean.
+    try{ if(typeof OsirisMacro!=='undefined'){ const mt=OsirisMacro.tilt(p,st.side); st._macroTilt=+mt.toFixed(2); if(mt>0) st.pred=Math.min(97, st.pred+mt); } }catch(e){}
   });
   ranked=PAIRS.map(p=>({p,...pair[p]})).sort((a,b)=>b.score-a.score);
   topLong =ranked.filter(r=>r.side==='LONG').sort((a,b)=>b.score-a.score)[0]||ranked[0];
@@ -20804,7 +20807,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
@@ -21443,6 +21446,9 @@ function _gsdRe(r){ return ({RUST:'CALM',SPANNING:'TENSION',CRISIS:'CRISIS'}[r])
 // ---- de-saturatie-helpers ------------------------------------------------------------
 // soft saturation: mapt [0,∞) → [0,1) zonder ooit exact 1 te raken (geen plafond-artefact)
 function _gsdSoft(x){ if(x==null||!isFinite(x)) return null; if(x<0)x=0; return 1-Math.exp(-x); }
+// freshness-decay per categorie: hoe recenter, hoe zwaarder een cel meetelt (floor 0.25 zodat oude data nog iets telt)
+const GSD_HALFLIFE = { market:3600e3, disaster:6*3600e3, weather:12*3600e3, tone:12*3600e3, geo:24*3600e3, conflict:24*3600e3, cb:2*24*3600e3, trade:2*24*3600e3, econ:14*24*3600e3 };
+function _gsdFresh(cat,at){ if(!at) return 0.5; const hl=GSD_HALFLIFE[cat]||24*3600e3; const age=Date.now()-at; return age<=0?1:Math.max(0.25,Math.exp(-age/hl)); }
 // rollende percentiel-normalisatie per zone×categorie: "waar zit deze ruwe waarde t.o.v. de
 // eigen recente verdeling". Vroeg (weinig historie) valt het terug op soft-absoluut, zodat je
 // niet meteen overal 0.5 krijgt. Buffers persisteren in localStorage (overleeft reloads).
@@ -21461,7 +21467,7 @@ function _gsdRelNorm(zk,ck,raw){
 function _gsdRollSave(){ try{ if(!_gsdRollDirty)return; const now=Date.now(); if(now-_gsdRollSaved<20000)return; _gsdRollSaved=now; _gsdRollDirty=false; localStorage.setItem('trinityGSDroll',JSON.stringify(GSD_ROLL)); }catch(e){} }
 
 const TrinityGSD = {
-  proxy:'', cells:{}, zoneStress:{}, catStress:{},
+  proxy:'', cells:{}, zoneStress:{}, catStress:{}, zoneConf:{},
   stress:0, sysVar:0, nodeTh:GSD_TH_DEFAULT, vfm:0, escapeVel:0, compressionAge:0, compressionPeak:0,
   killSwitch:false, killTs:0, regime:'RUST', spanT:0.35, crisT:0.60, escapeCrit:0.10, calibrated:false, _varMax:0.02, histCal:null,
   tippingRisk:0, tippingTier:'low', killProjection:null, _projTs:0,
@@ -21510,8 +21516,11 @@ const TrinityGSD = {
       const zVals=[];
       GSD_ZONES.forEach(z=>{
         if(z.synthetic) return;
-        let s=0,w=0; GSD_CATS.forEach(c=>{ const cell=this.cells[z.key][c.key]; if(cell&&cell.v!=null){ const wt=GSD_CATWEIGHT[c.key]||1; s+=cell.v*wt; w+=wt; } });
+        // freshness-decay: stale cells contribute less (weight × freshness) → no "ghost stress" from feeds that stopped updating.
+        let s=0,w=0, fresh=0, nfresh=0; GSD_CATS.forEach(c=>{ const cell=this.cells[z.key][c.key]; if(cell&&cell.v!=null){ const fr=_gsdFresh(c.key,cell.at); const wt=(GSD_CATWEIGHT[c.key]||1)*fr; s+=cell.v*wt; w+=wt; fresh+=fr; nfresh++; } });
         const zs = w>0? s/w : null; this.zoneStress[z.key]=zs; if(zs!=null) zVals.push(zs);
+        // confidence = coverage (# categories with data) × average freshness
+        this.zoneConf[z.key] = nfresh? +( (nfresh/GSD_CATS.length) * (fresh/nfresh) ).toFixed(2) : 0;
       });
       // globale/systemische zone = gemiddelde over zones (de macro-oscillator)
       const gmean = zVals.length? zVals.reduce((a,b)=>a+b,0)/zVals.length : 0;
@@ -21524,6 +21533,8 @@ const TrinityGSD = {
         if(gc){ gc.v=(gv==null?null:_clamp01(gv)); gc.at=gv==null?gc.at:Date.now(); gc.status=gv==null?'idle':'ok'; gc.src='aggregate'; if(gv!=null) gc.why=n+' zones · worst '+(worstZ||'—')+' '+(worst*100|0); }
       });
       this.zoneStress.global=gmean;
+      // freshest data timestamp across all cells (voor "last updated" in de panelen/charts)
+      try{ let mx=0; GSD_ZONES.forEach(z=>GSD_CATS.forEach(c=>{ const cc=this.cells[z.key]&&this.cells[z.key][c.key]; if(cc&&cc.at>mx)mx=cc.at; })); this.lastDataAt=mx; }catch(e){}
 
       const stress=_clamp01(gmean);
       // σ² = spread between zones (asynchrony). Normalised against a FIXED reference so it is an
@@ -21575,8 +21586,10 @@ const TrinityGSD = {
           s+=cs; n++; });
         // extra: gemiddelde pair-volatiliteit van pairs die deze zone-valuta bevatten
         let pv=0,pn=0; PAIRS.forEach(p=>{ const [b,q]=splitPair(p); if(z.ccy.indexOf(b)>=0||z.ccy.indexOf(q)>=0){ const st=pair[p]; if(st){ pv+=_clamp01((st._vol||0)*140); pn++; } } });
-        const mk = n? (s/n)*0.6 + (pn?pv/pn:0)*0.4 : null;
-        this.setCell(z.key,'market', mk, 'live FX-FSO');
+        let mk = n? (s/n)*0.6 + (pn?pv/pn:0)*0.4 : null;
+        // cross-asset: BTC als risk-appetite-proxy (hoge crypto-vol / scherpe daling = risk-off) blend erin
+        const br=this._btcRisk; let src='live FX-FSO'; if(br!=null){ mk = mk!=null? Math.max(mk, mk*0.6+br*0.5) : br*0.7; src='FX-FSO + BTC'; }
+        this.setCell(z.key,'market', mk, src, this._btcWhy||'');
       });
     }catch(e){}
   },
@@ -21801,7 +21814,7 @@ const TrinityGSD = {
   globalRisk(){ return { regime:this.regime, stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, vfm:this.vfm, kill:this.killSwitch }; },
   bundle(){ return { zones:GSD_ZONES.map(z=>({key:z.key,name:z.name,ccy:z.ccy})), categories:GSD_CATS.map(c=>({key:c.key,name:c.name,src:c.src,direct:c.direct})),
     live:{ stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, spanT:this.spanT, crisT:this.crisT, vfm:this.vfm, escapeVel:this.escapeVel, regime:this.regime, tippingRisk:this.tippingRisk, tippingTier:this.tippingTier, killSwitch:this.killSwitch, calibrated:this.calibrated },
-    zoneStress:this.zoneStress, catStress:this.catStress, cells:this.cells, ranking:this.ranking, predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
+    zoneStress:this.zoneStress, zoneConfidence:this.zoneConf, catStress:this.catStress, cells:this.cells, ranking:this.ranking, predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
     calibration:this._cal, shadow:this._shadow, histCal:this.histCal, historicalBackfill:(typeof TrinityGSDBackfill!=='undefined'?TrinityGSDBackfill.bundle():null), proxy:this.proxy?'(ingesteld)':'(geen)', tamAnchor:new Date(this.anchorTs).toISOString(),
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
@@ -21837,6 +21850,7 @@ const GSDData = {
     run(()=>this.worldbank(), 6*3600000, 3000);
     run(()=>this.commodities(), 30*60000, 5600); // live commodities via FRED (WTI/Brent/gas/wheat/gold/USD)
     run(()=>this.enso(), 12*3600000, 4200);   // NOAA ONI (El Niño/La Niña) — keyless
+    run(()=>this.btc(), 5*60000, 2600);        // BTC cross-asset risk-appetite — keyless (browser-direct)
     // proxy-gated bronnen (draaien alleen als een GSD-proxy-URL is ingesteld)
     run(()=>this.gdelt(), 10*60000, 4800);    // geopolitiek / tone (geen key)
     run(()=>this.fred(),  30*60000, 5400);    // financiële condities (VIX/NFCI) — FRED key
@@ -21844,6 +21858,7 @@ const GSDData = {
     run(()=>this.acled(), 30*60000, 6800);    // gewapende conflicten — ACLED key
     run(()=>this.z1tic(), 6*3600000, 7600);   // Fed Z.1 + US Treasury TIC (via FRED)
     run(()=>this.bis(),   12*3600000, 8600);  // BIS credit-to-GDP gap (systemic)
+    run(()=>this.portwatch(), 6*3600000, 9400); // IMF PortWatch maritime chokepoints (Suez/Hormuz/…)
   },
   // USGS aardbevingen (direct, GeoJSON) → disaster-stress per zone
   usgs(){
@@ -21992,10 +22007,22 @@ const GSDData = {
       if(!parts.length){ TrinityFeeds.markErr('gsd-commod','no data'); return; }
       const tstress=parts.reduce((a,b)=>a+b,0)/parts.length;
       const why='WTI $'+(wti?wti.toFixed(0):'—')+' · Brent $'+(brent?brent.toFixed(0):'—')+' · gas $'+(gas?gas.toFixed(1):'—')+' · wheat $'+(wheat?wheat.toFixed(0):'—')+(gold?' · gold $'+gold.toFixed(0):'');
-      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; TrinityGSD.setCell(z.key,'trade',tstress,'FRED commodities',why); });
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cz=TrinityGSD._chokeZone&&TrinityGSD._chokeZone[z.key]; const ft=(cz!=null&&cz>tstress)?cz:tstress; TrinityGSD.setCell(z.key,'trade',ft,'FRED commodities'+(cz!=null&&cz>tstress?' + PortWatch':''),why); });
       if(gold>0){ const rf=_clamp01((gold-2200)/1600); if(rf>0.3) GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].market.v; if(cur==null||rf*0.6>cur) TrinityGSD.setCell(z.key,'market', rf*0.6, 'FRED (gold risk-off)', 'gold $'+gold.toFixed(0)); }); }
       TrinityFeeds.markOk('gsd-commod',why);
     }).catch(e=>TrinityFeeds.markErr('gsd-commod',e.message,e.http)); },
+  // BTC als cross-asset risk-appetite-proxy (keyless, browser-direct via Coinbase). Hoge crypto-vol /
+  //   scherpe daling = risk-off → verhoogt de 'market'-stress (blend in _injectMarket).
+  btc(){ const url='https://api.coinbase.com/v2/prices/BTC-USD/spot';
+    this._get(url,true).then(d=>{ const px=parseFloat(d&&d.data&&d.data.amount); if(!isFinite(px))return;
+      const buf=this._btcBuf||(this._btcBuf=[]); buf.push(px); if(buf.length>48)buf.shift();
+      if(buf.length>=6){ const rets=[]; for(let i=1;i<buf.length;i++)rets.push((buf[i]-buf[i-1])/buf[i-1]);
+        const mean=rets.reduce((a,b)=>a+b,0)/rets.length, varr=rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/rets.length, vol=Math.sqrt(varr);
+        const hi=Math.max.apply(null,buf), drop=(px-hi)/hi;   // drawdown vanaf recente top (≤0)
+        TrinityGSD._btcRisk=_clamp01(vol*45 + Math.max(0,-drop)*3);
+        TrinityGSD._btcWhy='BTC $'+px.toFixed(0)+' · vol '+(vol*100).toFixed(1)+'%'; }
+      TrinityFeeds.markOk('gsd-btc','BTC $'+px.toFixed(0));
+    }).catch(e=>TrinityFeeds.markErr('gsd-btc',e.message,e.http)); },
   // NOAA CPC Oceanic Niño Index (ONI, keyless text) → El Niño/La Niña regime → weather nudge (agri risk)
   enso(){ if(!TrinityGSD.proxy) return;
     const url='https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt';
@@ -22004,8 +22031,53 @@ const GSDData = {
       const s=_clamp01(Math.abs(oni)/2.5); const phase=oni>=0.5?'El Niño':oni<=-0.5?'La Niña':'neutral';
       GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].weather.v; TrinityGSD.setCell(z.key,'weather', cur!=null?Math.max(cur,s*0.55):s*0.55, 'Open-Meteo+ENSO', 'ONI '+oni.toFixed(1)+' ('+phase+')'); });
       TrinityFeeds.markOk('gsd-enso','ONI '+oni.toFixed(1)+' '+phase);
-    }).catch(e=>TrinityFeeds.markErr('gsd-enso',e.message,e.http)); }
+    }).catch(e=>TrinityFeeds.markErr('gsd-enso',e.message,e.http)); },
+  // IMF PortWatch — daily maritime-chokepoint transit calls (Suez/Hormuz/Panama/Malacca/…). A sustained
+  //   DROP in transits vs a trailing baseline = a supply-chain disruption → lifts trade-stress in the
+  //   chokepoint's zone, and geopolitical stress for the conflict-exposed straits. Public IMF open data,
+  //   read-only, via the proxy (host: services9.arcgis.com). Give up after repeated failures.
+  portwatch(){ if(!TrinityGSD.proxy) return; if(this._pwFail>=3) return;
+    const ids=GSD_CHOKE.map(c=>"'"+c.id+"'").join(',');
+    const url='https://services9.arcgis.com/weJ1QsnbMYJlCHdG/ArcGIS/rest/services/Daily_Chokepoints_Data/FeatureServer/0/query'
+      +'?where='+encodeURIComponent('portid IN ('+ids+')')+'&outFields=portid,date,n_total&orderByFields='+encodeURIComponent('date DESC')
+      +'&resultRecordCount=700&returnGeometry=false&f=json';
+    this._get(url,false).then(d=>{ const feats=d&&d.features; if(!feats||!feats.length){ this._pwFail=(this._pwFail||0)+1; TrinityFeeds.markErr('gsd-portwatch','no data'); return; }
+      this._pwFail=0; const by={}; for(const f of feats){ const a=f.attributes||f; const id=a.portid; if(!id)continue; (by[id]||(by[id]=[])).push({t:+a.date||0, n:+a.n_total}); }
+      const out=[]; const chokeZone={};
+      for(const meta of GSD_CHOKE){ const arr=by[meta.id]; if(!arr||arr.length<10) continue; arr.sort((x,y)=>y.t-x.t);
+        const recent=arr.slice(0,7).map(o=>o.n).filter(isFinite); const baseArr=arr.slice(7,45).map(o=>o.n).filter(isFinite);
+        if(recent.length<3||baseArr.length<5) continue;
+        const rMean=recent.reduce((a,b)=>a+b,0)/recent.length; const bSort=baseArr.slice().sort((a,b)=>a-b); const bMed=bSort[Math.floor(bSort.length/2)]||rMean;
+        const shortfall=bMed>0?_clamp01(1-rMean/bMed):0;              // fraction of transits lost vs baseline
+        const stress=_clamp01(shortfall*1.4);                          // disruption → stress
+        out.push({id:meta.id,name:meta.name,lat:meta.lat,lon:meta.lon,zone:meta.zone,geo:!!meta.geo,recent:Math.round(rMean),baseline:Math.round(bMed),shortfall:+shortfall.toFixed(3),stress:+stress.toFixed(3),at:arr[0].t});
+        if(stress>(chokeZone[meta.zone]||0)) chokeZone[meta.zone]=stress;
+      }
+      out.sort((a,b)=>b.stress-a.stress);
+      TrinityGSD._chokepoints=out; TrinityGSD._chokeZone=chokeZone;
+      // lift trade-stress (and geo for conflict-straits) in affected zones — max-blend, non-destructive
+      out.forEach(c=>{ if(c.stress<0.08) return;
+        const tc=TrinityGSD.cells[c.zone]&&TrinityGSD.cells[c.zone].trade; if(tc){ const cur=tc.v; if(cur==null||c.stress>cur) TrinityGSD.setCell(c.zone,'trade',c.stress,'PortWatch',c.name+' transits −'+Math.round(c.shortfall*100)+'%'); }
+        if(c.geo && c.stress>=0.15){ const gc=TrinityGSD.cells[c.zone]&&TrinityGSD.cells[c.zone].geo; if(gc){ const cur=gc.v, g=_clamp01(c.stress*0.6); if(cur==null||g>cur) TrinityGSD.setCell(c.zone,'geo',g,'PortWatch',c.name+' disruption'); } }
+      });
+      const top=out[0]; TrinityFeeds.markOk('gsd-portwatch', top? (top.name+' −'+Math.round(top.shortfall*100)+'% · '+out.length+' straits') : (out.length+' straits ok'));
+    }).catch(e=>{ this._pwFail=(this._pwFail||0)+1; TrinityFeeds.markErr('gsd-portwatch',e.message,e.http); }); }
 };
+// IMF PortWatch chokepoints we monitor (id → name, coords, GSD zone, geopolitical-strait flag).
+const GSD_CHOKE = [
+  {id:'chokepoint1', name:'Suez Canal',        lat:30.5,  lon:32.35,  zone:'af',    geo:true },
+  {id:'chokepoint4', name:'Bab el-Mandeb',     lat:12.6,  lon:43.4,   zone:'me',    geo:true },
+  {id:'chokepoint6', name:'Strait of Hormuz',  lat:26.6,  lon:56.4,   zone:'me',    geo:true },
+  {id:'chokepoint3', name:'Bosporus Strait',   lat:41.1,  lon:29.05,  zone:'eu',    geo:true },
+  {id:'chokepoint5', name:'Malacca Strait',    lat:2.5,   lon:101.3,  zone:'ap',    geo:false},
+  {id:'chokepoint11',name:'Taiwan Strait',     lat:24.4,  lon:119.5,  zone:'ap',    geo:true },
+  {id:'chokepoint2', name:'Panama Canal',      lat:9.08,  lon:-79.68, zone:'latam', geo:false},
+  {id:'chokepoint8', name:'Gibraltar Strait',  lat:35.95, lon:-5.6,   zone:'eu',    geo:false},
+  {id:'chokepoint9', name:'Dover Strait',      lat:51.0,  lon:1.5,    zone:'eu',    geo:false},
+  {id:'chokepoint12',name:'Korea Strait',      lat:34.4,  lon:129.0,  zone:'ap',    geo:false},
+  {id:'chokepoint19',name:'Sunda Strait',      lat:-6.0,  lon:105.8,  zone:'ap',    geo:false},
+  {id:'chokepoint28',name:'Kerch Strait',      lat:45.3,  lon:36.5,   zone:'eu',    geo:true }
+];
 try{ Object.assign(window,{TrinityGSD,GSDData,GSD_ZONES,GSD_CATS}); }catch(e){}
 
 // ==================================================================================
@@ -22036,6 +22108,78 @@ function renderGSDTimeMachine(){ _gsdTMrecord(); const el=document.getElementByI
 }
 window.__gsdTMscrub=function(i){ const el=document.getElementById('gsd-timemachine'); if(!el)return; el._idx=i; el._built=0; try{ renderGSDTimeMachine(); }catch(e){} };
 try{ window.renderGSDTimeMachine=renderGSDTimeMachine; }catch(e){}
+
+// ==================================================================================
+// CHOKEPOINTS — IMF PortWatch maritime-disruption panel (#sw-chokepoints)
+// ==================================================================================
+function renderChokepoints(){ const el=document.getElementById('sw-chokepoints'); if(!el) return;
+  const G='#14f195',A='#ffb627',R='#ff5f7e',SH='#ff8a3c',Y='#ffd54a',BL='#7fd8ff',D='var(--dim)',DD='var(--dimmer)';
+  let cp=null; try{ cp=TrinityGSD._chokepoints; }catch(e){}
+  const intro=`<div style="font-size:0.56rem;color:${D};line-height:1.75;margin-bottom:8px;">Live maritime <b style="color:${SH}">chokepoint disruption</b> from <b>IMF PortWatch</b> — daily ship-transit counts through the world's critical straits and canals (Suez, Hormuz, Bab-el-Mandeb, Panama, Malacca, Taiwan…). A sustained <b>drop vs. the trailing baseline</b> means trade is being blocked or re-routed; it lifts <b>trade-stress</b> in that region (and geopolitical stress for the conflict-exposed straits), which feeds the kill-switch and the Trinity FX macro bridge.</div>`;
+  if(!cp){ el.innerHTML=intro+`<div style="font-size:0.54rem;color:${DD};">PortWatch initialising… (needs the GSD proxy · refreshes every 6h)</div>`; return; }
+  if(!cp.length){ el.innerHTML=intro+`<div style="font-size:0.54rem;color:${DD};">No chokepoint data parsed yet — the feed may be warming up or temporarily unavailable.</div>`; return; }
+  const at=cp[0]&&cp[0].at; const p=n=>String(n).padStart(2,'0'); let upd=''; if(at){ const d=new Date(at); upd=`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;color:${DD};">data as of ${p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())}Z</span>`; }
+  const disrupted=cp.filter(c=>c.shortfall>=0.06).length;
+  const hdr=`<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.56rem;margin-bottom:9px;">`
+    +`<span style="background:rgba(255,138,60,0.08);border:1px solid rgba(255,138,60,0.4);border-radius:5px;padding:3px 8px;color:${SH};">IMF PortWatch</span>`
+    +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">monitored</span> <b>${cp.length}</b> straits</span>`
+    +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">disrupted</span> <b style="color:${disrupted?A:G}">${disrupted}</b></span>`
+    +upd+`</div>`;
+  const rows=cp.map(c=>{ const sf=c.shortfall||0; const col= sf>=0.30?R : sf>=0.15?SH : sf>=0.06?Y : BL;
+    const w=Math.round(Math.min(1,sf/0.5)*100);
+    const status = sf>=0.30?'severe' : sf>=0.15?'elevated' : sf>=0.06?'mild' : 'normal';
+    return `<div style="display:flex;align-items:center;gap:9px;font-size:0.58rem;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+      <span style="width:8px;height:8px;border-radius:2px;background:${col};transform:rotate(45deg);flex:none;"></span>
+      <span style="color:var(--tx);width:120px;">${c.name}</span>
+      <span style="display:inline-block;width:60px;height:6px;border-radius:3px;background:rgba(255,255,255,0.06);position:relative;flex:none;"><span style="position:absolute;left:0;top:0;height:6px;width:${w}%;background:${col};border-radius:3px;"></span></span>
+      <span style="color:${col};width:82px;">${sf>=0.005?'−'+Math.round(sf*100)+'% transits':'normal'}</span>
+      <span style="color:${DD};font-size:0.5rem;">${c.recent}/day vs ${c.baseline} · ${status}${c.geo?' · geo':''}</span>
+    </div>`; }).join('');
+  el.innerHTML=intro+hdr+rows+`<div style="font-size:0.5rem;color:${DD};margin-top:8px;">Source: IMF PortWatch (portwatch.imf.org) · daily AIS-based transit estimates · "−NN%" = recent 7-day mean vs the trailing ~6-week baseline. Also shown live on the ShockWave map (Supply &amp; space → Shipping chokepoints).</div>`;
+}
+try{ window.renderChokepoints=renderChokepoints; }catch(e){}
+
+// ==================================================================================
+// EXPLAIN-THIS — drill-down for a kill-switch horizon: WHY this zone, topic & probability
+// ==================================================================================
+window.__gsdExplain=function(key){
+  const host=document.getElementById('gsd-explain'); if(!host) return;
+  if(host._openKey===key){ host._openKey=null; host.style.display='none'; host.innerHTML=''; return; }   // toggle off
+  host._openKey=key; host.style.display='block';
+  try{
+    const G=TrinityGSD; const P=(G.killProjection||[]).find(x=>x.key===key);
+    if(!P){ host.innerHTML='<div class="mono" style="font-size:0.54rem;color:var(--dimmer);">no data for this horizon.</div>'; return; }
+    const A='#ffb627',R='#ff4f6d',GG='#14f195',BL='#7fd8ff',SH='#ff8a3c',D='var(--dim)',DD='var(--dimmer)';
+    const LAB={week:'WEEK',month:'MONTH',quarter:'QUARTER',year:'YEAR','2y':'2 YEARS','3y':'3 YEARS','5y':'5 YEARS','10y':'10 YEARS','20y':'20 YEARS','30y':'30 YEARS'};
+    const zk=(GSD_ZONES.find(z=>z.name===P.zone)||{}).key;
+    const near=P.days<=120;
+    // top driver cells in the projected zone (what's loading there right now)
+    let drivers=[];
+    if(zk&&G.cells[zk]){ drivers=GSD_CATS.map(c=>{ const cell=G.cells[zk][c.key]; return (cell&&cell.v!=null&&cell.v>=0.02)?{k:c.key,name:c.name,col:c.col,v:cell.v,src:cell.src,at:cell.at,why:cell.why}:null; }).filter(Boolean).sort((a,b)=>b.v-a.v).slice(0,5); }
+    const lead=(typeof GSD_LEAD!=='undefined')?GSD_LEAD:{econ:1,cb:1,trade:1,market:1};
+    const leadOn=GSD_CATS.filter(c=>lead[c.key]).map(c=>c.name);
+    const bar=(v,col)=>`<span style="display:inline-block;width:60px;height:6px;border-radius:3px;background:rgba(255,255,255,0.06);vertical-align:middle;position:relative;"><span style="position:absolute;left:0;top:0;height:6px;width:${Math.round(Math.min(1,v)*100)}%;background:${col};border-radius:3px;"></span></span>`;
+    const conf=(zk&&G.zoneConf&&G.zoneConf[zk]!=null)?Math.round(G.zoneConf[zk]*100):null;
+    let html=`<div style="border-left:3px solid ${SH};padding:9px 12px;background:rgba(255,138,60,0.04);border-radius:0 6px 6px 0;">`;
+    html+=`<div style="font-size:0.62rem;color:var(--tx);margin-bottom:6px;"><b style="color:${SH}">Why the ${LAB[key]||key} forecast?</b> — ${P.chanceNow}% chance, likely in <b style="color:${BL}">${P.zone}</b>${conf!=null?` <span style="color:${DD}">(zone confidence ${conf}%)</span>`:''}, topic <b style="color:#ff8a94">${P.topic}</b>.</div>`;
+    // 1) why this zone
+    html+=`<div style="font-size:0.54rem;color:${D};margin:6px 0 3px;"><b>Why ${P.zone}:</b> ${near?'the categories loading fastest here right now':'the most persistent structural stress (conflict / geopolitics / central-banks) plus current loading'} —</div>`;
+    if(drivers.length){ html+=drivers.map(d=>{ const col=d.v>=0.6?R:d.v>=0.35?A:GG;
+      return `<div style="display:flex;align-items:center;gap:8px;font-size:0.54rem;padding:1px 0;"><span style="width:120px;color:var(--tx);">${d.name}</span>${bar(d.v,col)}<span style="color:${col};width:38px;">${Math.round(d.v*100)}%</span><span style="color:${DD};font-size:0.5rem;">${d.src||''}${d.why?' · '+d.why:''}</span></div>`; }).join(''); }
+    else html+=`<div style="font-size:0.52rem;color:${DD};">no elevated cells recorded in this zone yet.</div>`;
+    // 2) why this topic
+    html+=`<div style="font-size:0.54rem;color:${D};margin:7px 0 2px;"><b>Why "${P.topic}":</b> topic is chosen from the <b>leading categories</b> (${leadOn.join(', ')||'economics'}), ranked by global stress. Toggle which categories lead from the map controls.</div>`;
+    // 3) why this probability
+    html+=`<div style="font-size:0.54rem;color:${D};margin:7px 0 2px;"><b>Why ${P.chanceNow}%:</b> `;
+    if(near){ html+=`live estimate — VFM (stored energy) <b style="color:${BL}">${Math.round((G.vfm||0)*100)}%</b>, tipping-risk <b style="color:${BL}">${Math.round((G.tippingRisk||0)*100)}%</b>${G.sysVar<=G.nodeTh?', and the system is in <b style="color:'+R+'">compression</b> (σ² below node → energy building)':''}. Wide error bars; it shifts as data updates.`; }
+    else { html+=`historical crisis cadence from the calibration — <b style="color:${BL}">${P.basis.replace(/^historical cadence · /,'')}</b>. This is <b>cumulative</b>: the chance of at least one ΔV kill-switch <em>by</em> ${new Date(P.eta).getUTCFullYear()}, so a high % over decades is expected.`; }
+    html+=`</div>`;
+    if(P.chanceDelta!=null&&P.chanceDelta!==0){ const dc=P.chanceDelta>0?R:GG; html+=`<div style="font-size:0.52rem;color:${DD};margin-top:5px;">Recently ${P.chanceDelta>0?'rose':'fell'} <b style="color:${dc}">${P.chanceDelta>0?'▲':'▼'}${Math.abs(P.chanceDelta)}pt</b> (was ${P.chancePrev}% ~1d ago).</div>`; }
+    html+=`<div style="font-size:0.48rem;color:${DD};margin-top:6px;">All figures are live from the FSO-GSD engine · ${_gsdFmtT(G.lastDataAt)}. Click "why ▸" again to close.</div>`;
+    html+=`</div>`;
+    host.innerHTML=html;
+  }catch(e){ host.innerHTML='<div class="mono" style="font-size:0.52rem;color:var(--dimmer);">explain failed: '+(e&&e.message||e)+'</div>'; }
+};
 
 // ==================================================================================
 // GSD · LANGE-HORIZON HISTORIE — doorlopende buffer voor week/maand/kwartaal/jaar/2y/5y/10y
@@ -22237,6 +22381,7 @@ const GSD_LIVE_SCALES=['micro','meso','macro','full'];
 const GSD_HZ_SCALES=['week','month','quarter','year','2y','5y','10y','20y','30y'];
 const GSD_SCALE_LABELS={ micro:'MICRO · fast', meso:'MESO · swing', macro:'MACRO · cycle', full:'FULL · session overview',
   week:'WEEK', month:'MONTH', quarter:'QUARTER', year:'YEAR', '2y':'2 YEARS', '5y':'5 YEARS', '10y':'10 YEARS', '20y':'20 YEARS', '30y':'30 YEARS' };
+function _gsdFmtT(ms){ if(!ms)return '—'; const d=new Date(ms),p=n=>String(n).padStart(2,'0'); return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); }
 function _gsdBuildCharts(){
   const wrap=document.getElementById('gsd-charts'); if(!wrap)return;
   const want=[...GSD_LIVE_SCALES,...GSD_HZ_SCALES].filter(k=>GSD_VIS.scales[k]).map(k=>[k,GSD_SCALE_LABELS[k]]);
@@ -22370,6 +22515,7 @@ function drawHorizonChart(key){
   ctx.fillStyle='#6d8296'; ctx.font="8.5px 'JetBrains Mono',monospace"; for(let s2=0;s2<=5;s2++){ const tt=t0+s2/5*spanx; ctx.textAlign=s2===0?'left':s2===5?'right':'center'; ctx.fillText(fmt(tt),x(tt),H-6); }
   // titel + bron
   ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="bold 12px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText((GSD_SCALE_LABELS[key]||key.toUpperCase()),padL+2,padT-10);
+  try{ ctx.textAlign='right'; ctx.fillStyle='#5c7488'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.fillText('updated '+_gsdFmtT(TrinityGSD.lastDataAt), W-padR-2, padT-10); ctx.textAlign='left'; }catch(e){}
   ctx.fillStyle='#a7bacb'; ctx.font="9.5px 'JetBrains Mono',monospace"; ctx.fillText('now '+last.s.toFixed(3)+' · '+pts.length+'pt · '+src,padL+110,padT-10);
   // compacte legenda alleen als UOTAM-lagen zichtbaar zijn
   if(hasUOTAM) _gsdLegend(ctx, padL+4, padT+3, [ {c:'#ff5f7e',label:'stress',type:'line'},{c:'rgba(90,150,240,0.9)',label:'σ²',type:'line'},{c:'rgba(170,90,200,0.5)',label:'VFM',type:'area'},{c:'#ff3b5c',label:'ΔV kill',type:'star'} ]);
@@ -22413,7 +22559,7 @@ function drawHistCalChart(){
     {c:'rgba(240,214,90,0.55)',label:'danger zone (compression)',type:'area'},
     {c:'#ff3b5c',label:'ΔV kill-switch trigger',type:'star'} ]);
 }
-const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-gdacs','GDACS multi-hazard','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-space','NOAA SWPC space weather','direct'],['gsd-commod','Commodities · FRED (WTI/Brent/gas/wheat/gold)','proxy'],['gsd-enso','NOAA ONI · El Niño/La Niña','proxy'],['gsd-conflicts','Conflicts (curated + live scoring)','embedded'],['gsd-migration','Migration corridors (curated)','embedded'],['gsd-flashpoints','Economic flashpoints (live-scored)','embedded'],['gsd-capflow','Capital flow · IMF BoP (real USD)','proxy'],['gsd-tic','US Treasury TIC · foreign UST (FRED)','proxy'],['gsd-z1','Fed Z.1 · debt-service (FRED)','proxy'],['gsd-bis','BIS credit-to-GDP gap','proxy'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
+const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-gdacs','GDACS multi-hazard','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-space','NOAA SWPC space weather','direct'],['gsd-commod','Commodities · FRED (WTI/Brent/gas/wheat/gold)','proxy'],['gsd-btc','BTC cross-asset · Coinbase','direct'],['gsd-enso','NOAA ONI · El Niño/La Niña','proxy'],['gsd-conflicts','Conflicts (curated + live scoring)','embedded'],['gsd-migration','Migration corridors (curated)','embedded'],['gsd-flashpoints','Economic flashpoints (live-scored)','embedded'],['gsd-capflow','Capital flow · IMF BoP (real USD)','proxy'],['gsd-tic','US Treasury TIC · foreign UST (FRED)','proxy'],['gsd-z1','Fed Z.1 · debt-service (FRED)','proxy'],['gsd-bis','BIS credit-to-GDP gap','proxy'],['gsd-portwatch','IMF PortWatch chokepoints','proxy'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
 function renderGSD(){
   if(!TrinityGSD._built) return;
   if(!_gsdBuilt) _gsdBuildToggles();
@@ -22463,8 +22609,9 @@ function renderGSD(){
     else{
       const LAB={week:'WEEK',month:'MONTH',quarter:'QUARTER',year:'YEAR','2y':'2 YEARS','3y':'3 YEARS','5y':'5 YEARS','10y':'10 YEARS','20y':'20 YEARS','30y':'30 YEARS'};
       const fmtD=ms=>{ const d=new Date(ms),p=n=>String(n).padStart(2,'0'); return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+'/'+String(d.getUTCFullYear()).slice(2); };
+      const upd=`<div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-bottom:4px;">data as of ${_gsdFmtT(TrinityGSD.lastDataAt)} · recomputes continuously</div>`;
       const head=`<div class="gsdrow gsdhdr" style="grid-template-columns:64px 74px 1fr 150px 120px;"><span>horizon</span><span>est. ΔV trigger</span><span>probability</span><span>likely topic</span><span>zone</span></div>`;
-      kp.innerHTML=head+P.map(p=>{ const col=p.prob>=0.6?'#ff4f6d':p.prob>=0.35?'#ffb627':'#14f195';
+      kp.innerHTML=upd+head+P.map(p=>{ const col=p.prob>=0.6?'#ff4f6d':p.prob>=0.35?'#ffb627':'#14f195';
         const dc=p.chanceDelta>0?'#ff5f7e':p.chanceDelta<0?'#14f195':'var(--dimmer)';
         const delta=(p.chanceDelta!=null)?` <span style="color:${dc}">${p.chanceDelta>0?'▲':p.chanceDelta<0?'▼':'■'}${Math.abs(p.chanceDelta)}</span> <small style="color:var(--dimmer)">was ${p.chancePrev}%</small>`:'';
         return `<div class="gsdrow" style="grid-template-columns:64px 74px 1fr 190px 150px 96px;" title="${p.basis}">`
@@ -22473,7 +22620,7 @@ function renderGSD(){
           +`<div class="gsdbar" title="${p.chanceNow}%"><i style="width:${p.chanceNow}%;background:${col}"></i></div>`
           +`<span class="mono" style="font-size:0.54rem;color:${col};font-weight:700;white-space:nowrap">chance ${p.chanceNow}%${delta}</span>`
           +`<span class="mono" style="font-size:0.52rem;color:#ff8a94">★ ${p.topic}</span>`
-          +`<span class="mono" style="font-size:0.52rem;color:var(--dim)">${p.zone}</span>`
+          +`<span class="mono" style="font-size:0.52rem;color:var(--dim)">${p.zone} <span onclick="event.stopPropagation();window.__gsdExplain&&window.__gsdExplain('${p.key}')" style="cursor:pointer;color:#ff8a3c;font-size:0.5rem;white-space:nowrap;" title="explain this forecast">why ▸</span></span>`
           +`</div>`; }).join('')
         +`<div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:8px;line-height:1.75;border-top:1px solid var(--line);padding-top:8px;"><b style="color:#ff8a94;">★ = projected ΔV kill-switch</b> (a crisis release). <b style="color:#7fd8ff;">Week–quarter</b> are live estimates from the current VFM loading, compression and the next TAM node — wide error bars, they shift as data changes. <b style="color:#7fd8ff;">Year–30y</b> use the historical crisis cadence from the calibration and are <b>cumulative</b> — the chance of <b>at least one</b> ΔV kill-switch <em>by</em> that horizon's end date (so a high % over decades is expected; re-run "Calibrate from history" to refresh the per-year rate). <b>Topic / zone</b> = the categories loading fastest right now, projected forward. Trinity re-computes this continuously and adapts autonomously; every material change is logged in the revision feed below.</div>`;
       // ---- predicted-vs-outcome zelf-score (continue shadow-screening op de WEEK-horizon) ----
@@ -22819,11 +22966,16 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const zName = k=>{ try{ const z=GSD_ZONES.find(z=>z.key===k); return z?z.name:k; }catch(e){ return k; } };
   const catName = k=>{ try{ const c=GSD_CATS.find(c=>c.key===k); return c?c.name:k; }catch(e){ return k; } };
   const _shrink = n => n/(n+5);
+  // contagion propagates more readily under stress — a grounded regime multiplier on top of the
+  // per-regime LEARNED weights below (crisis = faster/broader spread, calm = contained).
+  const REGMULT = { calm:0.9, tension:1.1, crisis:1.25 };
 
   const SW = {
-    W:{}, prev:{}, shocks:[], preds:[], score:null, _lastShockAt:{}, _lastScan:0,
-    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityShockWave')||'null'); if(d){ this.W=d.W||{}; this.preds=d.preds||[]; this.shocks=d.shocks||[]; this.score=d.score||null; } }catch(e){} },
-    _save(){ try{ localStorage.setItem('trinityShockWave',JSON.stringify({W:this.W,preds:this.preds.slice(-120),shocks:this.shocks.slice(-60),score:this.score})); }catch(e){} },
+    W:{}, prev:{}, shocks:[], preds:[], score:null, regScore:null, _lastShockAt:{}, _lastScan:0,
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityShockWave')||'null'); if(d){ this.W=d.W||{}; this.preds=d.preds||[]; this.shocks=d.shocks||[]; this.score=d.score||null; this.calib=d.calib||null; this.regScore=d.regScore||null; } }catch(e){} },
+    _save(){ try{ localStorage.setItem('trinityShockWave',JSON.stringify({W:this.W,preds:this.preds.slice(-120),shocks:this.shocks.slice(-60),score:this.score,calib:this.calib,regScore:this.regScore})); }catch(e){} },
+    // current market regime, mapped to a compact contagion regime key
+    _regime(){ try{ const r=TrinityGSD.regime; return r==='CRISIS'?'crisis':r==='SPANNING'?'tension':'calm'; }catch(e){ return 'calm'; } },
 
     // ---- detecteer schokken uit GSD-cellen (z-score-sprong per zone×categorie) ----
     detect(){
@@ -22839,7 +22991,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
             // real jump up (bar lowered so genuine changes register), but a cell must be observed a
             // few times first — this kills the artificial spike when a curated cell first fills in.
             if(n>=4 && zsc>=2.5 && d>=0.04 && v>=0.40 && (now-(this._lastShockAt[key]||0))>1800000){
-              this._lastShockAt[key]=now; this._register({srcZone:z,srcCat:cat,at:now,mag:Math.min(1,v),jump:+d.toFixed(3),zsc:+zsc.toFixed(1)});
+              this._lastShockAt[key]=now; this._register({srcZone:z,srcCat:cat,at:now,mag:Math.min(1,v),jump:+d.toFixed(3),zsc:+zsc.toFixed(1),regime:this._regime()});
             }
             this.prev[key]={v,ema:pr.ema,n};
           } else this.prev[key]={v,ema:Math.abs(v)*0.1+1e-3,n:1};
@@ -22852,16 +23004,21 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       try{ renderShockWaveFeed(); }catch(e){}
     },
     _predict(shock){ const rows=PRIOR[shock.srcCat]||[['ALL',0.3,2,'algemeen']]; const zk=ZKEYS(); const out=[]; const seen={};
+      const reg=shock.regime||this._regime(); const rm=REGMULT[reg]||1;   // regime-conditioning
       const add=(tgt,w,lag,eff)=>{ if(seen[tgt])return; seen[tgt]=1;
-        const lf=this._learned(shock.srcCat,tgt);                       // adaptieve factor
-        const prob=Math.max(0.05,Math.min(0.95, w*shock.mag*lf));
+        const lf=this._learned(shock.srcCat,tgt,reg);                   // adaptive factor (regime-aware)
+        const prob=Math.max(0.05,Math.min(0.95, w*shock.mag*lf*rm));
         out.push({zone:tgt,prob:+prob.toFixed(2),lagDays:lag,eta:shock.at+Math.max(lag,0.04)*864e5,effect:eff}); };
       for(const [dst,w,lag,eff] of rows){ if(dst==='ALL'){ zk.forEach(z=>{ if(z!==shock.srcZone) add(z,w,lag,eff); }); }
         else if(dst==='SELF'){ add(shock.srcZone,w,lag,eff); } else add(dst,w,lag,eff); }
       return out.sort((a,b)=>b.prob-a.prob).slice(0,6);
     },
-    _learned(cat,tgt){ const k=cat+'>'+tgt; const w=this.W[k]; if(!w||w.n<3) return 1;
-      const hitRate=w.hit/w.n; const base=0.4; return Math.max(0.5,Math.min(1.5, 1+(hitRate-base)*_shrink(w.n))); },
+    // learned adaptive factor: prefer the REGIME-SPECIFIC channel weight, fall back to the
+    // regime-agnostic aggregate when the regime bucket is still thin, then to neutral (1).
+    _learned(cat,tgt,reg){ const pick=k=>{ const w=this.W[k]; if(!w||w.n<3) return null;
+        const hitRate=w.hit/w.n, base=0.4; return Math.max(0.5,Math.min(1.5, 1+(hitRate-base)*_shrink(w.n))); };
+      if(reg){ const r=pick(cat+'>'+tgt+'|'+reg); if(r!=null) return r; }
+      const a=pick(cat+'>'+tgt); return a==null?1:a; },
 
     // ---- resolve + score: klopte de voorspelde propagatie? (target-zone stress gestegen?) ----
     resolve(){ const now=Date.now(); let zs; try{ zs=TrinityGSD.zoneStress; }catch(e){ return; } if(!zs) return; let changed=false;
@@ -22870,18 +23027,26 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         if(t.base==null){ t.base=nowS; t.peak=nowS; }                    // baseline at first sight
         else t.peak=Math.max(t.peak==null?t.base:t.peak, nowS);          // track the peak reached in-window
         if(now>=t.eta){ const rise=Math.max(t.peak||nowS, nowS)-t.base; const hit=rise>=0.025?1:0;   // stress rose ≥2.5pt at any point in window (bar lowered)
-          const k=p.srcCat+'>'+t.zone; const w=this.W[k]||(this.W[k]={n:0,hit:0}); w.n++; w.hit+=hit;
+          const reg=p.regime; const keys=[p.srcCat+'>'+t.zone]; if(reg)keys.push(p.srcCat+'>'+t.zone+'|'+reg);   // update agnostic + regime-specific channel
+          keys.forEach(k=>{ const w=this.W[k]||(this.W[k]={n:0,hit:0}); w.n++; w.hit+=hit; });
+          if(reg){ const rs=this.regScore||(this.regScore={}); const g=rs[reg]||(rs[reg]={n:0,hit:0}); g.n++; g.hit+=hit; }
           t._done=1; t.hit=hit; t.outS=+nowS.toFixed(3); t.rise=+rise.toFixed(3); changed=true; }
       } if(p.targets.every(t=>t._done)) p._done=1; }
-      if(changed){ // Brier over afgeronde targets
-        let n=0,br=0,hits=0; for(const p of this.preds)for(const t of p.targets)if(t._done){ n++; br+=(t.prob-(t.hit||0))**2; hits+=(t.hit||0); }
-        if(n>=5) this.score={n,brier:+(br/n).toFixed(3),hitRate:+(hits/n).toFixed(3),proven:n>=15}; this._save(); try{ renderShockWaveFeed(); }catch(e){}
+      if(changed){ // Brier over afgeronde targets + kalibratie (voorspelde kans-bucket → gerealiseerde hit-rate)
+        let n=0,br=0,hits=0; const bins=[[0,0],[0,0],[0,0],[0,0],[0,0]];   // 5 buckets: [n,hits]
+        for(const p of this.preds)for(const t of p.targets)if(t._done){ n++; br+=(t.prob-(t.hit||0))**2; hits+=(t.hit||0);
+          const bi=Math.min(4,Math.max(0,Math.floor((t.prob||0)*5))); bins[bi][0]++; bins[bi][1]+=(t.hit||0); }
+        if(n>=5) this.score={n,brier:+(br/n).toFixed(3),hitRate:+(hits/n).toFixed(3),proven:n>=15};
+        this.calib=bins.map((b,i)=>{ const mid=(i+0.5)/5; return b[0]>=4? +( (b[1]/b[0])*(b[0]/(b[0]+6)) + mid*(6/(b[0]+6)) ).toFixed(3) : null; });
+        this._save(); try{ renderShockWaveFeed(); }catch(e){}
       }
     },
+    // map a raw propagation-probability to its calibrated value (shrunk toward raw when a bucket is thin)
+    calibrate(p){ try{ if(!this.calib)return p; const bi=Math.min(4,Math.max(0,Math.floor((p||0)*5))); const c=this.calib[bi]; return c==null?p:c; }catch(e){ return p; } },
     tick(){ const now=Date.now(); if(now-this._lastScan<8000) return; this._lastScan=now; try{ this.detect(); }catch(e){} try{ this.resolve(); }catch(e){} },
     active(){ return this.preds.filter(p=>!p._done).slice(0,8); },
-    bundle(){ return { weightsLearned:Object.keys(this.W).length, activePreds:this.active().length, score:this.score,
-      note:'Contagion: schok in zone×categorie → voorspelde voortplanting (lag+richting+kans), gegrond prior + adaptief op uitkomsten.' }; }
+    bundle(){ return { weightsLearned:Object.keys(this.W).length, activePreds:this.active().length, score:this.score, regime:this._regime(), regimeScore:this.regScore,
+      note:'Contagion: shock in zone×category → predicted propagation (lag+direction+probability), grounded prior + adaptive on outcomes, conditioned on the market regime (calm/tension/crisis).' }; }
   };
   SW._restore(); try{ window.TrinityShockWave=SW; }catch(e){}
 
@@ -22889,18 +23054,23 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function renderShockWaveFeed(){ const el=document.getElementById('sw-feed'); if(!el)return;
     const G='#14f195',R='#ff5f7e',A='#ffb627',SH='#ff8a3c',D='var(--dim)',DD='var(--dimmer)';
     const sc=SW.score;
-    const explain=`<div style="font-size:0.56rem;color:${D};line-height:1.75;margin-bottom:8px;">The <b style="color:${SH}">contagion engine</b> is ShockWave's forecasting core. Every ~8s it scans the FSO-GSD cells (world zone × category) for a <b>shock</b> — a sudden z-score jump in stress. It then predicts how that shock <b>propagates</b>: which other zones are hit, with what <b>lag</b> (days), <b>direction/effect</b>, and <b>probability</b>. It starts from a grounded macro prior (known contagion channels — e.g. Middle-East conflict → oil → risk-off → safe-havens) and <b>adapts</b> the channel weights on realised outcomes (did the target zone's stress actually rise?), scored with an honest hit-rate + Brier.</div>`
+    const explain=`<div style="font-size:0.56rem;color:${D};line-height:1.75;margin-bottom:8px;">The <b style="color:${SH}">contagion engine</b> is ShockWave's forecasting core. Every ~8s it scans the FSO-GSD cells (world zone × category) for a <b>shock</b> — a sudden z-score jump in stress. It then predicts how that shock <b>propagates</b>: which other zones are hit, with what <b>lag</b> (days), <b>direction/effect</b>, and <b>probability</b>. It starts from a grounded macro prior (known contagion channels — e.g. Middle-East conflict → oil → risk-off → safe-havens) and <b>adapts</b> the channel weights on realised outcomes (did the target zone's stress actually rise?), scored with an honest hit-rate + Brier. Channels are <b style="color:${SH}">regime-conditioned</b> — the same shock spreads faster and wider in a <b>crisis</b> than in a <b>calm</b> market, so the engine learns and applies a separate weight per regime (calm/tension/crisis).</div>`
       +`<div style="font-size:0.5rem;color:${DD};line-height:1.7;margin:-2px 0 8px;background:rgba(255,255,255,0.02);border:1px solid var(--line);border-radius:6px;padding:6px 9px;"><b style="color:${D}">effect terms:</b> <b style="color:${SH}">risk-off</b> = money flees risky assets (stocks, EM FX) toward safe havens; <b style="color:${SH}">supply shock</b> = a hit to the supply of goods/commodities; <b style="color:${SH}">oil shock</b> = a sharp oil-price move; <b style="color:${SH}">rates→FX</b> = central-bank/rate moves spilling into currencies; <b style="color:${SH}">uncertainty / tension</b> = elevated geopolitical risk premium. &nbsp;Note: contagion works at <b>zone</b> level (Asia-Pacific, Europe…), not per country — Taiwan/Japan sit inside Asia-Pacific, and a zone only appears as a source when its stress <b>jumps</b> (the engine detects change, not just a high level).</div>`;
     const hdr=`<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.56rem;margin-bottom:8px;">`
       +`<span style="background:rgba(255,138,60,0.08);border:1px solid rgba(255,138,60,0.4);border-radius:5px;padding:3px 8px;color:${SH};">contagion engine</span>`
       +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">learned channels</span> <b>${Object.keys(SW.W).length}</b></span>`
       +(sc?`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">hit-rate</span> <b style="color:${sc.hitRate>=0.5?G:A}">${Math.round(sc.hitRate*100)}%</b> · Brier ${sc.brier} · n=${sc.n} ${sc.proven?'<span style="color:'+G+'">✓ proven</span>':'<small style="color:'+DD+'">(maturing)</small>'}</span>`:`<span style="color:${DD};font-size:0.54rem;">no resolved forecasts yet — scores as propagations mature</span>`)
+      +(SW.calib?`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;color:${DD};">probabilities calibrated</span>`:'')
+      +(function(){ try{ const reg=SW._regime(); const rc={calm:G,tension:A,crisis:R}[reg]||DD; const rs=SW.regScore&&SW.regScore[reg];
+          const tail=rs&&rs.n>=4?` · ${Math.round(rs.hit/rs.n*100)}% hit (n=${rs.n})`:'';
+          return `<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">regime</span> <b style="color:${rc}">${reg.toUpperCase()}</b><span style="color:${DD}">${tail}</span></span>`; }catch(e){ return ''; } })()
+      +(function(){ try{ const t=(SW.shocks&&SW.shocks[0]&&SW.shocks[0].at)||(TrinityGSD&&TrinityGSD.lastDataAt); if(t){ const d=new Date(t),p=n=>String(n).padStart(2,'0'); return `<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;color:${DD};">updated ${p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds())}</span>`; } }catch(e){} return ''; })()
       +`</div>`;
     const act=SW.active();
     const body = act.length ? act.map(p=>{ const when=new Date(p.made); const p2=n=>String(n).padStart(2,'0');
       return `<div style="border-left:3px solid ${SH};padding:5px 9px;margin-bottom:6px;background:rgba(255,255,255,0.015);border-radius:0 5px 5px 0;">
         <div style="font-size:0.58rem;color:var(--tx);"><b style="color:${SH}">⚡ ${zName(p.srcZone)}</b> · ${catName(p.srcCat)} <span style="color:${DD}">z${p.zsc} · ${p2(when.getUTCDate())}/${p2(when.getUTCMonth()+1)} ${p2(when.getUTCHours())}:${p2(when.getUTCMinutes())}Z</span></div>
-        <div style="font-size:0.54rem;color:${D};line-height:1.7;margin-top:2px;">${p.targets.map(t=>`<span style="white-space:nowrap;">→ <b style="color:#7fd8ff">${zName(t.zone)}</b> <span style="color:${t.prob>=0.5?A:DD}">${Math.round(t.prob*100)}%</span> <span style="color:${DD}">${t.lagDays===0?'now':'~'+t.lagDays+'d'} · ${t.effect}</span>${t._done?(t.hit?' <span style="color:'+G+'">✓</span>':' <span style="color:'+R+'">✗</span>'):''}</span>`).join(' &nbsp; ')}</div>
+        <div style="font-size:0.54rem;color:${D};line-height:1.7;margin-top:2px;">${p.targets.map(t=>{const cp=SW.calibrate(t.prob);return `<span style="white-space:nowrap;">→ <b style="color:#7fd8ff">${zName(t.zone)}</b> <span style="color:${cp>=0.5?A:DD}">${Math.round(cp*100)}%</span> <span style="color:${DD}">${t.lagDays===0?'now':'~'+t.lagDays+'d'} · ${t.effect}</span>${t._done?(t.hit?' <span style="color:'+G+'">✓</span>':' <span style="color:'+R+'">✗</span>'):''}</span>`;}).join(' &nbsp; ')}</div>
       </div>`; }).join('')
       : `<div style="font-size:0.54rem;color:${DD};">No active shock right now — the engine is scanning. When stress in a zone×category jumps, it appears here with its predicted propagation (target zones · lag · probability · effect).</div>`;
     el.innerHTML=explain+hdr+body;
@@ -22916,9 +23086,206 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const r=SW.whatIf(z,c,m); const SH='#ff8a3c',DD='var(--dimmer)',G='#14f195';
     if(mEl){ const lbl=document.getElementById('sw-wi-maglbl'); if(lbl)lbl.textContent=(m*100|0)+'%'; }
     out.innerHTML=`<div style="font-size:0.6rem;color:var(--tx);margin-bottom:5px;">⚡ hypothetical shock: <b style="color:${SH}">${zName(z)}</b> · ${catName(c)} <span style="color:${DD}">(magnitude ${(m*100|0)}%)</span> → predicted propagation:</div>`
-      +(r.targets.length? r.targets.map(t=>`<div style="font-size:0.56rem;color:var(--dim);line-height:1.7;">→ <b style="color:#7fd8ff">${zName(t.zone)}</b> <span style="color:${t.prob>=0.5?SH:DD}">${Math.round(t.prob*100)}%</span> <span style="color:${DD}">${t.lagDays===0?'now':'~'+t.lagDays+'d'} · ${t.effect}</span></div>`).join('')
+      +(r.targets.length? r.targets.map(t=>`<div style="font-size:0.56rem;color:var(--dim);line-height:1.7;">→ <b style="color:#7fd8ff">${zName(t.zone)}</b> <span style="color:${SW.calibrate(t.prob)>=0.5?SH:DD}">${Math.round(SW.calibrate(t.prob)*100)}%</span> <span style="color:${DD}">${t.lagDays===0?'now':'~'+t.lagDays+'d'} · ${t.effect}</span></div>`).join('')
         : `<div style="font-size:0.56rem;color:${DD};">no propagation channels for this shock.</div>`)
       +`<div style="font-size:0.5rem;color:${DD};margin-top:5px;">Simulation only — does not affect the live engine, its predictions or its learning.</div>`; };
+})();
+
+/* ==================================================================================
+   OSIRIS · MACRO BRIDGE — ShockWave → Trinity FX  (bidirectional coupling)
+   ----------------------------------------------------------------------------------
+   Translates the live world-stress picture (FSO-GSD zones + BTC cross-asset + kill-switch
+   projection + contagion engine) into a PER-CURRENCY macro bias and a PER-PAIR long/short
+   "macro lean" — so Trinity FX gets a second, independent opinion on which pairs to go long
+   and which to short, grounded in the state of the world rather than only price drift.
+     • riskOff()      = one global 0..1 risk-appetite score (zone stress + rates + BTC + week kill-switch)
+     • ccyBias(c)     = per-currency bias: safe havens rise in risk-off, high-beta/EM fall,
+                        home-zone stress penalises, carry helps in calm and unwinds in stress
+     • pairLean(p)    = ccyBias(base) − ccyBias(quote)  (>0 → macro leans LONG the base)
+     • shadow backtester = records every lean + a price snapshot, resolves after a lag, scores
+                        an honest hit-rate + Brier. Nothing tilts Trinity until the shadow is proven.
+     • tilt(p,side)   = bounded (≤5), alignment-only, shadow-gated nudge to Trinity's confidence.
+   Read-only w.r.t. the GSD/contagion engines. Never opens or closes a trade by itself.
+   ================================================================================== */
+(function(){
+  'use strict';
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  // risk "beta" per currency: <0 = safe haven (strengthens when the world de-risks),
+  // >0 = high-beta / commodity / EM (weakens when the world de-risks).
+  const BETA = {
+    USD:-0.55, JPY:-0.90, CHF:-0.80, SGD:-0.20, EUR:-0.05, GBP:0.10,
+    AUD:0.70, NZD:0.70, CAD:0.50, NOK:0.60, SEK:0.45,
+    CNH:0.40, INR:0.45, THB:0.45, ZAR:0.90, MXN:0.80, BRL:0.90, TRY:1.00
+  };
+
+  const M = {
+    _bt:{ open:[], score:null }, _lastRec:0, _lastRender:0, _biasCache:{}, _biasAt:0,
+
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('osirisMacroBridge')||'null'); if(d){ this._bt.open=d.open||[]; this._bt.score=d.score||null; } }catch(e){} },
+    _save(){ try{ localStorage.setItem('osirisMacroBridge',JSON.stringify({open:this._bt.open.slice(-400),score:this._bt.score})); }catch(e){} },
+
+    // which GSD zone "owns" a currency (highest-stress containing zone, so shared ccy like MXN
+    // is judged by the more stressed of its zones).
+    zoneOf(c){ try{ let best=null,bv=-1; for(const z of GSD_ZONES){ if(z.synthetic||z.key==='global')continue; if(z.ccy && z.ccy.indexOf(c)>=0){ const s=(TrinityGSD.zoneStress&&TrinityGSD.zoneStress[z.key])||0; if(s>bv){bv=s;best=z.key;} } } return best; }catch(e){ return null; } },
+    zoneStress(c){ const z=this.zoneOf(c); try{ return z? (TrinityGSD.zoneStress[z]||0) : (TrinityGSD.zoneStress.global||0); }catch(e){ return 0; } },
+    zoneConf(c){ const z=this.zoneOf(c); try{ return z? (TrinityGSD.zoneConf&&TrinityGSD.zoneConf[z]!=null?TrinityGSD.zoneConf[z]:0.5) : 0.5; }catch(e){ return 0.5; } },
+
+    // ---- global risk-off score 0..1 (≈0.4 neutral) ----
+    riskOff(){ try{ const g=TrinityGSD; let s=0,w=0;
+      const gz=(g.zoneStress&&g.zoneStress.global); if(gz!=null){ s+=gz*0.9; w+=0.9; }
+      // worst single zone matters for contagion risk
+      let mx=0; try{ for(const z of GSD_ZONES){ if(z.synthetic||z.key==='global')continue; const v=g.zoneStress[z.key]; if(v>mx)mx=v; } }catch(e){}
+      s+=mx*0.5; w+=0.5;
+      const cb=(g.catStress&&g.catStress.cb); if(cb!=null){ s+=cb*0.4; w+=0.4; }   // rates / policy tension
+      const br=g._btcRisk; if(br!=null){ s+=br*0.5; w+=0.5; }                       // cross-asset (crypto) de-risking
+      // near-term kill-switch chance lifts risk-off
+      try{ const wk=(g.killProjection||[]).find(x=>x.key==='week'); if(wk&&wk.prob!=null){ s+=wk.prob*0.4; w+=0.4; } }catch(e){}
+      return w? clamp(s/w,0,1) : 0.4;
+    }catch(e){ return 0.4; } },
+
+    _rates(){ try{ let mx=0; for(const c in CCY_META) mx=Math.max(mx,CCY_META[c].rate); return mx||1; }catch(e){ return 1; } },
+    _meanRate(){ try{ let s=0,n=0; for(const c in CCY_META){ s+=CCY_META[c].rate; n++; } return n? s/n : 0; }catch(e){ return 0; } },
+
+    // ---- per-currency macro bias (signed, roughly -1..+1). >0 = macro-bullish ----
+    ccyBias(c){ try{
+      const ro=this.riskOff(); const roS=(ro-0.45)*2;            // signed risk-off, ~ -0.9..+1.1
+      const beta=(BETA[c]!=null?BETA[c]:0.3);
+      let bias = -beta * roS;                                     // safe havens gain, high-beta lose, in risk-off
+      bias -= this.zoneStress(c) * 0.55;                          // a currency whose home zone is stressed is penalised
+      const carry=(CCY_META[c].rate - this._meanRate())/this._rates();
+      bias += carry * 0.35 * (1-ro);                              // carry attracts in calm, unwinds as risk-off rises
+      return clamp(bias,-1,1);
+    }catch(e){ return 0; } },
+
+    // ---- per-pair macro lean (signed). >0 → macro leans LONG the base currency ----
+    pairLean(p){ try{ const [b,q]=splitPair(p); return clamp(this.ccyBias(b)-this.ccyBias(q),-1,1); }catch(e){ return 0; } },
+    pairConf(p){ try{ const [b,q]=splitPair(p); return clamp((this.zoneConf(b)+this.zoneConf(q))/2,0,1); }catch(e){ return 0.5; } },
+
+    // ranked macro view: strongest LONG-lean and SHORT-lean pairs
+    ranked(){ try{ return PAIRS.map(p=>({p,lean:this.pairLean(p),conf:this.pairConf(p)})).sort((a,b)=>Math.abs(b.lean)-Math.abs(a.lean)); }catch(e){ return []; } },
+
+    // ---- SHADOW BACKTESTER: record lean + price now, resolve after a lag, score honestly ----
+    _price(p){ try{ const st=pair[p]; return (st&&st.rate)||null; }catch(e){ return null; } },
+    record(){ const now=Date.now(); if(now-this._lastRec < 9*60000) return; this._lastRec=now;   // ~every 9 min
+      const LAG=90*60000;                                                                       // resolve after 90 min
+      try{ for(const p of PAIRS){ const lean=this.pairLean(p); if(Math.abs(lean)<0.08) continue; const px=this._price(p); if(!px)continue;
+        this._bt.open.push({p,lean:+lean.toFixed(3),px,made:now,due:now+LAG,done:false}); }
+      }catch(e){}
+      if(this._bt.open.length>1200) this._bt.open=this._bt.open.slice(-1200);
+      this.resolve();
+    },
+    resolve(){ const now=Date.now(); let changed=false;
+      for(const e of this._bt.open){ if(e.done||now<e.due) continue; const px=this._price(e.p); if(!px){ e.done=true; e.skip=true; changed=true; continue; }
+        const ret=e.px>0?(px/e.px-1):0; const dir=Math.sign(e.lean); const moved=Math.abs(ret)>=1e-5;
+        e.done=true; e.hit = moved ? (Math.sign(ret)===dir?1:0) : null; e.ret=+(ret*1e4).toFixed(2); changed=true; }
+      if(changed){ const done=this._bt.open.filter(e=>e.done && e.hit!=null);
+        if(done.length){ let hits=0,br=0; for(const e of done){ const pr=clamp(0.5+Math.abs(e.lean)*0.4,0.5,0.92); const o=e.hit; hits+=o; br+=(pr-o)*(pr-o); }
+          const n=done.length; this._bt.score={ n, hitRate:+(hits/n).toFixed(3), brier:+(br/n).toFixed(3), proven:n>=30 }; }
+        // keep memory bounded: drop very old resolved entries
+        if(this._bt.open.length>1200) this._bt.open=this._bt.open.slice(-1200);
+        this._save();
+      }
+    },
+
+    // ---- the ONLY thing that touches Trinity: a bounded, alignment-only, shadow-gated tilt ----
+    tilt(p, trinitySide){ try{ const s=this._bt.score; if(!s||!s.proven) return 0;   // never tilt until proven
+      const lean=this.pairLean(p); const macroSide = lean>=0?'LONG':'SHORT';
+      if(macroSide!==trinitySide) return 0;                                          // only reinforce agreement
+      const edge=Math.max(0, s.hitRate-0.5);                                         // how much better than a coin-flip
+      return clamp(Math.abs(lean)*edge*14, 0, 5);                                    // hard-capped at +5 confidence
+    }catch(e){ return 0; } },
+
+    tick(){ try{ this.record(); }catch(e){} },
+    bundle(){ return { riskOff:+this.riskOff().toFixed(3), shadow:this._bt.score,
+      leans:PAIRS.map(p=>({p,lean:+this.pairLean(p).toFixed(3)})),
+      note:'ShockWave→Trinity FX: world-stress → per-currency bias → per-pair long/short lean; shadow-backtested; bounded alignment-only tilt into Trinity confidence.' }; }
+  };
+  M._restore(); try{ window.OsirisMacro=M; }catch(e){}
+
+  // ---- render: ShockWave → Trinity FX panel (#sw-macro) ----
+  function renderOsirisMacro(){ const el=document.getElementById('sw-macro'); if(!el) return;
+    const now=Date.now(); if(now-M._lastRender<1500) return; M._lastRender=now;
+    try{ M.tick(); }catch(e){}
+    const G='#14f195',R='#ff5f7e',A='#ffb627',SH='#ff8a3c',BL='#7fd8ff',D='var(--dim)',DD='var(--dimmer)';
+    const ro=M.riskOff(); const roPct=Math.round(ro*100);
+    const roCol = ro>=0.6?R : ro>=0.45?A : G;
+    const roLbl = ro>=0.6?'risk-OFF (defensive)' : ro>=0.45?'cautious' : 'risk-ON (constructive)';
+    const sc=M._bt.score;
+    const explain=`<div style="font-size:0.56rem;color:${D};line-height:1.75;margin-bottom:8px;">This is the <b style="color:${SH}">bridge from ShockWave into Trinity FX</b>. It turns the live world-stress picture — zone stress, central-bank/rates tension, BTC cross-asset de-risking and the near-term kill-switch chance — into one <b>risk-appetite</b> reading, then into a <b>macro bias per currency</b> (safe havens like USD/JPY/CHF strengthen when the world de-risks; high-beta &amp; EM like AUD/ZAR/MXN/TRY weaken; a currency whose home region is stressed is marked down; carry helps in calm and unwinds under stress). The difference between the two sides of a pair is its <b>macro lean</b> — a second, independent long/short opinion for Trinity to weigh next to price drift.</div>`;
+    // risk-off gauge
+    const gauge=`<div style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;font-size:0.54rem;color:${DD};margin-bottom:3px;"><span>risk-ON</span><span>world risk appetite</span><span>risk-OFF</span></div>
+      <div style="position:relative;height:9px;border-radius:5px;background:linear-gradient(90deg,#14f195 0%,#ffb627 50%,#ff5f7e 100%);border:1px solid var(--line);">
+        <div style="position:absolute;top:-3px;left:calc(${roPct}% - 2px);width:3px;height:15px;background:#fff;border-radius:2px;box-shadow:0 0 6px rgba(255,255,255,0.8);"></div>
+      </div>
+      <div style="font-size:0.6rem;color:${roCol};margin-top:5px;text-align:center;"><b>${roPct}%</b> — ${roLbl}</div>
+    </div>`;
+    // shadow score chip row
+    const chips=`<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.56rem;margin-bottom:10px;">`
+      +`<span style="background:rgba(255,138,60,0.08);border:1px solid rgba(255,138,60,0.4);border-radius:5px;padding:3px 8px;color:${SH};">macro bridge</span>`
+      +(sc?`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">shadow hit-rate</span> <b style="color:${sc.hitRate>=0.5?G:A}">${Math.round(sc.hitRate*100)}%</b> · Brier ${sc.brier} · n=${sc.n} ${sc.proven?'<span style="color:'+G+'">✓ proven → tilting Trinity</span>':'<small style="color:'+DD+'">(maturing · advisory only)</small>'}</span>`:`<span style="color:${DD};font-size:0.54rem;">shadow backtester warming up — records leans vs. realised moves, tilts Trinity only once proven</span>`)
+      +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;color:${DD};">updated ${(function(){const d=new Date(),p=n=>String(n).padStart(2,'0');return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());})()}</span>`
+      +`</div>`;
+    const rk=M.ranked();
+    const longs=rk.filter(r=>r.lean>0.05).slice(0,6);
+    const shorts=rk.filter(r=>r.lean<-0.05).slice(0,6);
+    const bar=(lean)=>{ const w=Math.round(Math.min(1,Math.abs(lean))*100); const c=lean>=0?G:R; return `<span style="display:inline-block;width:52px;height:6px;border-radius:3px;background:rgba(255,255,255,0.06);vertical-align:middle;position:relative;"><span style="position:absolute;left:0;top:0;height:6px;width:${w}%;background:${c};border-radius:3px;"></span></span>`; };
+    const row=(r,side)=>`<div style="display:flex;align-items:center;gap:8px;font-size:0.58rem;padding:2px 0;">
+      <b style="color:${side==='LONG'?G:R};width:14px;">${side==='LONG'?'▲':'▼'}</b>
+      <span style="color:var(--tx);width:66px;">${r.p}</span>
+      ${bar(r.lean)}
+      <span style="color:${DD};">lean ${(r.lean>=0?'+':'')}${r.lean.toFixed(2)}</span>
+      <span style="color:${DD};font-size:0.5rem;">conf ${Math.round(r.conf*100)}%</span>
+    </div>`;
+    const cols=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div><div style="font-size:0.54rem;color:${G};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">macro leans LONG</div>${longs.length?longs.map(r=>row(r,'LONG')).join(''):`<div style="font-size:0.54rem;color:${DD};">— none right now</div>`}</div>
+      <div><div style="font-size:0.54rem;color:${R};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">macro leans SHORT</div>${shorts.length?shorts.map(r=>row(r,'SHORT')).join(''):`<div style="font-size:0.54rem;color:${DD};">— none right now</div>`}</div>
+    </div>`;
+    const foot=`<div style="font-size:0.5rem;color:${DD};line-height:1.7;margin-top:9px;background:rgba(255,255,255,0.02);border:1px solid var(--line);border-radius:6px;padding:6px 9px;">Trinity FX keeps full control of entries and exits. This bridge only adds a small, <b>hard-capped (+5)</b> confidence nudge to a pair — and <b>only</b> when its own price signal already agrees with the macro lean <b>and</b> the shadow backtester is proven (hit-rate &gt; 50% over ≥30 resolved samples). Until then it is advisory: shown here, but it does not touch Trinity's numbers. The reverse link already runs too — Trinity's live FX-FSO stress feeds the GSD market cell.</div>`;
+    el.innerHTML=explain+gauge+chips+cols+foot;
+  }
+  try{ window.renderOsirisMacro=renderOsirisMacro; }catch(e){}
+})();
+
+/* ==================================================================================
+   OSIRIS · WORLD-RISK OVERLAY — read-only advisory surface for Osiris Neo
+   ----------------------------------------------------------------------------------
+   A single, stable, READ-ONLY snapshot of the whole ShockWave picture that Osiris Neo
+   (or anything else) can consult without reaching into the engines. It NEVER writes to
+   Neo, Trinity or the GSD/contagion engines and never opens/closes a trade — it only
+   reports. Neo stays fully in control; this is a lens it may look through, nothing more.
+   ================================================================================== */
+(function(){
+  'use strict';
+  const num=(x,d)=>{ const n=+x; return isFinite(n)?n:(d==null?null:d); };
+  function read(){ const o={ ts:Date.now(), advisory:true, controls:false }; try{
+    const G=TrinityGSD;
+    o.regime = (typeof TrinityShockWave!=='undefined'&&TrinityShockWave._regime)?TrinityShockWave._regime():(G.regime||null);
+    o.globalStress = num(G.stress);
+    o.sysVar = num(G.sysVar); o.nodeThreshold = num(G.nodeTh); o.compression = (G.sysVar!=null&&G.nodeTh!=null)? G.sysVar<=G.nodeTh : null;
+    o.vfm = num(G.vfm); o.tippingRisk = num(G.tippingRisk); o.killSwitch = !!G.killSwitch;
+    o.riskOff = (typeof OsirisMacro!=='undefined')? num(OsirisMacro.riskOff()) : null;
+    // top zones by stress
+    try{ const zs=G.zoneStress||{}; o.zones=Object.keys(zs).filter(k=>k!=='global'&&zs[k]!=null).map(k=>({zone:k,stress:+zs[k].toFixed(3),conf:(G.zoneConf&&G.zoneConf[k]!=null)?+G.zoneConf[k].toFixed(2):null})).sort((a,b)=>b.stress-a.stress).slice(0,4); }catch(e){ o.zones=[]; }
+    // near-term kill-switch chances
+    try{ const kp=G.killProjection||[]; const pick=k=>{ const r=kp.find(x=>x.key===k); return r?{prob:r.prob,zone:r.zone,topic:r.topic,eta:r.eta}:null; }; o.killSwitchNearTerm={ week:pick('week'), month:pick('month'), quarter:pick('quarter') }; }catch(e){}
+    // active contagion propagation (top targets)
+    try{ if(typeof TrinityShockWave!=='undefined'){ o.contagion=(TrinityShockWave.active()||[]).slice(0,4).map(p=>({from:p.srcZone,cat:p.srcCat,targets:(p.targets||[]).slice(0,3).map(t=>({zone:t.zone,prob:TrinityShockWave.calibrate?TrinityShockWave.calibrate(t.prob):t.prob,lagDays:t.lagDays,effect:t.effect}))})); o.contagionScore=TrinityShockWave.score||null; } }catch(e){}
+    // maritime chokepoint disruptions
+    try{ o.chokepoints=(G._chokepoints||[]).filter(c=>c.shortfall>=0.06).slice(0,6).map(c=>({name:c.name,zone:c.zone,shortfall:c.shortfall,geo:!!c.geo})); }catch(e){ o.chokepoints=[]; }
+    // FX view: per-pair macro lean + per-currency bias (from the Trinity bridge)
+    try{ if(typeof OsirisMacro!=='undefined'){ o.fx={ pairLeans:(OsirisMacro.ranked()||[]).slice(0,8).map(r=>({pair:r.p,lean:+r.lean.toFixed(3),side:r.lean>=0?'LONG':'SHORT'})), shadowProven:!!(OsirisMacro._bt&&OsirisMacro._bt.score&&OsirisMacro._bt.score.proven) }; } }catch(e){}
+  }catch(e){ o.error=e&&e.message; } return o; }
+
+  const API = {
+    read,
+    ccyBias(c){ try{ return (typeof OsirisMacro!=='undefined')?OsirisMacro.ccyBias(c):null; }catch(e){ return null; } },
+    pairLean(p){ try{ return (typeof OsirisMacro!=='undefined')?OsirisMacro.pairLean(p):null; }catch(e){ return null; } },
+    riskWeight(ccy){ try{ return TrinityGSD.riskWeight(ccy); }catch(e){ return 1; } },   // 0.3..1 advisory position-size weight
+    advisory:true, controlsNeo:false,
+    note:'READ-ONLY advisory world-risk lens for Osiris Neo. Reports ShockWave/GSD/contagion/FX-macro state; never writes to Neo, Trinity or the engines, never trades.'
+  };
+  try{ window.OsirisWorldRisk=API; }catch(e){}
 })();
 
 
@@ -23273,10 +23640,21 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.beginPath(); ctx.arc(p[0],p[1],r*(1.6+pulse*0.7),0,6.283); ctx.fillStyle='rgba(255,45,85,'+(0.05+c.i*0.10)+')'; ctx.fill();
       ctx.beginPath(); ctx.arc(p[0],p[1],r,0,6.283); ctx.fillStyle=c.i>=0.85?'#ff2d55':c.i>=0.6?'#ff5f7e':'#ff8a9a'; ctx.globalAlpha=0.9; ctx.fill(); ctx.globalAlpha=1;
       ctx.restore(); M._markers.push({x:p[0],y:p[1],t:'⚔ '+c.name+' · intensity '+(c.i*100|0)+'%'+(risk?' · quake nearby':'')}); }); }
-  function _drawChokepoints(iz){ const ctx=M.ctx; CHOKEPOINTS.forEach(c=>{ const p=pB(c[1],c[0]); // risk: near quake/disaster?
+  function _drawChokepoints(iz){ const ctx=M.ctx;
+    // LIVE: IMF PortWatch transit disruption per chokepoint (colour + size by shortfall). Fall back to the
+    //       static list + nearby-hazard heuristic when PortWatch hasn't loaded yet.
+    let live=null; try{ live=TrinityGSD._chokepoints; }catch(e){}
+    if(live&&live.length){ live.forEach(c=>{ const p=pB(c.lon,c.lat); if(!p)return; const sf=c.shortfall||0;
+        const col = sf>=0.30?'#ff2d55' : sf>=0.15?'#ff8a3c' : sf>=0.06?'#ffd54a' : '#7fd8ff';
+        const s=(4+sf*7)*iz; ctx.save(); ctx.translate(p[0],p[1]);
+        if(sf>=0.15){ ctx.beginPath(); ctx.arc(0,0,s*1.9,0,6.283); ctx.fillStyle='rgba(255,45,85,'+(0.06+sf*0.18)+')'; ctx.fill(); }
+        ctx.beginPath(); ctx.moveTo(0,-s);ctx.lineTo(s,0);ctx.lineTo(0,s);ctx.lineTo(-s,0);ctx.closePath(); ctx.fillStyle=col; ctx.globalAlpha=0.8; ctx.fill(); ctx.globalAlpha=1; ctx.restore();
+        M._markers.push({x:p[0],y:p[1],t:'chokepoint · '+c.name+(sf>=0.06?' · transits −'+Math.round(sf*100)+'% vs baseline':' · normal flow')}); });
+      return; }
+    CHOKEPOINTS.forEach(c=>{ const p=pB(c[1],c[0]); // risk: near quake/disaster?
       let risk=0; M.quakes.forEach(q=>{ if(Math.abs(q.lat-c[0])<6&&Math.abs(q.lon-c[1])<6&&q.mag>=4.5)risk=Math.max(risk,0.6); }); M.events.forEach(e=>{ if(Math.abs(e.lat-c[0])<6&&Math.abs(e.lon-c[1])<6)risk=Math.max(risk,0.5); });
       const col=risk>0.4?'#ff5f7e':'#ffd54a'; const s=4*iz; ctx.save(); ctx.translate(p[0],p[1]); ctx.beginPath(); ctx.moveTo(0,-s);ctx.lineTo(s,0);ctx.lineTo(0,s);ctx.lineTo(-s,0);ctx.closePath(); ctx.fillStyle=col; ctx.globalAlpha=0.75; ctx.fill(); ctx.globalAlpha=1; ctx.restore();
-      M._markers.push({x:p[0],y:p[1],t:'chokepoint · '+c[2]+(risk>0.4?' · ⚠ risico nabij':'')}); }); }
+      M._markers.push({x:p[0],y:p[1],t:'chokepoint · '+c[2]+(risk>0.4?' · ⚠ hazard nearby':'')}); }); }
   function _drawTsunami(iz,now){ const ctx=M.ctx; const pulse=0.5+0.5*Math.sin(now/500);
     M.quakes.forEach(q=>{ if(q.mag>=6.5&&q.depth<70){ const p=pB(q.lon,q.lat); const R=(14+q.mag*3)*iz*(0.7+pulse*0.5);
       ctx.beginPath(); ctx.arc(p[0],p[1],R,0,6.283); ctx.strokeStyle='rgba(163,228,255,'+(0.5+pulse*0.4)+')'; ctx.lineWidth=2*iz; ctx.stroke();
@@ -23444,7 +23822,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const sc=zs>=0.5?'#ff5f7e':zs>=0.3?'#ffb627':'#14f195';
     const line=(lab,val,vc)=>`<div style="display:flex;gap:8px;font-size:0.56rem;padding:2px 0;"><span style="flex:0 0 92px;color:var(--dimmer)">${lab}</span><span style="flex:1 1 auto;color:${vc||'var(--dim)'}">${val}</span></div>`;
     el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--tx);font-weight:700;">${D.name}</div><button class="btn btn-mini" onclick="__swClearDetail()" style="padding:2px 7px;font-size:0.5rem;">✕</button></div>`
-      +`<div style="font-size:0.54rem;color:${col};margin-bottom:5px;">${zc} · stress <b style="color:${sc}">${(zs*100|0)}%</b></div>`
+      +`<div style="font-size:0.54rem;color:${col};margin-bottom:5px;">${zc} · stress <b style="color:${sc}">${(zs*100|0)}%</b>${(function(){ try{ const cf=TrinityGSD.zoneConf&&TrinityGSD.zoneConf[z]; if(cf!=null){ const cc=cf>=0.6?'#14f195':cf>=0.35?'#ffb627':'#ff5f7e'; return ' · <span style="color:'+cc+'" title="data confidence = coverage × freshness">conf '+(cf*100|0)+'%</span>'; } }catch(e){} return ''; })()}</div>`
       +line('Kill-switch', kp?('chance <b style="color:#ff8a3c">'+kp.chanceNow+'%</b>'+(kp.chanceDelta!=null?' ('+(kp.chanceDelta>0?'▲':kp.chanceDelta<0?'▼':'■')+Math.abs(kp.chanceDelta)+', was '+kp.chancePrev+'%)':'')+' · '+kp.key+' · est. '+_fmtDate(kp.eta)+(kp.estimate?'~':'')+' · '+_fmtCountdown(kp.eta)):'—')
       +line('Contagion', cons.length?cons.join(' · '):'no active targets')
       +line('Earthquakes', nq.length?nq.join(' · '):'none recent')
