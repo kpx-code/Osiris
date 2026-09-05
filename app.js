@@ -21830,6 +21830,8 @@ const GSDData = {
     run(()=>this.fred(),  30*60000, 16000);   // financiële condities (VIX/NFCI) — FRED key
     run(()=>this.ecb(),   30*60000, 19000);   // euro-area systeemstress (CISS) — geen key
     run(()=>this.acled(), 30*60000, 22000);   // gewapende conflicten — ACLED key
+    run(()=>this.z1tic(), 6*3600000, 25000);  // Fed Z.1 + US Treasury TIC (via FRED)
+    run(()=>this.bis(),   12*3600000, 28000); // BIS credit-to-GDP gap (systemic)
   },
   // USGS aardbevingen (direct, GeoJSON) → disaster-stress per zone
   usgs(){
@@ -21947,7 +21949,32 @@ const GSDData = {
         TrinityFeeds.markOk('gsd-acled',ev+' events '+z.key);
       }).catch(e=>TrinityFeeds.markErr('gsd-acled',e.message,e.http));
     });
-  }
+  },
+  // Fed Z.1 (Financial Accounts) + US Treasury TIC — both via FRED (proxy + free key). Z.1 → US
+  //   financial-fragility (household debt-service) into NA 'econ'; TIC → change in foreign holdings of
+  //   US Treasuries = real net capital inflow (USD) into North America, shown on the capital-flow label.
+  z1tic(){ if(!TrinityGSD.proxy) return;
+    const obs=(sid,n,cb)=>{ const url='https://api.stlouisfed.org/fred/series/observations?series_id='+sid+'&sort_order=desc&limit='+n;
+      return this._get(url,false).then(d=>cb((d.observations||[]).map(o=>parseFloat(o.value)).filter(v=>!isNaN(v)))).catch(()=>cb([])); };
+    // Fed Z.1 · household debt-service ratio (% of disposable income): ~9% calm → ~15% stressed
+    obs('TDSP',1,a=>{ if(!a.length){ TrinityFeeds.markErr('gsd-z1','no data'); return; } const v=a[0], s=_clamp01((v-9)/6);
+      try{ const cur=TrinityGSD.cells.na.econ.v; TrinityGSD.setCell('na','econ', cur!=null?Math.max(cur,s*0.8):s*0.8,'Fed Z.1','debt-service '+v.toFixed(1)+'% of income'); }catch(e){}
+      TrinityFeeds.markOk('gsd-z1','debt-service '+v.toFixed(1)+'%'); });
+    // US Treasury TIC · foreign holdings of US federal debt (FDHBFIN, $mn) → Δ = net inflow into NA
+    obs('FDHBFIN',2,a=>{ if(a.length<2){ TrinityFeeds.markErr('gsd-tic','no data'); return; } const flowUSD=(a[0]-a[1])*1e6;
+      try{ window.__swMergeRealFlow&&window.__swMergeRealFlow('na',flowUSD,'FRED/TIC'); }catch(e){}
+      TrinityFeeds.markOk('gsd-tic','Δforeign UST '+(flowUSD>=0?'+':'−')+'$'+Math.abs(flowUSD/1e9).toFixed(0)+'B'); }); },
+  // BIS credit-to-GDP gap (systemic credit risk; Basel buffer guide) → NA 'cb'. SDMX key is broad and
+  //   parsed defensively; verify the exact series on the live site.
+  bis(){ if(!TrinityGSD.proxy) return;
+    const url='https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CREDIT_GAP/1.0/Q.US.P.A?lastNObservations=1&format=jsondata';
+    this._get(url,false).then(d=>{ let val=null;
+      try{ const ds=d.dataSets&&d.dataSets[0]; const s=ds&&ds.series; const first=s&&s[Object.keys(s)[0]]; const o=first&&first.observations; const k=o&&Object.keys(o)[0]; if(k!=null)val=o[k][0]; }catch(e){}
+      if(val==null){ TrinityFeeds.markErr('gsd-bis','no data (check series key)'); return; }
+      const s=_clamp01((val+5)/25);   // credit gap >10 = elevated (Basel countercyclical-buffer trigger)
+      try{ const cur=TrinityGSD.cells.na.cb.v; TrinityGSD.setCell('na','cb', cur!=null?Math.max(cur,s):s,'BIS credit-gap','credit-to-GDP gap '+(+val).toFixed(1)); }catch(e){}
+      TrinityFeeds.markOk('gsd-bis','gap '+(+val).toFixed(1));
+    }).catch(e=>TrinityFeeds.markErr('gsd-bis',e.message,e.http)); }
 };
 try{ Object.assign(window,{TrinityGSD,GSDData,GSD_ZONES,GSD_CATS}); }catch(e){}
 
@@ -22327,7 +22354,7 @@ function drawHistCalChart(){
     {c:'rgba(240,214,90,0.55)',label:'danger zone (compression)',type:'area'},
     {c:'#ff3b5c',label:'ΔV kill-switch trigger',type:'star'} ]);
 }
-const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-gdacs','GDACS multi-hazard','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-space','NOAA SWPC space weather','direct'],['gsd-conflicts','Conflicts (curated + live scoring)','embedded'],['gsd-migration','Migration corridors (curated)','embedded'],['gsd-flashpoints','Economic flashpoints (live-scored)','embedded'],['gsd-capflow','Capital flow · IMF BoP (real USD)','proxy'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
+const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-gdacs','GDACS multi-hazard','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-space','NOAA SWPC space weather','direct'],['gsd-conflicts','Conflicts (curated + live scoring)','embedded'],['gsd-migration','Migration corridors (curated)','embedded'],['gsd-flashpoints','Economic flashpoints (live-scored)','embedded'],['gsd-capflow','Capital flow · IMF BoP (real USD)','proxy'],['gsd-tic','US Treasury TIC · foreign UST (FRED)','proxy'],['gsd-z1','Fed Z.1 · debt-service (FRED)','proxy'],['gsd-bis','BIS credit-to-GDP gap','proxy'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
 function renderGSD(){
   if(!TrinityGSD._built) return;
   if(!_gsdBuilt) _gsdBuildToggles();
@@ -23132,6 +23159,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   //      simulated FX-flow index. When a proxy delivers TIC/IMF (see _fetchCapitalFlows), or a caller
   //      injects via window.__swSetRealFlow({na:..,eu:..}, 'TIC/IMF'), the labels switch to real USD. ----
   window.__swSetRealFlow=function(obj,src){ try{ if(obj&&typeof obj==='object'){ M.realFlow=obj; M.realFlowSrc=src||'proxy'; M._lastData=Date.now(); } }catch(e){} };
+  window.__swMergeRealFlow=function(zone,usd,src){ try{ if(zone&&isFinite(usd)){ M.realFlow=M.realFlow||{}; M.realFlow[zone]=usd; M.realFlowSrc=src||M.realFlowSrc||'proxy'; M._lastData=Date.now(); } }catch(e){} };
   // per-zone flow for the label: {v, real, disp}. real → USD from TIC/IMF; else scaled simulated index.
   function _zoneFlowLabel(zk){ const rf=M.realFlow&&M.realFlow[zk]; if(rf!=null&&isFinite(rf)) return {v:rf,real:true,disp:_fmtUSD(rf)}; const idx=_zoneNetFlow(zk)*1e6; return {v:idx,real:false,disp:_fmtFlow(idx)}; }
   // centred per-zone capital-flow labels: real USD ("North America ▲ +$12B") when available, else the relative index
