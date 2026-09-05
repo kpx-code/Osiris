@@ -21891,22 +21891,20 @@ const GSDData = {
   // GDELT geopolitics + tone (proxy) → geo/conflict/tone per zone (per-zone keyword tonechart)
   gdelt(){
     if(!TrinityGSD.proxy) return;   // proxy-gated
-    let okAny=false;
+    if(this._gdeltCool && Date.now()<this._gdeltCool) return;   // in 429-cooldown → skip this cycle
     GSD_ZONES.forEach((z,zi)=>{ if(z.synthetic)return; const q=GSD_GDELT_Q[z.key]; if(!q)return;
-     setTimeout(()=>{                                       // stagger per zone → avoid GDELT 429 rate-limit
+     setTimeout(()=>{                                       // ruime stagger per zone → beperk GDELT 429
+      if(this._gdeltCool && Date.now()<this._gdeltCool) return;   // een 429 eerder deze ronde → stop de rest
       const url='https://api.gdeltproject.org/api/v2/doc/doc?query='+encodeURIComponent(q)+'&mode=tonechart&format=json&timespan=3d';
       this._get(url,false).then(d=>{ let neg=0,tot=0; (d.tonechart||[]).forEach(b=>{ const c=b.count||0; tot+=c; if((b.bin||0)<=-2) neg+=c; });
         const negFrac = tot? neg/tot : 0;
         const why='tone '+(negFrac*100|0)+'% neg · '+tot+' art';
-        // GDELT owns geo + tone. Conflict is owned by ACLED (hard event data); GDELT only fills
-        // conflict when ACLED has no data. De ruwe negatief-fractie wordt ROLLEND-RELATIEF
-        // genormaliseerd (percentiel t.o.v. eigen historie) i.p.v. hard geclampt → geen 1.0-plafond.
         TrinityGSD.setCell(z.key,'geo', _gsdRelNorm(z.key,'geo',negFrac*1.4),'GDELT',why);
         TrinityGSD.setCell(z.key,'tone', _gsdRelNorm(z.key,'tone',negFrac),'GDELT',why);
         const cc=TrinityGSD.cells[z.key].conflict; if(!cc||cc.src!=='ACLED'||cc.v==null) TrinityGSD.setCell(z.key,'conflict', _gsdRelNorm(z.key,'conflict',negFrac*1.6),'GDELT',why);
-        okAny=true; TrinityFeeds.markOk('gsd-gdelt','tone ok · '+z.key);
-      }).catch(e=>TrinityFeeds.markErr('gsd-gdelt',e.message,e.http));
-     }, zi*1500);
+        TrinityFeeds.markOk('gsd-gdelt','tone ok · '+z.key);
+      }).catch(e=>{ if(e.http===429){ this._gdeltCool=Date.now()+20*60000; TrinityFeeds.markErr('gsd-gdelt','rate-limited (429) — cooling down 20m'); } else TrinityFeeds.markErr('gsd-gdelt',e.message,e.http); });
+     }, zi*4000);   // 4s tussen zones (was 1.5s)
     });
   },
   // FRED financial conditions (proxy, FRED key server-side) → global 'cb' stress (VIX + NFCI)
@@ -21980,31 +21978,31 @@ const GSDData = {
       TrinityFeeds.markOk('gsd-tic','Δforeign UST '+(flowUSD>=0?'+':'−')+'$'+Math.abs(flowUSD/1e9).toFixed(0)+'B'); }); },
   // BIS credit-to-GDP gap (systemic credit risk; Basel buffer guide) → NA 'cb'. SDMX key is broad and
   //   parsed defensively; verify the exact series on the live site.
-  bis(){ if(!TrinityGSD.proxy) return;
+  bis(){ if(!TrinityGSD.proxy) return; if(this._bisFail>=3) return;   // give up after repeated failures
     const url='https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CREDIT_GAP/1.0/Q.US.P.A?lastNObservations=1&format=jsondata';
     this._get(url,false).then(d=>{ let val=null;
       try{ const ds=d.dataSets&&d.dataSets[0]; const s=ds&&ds.series; const first=s&&s[Object.keys(s)[0]]; const o=first&&first.observations; const k=o&&Object.keys(o)[0]; if(k!=null)val=o[k][0]; }catch(e){}
-      if(val==null){ TrinityFeeds.markErr('gsd-bis','no data (check series key)'); return; }
-      const s=_clamp01((val+5)/25);   // credit gap >10 = elevated (Basel countercyclical-buffer trigger)
+      if(val==null){ this._bisFail=(this._bisFail||0)+1; TrinityFeeds.markErr('gsd-bis','no data (check series key)'); return; }
+      this._bisFail=0; const s=_clamp01((val+5)/25);   // credit gap >10 = elevated (Basel countercyclical-buffer trigger)
       try{ const cur=TrinityGSD.cells.na.cb.v; TrinityGSD.setCell('na','cb', cur!=null?Math.max(cur,s):s,'BIS credit-gap','credit-to-GDP gap '+(+val).toFixed(1)); }catch(e){}
       TrinityFeeds.markOk('gsd-bis','gap '+(+val).toFixed(1));
-    }).catch(e=>TrinityFeeds.markErr('gsd-bis',e.message,e.http)); },
+    }).catch(e=>{ this._bisFail=(this._bisFail||0)+1; TrinityFeeds.markErr('gsd-bis',e.message,e.http); }); },
   // Stooq live commodities (keyless CSV) → trade/commodity stress (all zones) + gold as a risk-off nudge
-  stooq(){ if(!TrinityGSD.proxy) return;
+  stooq(){ if(!TrinityGSD.proxy) return; if(this._stooqFail>=3) return;   // give up after repeated failures → geen console-spam
     const url='https://stooq.com/q/l/?s=cl.f,cb.f,ng.f,gc.f,hg.f,zw.f&f=sd2t2ohlcv&h&e=csv';
     this._getText(url,false).then(txt=>{ const px={};
       txt.trim().split('\n').slice(1).forEach(line=>{ const c=line.split(','); if(c.length<7)return; const sym=(c[0]||'').toLowerCase(); const close=parseFloat(c[6]); if(isFinite(close)) px[sym]=close; });
       const wti=px['cl.f'], brent=px['cb.f'], gas=px['ng.f'], gold=px['gc.f'], copper=px['hg.f'], wheat=px['zw.f'];
       const oil=[wti,brent].filter(x=>x>0); const oilAvg=oil.length?oil.reduce((a,b)=>a+b,0)/oil.length:null;
       const parts=[]; if(oilAvg!=null)parts.push(_clamp01((oilAvg-55)/70)); if(gas>0)parts.push(_clamp01((gas-2.5)/8)); if(wheat>0)parts.push(_clamp01((wheat-500)/450));
-      if(!parts.length){ TrinityFeeds.markErr('gsd-stooq','no data'); return; }
-      const tstress=parts.reduce((a,b)=>a+b,0)/parts.length;
+      if(!parts.length){ this._stooqFail=(this._stooqFail||0)+1; TrinityFeeds.markErr('gsd-stooq','no data'); return; }
+      this._stooqFail=0; const tstress=parts.reduce((a,b)=>a+b,0)/parts.length;
       const why='WTI $'+(wti?wti.toFixed(0):'—')+' · Brent $'+(brent?brent.toFixed(0):'—')+' · gas '+(gas?gas.toFixed(1):'—')+' · gold $'+(gold?gold.toFixed(0):'—');
       GSD_ZONES.forEach(z=>{ if(z.synthetic)return; TrinityGSD.setCell(z.key,'trade',tstress,'Stooq',why); });
       // gold spike = risk-off → small global market nudge (not a hard floor)
       if(gold>0){ const rf=_clamp01((gold-2200)/1600); GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].market.v; if(rf>0.3&&(cur==null||rf>cur)) TrinityGSD.setCell(z.key,'market', rf*0.6, 'Stooq (gold risk-off)', 'gold $'+gold.toFixed(0)); }); }
       TrinityFeeds.markOk('gsd-stooq',why);
-    }).catch(e=>TrinityFeeds.markErr('gsd-stooq',e.message,e.http)); },
+    }).catch(e=>{ this._stooqFail=(this._stooqFail||0)+1; TrinityFeeds.markErr('gsd-stooq',e.message,e.http); }); },
   // NOAA CPC Oceanic Niño Index (ONI, keyless text) → El Niño/La Niña regime → weather nudge (agri risk)
   enso(){ if(!TrinityGSD.proxy) return;
     const url='https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt';
