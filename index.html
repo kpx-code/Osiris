@@ -2495,6 +2495,18 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div id="sw-feed" class="mono"><div class="mono" style="font-size:0.56rem;color:var(--dimmer);">contagion engine initialising…</div></div>
     </div>
 
+    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">What-if simulator</h3><span class="sub">— inject a hypothetical shock and see how the contagion engine expects it to propagate (simulation only — never touches the live engine or its learning)</span></div>
+    <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <label style="font-size:0.54rem;color:var(--dim);">Zone<br><select id="sw-wi-zone" style="margin-top:3px;"><option value="me">Middle East</option><option value="ap">Asia-Pacific</option><option value="eu">Europe</option><option value="na">North America</option><option value="latam">Latin America</option><option value="af">Africa</option></select></label>
+        <label style="font-size:0.54rem;color:var(--dim);">Category<br><select id="sw-wi-cat" style="margin-top:3px;"><option value="conflict">Conflict</option><option value="econ">Economy</option><option value="cb">Central banks</option><option value="geo">Geopolitics</option><option value="disaster">Natural disasters</option><option value="weather">Extreme weather</option><option value="trade">Trade / commodities</option><option value="market">Markets / FX</option><option value="tone">Media tone</option></select></label>
+        <label style="font-size:0.54rem;color:var(--dim);">Magnitude <span id="sw-wi-maglbl" style="color:#ff8a3c;">80%</span><br><input id="sw-wi-mag" type="range" min="10" max="100" value="80" step="5" style="margin-top:6px;width:120px;" oninput="document.getElementById('sw-wi-maglbl').textContent=this.value+'%'"></label>
+        <button class="btn" style="padding:7px 14px;" onclick="window.__swWhatIf&&window.__swWhatIf()">⚡ Simulate</button>
+      </div>
+      <div id="sw-wi-out" class="mono" style="margin-top:10px;font-size:0.56rem;color:var(--dimmer);">Pick a zone, category and magnitude, then press Simulate.</div>
+    </div>
+
     <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Global stress</h3><span class="sub">— UOTAM/TAM across 7 world zones · live micro/meso/macro/full + historical week→30y horizons · all charts collapsible</span></div>
     <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
@@ -2507,6 +2519,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <details class="fsodetails"><summary>Filter categories (for ranking)</summary><div id="gsd-cattoggles" class="fsocbwrap fsocbgrid"></div></details>
       </div>
       <div id="gsd-charts"></div>
+      <div class="panel" style="margin-top:12px;border-color:rgba(255,138,60,0.28);">
+        <div class="mono" style="font-size:0.5rem;letter-spacing:0.1em;color:#ffb27e;text-transform:uppercase;margin-bottom:6px;">⟲ Time-machine · replay world-stress history</div>
+        <div id="gsd-timemachine"><div class="mono" style="font-size:0.54rem;color:var(--dimmer);">Time-machine recording…</div></div>
+      </div>
       <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:8px;display:flex;gap:14px;flex-wrap:wrap;"><span style="color:#ff5f7e;">— global stress</span><span style="color:#7fb4ff;">-- σ² variance</span><span style="color:#c792ea;">— VFM (stored energy)</span><span style="color:#ffd24a;">┊ TAM nodes</span><span style="color:#ff8a94;">▧ danger zone (σ² ≤ node)</span><span style="color:#ff3b5c;">★ ΔV kill-switch</span><span style="color:var(--dimmer);">● zone stress (right)</span></div>
       <div class="mono" style="font-size:0.5rem;color:var(--dim);margin-top:6px;line-height:1.65;background:rgba(255,255,255,0.02);border:1px solid var(--line);border-radius:6px;padding:7px 9px;">
         <b style="color:#7fd8ff;">What the boundaries mean</b> &mdash; <b style="color:#ffd24a;">σ² drops below the node threshold</b> → <b>compression</b> (danger zone): the sub-oscillators sync up and the system stores kinetic energy (<b style="color:#c792ea;">VFM</b> rises). When that compression <b style="color:#ff3b5c;">breaks out</b> (ΔV escape) while VFM is loaded, the <b style="color:#ff3b5c;">kill-switch (★)</b> fires — the release, historically the onset of a crisis. Separately, <b style="color:#ffb627;">stress above TENSION</b> = elevated level, <b style="color:#ff4f6d;">above CRISIS</b> = severe. The <b>tipping-risk</b> meter (top) tracks how loaded the spring is, independent of the level.
@@ -2536,7 +2552,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div id="gsd-feeds" class="feeds"><div class="mono" style="color:var(--dimmer);font-size:0.56rem;">feeds initialising…</div></div>
       <div class="oarow" style="margin-top:10px;"><span>GSD proxy URL (optional)</span><div style="display:flex;gap:6px;"><input id="gsd-proxy" type="text" placeholder="https://…worker.dev  (for GDELT/FRED/ACLED)" style="flex:1;"><button class="btn" style="padding:7px 12px;" onclick="gsdSetProxy()">Set</button></div></div>
-      <div class="mono" style="font-size:0.46rem;color:var(--dimmer);margin-top:6px;line-height:1.6;"><b style="color:#7fd4ff;">Browser-direct (no account / no key):</b> USGS earthquakes · NASA EONET · GDACS multi-hazard · Open-Meteo weather · World Bank macro · NOAA SWPC space-weather. <b style="color:#c792ea;">Embedded &amp; live-scored:</b> active conflicts, migration corridors and economic flashpoints — curated, source-grounded datasets whose scores move with the live feeds and feed the autonomous adaptation. <b style="color:#c792ea;">Proxy required (free):</b> GDELT (geopolitics/tone, no key), ECB CISS (no key), FRED &amp; ACLED (free registration), plus capital &amp; systemic sources — IMF Balance-of-Payments, US Treasury TIC + Fed Z.1 (via FRED) and the BIS credit-to-GDP gap — all keyless bar FRED, all through the same small Cloudflare Worker. Everything refreshes in the background (each row shows its last-updated time); the map toggles are display-only.</div>
+      <div class="mono" style="font-size:0.46rem;color:var(--dimmer);margin-top:6px;line-height:1.6;"><b style="color:#7fd4ff;">Browser-direct (no account / no key):</b> USGS earthquakes · NASA EONET · GDACS multi-hazard · Open-Meteo weather · World Bank macro · NOAA SWPC space-weather. <b style="color:#c792ea;">Embedded &amp; live-scored:</b> active conflicts, migration corridors and economic flashpoints — curated, source-grounded datasets whose scores move with the live feeds and feed the autonomous adaptation. <b style="color:#c792ea;">Proxy required (free):</b> GDELT (geopolitics/tone), ECB CISS, FRED &amp; ACLED, Stooq commodities (WTI/Brent/gas/gold/copper/wheat), NOAA ONI (El Niño), plus capital &amp; systemic sources — IMF Balance-of-Payments, US Treasury TIC + Fed Z.1 (via FRED) and the BIS credit-to-GDP gap. All keyless bar FRED &amp; ACLED, all through the same small Cloudflare Worker. <b style="color:#ff8a94;">Note:</b> the Worker has a host allow-list — add <code>dataservices.imf.org</code>, <code>stooq.com</code>, <code>www.cpc.ncep.noaa.gov</code> and <code>stats.bis.org</code> to it or those rows show as unavailable. Everything refreshes in the background (each row shows its last-updated time); the map toggles are display-only.</div>
       <div class="secdiv" style="margin-top:16px;"><h3>Historical calibration</h3><span class="sub">— calibrate node/regime thresholds on decades of real crises (FRED · ECB · GDELT · USGS)</span></div>
       <canvas id="gsd-histcal-chart" style="width:100%;height:340px;display:block;background:rgba(0,0,0,0.3);border:1px solid var(--line);border-radius:8px;margin-bottom:6px;"></canvas>
       <div class="mono" style="font-size:0.48rem;color:var(--dimmer);margin-bottom:8px;line-height:1.6;">The <b style="color:#c792ea;">purple mountains</b> are stored energy (VFM) building during <b style="color:#ffd24a;">compression</b> (σ² under the red node line); each <b style="color:#ff3b5c;">★</b> is a ΔV kill-switch — energy releasing, historically clustering on real crises (1998 LTCM, dotcom, 2008 GFC, 2011 euro, 2020 COVID, 2022 rates/energy). This is the model's back-test: the thresholds are calibrated so the stars land on those crises, then the same thresholds drive the live charts above.</div>
@@ -2650,7 +2666,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260905-build74-tic-bis-z1"></script>
+<script src="app.js?v=20260905-build76-model"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
