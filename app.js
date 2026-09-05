@@ -20804,7 +20804,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
@@ -21718,10 +21718,14 @@ const TrinityGSD = {
       const leadKeys=GSD_CATS.map(c=>c.key).filter(k=>lead[k]); if(!leadKeys.length) leadKeys.push('econ');
       const cats=leadKeys.map(k=>[k,this.catStress&&this.catStress[k]!=null?this.catStress[k]:0]).sort((a,b)=>b[1]-a[1]);
       const topCats=cats.slice(0,2).map(([k])=>catN[k]||k);
-      // top zone = highest MEAN over the leading categories (not the all-category zoneStress)
-      const zoneLead=[]; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return; let s=0,n=0; leadKeys.forEach(k=>{ const cell=this.cells[z.key]&&this.cells[z.key][k]; if(cell&&cell.v!=null){s+=cell.v;n++;} }); if(n)zoneLead.push([z.key,s/n]); });
-      zoneLead.sort((a,b)=>b[1]-a[1]);
-      const zn=GSD_ZONES.find(z=>z.key===(zoneLead[0]&&zoneLead[0][0])); const topZone=zn?zn.name:'Global';
+      // PER-HORIZON zone: near term = what's loading now (leading cats); long term shifts toward
+      // structural/persistent risk (conflict/geo/central-banks). So week≈economics-leader, decades≈structural-leader.
+      const leadMean={}, structMean={};
+      GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return;
+        let s=0,n=0; leadKeys.forEach(k=>{ const c=this.cells[z.key]&&this.cells[z.key][k]; if(c&&c.v!=null){s+=c.v;n++;} }); leadMean[z.key]=n?s/n:0;
+        let ss=0,sn=0; ['conflict','geo','cb'].forEach(k=>{ const c=this.cells[z.key]&&this.cells[z.key][k]; if(c&&c.v!=null){ss+=c.v;sn++;} }); structMean[z.key]=sn?ss/sn:0; });
+      const zoneFor=(days)=>{ const w=Math.min(1,days/3650)*0.7; let best=null,bv=-1; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return; const sc=leadMean[z.key]*(1-w)+structMean[z.key]*w; if(sc>bv){bv=sc;best=z;} }); return best?best.name:'Global'; };
+      const topZone=zoneFor(7);
       const out=[];
       HZ.forEach(([key,days,hk])=>{
         const horizonMs=days*864e5; const nodes=this.tamNodes(now, now+horizonMs*1.05, hk); const nn=nodes.find(t=>t>now);
@@ -21739,7 +21743,7 @@ const TrinityGSD = {
           basis='historical cadence · '+killsPerYear.toFixed(2)+'/yr over '+yrs+'y · cumulative by horizon end'; est=false;
         }
         const halfw = days<=30? days*0.25*864e5 : days<=365? days*0.12*864e5 : days*0.08*864e5;
-        out.push({ key, days, prob:+_clamp01(prob).toFixed(2), eta, window:[eta-halfw, eta+halfw], topic:topCats.join(' + ')||'—', zone:topZone, basis, estimate:est });
+        out.push({ key, days, prob:+_clamp01(prob).toFixed(2), eta, window:[eta-halfw, eta+halfw], topic:topCats.join(' + ')||'—', zone:zoneFor(days), basis, estimate:est });
       });
       // ---- 1) trigger-events loggen (voor predicted-vs-outcome scoring) ----
       if(this.tippingRisk>=0.75 || this.killSwitch){ this._killTrig=this._killTrig||[]; const last=this._killTrig[this._killTrig.length-1]; if(!last||now-last>3600e3){ this._killTrig.push(now); if(this._killTrig.length>300)this._killTrig.shift(); } }
@@ -21817,21 +21821,29 @@ const GSDData = {
     if(!u) return Promise.reject(new Error('proxy required'));
     return fetch(u).then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.json(); });
   },
+  _getText(url,direct){
+    const u = direct ? url : (TrinityGSD.proxy ? (TrinityGSD.proxy+'/pass?url='+encodeURIComponent(url)) : null);
+    if(!u) return Promise.reject(new Error('proxy required'));
+    return fetch(u).then(r=>{ if(!r.ok) throw Object.assign(new Error('HTTP '+r.status),{http:r.status}); return r.text(); });
+  },
   start(){
     if(this._started) return; this._started=true;
     // gestaggerd + rustige intervallen zodat de pull-rate laag blijft (Osiris niet belasten)
     const run=(fn,ms,delay)=>{ setTimeout(()=>{ try{fn();}catch(e){} this._timers.push(setInterval(()=>{try{fn();}catch(e){}},ms)); }, delay); };
-    run(()=>this.usgs(), 5*60000, 1500);
-    run(()=>this.eonet(), 10*60000, 4000);
-    run(()=>this.weather(), 15*60000, 7000);
-    run(()=>this.worldbank(), 6*3600000, 10000);
+    // fast first pulls — everything fires within ~9s of load (was ~28s)
+    run(()=>this.usgs(), 5*60000, 400);
+    run(()=>this.eonet(), 10*60000, 1200);
+    run(()=>this.weather(), 15*60000, 2200);
+    run(()=>this.worldbank(), 6*3600000, 3000);
+    run(()=>this.stooq(), 10*60000, 3600);    // live commodities (WTI/Brent/gas/gold/copper/wheat) — keyless
+    run(()=>this.enso(), 12*3600000, 4200);   // NOAA ONI (El Niño/La Niña) — keyless
     // proxy-gated bronnen (draaien alleen als een GSD-proxy-URL is ingesteld)
-    run(()=>this.gdelt(), 10*60000, 13000);   // geopolitiek / tone (geen key)
-    run(()=>this.fred(),  30*60000, 16000);   // financiële condities (VIX/NFCI) — FRED key
-    run(()=>this.ecb(),   30*60000, 19000);   // euro-area systeemstress (CISS) — geen key
-    run(()=>this.acled(), 30*60000, 22000);   // gewapende conflicten — ACLED key
-    run(()=>this.z1tic(), 6*3600000, 25000);  // Fed Z.1 + US Treasury TIC (via FRED)
-    run(()=>this.bis(),   12*3600000, 28000); // BIS credit-to-GDP gap (systemic)
+    run(()=>this.gdelt(), 10*60000, 4800);    // geopolitiek / tone (geen key)
+    run(()=>this.fred(),  30*60000, 5400);    // financiële condities (VIX/NFCI) — FRED key
+    run(()=>this.ecb(),   30*60000, 6000);    // euro-area systeemstress (CISS) — geen key
+    run(()=>this.acled(), 30*60000, 6800);    // gewapende conflicten — ACLED key
+    run(()=>this.z1tic(), 6*3600000, 7600);   // Fed Z.1 + US Treasury TIC (via FRED)
+    run(()=>this.bis(),   12*3600000, 8600);  // BIS credit-to-GDP gap (systemic)
   },
   // USGS aardbevingen (direct, GeoJSON) → disaster-stress per zone
   usgs(){
@@ -21880,7 +21892,8 @@ const GSDData = {
   gdelt(){
     if(!TrinityGSD.proxy) return;   // proxy-gated
     let okAny=false;
-    GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const q=GSD_GDELT_Q[z.key]; if(!q)return;
+    GSD_ZONES.forEach((z,zi)=>{ if(z.synthetic)return; const q=GSD_GDELT_Q[z.key]; if(!q)return;
+     setTimeout(()=>{                                       // stagger per zone → avoid GDELT 429 rate-limit
       const url='https://api.gdeltproject.org/api/v2/doc/doc?query='+encodeURIComponent(q)+'&mode=tonechart&format=json&timespan=3d';
       this._get(url,false).then(d=>{ let neg=0,tot=0; (d.tonechart||[]).forEach(b=>{ const c=b.count||0; tot+=c; if((b.bin||0)<=-2) neg+=c; });
         const negFrac = tot? neg/tot : 0;
@@ -21893,6 +21906,7 @@ const GSDData = {
         const cc=TrinityGSD.cells[z.key].conflict; if(!cc||cc.src!=='ACLED'||cc.v==null) TrinityGSD.setCell(z.key,'conflict', _gsdRelNorm(z.key,'conflict',negFrac*1.6),'GDELT',why);
         okAny=true; TrinityFeeds.markOk('gsd-gdelt','tone ok · '+z.key);
       }).catch(e=>TrinityFeeds.markErr('gsd-gdelt',e.message,e.http));
+     }, zi*1500);
     });
   },
   // FRED financial conditions (proxy, FRED key server-side) → global 'cb' stress (VIX + NFCI)
@@ -21974,9 +21988,63 @@ const GSDData = {
       const s=_clamp01((val+5)/25);   // credit gap >10 = elevated (Basel countercyclical-buffer trigger)
       try{ const cur=TrinityGSD.cells.na.cb.v; TrinityGSD.setCell('na','cb', cur!=null?Math.max(cur,s):s,'BIS credit-gap','credit-to-GDP gap '+(+val).toFixed(1)); }catch(e){}
       TrinityFeeds.markOk('gsd-bis','gap '+(+val).toFixed(1));
-    }).catch(e=>TrinityFeeds.markErr('gsd-bis',e.message,e.http)); }
+    }).catch(e=>TrinityFeeds.markErr('gsd-bis',e.message,e.http)); },
+  // Stooq live commodities (keyless CSV) → trade/commodity stress (all zones) + gold as a risk-off nudge
+  stooq(){ if(!TrinityGSD.proxy) return;
+    const url='https://stooq.com/q/l/?s=cl.f,cb.f,ng.f,gc.f,hg.f,zw.f&f=sd2t2ohlcv&h&e=csv';
+    this._getText(url,false).then(txt=>{ const px={};
+      txt.trim().split('\n').slice(1).forEach(line=>{ const c=line.split(','); if(c.length<7)return; const sym=(c[0]||'').toLowerCase(); const close=parseFloat(c[6]); if(isFinite(close)) px[sym]=close; });
+      const wti=px['cl.f'], brent=px['cb.f'], gas=px['ng.f'], gold=px['gc.f'], copper=px['hg.f'], wheat=px['zw.f'];
+      const oil=[wti,brent].filter(x=>x>0); const oilAvg=oil.length?oil.reduce((a,b)=>a+b,0)/oil.length:null;
+      const parts=[]; if(oilAvg!=null)parts.push(_clamp01((oilAvg-55)/70)); if(gas>0)parts.push(_clamp01((gas-2.5)/8)); if(wheat>0)parts.push(_clamp01((wheat-500)/450));
+      if(!parts.length){ TrinityFeeds.markErr('gsd-stooq','no data'); return; }
+      const tstress=parts.reduce((a,b)=>a+b,0)/parts.length;
+      const why='WTI $'+(wti?wti.toFixed(0):'—')+' · Brent $'+(brent?brent.toFixed(0):'—')+' · gas '+(gas?gas.toFixed(1):'—')+' · gold $'+(gold?gold.toFixed(0):'—');
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; TrinityGSD.setCell(z.key,'trade',tstress,'Stooq',why); });
+      // gold spike = risk-off → small global market nudge (not a hard floor)
+      if(gold>0){ const rf=_clamp01((gold-2200)/1600); GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].market.v; if(rf>0.3&&(cur==null||rf>cur)) TrinityGSD.setCell(z.key,'market', rf*0.6, 'Stooq (gold risk-off)', 'gold $'+gold.toFixed(0)); }); }
+      TrinityFeeds.markOk('gsd-stooq',why);
+    }).catch(e=>TrinityFeeds.markErr('gsd-stooq',e.message,e.http)); },
+  // NOAA CPC Oceanic Niño Index (ONI, keyless text) → El Niño/La Niña regime → weather nudge (agri risk)
+  enso(){ if(!TrinityGSD.proxy) return;
+    const url='https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt';
+    this._getText(url,false).then(txt=>{ const lines=txt.trim().split('\n').filter(Boolean); const last=lines[lines.length-1].trim().split(/\s+/); const oni=parseFloat(last[last.length-1]);
+      if(!isFinite(oni)){ TrinityFeeds.markErr('gsd-enso','parse'); return; }
+      const s=_clamp01(Math.abs(oni)/2.5); const phase=oni>=0.5?'El Niño':oni<=-0.5?'La Niña':'neutral';
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].weather.v; TrinityGSD.setCell(z.key,'weather', cur!=null?Math.max(cur,s*0.55):s*0.55, 'Open-Meteo+ENSO', 'ONI '+oni.toFixed(1)+' ('+phase+')'); });
+      TrinityFeeds.markOk('gsd-enso','ONI '+oni.toFixed(1)+' '+phase);
+    }).catch(e=>TrinityFeeds.markErr('gsd-enso',e.message,e.http)); }
 };
 try{ Object.assign(window,{TrinityGSD,GSDData,GSD_ZONES,GSD_CATS}); }catch(e){}
+
+// ==================================================================================
+// GSD · TIME-MACHINE — record global/per-zone stress snapshots (~every 60s) and scrub back through them
+// ==================================================================================
+const GSD_TM={ snaps:[], _ts:0 };
+try{ const s=JSON.parse(localStorage.getItem('gsdTM')||'null'); if(Array.isArray(s)) GSD_TM.snaps=s; }catch(e){}
+function _gsdTMrecord(){ const now=Date.now(); if(now-GSD_TM._ts<60000) return; GSD_TM._ts=now;
+  try{ if(!TrinityGSD.zoneStress) return; const zs={}; GSD_ZONES.forEach(z=>{ if(!z.synthetic&&z.key!=='global'&&TrinityGSD.zoneStress[z.key]!=null) zs[z.key]=+TrinityGSD.zoneStress[z.key].toFixed(3); });
+    if(!Object.keys(zs).length) return; GSD_TM.snaps.push({t:now, s:+(TrinityGSD.stress||0).toFixed(3), z:zs, k:!!TrinityGSD.killSwitch});
+    if(GSD_TM.snaps.length>300) GSD_TM.snaps.shift(); try{ localStorage.setItem('gsdTM', JSON.stringify(GSD_TM.snaps.slice(-150))); }catch(e){} }catch(e){}
+}
+function renderGSDTimeMachine(){ _gsdTMrecord(); const el=document.getElementById('gsd-timemachine'); if(!el)return; const n=GSD_TM.snaps.length;
+  if(n<2){ el.innerHTML='<div class="mono" style="font-size:0.54rem;color:var(--dimmer);">Time-machine recording… snapshots every ~60s — come back in a few minutes to scrub the stress history.</div>'; el._built=0; return; }
+  if(el._idx==null || el._idx>=(el._lastN||0)-1) el._idx=n-1;   // follow live unless the user scrubbed back
+  const idx=Math.max(0,Math.min(el._idx,n-1));
+  if(el._built && el._lastN===n && el._lastIdx===idx) return;   // nothing changed → don't clobber the slider mid-drag
+  el._lastN=n; el._lastIdx=idx; el._built=1;
+  const snap=GSD_TM.snaps[idx], live=idx>=n-1;
+  const fmt=ms=>{ const d=new Date(ms),p=x=>String(x).padStart(2,'0'); return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())+'Z'; };
+  const zbars=GSD_ZONES.filter(z=>!z.synthetic&&z.key!=='global').map(z=>{ const v=(snap.z&&snap.z[z.key])||0, c=v>=0.5?'#ff5f7e':v>=0.3?'#ffb627':'#14f195';
+    return `<div style="display:flex;align-items:center;gap:6px;font-size:0.5rem;margin-top:2px;"><span style="flex:0 0 92px;color:${z.col}">${z.name}</span><span style="flex:1 1 auto;height:7px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;"><i style="display:block;height:100%;width:${(v*100|0)}%;background:${c};"></i></span><span style="flex:0 0 30px;color:${c}">${(v*100|0)}%</span></div>`; }).join('');
+  const sc=snap.s>=0.36?'#ff5f7e':snap.s>=0.28?'#ffb627':'#14f195';
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;"><span class="mono" style="font-size:0.56rem;">${live?'<b style="color:#14f195">● LIVE</b>':'<b style="color:#ffb627">⟲ REPLAY</b>'} <span style="color:var(--dimmer)">${fmt(snap.t)}</span> · global <b style="color:${sc}">${(snap.s*100|0)}%</b>${snap.k?' <b style="color:#ff5f7e">⚡KILL</b>':''}</span><span class="mono" style="font-size:0.46rem;color:var(--dimmer);">${n} snapshots</span></div>`
+    +`<input type="range" min="0" max="${n-1}" value="${idx}" style="width:100%;" oninput="window.__gsdTMscrub&&window.__gsdTMscrub(+this.value)">`
+    +`<div style="margin-top:5px;">${zbars}</div>`
+    +(live?'':`<div style="margin-top:5px;"><button class="btn" style="padding:3px 10px;font-size:0.5rem;" onclick="window.__gsdTMscrub&&window.__gsdTMscrub(${n-1})">⏭ back to live</button></div>`);
+}
+window.__gsdTMscrub=function(i){ const el=document.getElementById('gsd-timemachine'); if(!el)return; el._idx=i; el._built=0; try{ renderGSDTimeMachine(); }catch(e){} };
+try{ window.renderGSDTimeMachine=renderGSDTimeMachine; }catch(e){}
 
 // ==================================================================================
 // GSD · LANGE-HORIZON HISTORIE — doorlopende buffer voor week/maand/kwartaal/jaar/2y/5y/10y
@@ -22354,7 +22422,7 @@ function drawHistCalChart(){
     {c:'rgba(240,214,90,0.55)',label:'danger zone (compression)',type:'area'},
     {c:'#ff3b5c',label:'ΔV kill-switch trigger',type:'star'} ]);
 }
-const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-gdacs','GDACS multi-hazard','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-space','NOAA SWPC space weather','direct'],['gsd-conflicts','Conflicts (curated + live scoring)','embedded'],['gsd-migration','Migration corridors (curated)','embedded'],['gsd-flashpoints','Economic flashpoints (live-scored)','embedded'],['gsd-capflow','Capital flow · IMF BoP (real USD)','proxy'],['gsd-tic','US Treasury TIC · foreign UST (FRED)','proxy'],['gsd-z1','Fed Z.1 · debt-service (FRED)','proxy'],['gsd-bis','BIS credit-to-GDP gap','proxy'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
+const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-gdacs','GDACS multi-hazard','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-space','NOAA SWPC space weather','direct'],['gsd-stooq','Commodities · Stooq (WTI/gold/…)','proxy'],['gsd-enso','NOAA ONI · El Niño/La Niña','proxy'],['gsd-conflicts','Conflicts (curated + live scoring)','embedded'],['gsd-migration','Migration corridors (curated)','embedded'],['gsd-flashpoints','Economic flashpoints (live-scored)','embedded'],['gsd-capflow','Capital flow · IMF BoP (real USD)','proxy'],['gsd-tic','US Treasury TIC · foreign UST (FRED)','proxy'],['gsd-z1','Fed Z.1 · debt-service (FRED)','proxy'],['gsd-bis','BIS credit-to-GDP gap','proxy'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
 function renderGSD(){
   if(!TrinityGSD._built) return;
   if(!_gsdBuilt) _gsdBuildToggles();
@@ -22847,6 +22915,19 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     el.innerHTML=explain+hdr+body;
   }
   try{ window.renderShockWaveFeed=renderShockWaveFeed; }catch(e){}
+
+  // ---- WHAT-IF simulator: inject a hypothetical shock and see the predicted propagation, WITHOUT
+  //      touching the live engine (no register, no learning). Uses the same prior + learned weights. ----
+  SW.whatIf=function(srcZone,srcCat,mag){ mag=(mag==null?0.8:mag); const shock={srcZone,srcCat,at:Date.now(),mag:Math.max(0.05,Math.min(1,mag)),jump:mag,zsc:9};
+    let targets=[]; try{ targets=this._predict(shock); }catch(e){} return {shock,targets}; };
+  window.__swWhatIf=function(){ const zEl=document.getElementById('sw-wi-zone'),cEl=document.getElementById('sw-wi-cat'),mEl=document.getElementById('sw-wi-mag'),out=document.getElementById('sw-wi-out');
+    if(!zEl||!cEl||!out)return; const z=zEl.value,c=cEl.value,m=(parseInt(mEl&&mEl.value,10)||80)/100;
+    const r=SW.whatIf(z,c,m); const SH='#ff8a3c',DD='var(--dimmer)',G='#14f195';
+    if(mEl){ const lbl=document.getElementById('sw-wi-maglbl'); if(lbl)lbl.textContent=(m*100|0)+'%'; }
+    out.innerHTML=`<div style="font-size:0.6rem;color:var(--tx);margin-bottom:5px;">⚡ hypothetical shock: <b style="color:${SH}">${zName(z)}</b> · ${catName(c)} <span style="color:${DD}">(magnitude ${(m*100|0)}%)</span> → predicted propagation:</div>`
+      +(r.targets.length? r.targets.map(t=>`<div style="font-size:0.56rem;color:var(--dim);line-height:1.7;">→ <b style="color:#7fd8ff">${zName(t.zone)}</b> <span style="color:${t.prob>=0.5?SH:DD}">${Math.round(t.prob*100)}%</span> <span style="color:${DD}">${t.lagDays===0?'now':'~'+t.lagDays+'d'} · ${t.effect}</span></div>`).join('')
+        : `<div style="font-size:0.56rem;color:${DD};">no propagation channels for this shock.</div>`)
+      +`<div style="font-size:0.5rem;color:${DD};margin-top:5px;">Simulation only — does not affect the live engine, its predictions or its learning.</div>`; };
 })();
 
 
@@ -22868,7 +22949,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const EONET_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=30&limit=500';
 
   const LAYERS = { pressure:true, killzones:true, groundzero:true, contagion:true, conflicts:true, quakes:true, disasters:true, tsunami:true,
-                   rain:false, temp:false, commodity:false, commodityflow:false, plates:false, capital:true, migration:false,
+                   rain:false, temp:false, commodity:false, commodityflow:false, plates:false, capital:true, capitalLabels:true, migration:false,
                    chokepoints:false, spaceweather:false, currents:false, density:false, cities:true, labels:true };
   try{ const s=JSON.parse(localStorage.getItem('swMapLayers4')||'null'); if(s) Object.assign(LAYERS,s); }catch(e){}
   function saveLayers(){ try{ localStorage.setItem('swMapLayers4',JSON.stringify(LAYERS)); }catch(e){} }
@@ -22876,7 +22957,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // groepen (zoals de referentie) → togglelijst
   const LAYER_GROUPS = [
     ['SHOCKWAVE', [['pressure','Zones under pressure','#ff5f7e'],['killzones','ΔV kill-switch start-zones','#ff8a3c'],['groundzero','Ground-zero (per country)','#ffd76a'],['contagion','Contagion propagation','#ff8a3c'],['conflicts','Conflicts (live · red dots)','#ff2d55']]],
-    ['GLOBAL FLOWS', [['capital','Capital flow (cities)','#14f195'],['commodityflow','Commodity flow','#ffd76a'],['migration','Human migration','#ec4899']]],
+    ['GLOBAL FLOWS', [['capital','Capital flow (cities)','#14f195'],['capitalLabels','Capital-flow zone labels','#14f195'],['commodityflow','Commodity flow','#ffd76a'],['migration','Human migration','#ec4899']]],
     ['NATURE / REALTIME', [['quakes','Earthquakes · USGS','#ff4f6d'],['tsunami','Tsunami risk','#a3e4ff'],['disasters','Disasters / volcano / fire','#ffb627'],['plates','Tectonic plates + clash','#7fd8ff']]],
     ['SUPPLY & SPACE', [['chokepoints','Shipping chokepoints','#ffd54a'],['spaceweather','Space weather · NOAA SWPC','#b388ff']]],
     ['WEATHER & DENSITY', [['temp','Temperature heat · Open-Meteo','#ff8a3c'],['rain','Rain / flood-ETA · Open-Meteo','#4fc3f7'],['density','Human density','#c792ea'],['currents','Ocean / heat currents','#38bdf8']]],
@@ -23033,7 +23114,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const M = { built:false,loading:false,cv:null,ctx:null,proj:null,path:null,dpr:1,w:0,h:0,
     view:{scale:1,tx:0,ty:0}, atlas110:null,atlas50:null,countries:[],byZone:{},
     cities:null,plates:null,quakes:[],events:[],wx:[], kp:null, particles:[], flows:[], _flowTs:0, detail:null,
-    realFlow:{}, realFlowSrc:null, _capFlowTs:0,
+    realFlow:{}, realFlowSrc:null, _capFlowTs:0, _capFlowFail:0,
     raf:null, _t:{}, _drag:null, _tip:null, _markers:[], _downXY:null };
 
   function _fmtEta(ms){ if(!ms)return '—'; const d=Math.round((ms-Date.now())/864e5); return d<=0?'nu':d===1?'1 dag':d+' dagen'; }
@@ -23127,7 +23208,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // FLOWS + reizende particles (capital [steden] · commodity · contagion · migration)
     if(now-M._flowTs>2000){ buildFlows(); M._flowTs=now; } stepParticles(); if(M.flows.length) drawFlows(iz);
     if(LAYERS.migration) _drawMigrationDest(iz);
-    if(LAYERS.capital) _drawCapitalLabels(iz);
+    if(LAYERS.capitalLabels) _drawCapitalLabels(iz);
     // conflicts (red dots)
     if(LAYERS.conflicts) _drawConflicts(iz,now);
     // chokepoints
@@ -23398,17 +23479,18 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   //      financial account (BPM6, USD). Free/keyless source, but CORS-blocked in-browser → needs the
   //      same proxy as GDELT/FRED. Activates only when a proxy is set; on any failure the labels keep
   //      the simulated-index fallback. Sign: inflow ≈ −(net financial account). Verify on the live site.
-  const IMF_ZONE_CTY={ na:['US','CA','MX'], eu:['DE','FR','GB','IT','ES'], ap:['CN','JP','IN','KR','AU'], me:['SA','AE','TR'], af:['ZA','NG','EG'], latam:['BR','AR','CL','CO'] };
+  const IMF_ZONE_CTY={ na:['US'], eu:['DE'], ap:['CN'], me:['SA'], af:['ZA'], latam:['BR'] };   // 1 major/zone → far fewer proxy calls (was ~20)
   const IMF_BOP_IND='BFA_BP6_USD';   // financial account, net, BPM6, USD (adjust here if IMF renames)
   function _fetchCapitalFlows(){ let proxy; try{ proxy=TrinityGSD.proxy; }catch(e){} if(!proxy) return;           // proxy-gated
+    if(M._capFlowFail>=3) return;                                                                                  // give up after repeated failures (host not allow-listed) → no console spam
     if(M._capFlowTs && Date.now()-M._capFlowTs < 6*3600000) return; M._capFlowTs=Date.now();                       // refresh ≤ every 6h
     const acc={}, need={}; Object.keys(IMF_ZONE_CTY).forEach(z=>{ acc[z]=0; need[z]=0; });
     Object.entries(IMF_ZONE_CTY).forEach(([z,ctys])=>{ ctys.forEach(cty=>{ need[z]++;
       const url='https://dataservices.imf.org/REST/SDMX_JSON.svc/CompactData/BOP/A.'+cty+'.'+IMF_BOP_IND;
       fetchT(proxy+'/pass?url='+encodeURIComponent(url),15000,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
         try{ const series=j&&j.CompactData&&j.CompactData.DataSet&&j.CompactData.DataSet.Series; const obs=series&&(series.Obs||(series[0]&&series[0].Obs)); const arr=Array.isArray(obs)?obs:(obs?[obs]:[]); const last=arr[arr.length-1]; const v=last&&parseFloat(last['@OBS_VALUE']); if(isFinite(v)) acc[z]+= -v*1e6; }catch(e){} // IMF reports in millions; inflow = −net
-        need[z]--; if(need[z]<=0 && Math.abs(acc[z])>0){ M.realFlow[z]=acc[z]; M.realFlowSrc='IMF BoP'; M._lastData=Date.now(); try{ TrinityFeeds.markOk('gsd-capflow','IMF BoP · '+z); }catch(e){} }
-      }).catch(()=>{ need[z]--; }); }); }); }
+        need[z]--; if(need[z]<=0 && Math.abs(acc[z])>0){ M.realFlow[z]=acc[z]; M.realFlowSrc='IMF BoP'; M._lastData=Date.now(); M._capFlowFail=0; try{ TrinityFeeds.markOk('gsd-capflow','IMF BoP · '+z); }catch(e){} }
+      }).catch(()=>{ need[z]--; M._capFlowFail=(M._capFlowFail||0)+1; try{ TrinityFeeds.markErr('gsd-capflow','proxy/host blocked'); }catch(e){} }); }); }); }
   function _fetch50(){ if(M.atlas50)return; fetchT(ATLAS_50,12000,{cache:'force-cache'}).then(r=>r.json()).then(a=>{ M.atlas50=a; M.countries50=topojson.feature(a,a.objects.countries).features; M.countries50.forEach(f=>{ try{ const c=d3.geoCentroid(f); f._z=zoneOfCentroid(c[0],c[1]); }catch(e){} }); }).catch(()=>{}); }
   function _fetchQuakes(){ fetchT(USGS_URL,10000,{cache:'no-store'}).then(r=>r.json()).then(j=>{ if(!j||!j.features)return; M.quakes=j.features.map(f=>({lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],depth:f.geometry.coordinates[2],mag:f.properties.mag,place:f.properties.place})).filter(q=>q.mag!=null); M._lastData=Date.now(); try{ TrinityFeeds.markOk('gsd-usgs', M.quakes.length+' quakes'); }catch(e){} }).catch(()=>{ try{ TrinityFeeds.markErr('gsd-usgs','unreachable'); }catch(e){} }); }
   function _fetchEvents(){ fetchT(EONET_URL,10000,{cache:'no-store'}).then(r=>r.json()).then(j=>{ if(!j||!j.events)return; const eo=j.events.map(e=>{ const g=e.geometry&&e.geometry[e.geometry.length-1]; if(!g||!g.coordinates)return null; let lon,lat; if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1];}else{const c=g.coordinates[0]&&g.coordinates[0][0]; if(!c)return null; lon=c[0];lat=c[1];} return {lon,lat,cat:(e.categories&&e.categories[0]&&e.categories[0].id)||'other',title:e.title,src:'EONET'}; }).filter(Boolean);
