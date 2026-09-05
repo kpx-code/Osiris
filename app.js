@@ -21835,7 +21835,7 @@ const GSDData = {
     run(()=>this.eonet(), 10*60000, 1200);
     run(()=>this.weather(), 15*60000, 2200);
     run(()=>this.worldbank(), 6*3600000, 3000);
-    run(()=>this.stooq(), 10*60000, 3600);    // live commodities (WTI/Brent/gas/gold/copper/wheat) — keyless
+    run(()=>this.commodities(), 30*60000, 5600); // live commodities via FRED (WTI/Brent/gas/wheat/gold/USD)
     run(()=>this.enso(), 12*3600000, 4200);   // NOAA ONI (El Niño/La Niña) — keyless
     // proxy-gated bronnen (draaien alleen als een GSD-proxy-URL is ingesteld)
     run(()=>this.gdelt(), 10*60000, 4800);    // geopolitiek / tone (geen key)
@@ -21915,10 +21915,8 @@ const GSDData = {
     Promise.all([
       new Promise(r=>latest('VIXCLS',v=>r(v))),        // aandelen-volatiliteit
       new Promise(r=>latest('NFCI',v=>r(v))),          // financiële condities (Chicago Fed)
-      new Promise(r=>latest('BAMLH0A0HYM2',v=>r(v))),  // high-yield credit-spread (kredietstress)
-      new Promise(r=>latest('DTWEXBGS',v=>r(v))),      // brede dollar-index
-      new Promise(r=>latest('DCOILWTICO',v=>r(v)))     // WTI-olie
-    ]).then(([vix,nfci,hy,usd,oil])=>{
+      new Promise(r=>latest('BAMLH0A0HYM2',v=>r(v)))   // high-yield credit-spread (kredietstress)
+    ]).then(([vix,nfci,hy])=>{
       let parts=[]; if(vix!=null) parts.push(_clamp01((vix-11)/40));           // VIX ~11 calm → ~50 crisis
       if(nfci!=null) parts.push(_clamp01((nfci+0.7)/1.4));                     // NFCI <0 loose, >0 tight
       if(hy!=null) parts.push(_clamp01((hy-2.5)/8));                          // HY OAS 2.5% calm → 10%+ crisis
@@ -21926,13 +21924,8 @@ const GSDData = {
       const fc=parts.reduce((a,b)=>a+b,0)/parts.length;
       const cbWhy='VIX '+(vix!=null?vix.toFixed(1):'—')+' · NFCI '+(nfci!=null?nfci.toFixed(2):'—')+(hy!=null?' · HY '+hy.toFixed(1)+'%':'');
       GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const extra=z.key==='na'?0.08:0; TrinityGSD.setCell(z.key,'cb',_clamp01(fc+extra),'FRED',cbWhy); });
-      // TRADE & COMMODITIES (was leeg): dollar-sterkte + olie → begrensde absolute stress-schaal.
-      // Sterke dollar verkrapt mondiale condities; hoge olie = inflatoire druk.
-      if(usd!=null||oil!=null){ const dStress=usd!=null?_clamp01((usd-95)/40):null; const oStress=oil!=null?_clamp01((oil-50)/80):null;
-        const tv=[dStress,oStress].filter(x=>x!=null); if(tv.length){ const tstress=tv.reduce((a,b)=>a+b,0)/tv.length; const tWhy='USD idx '+(usd!=null?usd.toFixed(1):'—')+' · WTI '+(oil!=null?('$'+oil.toFixed(0)):'—');
-          GSD_ZONES.forEach(z=>{ if(z.synthetic)return; TrinityGSD.setCell(z.key,'trade',tstress,'FRED',tWhy); }); } }
       TrinityFeeds.markOk('gsd-fred',cbWhy);
-    }).catch(e=>TrinityFeeds.markErr('gsd-fred',e.message,e.http));
+    }).catch(e=>TrinityFeeds.markErr('gsd-fred',e.message,e.http));   // (trade/commodities owned by commodities() below)
   },
   // ECB euro-area systemic stress CISS (proxy, no key) → EU 'econ'/'cb'
   ecb(){
@@ -21987,22 +21980,22 @@ const GSDData = {
       try{ const cur=TrinityGSD.cells.na.cb.v; TrinityGSD.setCell('na','cb', cur!=null?Math.max(cur,s):s,'BIS credit-gap','credit-to-GDP gap '+(+val).toFixed(1)); }catch(e){}
       TrinityFeeds.markOk('gsd-bis','gap '+(+val).toFixed(1));
     }).catch(e=>{ this._bisFail=(this._bisFail||0)+1; TrinityFeeds.markErr('gsd-bis',e.message,e.http); }); },
-  // Stooq live commodities (keyless CSV) → trade/commodity stress (all zones) + gold as a risk-off nudge
-  stooq(){ if(!TrinityGSD.proxy) return; if(this._stooqFail>=3) return;   // give up after repeated failures → geen console-spam
-    const url='https://stooq.com/q/l/?s=cl.f,cb.f,ng.f,gc.f,hg.f,zw.f&f=sd2t2ohlcv&h&e=csv';
-    this._getText(url,false).then(txt=>{ const px={};
-      txt.trim().split('\n').slice(1).forEach(line=>{ const c=line.split(','); if(c.length<7)return; const sym=(c[0]||'').toLowerCase(); const close=parseFloat(c[6]); if(isFinite(close)) px[sym]=close; });
-      const wti=px['cl.f'], brent=px['cb.f'], gas=px['ng.f'], gold=px['gc.f'], copper=px['hg.f'], wheat=px['zw.f'];
+  // COMMODITIES via FRED (keyless-genoeg: FRED-key staat al) → trade-stress (alle zones) + goud als risk-off.
+  //   Gratis alternatief voor Stooq dat wél via je Worker werkt (geen extra host nodig).
+  commodities(){ if(!TrinityGSD.proxy) return;
+    const one=(sid)=>{ const url='https://api.stlouisfed.org/fred/series/observations?series_id='+sid+'&sort_order=desc&limit=1';
+      return this._get(url,false).then(d=>{ const o=(d.observations||[])[0]; const v=o?parseFloat(o.value):NaN; return isNaN(v)?null:v; }).catch(()=>null); };
+    Promise.all([ one('DCOILWTICO'), one('DCOILBRENTEU'), one('DHHNGSP'), one('PWHEAMTUSDM'), one('DTWEXBGS'), one('GOLDAMGBD228NLBM') ])
+    .then(([wti,brent,gas,wheat,usd,gold])=>{
       const oil=[wti,brent].filter(x=>x>0); const oilAvg=oil.length?oil.reduce((a,b)=>a+b,0)/oil.length:null;
-      const parts=[]; if(oilAvg!=null)parts.push(_clamp01((oilAvg-55)/70)); if(gas>0)parts.push(_clamp01((gas-2.5)/8)); if(wheat>0)parts.push(_clamp01((wheat-500)/450));
-      if(!parts.length){ this._stooqFail=(this._stooqFail||0)+1; TrinityFeeds.markErr('gsd-stooq','no data'); return; }
-      this._stooqFail=0; const tstress=parts.reduce((a,b)=>a+b,0)/parts.length;
-      const why='WTI $'+(wti?wti.toFixed(0):'—')+' · Brent $'+(brent?brent.toFixed(0):'—')+' · gas '+(gas?gas.toFixed(1):'—')+' · gold $'+(gold?gold.toFixed(0):'—');
-      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; TrinityGSD.setCell(z.key,'trade',tstress,'Stooq',why); });
-      // gold spike = risk-off → small global market nudge (not a hard floor)
-      if(gold>0){ const rf=_clamp01((gold-2200)/1600); GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].market.v; if(rf>0.3&&(cur==null||rf>cur)) TrinityGSD.setCell(z.key,'market', rf*0.6, 'Stooq (gold risk-off)', 'gold $'+gold.toFixed(0)); }); }
-      TrinityFeeds.markOk('gsd-stooq',why);
-    }).catch(e=>{ this._stooqFail=(this._stooqFail||0)+1; TrinityFeeds.markErr('gsd-stooq',e.message,e.http); }); },
+      const parts=[]; if(oilAvg!=null)parts.push(_clamp01((oilAvg-55)/70)); if(gas!=null)parts.push(_clamp01((gas-2.5)/8)); if(wheat!=null)parts.push(_clamp01((wheat-250)/300)); if(usd!=null)parts.push(_clamp01((usd-100)/40));
+      if(!parts.length){ TrinityFeeds.markErr('gsd-commod','no data'); return; }
+      const tstress=parts.reduce((a,b)=>a+b,0)/parts.length;
+      const why='WTI $'+(wti?wti.toFixed(0):'—')+' · Brent $'+(brent?brent.toFixed(0):'—')+' · gas $'+(gas?gas.toFixed(1):'—')+' · wheat $'+(wheat?wheat.toFixed(0):'—')+(gold?' · gold $'+gold.toFixed(0):'');
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; TrinityGSD.setCell(z.key,'trade',tstress,'FRED commodities',why); });
+      if(gold>0){ const rf=_clamp01((gold-2200)/1600); if(rf>0.3) GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].market.v; if(cur==null||rf*0.6>cur) TrinityGSD.setCell(z.key,'market', rf*0.6, 'FRED (gold risk-off)', 'gold $'+gold.toFixed(0)); }); }
+      TrinityFeeds.markOk('gsd-commod',why);
+    }).catch(e=>TrinityFeeds.markErr('gsd-commod',e.message,e.http)); },
   // NOAA CPC Oceanic Niño Index (ONI, keyless text) → El Niño/La Niña regime → weather nudge (agri risk)
   enso(){ if(!TrinityGSD.proxy) return;
     const url='https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt';
@@ -22420,7 +22413,7 @@ function drawHistCalChart(){
     {c:'rgba(240,214,90,0.55)',label:'danger zone (compression)',type:'area'},
     {c:'#ff3b5c',label:'ΔV kill-switch trigger',type:'star'} ]);
 }
-const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-gdacs','GDACS multi-hazard','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-space','NOAA SWPC space weather','direct'],['gsd-stooq','Commodities · Stooq (WTI/gold/…)','proxy'],['gsd-enso','NOAA ONI · El Niño/La Niña','proxy'],['gsd-conflicts','Conflicts (curated + live scoring)','embedded'],['gsd-migration','Migration corridors (curated)','embedded'],['gsd-flashpoints','Economic flashpoints (live-scored)','embedded'],['gsd-capflow','Capital flow · IMF BoP (real USD)','proxy'],['gsd-tic','US Treasury TIC · foreign UST (FRED)','proxy'],['gsd-z1','Fed Z.1 · debt-service (FRED)','proxy'],['gsd-bis','BIS credit-to-GDP gap','proxy'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
+const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-gdacs','GDACS multi-hazard','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-space','NOAA SWPC space weather','direct'],['gsd-commod','Commodities · FRED (WTI/Brent/gas/wheat/gold)','proxy'],['gsd-enso','NOAA ONI · El Niño/La Niña','proxy'],['gsd-conflicts','Conflicts (curated + live scoring)','embedded'],['gsd-migration','Migration corridors (curated)','embedded'],['gsd-flashpoints','Economic flashpoints (live-scored)','embedded'],['gsd-capflow','Capital flow · IMF BoP (real USD)','proxy'],['gsd-tic','US Treasury TIC · foreign UST (FRED)','proxy'],['gsd-z1','Fed Z.1 · debt-service (FRED)','proxy'],['gsd-bis','BIS credit-to-GDP gap','proxy'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
 function renderGSD(){
   if(!TrinityGSD._built) return;
   if(!_gsdBuilt) _gsdBuildToggles();
@@ -23494,11 +23487,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function _fetchEvents(){ fetchT(EONET_URL,10000,{cache:'no-store'}).then(r=>r.json()).then(j=>{ if(!j||!j.events)return; const eo=j.events.map(e=>{ const g=e.geometry&&e.geometry[e.geometry.length-1]; if(!g||!g.coordinates)return null; let lon,lat; if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1];}else{const c=g.coordinates[0]&&g.coordinates[0][0]; if(!c)return null; lon=c[0];lat=c[1];} return {lon,lat,cat:(e.categories&&e.categories[0]&&e.categories[0].id)||'other',title:e.title,src:'EONET'}; }).filter(Boolean);
       M.events=M.events.filter(e=>e.src!=='EONET').concat(eo); M._lastData=Date.now(); try{ TrinityFeeds.markOk('gsd-eonet', eo.length+' events'); }catch(e){} }).catch(()=>{ try{ TrinityFeeds.markErr('gsd-eonet','unreachable'); }catch(e){} }); _fetchGdacs(); }
   // GDACS — wereldwijde multi-hazard (EQ/cycloon/flood/volcano/droogte/wildfire), gratis, geen key. Merge met EONET.
-  function _fetchGdacs(){ const GD={EQ:'earthquake',TC:'severeStorms',FL:'floods',VO:'volcanoes',DR:'drought',WF:'wildfires'};
-    fetchT('https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP',12000,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ if(!j||!j.features)return;
+  function _fetchGdacs(){ if(M._gdacsFail>=3) return;   // give up after repeated failures → geen console-spam
+    const GD={EQ:'earthquake',TC:'severeStorms',FL:'floods',VO:'volcanoes',DR:'drought',WF:'wildfires'};
+    const raw='https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP';
+    let px=null; try{ px=TrinityGSD.proxy; }catch(e){}
+    const url = px ? (px+'/pass?url='+encodeURIComponent(raw)) : raw;   // via proxy = CORS + server-side UA (dodges the browser 400)
+    fetchT(url,12000,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ if(!j||!j.features){ M._gdacsFail=(M._gdacsFail||0)+1; try{ TrinityFeeds.markErr('gsd-gdacs','no data'); }catch(e){} return; }
       const gd=j.features.map(f=>{ const g=f.geometry,pr=f.properties||{}; if(!g||!g.coordinates)return null; let lon,lat; if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1];}else{ try{ const c=g.coordinates[0][0]; lon=c[0];lat=c[1]; }catch(e){ return null; } }
         const cat=GD[pr.eventtype]||'other'; if(cat==='earthquake')return null; return {lon,lat,cat,title:(pr.name||pr.htmldescription||pr.eventtype||'event'),src:'GDACS'}; }).filter(Boolean);
-      M.events=M.events.filter(e=>e.src!=='GDACS').concat(gd); M._lastData=Date.now(); try{ TrinityFeeds.markOk('gsd-gdacs', gd.length+' hazards'); }catch(e){} }).catch(()=>{ try{ TrinityFeeds.markErr('gsd-gdacs','unreachable'); }catch(e){} }); }
+      M.events=M.events.filter(e=>e.src!=='GDACS').concat(gd); M._lastData=Date.now(); M._gdacsFail=0; try{ TrinityFeeds.markOk('gsd-gdacs', gd.length+' hazards'); }catch(e){} }).catch(()=>{ M._gdacsFail=(M._gdacsFail||0)+1; try{ TrinityFeeds.markErr('gsd-gdacs','unreachable'); }catch(e){} }); }
   function _fetchPlates(){ if(M.plates)return; fetchT(PLATES_URL,12000,{cache:'force-cache'}).then(r=>r.json()).then(j=>{ M.plates=j; }).catch(()=>{}); }
   function _fetchCities(){ if(M.cities||M._citiesLoading)return; M._citiesLoading=true;
     fetchT(CITIES_URL,15000,{cache:'force-cache'}).then(r=>r.json()).then(j=>{ M._citiesLoading=false; if(!j||!j.features)return;
