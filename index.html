@@ -2516,8 +2516,16 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="mono" style="color:var(--dimmer);font-size:0.6rem;padding:24px;">ShockWave-kaart initialiseert bij openen van deze tab…</div>
       </div>
       <div id="sw-legend" style="margin-top:8px;"></div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Land-detail <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— klik een land op de kaart</span></div>
+      <div id="sw-detail" style="margin-top:6px;background:rgba(255,255,255,0.015);border:1px solid var(--line);border-radius:8px;padding:10px 12px;"><div class="mono" style="font-size:0.56rem;color:var(--dimmer);">klik een land op de kaart voor detail: zone-stress, actieve rampen, nabije bevingen, chokepoints, kill-switch-kans en contagion-doelen.</div></div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Landen per zone <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— nieuwe indeling: Midden-Oosten &amp; Afrika gesplitst</span></div>
       <div id="sw-countrylist" style="margin-top:6px;column-count:2;column-gap:18px;"></div>
+    </div>
+
+    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Contagion-motor</h3><span class="sub">— schok in een zone×categorie → voorspelde voortplanting (lag · richting · kans), gegrond prior + adaptief op uitkomsten</span></div>
+    <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div id="sw-feed" class="mono"><div class="mono" style="font-size:0.56rem;color:var(--dimmer);">contagion-motor initialiseert…</div></div>
     </div>
 
     <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Global stress</h3><span class="sub">— UOTAM/TAM across 7 world zones · live micro/meso/macro/full + historical week→10y horizons</span></div>
@@ -2675,7 +2683,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260905-build64-swmap2"></script>
+<script src="app.js?v=20260905-build65-contagion"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
