@@ -22354,7 +22354,7 @@ function renderGSD(){
           +`<span style="color:#7fd8ff;font-weight:700">${LAB[p.key]||p.key}</span>`
           +`<span class="mono" style="font-size:0.52rem;color:var(--dim)">${fmtD(p.eta)}${p.estimate?' <small style="color:var(--dimmer)">~est</small>':''}</span>`
           +`<div class="gsdbar" title="${p.chanceNow}%"><i style="width:${p.chanceNow}%;background:${col}"></i></div>`
-          +`<span class="mono" style="font-size:0.54rem;color:${col};font-weight:700;white-space:nowrap">kans ${p.chanceNow}%${delta}</span>`
+          +`<span class="mono" style="font-size:0.54rem;color:${col};font-weight:700;white-space:nowrap">chance ${p.chanceNow}%${delta}</span>`
           +`<span class="mono" style="font-size:0.52rem;color:#ff8a94">★ ${p.topic}</span>`
           +`<span class="mono" style="font-size:0.52rem;color:var(--dim)">${p.zone}</span>`
           +`</div>`; }).join('')
@@ -22729,7 +22729,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     },
     _register(shock){ this.shocks.unshift(shock); if(this.shocks.length>60)this.shocks.pop();
       const targets=this._predict(shock); this.preds.unshift({...shock,targets,made:shock.at}); if(this.preds.length>120)this.preds.pop();
-      this._save(); try{ pushReason && pushReason(`⚡ ShockWave: schok in ${zName(shock.srcZone)} · ${catName(shock.srcCat)} (z${shock.zsc}) → ${targets.length} propagatie-doelen`); }catch(e){}
+      this._save(); try{ pushReason && pushReason(`⚡ ShockWave: shock in ${zName(shock.srcZone)} · ${catName(shock.srcCat)} (z${shock.zsc}) → ${targets.length} propagation targets`); }catch(e){}
       try{ renderShockWaveFeed(); }catch(e){}
     },
     _predict(shock){ const rows=PRIOR[shock.srcCat]||[['ALL',0.3,2,'algemeen']]; const zk=ZKEYS(); const out=[]; const seen={};
@@ -22767,19 +22767,21 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // ---- render: shock-feed paneel ----
   function renderShockWaveFeed(){ const el=document.getElementById('sw-feed'); if(!el)return;
     const G='#14f195',R='#ff5f7e',A='#ffb627',SH='#ff8a3c',D='var(--dim)',DD='var(--dimmer)';
-    const sc=SW.score; const hdr=`<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.56rem;margin-bottom:8px;">`
-      +`<span style="background:rgba(255,138,60,0.08);border:1px solid rgba(255,138,60,0.4);border-radius:5px;padding:3px 8px;color:${SH};">contagion-motor</span>`
-      +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">geleerde kanalen</span> <b>${Object.keys(SW.W).length}</b></span>`
-      +(sc?`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">hit-rate</span> <b style="color:${sc.hitRate>=0.5?G:A}">${Math.round(sc.hitRate*100)}%</b> · Brier ${sc.brier} · n=${sc.n} ${sc.proven?'<span style="color:'+G+'">✓</span>':'<small style="color:'+DD+'">(rijpt)</small>'}</span>`:`<span style="color:${DD};font-size:0.54rem;">nog geen afgeronde voorspellingen — scoort zodra propagaties rijpen</span>`)
+    const sc=SW.score;
+    const explain=`<div style="font-size:0.56rem;color:${D};line-height:1.75;margin-bottom:8px;">The <b style="color:${SH}">contagion engine</b> is ShockWave's forecasting core. Every ~8s it scans the FSO-GSD cells (world zone × category) for a <b>shock</b> — a sudden z-score jump in stress. It then predicts how that shock <b>propagates</b>: which other zones are hit, with what <b>lag</b> (days), <b>direction/effect</b>, and <b>probability</b>. It starts from a grounded macro prior (known contagion channels — e.g. Middle-East conflict → oil → risk-off → safe-havens) and <b>adapts</b> the channel weights on realised outcomes (did the target zone's stress actually rise?), scored with an honest hit-rate + Brier.</div>`;
+    const hdr=`<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:0.56rem;margin-bottom:8px;">`
+      +`<span style="background:rgba(255,138,60,0.08);border:1px solid rgba(255,138,60,0.4);border-radius:5px;padding:3px 8px;color:${SH};">contagion engine</span>`
+      +`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">learned channels</span> <b>${Object.keys(SW.W).length}</b></span>`
+      +(sc?`<span style="background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 8px;"><span style="color:${DD}">hit-rate</span> <b style="color:${sc.hitRate>=0.5?G:A}">${Math.round(sc.hitRate*100)}%</b> · Brier ${sc.brier} · n=${sc.n} ${sc.proven?'<span style="color:'+G+'">✓ proven</span>':'<small style="color:'+DD+'">(maturing)</small>'}</span>`:`<span style="color:${DD};font-size:0.54rem;">no resolved forecasts yet — scores as propagations mature</span>`)
       +`</div>`;
     const act=SW.active();
     const body = act.length ? act.map(p=>{ const when=new Date(p.made); const p2=n=>String(n).padStart(2,'0');
       return `<div style="border-left:3px solid ${SH};padding:5px 9px;margin-bottom:6px;background:rgba(255,255,255,0.015);border-radius:0 5px 5px 0;">
         <div style="font-size:0.58rem;color:var(--tx);"><b style="color:${SH}">⚡ ${zName(p.srcZone)}</b> · ${catName(p.srcCat)} <span style="color:${DD}">z${p.zsc} · ${p2(when.getUTCDate())}/${p2(when.getUTCMonth()+1)} ${p2(when.getUTCHours())}:${p2(when.getUTCMinutes())}Z</span></div>
-        <div style="font-size:0.54rem;color:${D};line-height:1.7;margin-top:2px;">${p.targets.map(t=>`<span style="white-space:nowrap;">→ <b style="color:#7fd8ff">${zName(t.zone)}</b> <span style="color:${t.prob>=0.5?A:DD}">${Math.round(t.prob*100)}%</span> <span style="color:${DD}">${t.lagDays===0?'nu':'~'+t.lagDays+'d'} · ${t.effect}</span>${t._done?(t.hit?' <span style="color:'+G+'">✓</span>':' <span style="color:'+R+'">✗</span>'):''}</span>`).join(' &nbsp; ')}</div>
+        <div style="font-size:0.54rem;color:${D};line-height:1.7;margin-top:2px;">${p.targets.map(t=>`<span style="white-space:nowrap;">→ <b style="color:#7fd8ff">${zName(t.zone)}</b> <span style="color:${t.prob>=0.5?A:DD}">${Math.round(t.prob*100)}%</span> <span style="color:${DD}">${t.lagDays===0?'now':'~'+t.lagDays+'d'} · ${t.effect}</span>${t._done?(t.hit?' <span style="color:'+G+'">✓</span>':' <span style="color:'+R+'">✗</span>'):''}</span>`).join(' &nbsp; ')}</div>
       </div>`; }).join('')
-      : `<div style="font-size:0.54rem;color:${DD};">geen actieve schok — de motor scant elke ~8s de FSO-GSD-cellen op z-score-sprongen. Een schok verschijnt hier met zijn voorspelde voortplanting (zones · lag · kans · effect).</div>`;
-    el.innerHTML=hdr+body;
+      : `<div style="font-size:0.54rem;color:${DD};">No active shock right now — the engine is scanning. When stress in a zone×category jumps, it appears here with its predicted propagation (target zones · lag · probability · effect).</div>`;
+    el.innerHTML=explain+hdr+body;
   }
   try{ window.renderShockWaveFeed=renderShockWaveFeed; }catch(e){}
 })();
@@ -22800,7 +22802,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const CITIES_URL= 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_populated_places_simple.geojson';
   const PLATES_URL= 'https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json';
   const USGS_URL  = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson';
-  const EONET_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=20';
+  const EONET_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=30&limit=500';
 
   const LAYERS = { pressure:true, killzones:true, groundzero:true, contagion:true, quakes:true, disasters:true, tsunami:true,
                    rain:false, temp:false, commodity:false, commodityflow:false, plates:false, capital:true,
@@ -22810,12 +22812,12 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 
   // groepen (zoals de referentie) → togglelijst
   const LAYER_GROUPS = [
-    ['SHOCKWAVE', [['pressure','Zones under pressure','#ff5f7e'],['killzones','ΔV kill-switch startzones','#ff8a3c'],['groundzero','Ground-zero (per land)','#ffd76a'],['contagion','Contagion-voortplanting','#ff8a3c'],['capital','Capital-flow (steden)','#14f195']]],
-    ['NATUUR / REALTIME', [['quakes','Aardbevingen · USGS','#ff4f6d'],['tsunami','Tsunami-risico','#a3e4ff'],['disasters','Rampen/vulkaan/brand · EONET','#ffb627'],['plates','Tektonische platen + clash','#7fd8ff']]],
-    ['SUPPLY & RUIMTE', [['chokepoints','Scheepvaart-chokepoints','#ffd54a'],['spaceweather','Ruimteweer · NOAA SWPC','#b388ff']]],
-    ['WEER & DICHTHEID', [['temp','Temperatuur-heat · Open-Meteo','#ff8a3c'],['rain','Regen/overstroming-ETA · Open-Meteo','#4fc3f7'],['density','Human density heat','#c792ea'],['currents','Zee/warmte-stromen','#38bdf8']]],
-    ['GRONDSTOFFEN', [['commodity','Commodity heat zones','#ffd54a'],['commodityflow','Commodity-flow (particles)','#ffd76a']]],
-    ['BASIS', [['cities','Steden','#bfe0f0'],['labels','Stadsnamen (bij inzoomen)','#8fb8ff']]]
+    ['SHOCKWAVE', [['pressure','Zones under pressure','#ff5f7e'],['killzones','ΔV kill-switch start-zones','#ff8a3c'],['groundzero','Ground-zero (per country)','#ffd76a'],['contagion','Contagion propagation','#ff8a3c'],['capital','Capital flow (cities)','#14f195']]],
+    ['NATURE / REALTIME', [['quakes','Earthquakes · USGS','#ff4f6d'],['tsunami','Tsunami risk','#a3e4ff'],['disasters','Disasters / volcano / fire','#ffb627'],['plates','Tectonic plates + clash','#7fd8ff']]],
+    ['SUPPLY & SPACE', [['chokepoints','Shipping chokepoints','#ffd54a'],['spaceweather','Space weather · NOAA SWPC','#b388ff']]],
+    ['WEATHER & DENSITY', [['temp','Temperature heat · Open-Meteo','#ff8a3c'],['rain','Rain / flood-ETA · Open-Meteo','#4fc3f7'],['density','Human density','#c792ea'],['currents','Ocean / heat currents','#38bdf8']]],
+    ['COMMODITIES', [['commodity','Commodity heat zones','#ffd54a'],['commodityflow','Commodity flow (particles)','#ffd76a']]],
+    ['BASE', [['cities','Cities','#bfe0f0'],['labels','City names (on zoom)','#8fb8ff']]]
   ];
   // financiële hub-steden per zone (capital-flow is stedengericht): [lat,lon,naam,zone]
   const FIN_HUBS = [[40.7,-74.0,'New York','na'],[43.6,-79.4,'Toronto','na'],[19.4,-99.1,'Mexico City','na'],
@@ -22885,12 +22887,12 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // ---- init ----
   function initShockWaveMap(){
     if(M.built||M.loading)return; const host=document.getElementById('sw-map'); if(!host||host.offsetParent===null)return;
-    if(typeof d3==='undefined'||typeof topojson==='undefined'){ host.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.6rem;padding:20px;">kaart-bibliotheek laadt…</div>'; return; }
+    if(typeof d3==='undefined'||typeof topojson==='undefined'){ host.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.6rem;padding:20px;">map library loading…</div>'; return; }
     M.loading=true;
     fetchT(ATLAS_110,10000,{cache:'force-cache'}).then(r=>r.json()).then(atlas=>{
       M.atlas110=atlas; M.countries=topojson.feature(atlas,atlas.objects.countries).features; _computeZones();
       M.built=true; M.loading=false; _build(host); _fetchAll(); _startTimers(); _loop();
-    }).catch(()=>{ M.loading=false; host.innerHTML='<div class="mono" style="color:#ff8a94;font-size:0.6rem;padding:20px;">wereldatlas niet bereikbaar (offline?). Probeer later opnieuw.</div>'; });
+    }).catch(()=>{ M.loading=false; host.innerHTML='<div class="mono" style="color:#ff8a94;font-size:0.6rem;padding:20px;">world atlas unreachable (offline?). Try again later.</div>'; });
   }
   function _computeZones(){ M.byZone={}; M.countries.forEach(f=>{ try{ const c=d3.geoCentroid(f); f._z=zoneOfCentroid(c[0],c[1]); (M.byZone[f._z]=M.byZone[f._z]||[]).push((f.properties&&f.properties.name)||'?'); }catch(e){} }); }
 
@@ -22904,7 +22906,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     wrap.appendChild(zc);
     const si=document.createElement('div'); si.id='sw-scaleind'; si.style.cssText='position:absolute;bottom:10px;right:12px;z-index:3;font:0.55rem JetBrains Mono,monospace;color:var(--dim);background:rgba(3,10,16,0.6);border:1px solid var(--line);border-radius:6px;padding:3px 7px;'; si.textContent='1.0×';
     wrap.appendChild(si);
-    const hud=document.createElement('div'); hud.id='sw-hud'; hud.style.cssText='position:absolute;top:10px;left:10px;z-index:3;font-family:JetBrains Mono,monospace;background:rgba(8,14,22,0.7);border:1px solid rgba(255,138,60,0.45);border-radius:8px;padding:7px 11px;min-width:120px;display:none;box-shadow:0 4px 18px -8px rgba(255,138,60,0.5);';
+    const hud=document.createElement('div'); hud.id='sw-hud'; hud.style.cssText='position:absolute;top:10px;left:10px;z-index:3;font-family:JetBrains Mono,monospace;background:rgba(8,14,22,0.82);border:1px solid rgba(255,138,60,0.45);border-radius:8px;padding:7px 10px;width:172px;max-height:340px;overflow-y:auto;display:none;box-shadow:0 4px 18px -8px rgba(255,138,60,0.5);';
     wrap.appendChild(hud);
     host.appendChild(wrap);
     M.ctx=cv.getContext('2d');
@@ -22953,9 +22955,9 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // ---- GLOW-lagen (additief) ----
     ctx.save(); ctx.globalCompositeOperation='lighter';
     if(LAYERS.pressure) GSD_ZONES.filter(z=>z.key!=='global').forEach(z=>{ const c=zCentroid(z.key); if(!c)return; const p=pB(c[0],c[1]); const s=zStress(z.key); if(s<0.12)return; blob(p[0],p[1],(60+s*90),zCol(z.key),0.10+s*0.28); });
-    if(LAYERS.density) METROS.forEach(m=>{ const p=pB(m[1],m[0]); blob(p[0],p[1],Math.sqrt(m[2])*6,'#c792ea',0.10); });
-    if(LAYERS.temp&&M.wx.length) M.wx.forEach(o=>{ if(o.temp==null)return; const p=pB(o.lon,o.lat); const t=o.temp; const col=t>=30?'#ff5f3c':t>=20?'#ffb627':t>=8?'#7fd8ff':'#4f8bff'; const a=Math.min(0.34,Math.abs(t-16)/60+0.06); blob(p[0],p[1],70,col,a); });
-    if(LAYERS.rain&&M.wx.length) M.wx.forEach(o=>{ if(!o.tot)return; const p=pB(o.lon,o.lat); const col=o.flood?'#4fc3f7':'#2f6f9a'; blob(p[0],p[1],40+Math.min(80,o.tot),col,o.flood?0.3:0.12); });
+    if(LAYERS.density) METROS.forEach(m=>{ const p=pB(m[1],m[0]); blob(p[0],p[1],Math.sqrt(m[2])*7,'#c792ea',0.2); blob(p[0],p[1],Math.max(4,m[2]*0.4)*iz+3,'#e0b3ff',0.5); });
+    if(LAYERS.temp&&M.wx.length) M.wx.forEach(o=>{ if(o.temp==null)return; const p=pB(o.lon,o.lat); const t=o.temp; const col=t>=30?'#ff5f3c':t>=20?'#ffb627':t>=8?'#7fd8ff':'#4f8bff'; const a=Math.min(0.28,Math.abs(t-16)/70+0.05); blob(p[0],p[1],60,col,a); });
+    if(LAYERS.rain&&M.wx.length) M.wx.forEach(o=>{ if(!o.tot)return; const p=pB(o.lon,o.lat); const col=o.flood?'#4fc3f7':'#3a6f90'; blob(p[0],p[1],22+Math.min(42,o.tot*0.35),col,o.flood?0.14:0.045); });
     if(LAYERS.commodity) COMMOD.forEach(c=>{ const p=pB(c[1],c[0]); blob(p[0],p[1],60,c[3],0.16); });
     if(LAYERS.groundzero) _groundZero(iz);
     if(LAYERS.spaceweather&&M.kp!=null){ const inten=Math.max(0,(M.kp-3)/6); if(inten>0){ for(let lon=-160;lon<=160;lon+=40){ const pn=pB(lon,70),ps=pB(lon,-66); if(pn)blob(pn[0],pn[1],55,'#b388ff',0.05+inten*0.22); if(ps)blob(ps[0],ps[1],55,'#7fd8ff',0.04+inten*0.16); } } }
@@ -22983,7 +22985,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // cities
     if(LAYERS.cities&&M.cities) _drawCities(iz);
     ctx.restore();
-    _updateHud();
+    _updateHud(); _drawLeader();
   }
   // ---- FLOW/PARTICLE-systeem (stedengericht capital + commodity + contagion) ----
   function buildFlows(){ const fl=[];
@@ -23024,10 +23026,25 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.beginPath(); ctx.moveTo(a.p[0],a.p[1]); ctx.quadraticCurveTo(mx,my,b.p[0],b.p[1]); ctx.strokeStyle=`rgba(20,241,149,0.3)`; ctx.lineWidth=(0.5+w*3)*iz; ctx.stroke(); }
     nodes.forEach(n=>{ ctx.beginPath(); ctx.arc(n.p[0],n.p[1],(2.5+n.f*7)*iz,0,6.283); ctx.fillStyle='rgba(20,241,149,0.55)'; ctx.fill(); }); }
 
-  function _drawKill(iz){ const ctx=M.ctx; let proj; try{ proj=TrinityGSD.killProjection||[]; }catch(e){ return; } const seen={};
-    proj.forEach(pz=>{ if(!pz.zone||seen[pz.zone])return; seen[pz.zone]=1; const z=GSD_ZONES.find(z=>z.name===pz.zone); if(!z)return; const c=zCentroid(z.key); if(!c)return; const p=pB(c[0],c[1]); const R=(10+(pz.prob||0)*22)*iz;
-      ctx.beginPath(); ctx.arc(p[0],p[1],R,0,6.283); ctx.strokeStyle='#ff8a3c'; ctx.lineWidth=1.6*iz; ctx.globalAlpha=0.85; ctx.stroke(); ctx.globalAlpha=1;
-      if(M.view.scale>1.3){ ctx.fillStyle='#ff8a3c'; ctx.font=(9*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('★ '+pz.key+' '+Math.round((pz.prob||0)*100)+'%',p[0],p[1]-R-3*iz); } }); }
+  function _star(ctx,x,y,r,col){ ctx.save(); ctx.beginPath(); for(let i=0;i<10;i++){ const a=-Math.PI/2+i*Math.PI/5, rr=i%2?r*0.45:r; const px=x+Math.cos(a)*rr, py=y+Math.sin(a)*rr; i?ctx.lineTo(px,py):ctx.moveTo(px,py);} ctx.closePath(); ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=8; ctx.fill(); ctx.restore(); }
+  function _drawKill(iz){ const ctx=M.ctx; let proj; try{ proj=TrinityGSD.killProjection||[]; }catch(e){ return; } const seen={}; M._primaryStar=null;
+    proj.forEach(pz=>{ if(!pz.zone||seen[pz.zone])return; seen[pz.zone]=1; const z=GSD_ZONES.find(z=>z.name===pz.zone); if(!z)return; const c=zCentroid(z.key); if(!c)return; const sn=_snapLand(c[0],c[1]); const p=pB(sn[0],sn[1]); if(!p)return;
+      _star(ctx,p[0],p[1],7*iz,'#ff8a3c');
+      const cn=pz.chanceNow!=null?pz.chanceNow:Math.round((pz.prob||0)*100);
+      if(M.view.scale>1.2){ ctx.fillStyle='#ff8a3c'; ctx.font=(8.5*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText(cn+'% '+pz.key,p[0]+8*iz,p[1]+3*iz); }
+      if(pz.key==='week'||!M._primaryStar){ M._primaryStar=[M.view.tx+p[0]*M.view.scale, M.view.ty+p[1]*M.view.scale]; }
+      M._markers.push({x:p[0],y:p[1],t:'ΔV kill-switch start-zone · '+pz.zone+' · '+cn+'% ('+pz.key+')'}); }); }
+  // per-country stress ranking (zone base + local event boost), throttled
+  function computeTopStress(){ const now=Date.now(); if(M._topStress&&now-(M._topStressTs||0)<8000) return M._topStress; const feats=M.countries||[]; const rows=[];
+    for(const f of feats){ if(!f._z||f._z==='global')continue; let cen; try{cen=d3.geoCentroid(f);}catch(e){continue;} const base=zStress(f._z); let boost=0;
+      M.quakes.forEach(q=>{ if(q.mag>=4){ const d=Math.hypot(q.lat-cen[1],(q.lon-cen[0])*Math.cos(cen[1]*Math.PI/180))*111; if(d<450) boost+=0.07*(q.mag/6); } });
+      M.events.forEach(e=>{ const d=Math.hypot(e.lat-cen[1],(e.lon-cen[0])*Math.cos(cen[1]*Math.PI/180))*111; if(d<300) boost+=0.05; });
+      rows.push({name:(f.properties&&f.properties.name)||'?',zone:f._z,score:Math.min(1,base+boost)}); }
+    rows.sort((a,b)=>b.score-a.score); M._topStress=rows.slice(0,10); M._topStressTs=now; return M._topStress; }
+  function _drawLeader(){ const el=document.getElementById('sw-hud'); if(!el||el.style.display==='none'||!M._primaryStar)return; const ctx=M.ctx;
+    const ax=el.offsetLeft+el.offsetWidth, ay=el.offsetTop+Math.min(el.offsetHeight,60)/2; const sx=M._primaryStar[0], sy=M._primaryStar[1];
+    if(sx<ax) return; // ster links van paneel → geen lijn
+    ctx.save(); ctx.setTransform(M.dpr,0,0,M.dpr,0,0); ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(sx,sy); ctx.strokeStyle='rgba(255,138,60,0.55)'; ctx.lineWidth=1; ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]); ctx.beginPath(); ctx.arc(sx,sy,3,0,6.283); ctx.fillStyle='#ff8a3c'; ctx.fill(); ctx.restore(); }
 
   function _drawCities(iz){ const ctx=M.ctx; const sc=M.view.scale;
     for(const c of M.cities){ const p=pB(c.lon,c.lat); if(p[0]<-20||p[0]>M.w/1+20||p[1]<-20||p[1]>M.h+20){} // (in transformed space; skip cull for simplicity)
@@ -23039,26 +23056,31 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   }
 
   // ---- ground-zero PER LAND: plaats de gloed op de sterkste echte hotspot binnen de zone ----
+  // snap een (mogelijk offshore) hotspot naar de dichtstbijzijnde land-stad → ground-zero op een land, niet in zee
+  function _snapLand(lon,lat){ let bx=lon,by=lat,bd=1e9; for(const m of METROS){ const d=Math.hypot(m[0]-lat,(m[1]-lon)*Math.cos(lat*Math.PI/180)); if(d<bd){bd=d;bx=m[1];by=m[0];} }
+    for(const c of (M.cities||[]).slice(0,400)){ const d=Math.hypot(c.lat-lat,(c.lon-lon)*Math.cos(lat*Math.PI/180)); if(d<bd){bd=d;bx=c.lon;by=c.lat;} }
+    return (bd*111<2200)?[bx,by]:[lon,lat]; }
   function _groundZero(iz){ GSD_ZONES.filter(z=>z.key!=='global').forEach(z=>{ const bb=z.bbox; if(!bb)return; let best=null,bv=0;
     M.quakes.forEach(q=>{ if(q.lon>=bb[0]&&q.lon<=bb[2]&&q.lat>=bb[1]&&q.lat<=bb[3]){ const v=Math.min(1,q.mag/8); if(v>bv){bv=v;best={lon:q.lon,lat:q.lat,l:'M'+q.mag};} } });
     M.events.forEach(e=>{ if(e.lon>=bb[0]&&e.lon<=bb[2]&&e.lat>=bb[1]&&e.lat<=bb[3]){ if(0.6>bv){bv=0.6;best={lon:e.lon,lat:e.lat,l:e.cat};} } });
     const zs=zStress(z.key); if(!best){ if(zs<0.5)return; const c=zCentroid(z.key); if(!c)return; best={lon:c[0],lat:c[1],l:'stress'}; bv=zs; }
-    const p=pB(best.lon,best.lat); if(!p)return; blob(p[0],p[1],24+bv*46,'#ffd76a',0.13+bv*0.18); }); }
+    const sn=_snapLand(best.lon,best.lat); const p=pB(sn[0],sn[1]); if(!p)return; blob(p[0],p[1],24+bv*46,'#ffd76a',0.13+bv*0.18); }); }
 
   // ---- ΔV kill-switch corner-HUD (oranje ShockWave-stijl) ----
   function _updateHud(){ const el=document.getElementById('sw-hud'); if(!el)return; let P; try{ P=TrinityGSD.killProjection||[]; }catch(e){ P=[]; }
-    const near=P.find(p=>p.key==='week')||P[0]; if(!near){ el.style.display='none'; return; } el.style.display='block';
-    const d=near.chanceDelta, dc=d>0?'#ff5f7e':d<0?'#14f195':'#8aa0ad', ar=d>0?'▲':d<0?'▼':'■';
-    el.innerHTML=`<div style="font-size:0.5rem;letter-spacing:0.14em;color:#ff8a3c;text-transform:uppercase;">ΔV kill-switch · ${near.key}</div>`
-      +`<div style="font-size:1.15rem;font-weight:700;color:#ff8a3c;line-height:1.1;">${near.chanceNow!=null?near.chanceNow:Math.round((near.prob||0)*100)}% <span style="font-size:0.6rem;color:${dc};font-weight:600;">${d!=null?ar+Math.abs(d):''}</span></div>`
-      +`<div style="font-size:0.5rem;color:#9fb2c4;">${near.zone||'—'}${near.chancePrev!=null?' · was '+near.chancePrev+'%':''}</div>`; }
+    if(!P.length){ el.style.display='none'; return; } el.style.display='block';
+    const rowsH=P.map(p=>{ const d=p.chanceDelta,dc=d>0?'#ff5f7e':d<0?'#14f195':'#8aa0ad',ar=d>0?'▲':d<0?'▼':'·'; const cn=p.chanceNow!=null?p.chanceNow:Math.round((p.prob||0)*100);
+      return `<div style="display:flex;gap:5px;font-size:0.52rem;line-height:1.55;"><span style="flex:0 0 30px;color:#7fd8ff;">${p.key}</span><span style="flex:0 0 56px;color:#ff8a3c;font-weight:700;">${cn}% <span style="color:${dc};font-weight:400;">${d!=null?ar+Math.abs(d):''}</span></span><span style="flex:1 1 auto;color:#9fb2c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70px;">${p.zone||''}</span></div>`; }).join('');
+    const ts=computeTopStress(); const rowsS=ts.map((r,i)=>`<div style="font-size:0.5rem;color:#9fb2c4;line-height:1.5;white-space:nowrap;">${i+1}. <b style="color:${r.score>=0.5?'#ff5f7e':r.score>=0.3?'#ffb627':'#cfe0ec'}">${r.name}</b> ${(r.score*100|0)}%</div>`).join('');
+    el.innerHTML=`<div style="font-size:0.5rem;letter-spacing:0.1em;color:#ff8a3c;text-transform:uppercase;margin-bottom:3px;">ΔV kill-switch projection</div>`
+      +rowsH+`<div style="border-top:1px solid rgba(255,138,60,0.3);margin:5px 0 3px;"></div><div style="font-size:0.47rem;letter-spacing:0.08em;color:#ffb27e;text-transform:uppercase;margin-bottom:1px;">Top-10 stress countries</div>`+rowsS; }
 
   // ---- klik → land-detailpaneel ----
   function _selectAt(sx,sy){ if(!M.proj||!M.proj.invert)return; const v=M.view; const bx=(sx-v.tx)/v.scale, by=(sy-v.ty)/v.scale; const ll=M.proj.invert([bx,by]); if(!ll)return;
     let hit=null; const feats=(v.scale>4&&M.countries50)?M.countries50:M.countries; for(const f of feats){ try{ if(d3.geoContains(f,ll)){ hit=f; break; } }catch(e){} }
     if(!hit){ M.detail=null; _renderDetail(); return; } M.detail={_f:hit,name:(hit.properties&&hit.properties.name)||'?',zone:hit._z,ll}; _renderDetail(); }
   function _renderDetail(){ const el=document.getElementById('sw-detail'); if(!el)return; const D=M.detail;
-    if(!D){ el.innerHTML='<div class="mono" style="font-size:0.56rem;color:var(--dimmer);">klik een land op de kaart voor detail: zone-stress, actieve rampen, nabije bevingen, chokepoints, kill-switch-kans en contagion-doelen.</div>'; return; }
+    if(!D){ el.innerHTML='<div class="mono" style="font-size:0.56rem;color:var(--dimmer);">Click a country on the map for detail: zone stress, active disasters, nearby quakes, chokepoints, kill-switch chance and contagion targets.</div>'; return; }
     const z=D.zone, zs=zStress(z), zc=zName(z), col=zCol(z), c=D.ll;
     const near=(arr,km,fn)=>arr.filter(o=>{ const dl=(o.lat-c[1]), dn=(o.lon-c[0])*Math.cos(c[1]*Math.PI/180); return Math.hypot(dl,dn)*111<km; }).map(fn);
     const nq=near(M.quakes,900,q=>'M'+q.mag+' '+(q.place||'').slice(0,28)).slice(0,4);
@@ -23070,11 +23092,11 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const line=(lab,val,vc)=>`<div style="display:flex;gap:8px;font-size:0.56rem;padding:2px 0;"><span style="flex:0 0 92px;color:var(--dimmer)">${lab}</span><span style="flex:1 1 auto;color:${vc||'var(--dim)'}">${val}</span></div>`;
     el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--tx);font-weight:700;">${D.name}</div><button class="btn btn-mini" onclick="__swClearDetail()" style="padding:2px 7px;font-size:0.5rem;">✕</button></div>`
       +`<div style="font-size:0.54rem;color:${col};margin-bottom:5px;">${zc} · stress <b style="color:${sc}">${(zs*100|0)}%</b></div>`
-      +line('Kill-switch', kp?('kans <b style="color:#ff8a3c">'+kp.chanceNow+'%</b>'+(kp.chanceDelta!=null?' ('+(kp.chanceDelta>0?'▲':kp.chanceDelta<0?'▼':'■')+Math.abs(kp.chanceDelta)+', was '+kp.chancePrev+'%)':'')+' · '+kp.key):'—')
-      +line('Contagion', cons.length?cons.join(' · '):'geen actieve doelen')
-      +line('Bevingen', nq.length?nq.join(' · '):'geen recente')
-      +line('Rampen (zone)', ne.length?ne.join(' · '):'geen actieve')
-      +line('Chokepoints', ncp.length?ncp.join(' · '):'geen nabij');
+      +line('Kill-switch', kp?('chance <b style="color:#ff8a3c">'+kp.chanceNow+'%</b>'+(kp.chanceDelta!=null?' ('+(kp.chanceDelta>0?'▲':kp.chanceDelta<0?'▼':'■')+Math.abs(kp.chanceDelta)+', was '+kp.chancePrev+'%)':'')+' · '+kp.key):'—')
+      +line('Contagion', cons.length?cons.join(' · '):'no active targets')
+      +line('Earthquakes', nq.length?nq.join(' · '):'none recent')
+      +line('Disasters (zone)', ne.length?ne.join(' · '):'none active')
+      +line('Chokepoints', ncp.length?ncp.join(' · '):'none nearby');
   }
   window.__swClearDetail=function(){ M.detail=null; _renderDetail(); };
 
@@ -23093,7 +23115,14 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function _fetchAll(){ _fetchQuakes(); _fetchEvents(); if(LAYERS.rain||LAYERS.temp)_fetchWx(); if(LAYERS.plates)_fetchPlates(); if(LAYERS.spaceweather)_fetchSpace(); if(M.view&&M.view.scale>4)_fetch50(); }
   function _fetch50(){ if(M.atlas50)return; fetchT(ATLAS_50,12000,{cache:'force-cache'}).then(r=>r.json()).then(a=>{ M.atlas50=a; M.countries50=topojson.feature(a,a.objects.countries).features; M.countries50.forEach(f=>{ try{ const c=d3.geoCentroid(f); f._z=zoneOfCentroid(c[0],c[1]); }catch(e){} }); }).catch(()=>{}); }
   function _fetchQuakes(){ fetchT(USGS_URL,10000,{cache:'no-store'}).then(r=>r.json()).then(j=>{ if(!j||!j.features)return; M.quakes=j.features.map(f=>({lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],depth:f.geometry.coordinates[2],mag:f.properties.mag,place:f.properties.place})).filter(q=>q.mag!=null); }).catch(()=>{}); }
-  function _fetchEvents(){ fetchT(EONET_URL,10000,{cache:'no-store'}).then(r=>r.json()).then(j=>{ if(!j||!j.events)return; M.events=j.events.map(e=>{ const g=e.geometry&&e.geometry[e.geometry.length-1]; if(!g||!g.coordinates)return null; let lon,lat; if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1];}else{const c=g.coordinates[0]&&g.coordinates[0][0]; if(!c)return null; lon=c[0];lat=c[1];} return {lon,lat,cat:(e.categories&&e.categories[0]&&e.categories[0].id)||'other',title:e.title}; }).filter(Boolean); }).catch(()=>{}); }
+  function _fetchEvents(){ fetchT(EONET_URL,10000,{cache:'no-store'}).then(r=>r.json()).then(j=>{ if(!j||!j.events)return; const eo=j.events.map(e=>{ const g=e.geometry&&e.geometry[e.geometry.length-1]; if(!g||!g.coordinates)return null; let lon,lat; if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1];}else{const c=g.coordinates[0]&&g.coordinates[0][0]; if(!c)return null; lon=c[0];lat=c[1];} return {lon,lat,cat:(e.categories&&e.categories[0]&&e.categories[0].id)||'other',title:e.title,src:'EONET'}; }).filter(Boolean);
+      M.events=M.events.filter(e=>e.src!=='EONET').concat(eo); }).catch(()=>{}); _fetchGdacs(); }
+  // GDACS — wereldwijde multi-hazard (EQ/cycloon/flood/volcano/droogte/wildfire), gratis, geen key. Merge met EONET.
+  function _fetchGdacs(){ const GD={EQ:'earthquake',TC:'severeStorms',FL:'floods',VO:'volcanoes',DR:'drought',WF:'wildfires'};
+    fetchT('https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP',12000,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ if(!j||!j.features)return;
+      const gd=j.features.map(f=>{ const g=f.geometry,pr=f.properties||{}; if(!g||!g.coordinates)return null; let lon,lat; if(g.type==='Point'){lon=g.coordinates[0];lat=g.coordinates[1];}else{ try{ const c=g.coordinates[0][0]; lon=c[0];lat=c[1]; }catch(e){ return null; } }
+        const cat=GD[pr.eventtype]||'other'; if(cat==='earthquake')return null; return {lon,lat,cat,title:(pr.name||pr.htmldescription||pr.eventtype||'event'),src:'GDACS'}; }).filter(Boolean);
+      M.events=M.events.filter(e=>e.src!=='GDACS').concat(gd); }).catch(()=>{}); }
   function _fetchPlates(){ if(M.plates)return; fetchT(PLATES_URL,12000,{cache:'force-cache'}).then(r=>r.json()).then(j=>{ M.plates=j; }).catch(()=>{}); }
   function _fetchCities(){ if(M.cities||M._citiesLoading)return; M._citiesLoading=true;
     fetchT(CITIES_URL,15000,{cache:'force-cache'}).then(r=>r.json()).then(j=>{ M._citiesLoading=false; if(!j||!j.features)return;
@@ -23110,15 +23139,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 
   // ---- controls / legend / country list ----
   function _buildControls(){ const el=document.getElementById('sw-controls'); if(!el)return;
-    el.innerHTML=`<div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-bottom:6px;">scroll/pinch = zoom · sleep = pan · diep inzoomen toont stadsnamen</div>`
+    el.innerHTML=`<div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-bottom:6px;">scroll/pinch = zoom · drag = pan · zoom in for city names · click a country for detail</div>`
       +LAYER_GROUPS.map(([grp,items])=>`<div style="font:0.5rem JetBrains Mono,monospace;color:var(--dimmer);letter-spacing:0.1em;text-transform:uppercase;margin:6px 0 3px;">${grp}</div><div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`
         +items.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${LAYERS[k]?'checked':''} onchange="__swToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`).join('');
   }
   function _renderLegend(){ const el=document.getElementById('sw-legend'); if(!el)return;
-    el.innerHTML=`<div class="mono" style="font-size:0.54rem;color:var(--dim);line-height:1.9;"><b style="color:#ff5f7e;">Heatzones = gloed</b> (opacity-overlap) over de gebieden — feller = meer druk/hitte/regen. <span style="color:#ff4f6d;">● aardbeving</span> · <span style="color:#ff7a1a;">● bosbrand</span> · <span style="color:#ff4f6d;">● vulkaan</span> · <span style="color:#4fc3f7;">● overstroming</span> · <span style="color:#7fd8ff;">— plaatgrens</span> · <span style="color:#ff8a3c;">◌ clash/drukzone</span> · <span style="color:#14f195;">— capital-flow</span> · <span style="color:#ff8a3c;">★ ΔV kill-switch startzone</span> · <span style="color:#ffd76a;">◌ ground-zero</span>.</div>`; }
+    el.innerHTML=`<div class="mono" style="font-size:0.54rem;color:var(--dim);line-height:1.9;"><b style="color:#ff5f7e;">Heat zones = glow</b> (opacity overlap) over the regions — brighter = more pressure/heat/rain. <span style="color:#ff4f6d;">● earthquake</span> · <span style="color:#ff7a1a;">● wildfire</span> · <span style="color:#ff4f6d;">● volcano</span> · <span style="color:#4fc3f7;">● flood</span> · <span style="color:#7fd8ff;">— plate boundary</span> · <span style="color:#ff8a3c;">◌ clash/pressure zone</span> · <span style="color:#14f195;">— capital flow</span> · <span style="color:#ff8a3c;">★ ΔV kill-switch start-zone</span> · <span style="color:#ffd76a;">◌ ground-zero</span>.</div>`; }
   function _renderCountryList(){ const el=document.getElementById('sw-countrylist'); if(!el)return; let zones; try{ zones=GSD_ZONES; }catch(e){ return; }
     el.innerHTML=zones.filter(z=>z.key!=='global').map(z=>{ const s=zStress(z.key), cs=(M.byZone[z.key]||[]).slice().sort(); const sc=s>=0.5?'#ff5f7e':s>=0.3?'#ffb627':'#14f195';
-      return `<details style="margin-bottom:6px;border-left:3px solid ${z.col};padding-left:8px;break-inside:avoid;"><summary style="cursor:pointer;font-size:0.6rem;color:var(--tx);"><b style="color:${z.col}">${z.name}</b> <span style="color:${sc}">stress ${(s*100|0)}%</span> <span style="color:var(--dimmer)">· ${cs.length} landen</span></summary><div style="font-size:0.54rem;color:var(--dim);line-height:1.7;margin-top:3px;">${cs.join(' · ')||'—'}</div></details>`; }).join('');
+      return `<details style="margin-bottom:6px;border-left:3px solid ${z.col};padding-left:8px;break-inside:avoid;"><summary style="cursor:pointer;font-size:0.6rem;color:var(--tx);"><b style="color:${z.col}">${z.name}</b> <span style="color:${sc}">stress ${(s*100|0)}%</span> <span style="color:var(--dimmer)">· ${cs.length} countries</span></summary><div style="font-size:0.54rem;color:var(--dim);line-height:1.7;margin-top:3px;">${cs.join(' · ')||'—'}</div></details>`; }).join('');
   }
 
   window.__swToggle=function(k){ LAYERS[k]=!LAYERS[k]; saveLayers();
