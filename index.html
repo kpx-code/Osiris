@@ -2495,7 +2495,14 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div id="sw-feed" class="mono"><div class="mono" style="font-size:0.56rem;color:var(--dimmer);">contagion engine initialising…</div></div>
     </div>
 
-    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Global stress</h3><span class="sub">— UOTAM/TAM across 7 world zones · live micro/meso/macro/full + historical week→10y horizons</span></div>
+    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Neural view</h3><span class="sub">— the contagion engine as a live network: signals (category) &rarr; world zones &rarr; ΔV kill-switch · particles are signal propagating, an active shock lights its path</span></div>
+    <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <canvas id="sw-net" style="width:100%;height:380px;display:block;background:radial-gradient(120% 90% at 50% 0%, rgba(70,35,10,0.18), rgba(2,7,14,0.5) 60%), #05080d;border:1px solid var(--line);border-radius:8px;"></canvas>
+      <div class="mono" style="font-size:0.47rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Not a black box: each node is a real quantity — a category's global stress, a zone's FSO stress, a horizon's kill-switch chance — and each edge is the measured signal between them (the GSD cell value / zone weight). The engine learns which channels actually propagate (green = high hit-rate) and scores itself honestly; this view is that same network, live.</div>
+    </div>
+
+    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Global stress</h3><span class="sub">— UOTAM/TAM across 7 world zones · live micro/meso/macro/full + historical week→30y horizons · all charts collapsible</span></div>
     <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div class="mono" id="gsd-status" style="font-size:0.66rem;color:var(--dim);line-height:1.8;">◉ GSD — initialising…</div>
@@ -2536,10 +2543,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div id="gsd-feeds" class="feeds"><div class="mono" style="color:var(--dimmer);font-size:0.56rem;">feeds initialising…</div></div>
       <div class="oarow" style="margin-top:10px;"><span>GSD proxy URL (optional)</span><div style="display:flex;gap:6px;"><input id="gsd-proxy" type="text" placeholder="https://…worker.dev  (for GDELT/FRED/ACLED)" style="flex:1;"><button class="btn" style="padding:7px 12px;" onclick="gsdSetProxy()">Set</button></div></div>
-      <div class="mono" style="font-size:0.46rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Browser-direct (no account/key): USGS · NASA EONET · Open-Meteo · World Bank. Proxy required for GDELT (geopolitics/tone, no key), ECB (no key), FRED &amp; ACLED (free registration) — add a free Cloudflare Worker later, just like the capital proxy. Everything runs in the background; toggles are display-only.</div>
+      <div class="mono" style="font-size:0.46rem;color:var(--dimmer);margin-top:6px;line-height:1.6;"><b style="color:#7fd4ff;">Browser-direct (no account / no key):</b> USGS earthquakes · NASA EONET · GDACS multi-hazard · Open-Meteo weather · World Bank macro · NOAA SWPC space-weather. <b style="color:#c792ea;">Embedded &amp; live-scored:</b> active conflicts, migration corridors and economic flashpoints — curated, source-grounded datasets whose scores move with the live feeds and feed the autonomous adaptation. <b style="color:#c792ea;">Proxy required (free, added later):</b> GDELT (geopolitics/tone, no key), ECB CISS (no key), FRED &amp; ACLED (free registration) — a small Cloudflare Worker, like the capital proxy. Everything refreshes in the background (each row shows its last-updated time); the map toggles are display-only.</div>
       <div class="secdiv" style="margin-top:16px;"><h3>Historical calibration</h3><span class="sub">— calibrate node/regime thresholds on decades of real crises (FRED · ECB · GDELT · USGS)</span></div>
       <canvas id="gsd-histcal-chart" style="width:100%;height:340px;display:block;background:rgba(0,0,0,0.3);border:1px solid var(--line);border-radius:8px;margin-bottom:6px;"></canvas>
-      <div class="mono" style="font-size:0.48rem;color:var(--dimmer);margin-bottom:8px;line-height:1.6;">The <b style="color:#c792ea;">purple mountains</b> are stored energy (VFM) building during <b style="color:#ffd24a;">compression</b> (σ² under the red node line); each <b style="color:#ff3b5c;">★</b> is a ΔV kill-switch — energy releasing, historically clustering on real crises. This is the model's back-test: the thresholds are calibrated so the stars land on 2008 / 2020 / 2022, then the same thresholds drive the live charts above.</div>
+      <div class="mono" style="font-size:0.48rem;color:var(--dimmer);margin-bottom:8px;line-height:1.6;">The <b style="color:#c792ea;">purple mountains</b> are stored energy (VFM) building during <b style="color:#ffd24a;">compression</b> (σ² under the red node line); each <b style="color:#ff3b5c;">★</b> is a ΔV kill-switch — energy releasing, historically clustering on real crises (1998 LTCM, dotcom, 2008 GFC, 2011 euro, 2020 COVID, 2022 rates/energy). This is the model's back-test: the thresholds are calibrated so the stars land on those crises, then the same thresholds drive the live charts above.</div>
       <div class="mono" id="gsd-histcal" style="font-size:0.56rem;color:var(--dim);line-height:1.7;">not yet run — set the proxy above, then it starts automatically (or press below).</div>
       <div style="margin-top:8px;"><button class="btn" style="padding:7px 12px;" onclick="gsdBackfill()">⟳ Calibrate from history</button> <span class="mono" style="font-size:0.46rem;color:var(--dimmer);">pulls deep series via the proxy · sets crisis-anchored thresholds · live data keeps refining</span></div>
 
@@ -2650,7 +2657,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260905-build68-conflicts"></script>
+<script src="app.js?v=20260905-build69-neuralnet"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
