@@ -1001,21 +1001,16 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           <div style="font-size:0.62rem;line-height:1.7;color:var(--dim);margin-top:3px;">Experimental, educational project on <b style="color:var(--cyan)">testnets / simulated capital</b>. Nothing here is financial advice; the model can be wrong. Never trade real money on it.</div>
         </div>
       </div>
-      <div class="eyebrow" style="color:var(--cyan);">&mdash; Osiris Deepnet KPX &middot; autonomous trading AI &middot; crypto &amp; FX</div>
+      <div class="eyebrow" style="color:var(--cyan);">&mdash; Osiris Deepnet KPX &middot; autonomous trading &amp; world-stress AI</div>
       <div class="split-grid" style="margin-top:10px;">
         <div>
           <h1 class="hero-h1">Osiris trades.<br><em>And learns</em> from every trade.</h1>
-          <p class="hero-lead">A self-directed trading intelligence for BTC, ETH and SOL. It scans the market every ten seconds, weighs its own probabilities, and guards every open position &mdash; on the Binance spot <em>and</em> futures testnets, with fake capital.</p>
-          <p class="about-para">One principle drives it: <b style="color:var(--cyan)">stay honest about your own certainty</b>. Every closed trade flows back into a calibration table that checks what the model predicted against what really happened, and the whole system is nudged by that truth. A raw score is trusted only as far as its measured win rate earns. Nothing changes silently &mdash; every self-adjustment is written to a live feed.</p>
-          <p class="about-para">Osiris runs as two engines that share one brain: <b style="color:var(--cyan)">Osiris Neo</b> for BTC / ETH / SOL, and <b style="color:#ffd24a;">Osiris Trinity (FX)</b> &mdash; the same self-calibrating, session-aware intelligence applied to the foreign-exchange majors.</p>
-          <p class="about-para">Trinity now carries a full engine-intelligence stack: an <b style="color:#ff8a3c;">FSO-GSD</b> world-stress model (UOTAM across six zones), a node-compression <b>timing agent</b>, a <b style="color:#14f195;">guardian</b> (risk-break + spike-guard + kinetic), a <b>regime-HMM</b>, an <b style="color:#ff8fa3;">LLM-verify</b> that scans free news/social sentiment and weighs its meaning against the data, an <b>RL-exit</b> policy, and a <b style="color:#7fd8ff;">DeepNet L3</b> blind-spot check for what the data isn't saying. Everything is autonomously adaptive &mdash; learning starts at just five real trades and re-calibrates every five. The next milestone is <b style="color:#ff8a3c;">Osiris ShockWave</b>: from measuring how tense the world is, to predicting where a shock begins and how it propagates.</p>
+          <p class="hero-lead">A self-directed trading intelligence. It reads the market every few seconds, weighs its own probabilities, guards every open position, and scores each outcome against what really happened &mdash; so its confidence stays honest. Everything runs on testnets with simulated capital.</p>
+          <p class="about-para">One principle drives it: <b style="color:var(--cyan)">stay honest about your own certainty</b>. A raw score is trusted only as far as its measured win-rate earns, and nothing changes silently &mdash; every self-adjustment is written to a live feed.</p>
         </div>
         <div id="about-eye-wrap" style="display:flex;flex-direction:column;align-items:center;justify-content:center;">
-          <div class="eyebrow" style="margin-bottom:8px;color:var(--cyan);text-align:center;min-height:1.3em;">&mdash; <span id="neo-typewriter"></span><span id="neo-tw-caret" style="animation:neoblink 1s steps(1) infinite;">&#9611;</span></div>
-          <style>@keyframes neoblink{0%,50%{opacity:1}50.01%,100%{opacity:0}}</style>
-          <script>(function(){var el=document.getElementById('neo-typewriter');if(!el)return;var seq=["Maar maar maar..","ik ben de robot","ik ben de robot","jij bent de robot","jij bent de robot"];var i=0,j=0,del=false;function step(){var w=seq[i];el.textContent=w.slice(0,j);if(!del){if(j<w.length){j++;setTimeout(step,72);}else{del=true;setTimeout(step,1150);}}else{if(j>0){j--;setTimeout(step,38);}else{del=false;i=(i+1)%seq.length;setTimeout(step,240);}}}step();})();</script>
           <svg id="about-eye" viewBox="0 0 400 380" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:440px;height:auto;aspect-ratio:400/380;display:block;"></svg>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#5c7488;letter-spacing:0.14em;text-transform:uppercase;margin-top:10px;text-align:center;">Reads price, volume &amp; volatility &middot; tests every prediction</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#5c7488;letter-spacing:0.14em;text-transform:uppercase;margin-top:10px;text-align:center;">Reads price, flow &amp; volatility &middot; tests every prediction</div>
         </div>
       </div>
       <!-- BEVEILIGING / TOEGANGSLOG — transparantie voor bezoekers -->
@@ -1024,66 +1019,38 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <p class="about-para" style="margin-top:6px;">Osiris controls a live trading engine and contains highly sensitive tools (API-key fields, live-trading toggles, wallet controls and full-data exports). For that reason <b>access to this dashboard is logged</b>. When you open or use Osiris, it may record: a per-device identifier and device profile (operating system, browser, device type, screen, timezone, language), your IP address and approximate location (city/country) via an IP lookup service, and &mdash; only if you grant the browser permission &mdash; your precise location. It also records active engagement time per device and which controls you click, with sensitive actions flagged. This log is kept for the owner's security review (stored locally and in the owner's private Supabase; optionally emailed to the owner on sensitive events). It is used <b>solely</b> to protect this application and is never sold or shared. If you do not consent to this, please close the page. API keys are never logged or exported.</p>
       </div>
 
-      <!-- AUTONOMOUS TOOLS -->
-      <div class="eyebrow" style="margin-top:34px; color:#14f195;">&mdash; Autonomous tools &middot; Osiris tunes these itself</div>
-      <h1 class="h" style="margin-top:6px;">The toolkit</h1>
-      <p class="hero-lead" style="max-width:none;">Each one is <b style="color:#14f195;">self-correcting</b>: Osiris scores its result out-of-sample and shifts its weight, thresholds or allocation on its own. That is what the AUTONOMOUS tag means.</p>
+      <!-- THREE ENGINES -->
+      <div class="eyebrow" style="margin-top:34px; color:#14f195;">&mdash; Three engines, one brain</div>
+      <h1 class="h" style="margin-top:6px;">What Osiris runs</h1>
+      <p class="hero-lead" style="max-width:none;">One self-scoring brain, pointed at three very different markets. Each engine reads its world every few seconds, acts on its own probabilities, and grades every outcome against what really happened.</p>
       <div class="toolgrid">
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Predict</h4><p>Calibrated per-coin direction forecaster. Every call is scored out-of-sample; the Governor decides how much of a vote it gets.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Governor</h4><p>Self-governance. Gives every tool a trust weight that tracks its hit-rate and Brier score. Weak &rarr; scaled down, strong &rarr; scaled up.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Timing-Agent</h4><p>Bundles NN, node countdown, FSO, RL, confluence, volume, fib &amp; ETA into one readiness score for the entry moment. Live + shadow, each component self-weighted.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Timing shadow &amp; backtest</h4><p>A parallel timing agent plus a scenario backtest over ~600 candles. Thousands of entry scenarios seed the calibration; the shadow can promote itself once proven.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>FSO zone-calibration</h4><p>Stress zones (spanning / crisis / variance / correlation) recalibrate &mdash; but only after a shadow backtest and a live confirmation agree, in small bounded steps.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Kinetic breakpoint</h4><p>Treats stored asynchrony as potential energy and the move as kinetic; predicts the nearest breakpoint, direction and ETA per coin.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>FSO opportunity</h4><p>Finds the real "lightning" chance per coin and tilts wallet equity toward the market where a big move is building.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>DeepNet gate</h4><p>Entry gate and live exit steering that Osiris switches on/off by walk-forward precision &mdash; with stall-protection so trades never freeze.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>RL exit-agent</h4><p>Tabular Q-learning over thousands of scenarios (HOLD / CLOSE / TRAIL / SCALE) steers discretionary exits and re-tunes the time-stop.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Guardian &amp; Risk</h4><p>Guardian catches frozen feeds and price divergence; Risk enforces drawdown, daily-loss and exposure limits &mdash; both pause entries before harm.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Margin engine</h4><p>Futures with real testnet fills, autonomous leverage (3&ndash;5&times;) and a notional exposure cap that scales back on drawdown.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Self-review</h4><p>Every 5 closed trades Osiris re-weighs recent data and adjusts exposure and thresholds &mdash; with the reasoning saved and readable.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Fee-aware guard</h4><p>Compares real win rate to the win rate needed <em>after</em> fees. If costs eat the edge it raises the bar, cuts leverage and trades only top setups &mdash; never ramps up on gross win rate.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>UOTAM node timing</h4><p>Temporal attractor grid on the &pi;-cycle (188.66&nbsp;min, Tesla 3-6-9). Node countdown feeds the Timing-Agent and the fib confluence.</p></div>
-        <div class="toolcard"><span class="tc-badge">AUTONOMOUS</span><h4>Predict inversion</h4><p>When a predictor is reliably wrong, Osiris flips its signal &mdash; auto-detected from its own out-of-sample hit-rate, dual-track (fast + robust).</p></div>
+        <div class="toolcard"><span class="tc-badge" style="color:#14f195;">CRYPTO</span><h4>Osiris Neo</h4><p>The original core. Trades BTC, ETH &amp; SOL on spot &amp; margin, with a calibrated forecaster per coin, a governor that trusts each tool only as far as its hit-rate earns, and guards that pause before harm. Everything on testnet.</p></div>
+        <div class="toolcard"><span class="tc-badge" style="color:#ffd24a;">FX</span><h4>Osiris Trinity</h4><p>The same brain on the foreign-exchange majors. It ranks the pairs by live opportunity, trades the moment that fits the active session (Asia / EU / US / overlap), and keeps a separate calibration per session so its confidence stays honest.</p></div>
+        <div class="toolcard"><span class="tc-badge" style="color:#ff8a3c;">WORLD</span><h4>Osiris ShockWave</h4><p>The macro lens. A live world map of quakes, disasters, weather, space weather and choke-points, a Global Stress model per region, and a contagion engine that predicts how a shock in one place spreads to markets elsewhere.</p></div>
       </div>
+
+      <!-- AUTONOMOUS -->
+      <div class="eyebrow" style="margin-top:34px; color:#14f195;">&mdash; Autonomous by design</div>
+      <h1 class="h" style="margin-top:6px;">It tunes itself</h1>
+      <p class="hero-lead" style="max-width:none;">Osiris is not a fixed set of rules. It scores its own predictions out-of-sample, then shifts its weights, thresholds and allocation on its own &mdash; strong tools get more say, weak ones get scaled back. It sizes positions, sets and trails its own exits, flips a signal that is reliably wrong, and re-weighs itself every few closed trades. Nothing changes silently: every self-adjustment is written to a live feed you can read and export.</p>
 
       <!-- CORE PRINCIPLES -->
       <div class="eyebrow" style="margin-top:34px; color:var(--cyan);">&mdash; Core principles</div>
       <h1 class="h" style="margin-top:6px;">What Osiris rests on</h1>
-      <p class="hero-lead" style="max-width:none;">The foundation beneath the self-steering tools &mdash; the traits that never stop applying.</p>
+      <p class="hero-lead" style="max-width:none;">Whatever market it points at, the same foundation always applies &mdash; the traits that never switch off, no matter which engine is trading.</p>
       <div class="toolgrid">
-        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">◎</span> Calibrated</h4><p>Raw score &rarr; measured win rate, updated continuously.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">◈</span> Protected</h4><p>Profit-lock, time-stop, harvest &mdash; no thesis left hanging.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">⛃</span> Cost-aware</h4><p>Fees &amp; slippage priced into every entry and exit.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">◱</span> Regime-gated</h4><p>Pauses entries when the market goes quiet or dead.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">✓</span> Verified first</h4><p>Calibration shifts only after shadow + live agree.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">⇱</span> Transparent</h4><p>Every self-adjustment logged; all data exportable.</p></div>
+        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">◎</span> Calibrated</h4><p>A raw score means nothing on its own. Osiris maps it to a <b>measured</b> win rate and updates that mapping continuously, so a "70%" really has meant ~70%.</p></div>
+        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">✓</span> Verified first</h4><p>No calibration shift goes live on a hunch. A change is applied only after a shadow backtest and a live confirmation agree &mdash; and then only in small, bounded steps.</p></div>
+        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">◈</span> Protected</h4><p>Every open position is guarded: profit-lock, time-stop and harvest logic mean no thesis is left hanging, and frozen or divergent feeds pause new entries.</p></div>
+        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">⛃</span> Cost-aware</h4><p>Fees and slippage are priced into every entry and exit. If costs start eating the edge, Osiris raises the bar and trades only its best setups &mdash; never on gross win rate.</p></div>
+        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">◱</span> Regime-gated</h4><p>It knows when to sit still. When a market goes quiet, dead or disorderly, Osiris scales down and blocks fresh entries rather than forcing trades.</p></div>
+        <div class="toolcard sys"><span class="tc-badge">PRINCIPLE</span><h4><span class="tc-ic">⇱</span> Transparent</h4><p>Every self-adjustment is logged with its reasoning, and all data is exportable &mdash; but never API keys or passwords, which stay server-side and are never written to an export.</p></div>
       </div>
 
-      <div class="eyebrow" style="margin-top:34px;">&mdash; Under the hood &middot; the architecture</div>
-      <h1 class="h" style="margin-top:6px;">How the machine is built</h1>
-      <p class="hero-lead" style="max-width:none;">Layers of intelligence stacked on one shared engine &mdash; each panel a real subsystem.</p>
-      <div class="toolgrid">
-        <div class="toolcard sys"><span class="tc-badge">CORES</span><h4><span class="tc-ic">🧠</span> Four brains</h4><p>Neo BTC + ETH + SOL cores, each self-calibrated; the Osiris mainbrain weighs them and routes to <b>spot</b> &amp; <b>margin</b>.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">STACK</span><h4><span class="tc-ic">▤</span> L1 &middot; L2 &middot; L3</h4><p>Adaptive weights &rarr; Platt-calibrated logistic &rarr; DeepNet 16-14-8-1 per coin with a meta-gate that abstains when unsure.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">REGIME</span><h4><span class="tc-ic">◱</span> Gaussian HMM</h4><p>Baum-Welch + Viterbi label the market trending / volatile / compressed / calm &mdash; the whole stack adapts per regime.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">TUNER</span><h4><span class="tc-ic">⇄</span> Shadow-backtest</h4><p>Coordinate-descent over target/stop on the live buffer, optimizing Sharpe &mdash; a lightweight auto-tuner.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">SYSTEM</span><h4><span class="tc-ic">◉</span> FSO stress</h4><p>Market-as-a-system: per-coin stress + correlation-break + variance across 4 time scales. Danger zones recalibrate only after shadow + live agree.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">INPUTS</span><h4><span class="tc-ic">⬡</span> 16 live signals</h4><p>Per coin, per cycle: VFM, ER, DB, CHAOS, momentum, VOL-Z, RSI, EMA, CNN, FIB, NN, confluence, funding, L/S, BTC-corr, sentiment.</p></div>
-        <div class="toolcard vlt"><span class="tc-badge">CAPITAL</span><h4><span class="tc-ic">◧</span> Spot + Margin</h4><p>Two wallets, one brain. Spot on the testnet; futures with real testnet fills, autonomous 3&ndash;5&times; leverage and an exposure cap.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">MEMORY</span><h4><span class="tc-ic">☁</span> Cloud &amp; sessions</h4><p>Learnings, models &amp; calibration persist locally + sync to private Supabase. A headless worker keeps it alive; every run is archived per wallet.</p></div>
-        <div class="toolcard"><span class="tc-badge">LOOP</span><h4><span class="tc-ic">↻</span> Feedback loop</h4><p>Every closed trade flashes back through the net &mdash; calibration, weights, thresholds, exits &amp; stops all re-tune. Nothing changes silently.</p></div>
-      </div>
-
-      <!-- OSIRIS TRINITY FX -->
-      <div class="eyebrow" style="margin-top:34px; color:#ffd24a;">&mdash; Osiris &middot; Trinity (FX)</div>
-      <h1 class="h" style="margin-top:6px;">Osiris Trinity (FX)</h1>
-      <p class="hero-lead" style="max-width:none;">Trinity brings the Osiris brain to the <b style="color:#ffd24a;">foreign-exchange majors</b>. Same idea, different market: it ranks the pairs by live opportunity, trades the moment that fits the <b style="color:var(--cyan)">active session</b> (Asia / EU / US / overlap), and scores every result out-of-sample so its confidence stays honest.</p>
-      <div class="toolgrid">
-        <div class="toolcard sys"><span class="tc-badge">SESSIONS</span><h4><span class="tc-ic">◷</span> Session-aware</h4><p>Each FX session gets its own brain-trust &mdash; win rate, AUC and reliability weighted by how many trades it has actually seen, so a thin session leans on the pool.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">SYSTEM</span><h4><span class="tc-ic">◉</span> FX FSO</h4><p>A stress oscillator across the majors reads calm / spanning / crisis and scales position size &mdash; and blocks fresh entries when the market turns disorderly.</p></div>
-        <div class="toolcard sys"><span class="tc-badge">CALIBRATED</span><h4><span class="tc-ic">◎</span> Self-calibrating</h4><p>Predicted vs. measured win rate per session, the same calibration discipline as the crypto engine &mdash; raw score trusted only as far as it earns.</p></div>
-        <div class="toolcard vlt"><span class="tc-badge">FLOW</span><h4><span class="tc-ic">◧</span> Capital &amp; commodity flow</h4><p>A live world map of where capital and commodities are rotating, feeding the FX neural-net view.</p></div>
-      </div>
+      <!-- UNDER THE HOOD -->
+      <div class="eyebrow" style="margin-top:34px;">&mdash; Under the hood</div>
+      <h1 class="h" style="margin-top:6px;">How it is built</h1>
+      <p class="hero-lead" style="max-width:none;">Underneath, it is a layered stack on one shared engine: adaptive weights feed a calibrated model feed a small neural net per coin, a regime detector labels the market, and a market-as-a-system stress model watches for correlation breaks. Learnings, models and calibration persist locally and sync to a private store, so the brain keeps its memory between runs.</p>
     </section>
 
     <!-- NEURAL NET -->
@@ -2508,24 +2475,24 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="trn">
     <div class="eyebrow" style="color:#ff8a3c;">Osiris ShockWave</div><h2 class="sec" style="margin:2px 0 6px;text-shadow:0 0 18px rgba(255,138,60,0.35);">FSO · Global Stress Dynamics</h2><div class="sec-line" style="background:linear-gradient(90deg,#ff8a3c 0%,transparent 60%);opacity:0.6;"></div>
 
-    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">ShockWave world map</h3><span class="sub">— zoombaar tot land/grensgebied · gratis realtime lagen (USGS · NASA EONET · Open-Meteo · tektonische platen) · geen API-key</span></div>
+    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">ShockWave world map</h3><span class="sub">— zoomable to country/border level · free realtime layers (USGS · NASA EONET · GDACS · Open-Meteo · tectonic plates) · no API key</span></div>
     <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div id="sw-controls" class="mono"></div>
       <div id="sw-map" style="width:100%;min-height:360px;">
-        <div class="mono" style="color:var(--dimmer);font-size:0.6rem;padding:24px;">ShockWave-kaart initialiseert bij openen van deze tab…</div>
+        <div class="mono" style="color:var(--dimmer);font-size:0.6rem;padding:24px;">ShockWave map initialises when you open this tab…</div>
       </div>
       <div id="sw-legend" style="margin-top:8px;"></div>
-      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Land-detail <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— klik een land op de kaart</span></div>
-      <div id="sw-detail" style="margin-top:6px;background:rgba(255,255,255,0.015);border:1px solid var(--line);border-radius:8px;padding:10px 12px;"><div class="mono" style="font-size:0.56rem;color:var(--dimmer);">klik een land op de kaart voor detail: zone-stress, actieve rampen, nabije bevingen, chokepoints, kill-switch-kans en contagion-doelen.</div></div>
-      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Landen per zone <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— nieuwe indeling: Midden-Oosten &amp; Afrika gesplitst</span></div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Country detail <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— click a country on the map</span></div>
+      <div id="sw-detail" style="margin-top:6px;background:rgba(255,255,255,0.015);border:1px solid var(--line);border-radius:8px;padding:10px 12px;"><div class="mono" style="font-size:0.56rem;color:var(--dimmer);">Click a country on the map for detail: zone stress, active disasters, nearby quakes, chokepoints, kill-switch chance and contagion targets.</div></div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Countries per zone <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— new split: Middle East &amp; Africa separated</span></div>
       <div id="sw-countrylist" style="margin-top:6px;column-count:2;column-gap:18px;"></div>
     </div>
 
-    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Contagion-motor</h3><span class="sub">— schok in een zone×categorie → voorspelde voortplanting (lag · richting · kans), gegrond prior + adaptief op uitkomsten</span></div>
+    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Contagion engine</h3><span class="sub">— shock in a zone×category → predicted propagation (lag · direction · probability), grounded prior + adaptive on outcomes</span></div>
     <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
-      <div id="sw-feed" class="mono"><div class="mono" style="font-size:0.56rem;color:var(--dimmer);">contagion-motor initialiseert…</div></div>
+      <div id="sw-feed" class="mono"><div class="mono" style="font-size:0.56rem;color:var(--dimmer);">contagion engine initialising…</div></div>
     </div>
 
     <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Global stress</h3><span class="sub">— UOTAM/TAM across 7 world zones · live micro/meso/macro/full + historical week→10y horizons</span></div>
@@ -2683,7 +2650,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260905-build65-contagion"></script>
+<script src="app.js?v=20260905-build66-english"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
