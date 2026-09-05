@@ -42,10 +42,15 @@ export default {
     const { pathname, searchParams } = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
 
+    // secret-naam-tolerant: pak de key ongeacht hoe je 'm noemde
+    const FRED   = env.FRED_API_KEY || env.FRED_KEY || env.FRED || env.fred_api_key || env.fred;
+    const ACLEDK = env.ACLED_KEY || env.ACLED_API_KEY || env.ACLED || env.acled_key;
+    const ACLEDE = env.ACLED_EMAIL || env.ACLED_MAIL || env.acled_email;
+
     // status/health
     if (pathname === '/' || pathname === '/status') {
       return json({ ok: true, service: 'osiris-gsd-proxy', ts: Date.now(),
-        keys: { fred: !!env.FRED_API_KEY, acled: !!env.ACLED_KEY },
+        keys: { fred: !!FRED, acled: !!(ACLEDK && ACLEDE) },
         allow: [...ALLOW] });
     }
     if (pathname !== '/pass') return json({ error: 'use /pass?url=<https url>' }, 404);
