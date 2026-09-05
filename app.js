@@ -21419,6 +21419,12 @@ const GSD_CATS = [
   { key:'tone',     name:'Media tone / sentiment',col:'#c792ea', direct:false, src:'GDELT*' },
   { key:'market',   name:'Market / FX',           col:'#14f195', direct:true,  src:'live FX-FSO' }
 ];
+// LEADING SIGNAL for ShockWave: which categories drive the kill-switch zone/topic + ground-zero.
+// Economics leads by default; the rest are opt-in per category (toggled from the map controls).
+const GSD_LEAD = { econ:true, cb:true, trade:true, market:true, geo:false, conflict:false, disaster:false, weather:false, tone:false };
+try{ const s=JSON.parse(localStorage.getItem('gsdLead')||'null'); if(s&&typeof s==='object') Object.assign(GSD_LEAD,s); }catch(e){}
+function gsdLeadToggle(c){ GSD_LEAD[c]=!GSD_LEAD[c]; try{ localStorage.setItem('gsdLead',JSON.stringify(GSD_LEAD)); }catch(e){} try{ TrinityGSD.projectKillSwitch(); }catch(e){} }
+try{ window.GSD_LEAD=GSD_LEAD; window.gsdLeadToggle=gsdLeadToggle; }catch(e){}
 const GSD_TH_DEFAULT = 0.20;   // UOTAM start value; calibrated to the engine's own σ² distribution
 const GSD_VAR_REF = 0.06;      // fixed σ² normalisation reference (zone-variance scale) — keeps σ² dynamic, not pinned
 // GDELT per-zone query terms (geopolitics/tone). Robust keyword queries beat FIPS codes.
@@ -21706,10 +21712,16 @@ const TrinityGSD = {
       const kb=(typeof TrinityGSDBackfill!=='undefined'&&TrinityGSDBackfill.status)||{};
       const yrs=kb.years||36.7, kills=kb.killCount||0; const killsPerYear = kills>0? kills/Math.max(1,yrs) : 0.33;
       const catN={econ:'economy',cb:'central banks',geo:'geopolitics',conflict:'conflict',disaster:'natural disasters',weather:'extreme weather',trade:'trade/commodities',tone:'media tone',market:'markets/FX'};
-      const cats=Object.entries(this.catStress||{}).filter(([k,v])=>v!=null).sort((a,b)=>b[1]-a[1]);
+      // LEADING SIGNAL: which categories drive the kill-switch zone/topic. Economics leads by default;
+      // the rest are opt-in per category (GSD_LEAD, toggled from the map controls).
+      const lead=(typeof GSD_LEAD!=='undefined')?GSD_LEAD:{econ:1,cb:1,trade:1,market:1};
+      const leadKeys=GSD_CATS.map(c=>c.key).filter(k=>lead[k]); if(!leadKeys.length) leadKeys.push('econ');
+      const cats=leadKeys.map(k=>[k,this.catStress&&this.catStress[k]!=null?this.catStress[k]:0]).sort((a,b)=>b[1]-a[1]);
       const topCats=cats.slice(0,2).map(([k])=>catN[k]||k);
-      const zones=Object.entries(this.zoneStress||{}).filter(([k,v])=>k!=='global'&&v!=null).sort((a,b)=>b[1]-a[1]);
-      const zn=GSD_ZONES.find(z=>z.key===(zones[0]&&zones[0][0])); const topZone=zn?zn.name:'Global';
+      // top zone = highest MEAN over the leading categories (not the all-category zoneStress)
+      const zoneLead=[]; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return; let s=0,n=0; leadKeys.forEach(k=>{ const cell=this.cells[z.key]&&this.cells[z.key][k]; if(cell&&cell.v!=null){s+=cell.v;n++;} }); if(n)zoneLead.push([z.key,s/n]); });
+      zoneLead.sort((a,b)=>b[1]-a[1]);
+      const zn=GSD_ZONES.find(z=>z.key===(zoneLead[0]&&zoneLead[0][0])); const topZone=zn?zn.name:'Global';
       const out=[];
       HZ.forEach(([key,days,hk])=>{
         const horizonMs=days*864e5; const nodes=this.tamNodes(now, now+horizonMs*1.05, hk); const nn=nodes.find(t=>t>now);
@@ -23123,9 +23135,9 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // ---- GLOW-lagen (additief) ----
     ctx.save(); ctx.globalCompositeOperation='lighter';
     if(LAYERS.pressure) GSD_ZONES.filter(z=>z.key!=='global').forEach(z=>{ const c=zCentroid(z.key); if(!c)return; const p=pB(c[0],c[1]); const s=zStress(z.key); if(s<0.12)return; blob(p[0],p[1],(60+s*90),zCol(z.key),0.10+s*0.28); });
-    if(LAYERS.density){ if(M.cities&&M.cities.length){ // full Natural-Earth city set (LA, Chongqing, Kolkata, … all appear), pop-scaled
-        for(const c of M.cities){ const pop=c.pop||0; if(pop<300000)continue; const p=pB(c.lon,c.lat); const s=Math.sqrt(pop/1e6); blob(p[0],p[1],Math.min(58,7+s*9),'#c792ea',0.10+Math.min(0.28,s*0.05)); blob(p[0],p[1],Math.max(3,s*2.6)*iz+2,'#e0b3ff',0.5); } }
-      else METROS.forEach(m=>{ const p=pB(m[1],m[0]); blob(p[0],p[1],Math.sqrt(m[2])*7,'#c792ea',0.2); blob(p[0],p[1],Math.max(4,m[2]*0.4)*iz+3,'#e0b3ff',0.5); }); }
+    if(LAYERS.density){ if(M.cities&&M.cities.length){ // full Natural-Earth city set (LA, Chongqing, Kolkata, …), pop-scaled — kept subtle so borders/cities stay visible
+        for(const c of M.cities){ const pop=c.pop||0; if(pop<700000)continue; const p=pB(c.lon,c.lat); const s=Math.sqrt(pop/1e6); blob(p[0],p[1],Math.min(26,4+s*4),'#c792ea',0.025+Math.min(0.06,s*0.012)); blob(p[0],p[1],Math.max(1.6,s*1.4)*iz+1,'#e0b3ff',0.18); } }
+      else METROS.forEach(m=>{ const p=pB(m[1],m[0]); blob(p[0],p[1],Math.sqrt(m[2])*5,'#c792ea',0.06); blob(p[0],p[1],Math.max(2,m[2]*0.3)*iz+2,'#e0b3ff',0.2); }); }
     if(LAYERS.temp&&M.wx.length) M.wx.forEach(o=>{ if(o.temp==null)return; const p=pB(o.lon,o.lat); const t=o.temp; const col=t>=30?'#ff5f3c':t>=20?'#ffb627':t>=8?'#7fd8ff':'#4f8bff'; const a=Math.min(0.28,Math.abs(t-16)/70+0.05); blob(p[0],p[1],60,col,a); });
     if(LAYERS.rain&&M.wx.length) M.wx.forEach(o=>{ if(!o.tot)return; const p=pB(o.lon,o.lat); const col=o.flood?'#4fc3f7':'#3a6f90'; blob(p[0],p[1],22+Math.min(42,o.tot*0.35),col,o.flood?0.14:0.045); });
     if(LAYERS.commodity) COMMOD.forEach(c=>{ const p=pB(c[1],c[0]); blob(p[0],p[1],60,c[3],0.16); });
@@ -23160,13 +23172,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     ctx.restore();
     _updateHud(); _drawLeader();
   }
+  // a zone's main financial hub [lon,lat] (so contagion arcs start from a real city, not a geometric centroid); falls back to the zone centroid
+  function _zoneHub(zk){ const h=FIN_HUBS.find(h=>h[3]===zk); if(h)return [h[1],h[0]]; const c=zCentroid(zk); return c?[c[0],c[1]]:null; }
   // ---- FLOW/PARTICLE-systeem (stedengericht capital + commodity + contagion) ----
   function buildFlows(){ const fl=[];
     if(LAYERS.capital){ const fz=z=>{ let s=0,n=0; try{ const zz=GSD_ZONES.find(x=>x.key===z); (zz&&zz.ccy||[]).forEach(c=>{ if(typeof flow!=='undefined'&&flow[c]!=null){s+=Math.abs(flow[c]);n++;} }); }catch(e){} return n?s/n:0.08; };
       const hubs=FIN_HUBS.map(h=>({p:pB(h[1],h[0]),f:fz(h[3])})).filter(h=>h.p);
       for(let i=0;i<hubs.length;i++)for(let j=i+1;j<hubs.length;j++){ const w=(hubs[i].f+hubs[j].f)/2; if(w<0.06)continue; fl.push({a:hubs[i].p,b:hubs[j].p,col:'#14f195',w,type:'cap'}); } }
     if(LAYERS.commodityflow){ COMMOD.forEach((c,i)=>{ const a=pB(c[1],c[0]); const cons=COMMOD_CONS[i%COMMOD_CONS.length]; const b=pB(cons[1],cons[0]); if(a&&b) fl.push({a,b,col:c[3],w:0.5,type:'com'}); }); }
-    if(LAYERS.contagion){ try{ TrinityShockWave.active().forEach(pr=>{ const sc=zCentroid(pr.srcZone); if(!sc)return; const a=pB(sc[0],sc[1]); pr.targets.slice(0,4).forEach(t=>{ const tc=zCentroid(t.zone); if(!tc)return; const b=pB(tc[0],tc[1]); if(a&&b) fl.push({a,b,col:'#ff8a3c',w:0.4+t.prob*0.7,type:'con'}); }); }); }catch(e){} }
+    if(LAYERS.contagion){ try{ TrinityShockWave.active().forEach(pr=>{ const sc=_zoneHub(pr.srcZone); if(!sc)return; const a=pB(sc[0],sc[1]); pr.targets.slice(0,4).forEach(t=>{ const tc=_zoneHub(t.zone); if(!tc)return; const b=pB(tc[0],tc[1]); if(a&&b) fl.push({a,b,col:'#ff8a3c',w:0.4+t.prob*0.7,type:'con'}); }); }); }catch(e){} }
     if(LAYERS.migration){ MIGRATION.forEach(m=>{ const a=pB(m.f[1],m.f[0]), b=pB(m.t[1],m.t[0]); if(a&&b) fl.push({a,b,col:'#ec4899',w:0.35+m.w*0.8,type:'mig',dest:b,est:m.est,name:m.name}); }); }
     M.flows=fl.filter(f=>f.a&&f.b); }
   function stepParticles(){ if(!M.flows.length){ M.particles.length=0; return; } const N=Math.min(180,M.flows.length*7);
@@ -23301,11 +23315,17 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function _snapLand(lon,lat){ let bx=lon,by=lat,bd=1e9; for(const m of METROS){ const d=Math.hypot(m[0]-lat,(m[1]-lon)*Math.cos(lat*Math.PI/180)); if(d<bd){bd=d;bx=m[1];by=m[0];} }
     for(const c of (M.cities||[]).slice(0,400)){ const d=Math.hypot(c.lat-lat,(c.lon-lon)*Math.cos(lat*Math.PI/180)); if(d<bd){bd=d;bx=c.lon;by=c.lat;} }
     return (bd*111<2200)?[bx,by]:[lon,lat]; }
-  function _groundZero(iz){ GSD_ZONES.filter(z=>z.key!=='global').forEach(z=>{ const bb=z.bbox; if(!bb)return; let best=null,bv=0;
-    M.quakes.forEach(q=>{ if(q.lon>=bb[0]&&q.lon<=bb[2]&&q.lat>=bb[1]&&q.lat<=bb[3]){ const v=Math.min(1,q.mag/8); if(v>bv){bv=v;best={lon:q.lon,lat:q.lat,l:'M'+q.mag};} } });
-    M.events.forEach(e=>{ if(e.lon>=bb[0]&&e.lon<=bb[2]&&e.lat>=bb[1]&&e.lat<=bb[3]){ if(0.6>bv){bv=0.6;best={lon:e.lon,lat:e.lat,l:e.cat};} } });
-    const zs=zStress(z.key); if(!best){ if(zs<0.5)return; const c=zCentroid(z.key); if(!c)return; best={lon:c[0],lat:c[1],l:'stress'}; bv=zs; }
-    const sn=_snapLand(best.lon,best.lat); const p=pB(sn[0],sn[1]); if(!p)return; blob(p[0],p[1],24+bv*46,'#ffd76a',0.13+bv*0.18); }); }
+  // ground-zero is now driven by the LEADING SIGNAL (economics by default). Intensity = the zone's mean
+  // stress over the selected lead categories; it sits on the zone's economic hub — unless a nature lead-cat
+  // (disaster/weather) is selected, then it snaps to the strongest real event in the zone.
+  function _leadZoneVal(zk){ const L=(window.GSD_LEAD)||{econ:1,cb:1,trade:1,market:1}; let s=0,n=0;
+    try{ for(const c in L){ if(!L[c])continue; const cell=TrinityGSD.cells[zk]&&TrinityGSD.cells[zk][c]; if(cell&&cell.v!=null){s+=cell.v;n++;} } }catch(e){} return n? s/n : 0; }
+  function _groundZero(iz){ const L=(window.GSD_LEAD)||{}; const nature=!!(L.disaster||L.weather);
+    GSD_ZONES.filter(z=>z.key!=='global'&&!z.synthetic).forEach(z=>{ const bb=z.bbox; const bv=_leadZoneVal(z.key); if(bv<0.28)return;
+      let pos=null;
+      if(nature&&bb){ let best=null,bw=0; M.quakes.forEach(q=>{ if(q.lon>=bb[0]&&q.lon<=bb[2]&&q.lat>=bb[1]&&q.lat<=bb[3]){ const v=Math.min(1,q.mag/8); if(v>bw){bw=v;best={lon:q.lon,lat:q.lat};} } }); M.events.forEach(e=>{ if(e.lon>=bb[0]&&e.lon<=bb[2]&&e.lat>=bb[1]&&e.lat<=bb[3]&&0.6>bw){bw=0.6;best={lon:e.lon,lat:e.lat};} }); if(best)pos=[best.lon,best.lat]; }
+      if(!pos){ const hub=FIN_HUBS.find(h=>h[3]===z.key); if(hub)pos=[hub[1],hub[0]]; else { const c=zCentroid(z.key); if(c)pos=[c[0],c[1]]; } }
+      if(!pos)return; const sn=_snapLand(pos[0],pos[1]); const p=pB(sn[0],sn[1]); if(!p)return; blob(p[0],p[1],24+bv*46,'#ffd76a',0.13+bv*0.18); }); }
 
   // ---- ΔV kill-switch corner-HUD (orange ShockWave style) — economy-first stress ----
   function _stressRow(r,i,km){ const sc=r.score>=0.5?'#ff5f7e':r.score>=0.3?'#ffb627':'#cfe0ec';
@@ -23406,9 +23426,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // ---- controls / legend / country list ----
   function _buildControls(){ const el=document.getElementById('sw-controls'); if(!el)return;
     el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;"><span class="mono" style="font-size:0.5rem;color:var(--dimmer);">scroll/pinch = zoom · drag = pan · zoom in for city names · click a country for detail</span><button onclick="window.__swExportData&&window.__swExportData()" title="Download all ShockWave data (JSON): global stress, kill-switch, contagion, per-category stress ranking & live feeds" style="flex:0 0 auto;cursor:pointer;background:rgba(255,138,60,0.12);border:1px solid rgba(255,138,60,0.5);color:#ff8a3c;border-radius:5px;font:0.54rem JetBrains Mono,monospace;padding:3px 9px;">⭳ Download ShockWave data</button></div>`
+      +_leadControlsHtml()
       +LAYER_GROUPS.map(([grp,items])=>`<div style="font:0.5rem JetBrains Mono,monospace;color:var(--dimmer);letter-spacing:0.1em;text-transform:uppercase;margin:6px 0 3px;">${grp}</div><div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`
         +items.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${LAYERS[k]?'checked':''} onchange="__swToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`).join('');
   }
+  // LEADING SIGNAL — which categories drive the kill-switch zone/topic + ground-zero. Economics is the default lead.
+  const LEAD_CATS=[['econ','Economy','#4fc3f7'],['cb','Central banks','#7fd8ff'],['trade','Trade/commodities','#ffd54a'],['market','Markets/FX','#14f195'],['geo','Geopolitics','#ff8a3c'],['conflict','Conflict','#ff4f6d'],['disaster','Natural disasters','#ffb627'],['weather','Extreme weather','#8fb8ff'],['tone','Media tone','#c792ea']];
+  function _leadControlsHtml(){ const L=(typeof window!=='undefined'&&window.GSD_LEAD)||{};
+    return `<div style="font:0.5rem JetBrains Mono,monospace;color:#ffd76a;letter-spacing:0.1em;text-transform:uppercase;margin:8px 0 2px;">★ Leading signal (drives kill-switch &amp; ground-zero) — economics by default</div><div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`
+      +LEAD_CATS.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${L[k]?'checked':''} onchange="window.gsdLeadToggle&&window.gsdLeadToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`; }
   function _renderLegend(){ const el=document.getElementById('sw-legend'); if(!el)return;
     el.innerHTML=`<div class="mono" style="font-size:0.54rem;color:var(--dim);line-height:1.9;"><b style="color:#ff5f7e;">Heat zones = glow</b> (opacity overlap) over the regions — brighter = more pressure/heat/rain. <span style="color:#ff4f6d;">● earthquake</span> · <span style="color:#ff7a1a;">● wildfire</span> · <span style="color:#ff4f6d;">● volcano</span> · <span style="color:#4fc3f7;">● flood</span> · <span style="color:#7fd8ff;">— plate boundary</span> · <span style="color:#ff8a3c;">◌ clash/pressure zone</span> · <span style="color:#14f195;">— capital flow</span> · <span style="color:#ff8a3c;">★ ΔV kill-switch start-zone</span> · <span style="color:#ffd76a;">◌ ground-zero</span> · <span style="color:#ff2d55;">● live conflict</span> · <span style="color:#ec4899;">+ migration destination (est. inflow)</span>.</div>`; }
   function _renderCountryList(){ const el=document.getElementById('sw-countrylist'); if(!el)return; let zones; try{ zones=GSD_ZONES; }catch(e){ return; }
