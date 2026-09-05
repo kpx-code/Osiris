@@ -956,7 +956,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
 
 <div class="app">
   <div class="top">
-    <div class="brand">OSIRIS<small>AUTONOMOUS CRYPTO TRADING AI · TESTNET</small></div>
+    <div class="brand">OSIRIS<small>AUTONOMOUS TRADING &amp; WORLD-STRESS AI · TESTNET</small></div>
     <div class="spacer"></div>
     <div class="pill"><span class="dot"></span> bot actief</div>
     <div class="pill"><span class="dot cyan"></span> worker online</div>
@@ -2508,7 +2508,19 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="trn">
     <div class="eyebrow" style="color:#ff8a3c;">Osiris ShockWave</div><h2 class="sec" style="margin:2px 0 6px;text-shadow:0 0 18px rgba(255,138,60,0.35);">FSO · Global Stress Dynamics</h2><div class="sec-line" style="background:linear-gradient(90deg,#ff8a3c 0%,transparent 60%);opacity:0.6;"></div>
 
-    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Global stress</h3><span class="sub">— UOTAM/TAM across 6 world zones · live micro/meso/macro/full + historical week→10y horizons</span></div>
+    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">ShockWave world map</h3><span class="sub">— zoombaar tot land/grensgebied · gratis realtime lagen (USGS · NASA EONET · Open-Meteo · tektonische platen) · geen API-key</span></div>
+    <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div id="sw-controls" class="mono"></div>
+      <div id="sw-map" style="width:100%;min-height:360px;">
+        <div class="mono" style="color:var(--dimmer);font-size:0.6rem;padding:24px;">ShockWave-kaart initialiseert bij openen van deze tab…</div>
+      </div>
+      <div id="sw-legend" style="margin-top:8px;"></div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Landen per zone <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— nieuwe indeling: Midden-Oosten &amp; Afrika gesplitst</span></div>
+      <div id="sw-countrylist" style="margin-top:6px;column-count:2;column-gap:18px;"></div>
+    </div>
+
+    <div class="secdiv" style="border-left:3px solid #ff8a3c;padding-left:10px;"><h3 style="color:#ffb27e;">Global stress</h3><span class="sub">— UOTAM/TAM across 7 world zones · live micro/meso/macro/full + historical week→10y horizons</span></div>
     <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div class="mono" id="gsd-status" style="font-size:0.66rem;color:var(--dim);line-height:1.8;">◉ GSD — initialising…</div>
@@ -2663,7 +2675,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260904-build62-scalp"></script>
+<script src="app.js?v=20260905-build63-shockwave"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
