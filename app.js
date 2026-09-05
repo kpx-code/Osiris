@@ -20803,7 +20803,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
@@ -21401,7 +21401,8 @@ const GSD_ZONES = [
   { key:'na',     name:'North America',            col:'#4fc3f7', ccy:['USD','CAD','MXN'],                  wb:['USA','CAN','MEX'],                     cities:[[40.7,-74.0],[45.4,-75.7]], bbox:[-170,10,-50,75] },
   { key:'eu',     name:'Europe',                   col:'#00d9ff', ccy:['EUR','GBP','CHF','SEK','NOK'],      wb:['DEU','GBR','CHE','SWE','NOR','FRA','ITA'], cities:[[50.1,8.7],[51.5,-0.12]], bbox:[-25,35,45,72] },
   { key:'ap',     name:'Asia-Pacific',             col:'#14f195', ccy:['JPY','CNH','AUD','NZD','SGD','INR','THB'], wb:['JPN','CHN','AUS','NZL','SGP','IND','THA'], cities:[[35.7,139.7],[1.35,103.8]], bbox:[60,-50,180,55] },
-  { key:'me',     name:'Middle East & Africa',     col:'#ffb627', ccy:['TRY','ZAR'],                       wb:['TUR','ZAF','SAU','ARE','EGY','NGA'],   cities:[[25.2,55.3],[-26.2,28.0]], bbox:[-20,-40,65,45] },
+  { key:'me',     name:'Middle East',              col:'#ffb627', ccy:['TRY'],                             wb:['TUR','SAU','ARE','IRN','ISR','QAT','IRQ','KWT'], cities:[[25.2,55.3],[41.0,28.9]], bbox:[25,12,63,42] },
+  { key:'af',     name:'Africa',                   col:'#ff8a3c', ccy:['ZAR'],                             wb:['ZAF','NGA','EGY','KEN','ETH','GHA','MAR','DZA'], cities:[[-26.2,28.0],[6.5,3.4]], bbox:[-20,-38,52,38] },
   { key:'latam',  name:'Latin America',            col:'#ff8fa3', ccy:['BRL','MXN'],                       wb:['BRA','MEX','ARG','CHL','COL'],         cities:[[-23.5,-46.6],[19.4,-99.1]], bbox:[-92,-56,-32,18] },
   { key:'global', name:'Global / systemic',        col:'#c792ea', ccy:[],                                  wb:[],                                       cities:[], bbox:[-180,-60,180,80], synthetic:true }
 ];
@@ -21424,11 +21425,12 @@ const GSD_GDELT_Q = {
   na:    '("United States" OR Canada OR Mexico) (protest OR shooting OR strike OR crisis OR shutdown)',
   eu:    '(Europe OR Ukraine OR France OR Germany OR "United Kingdom") (war OR protest OR sanction OR strike OR crisis)',
   ap:    '(China OR Taiwan OR Japan OR "North Korea" OR India OR "South China Sea") (military OR tension OR conflict OR crisis)',
-  me:    '(Israel OR Iran OR Gaza OR "Saudi Arabia" OR Yemen OR Syria OR "Red Sea") (war OR strike OR attack OR conflict)',
+  me:    '(Israel OR Iran OR Gaza OR "Saudi Arabia" OR Yemen OR Syria OR "Red Sea" OR Turkey OR Iraq) (war OR strike OR attack OR conflict)',
+  af:    '(Nigeria OR "South Africa" OR Ethiopia OR Sudan OR Egypt OR Sahel OR Congo OR Somalia) (conflict OR unrest OR coup OR attack OR crisis OR famine)',
   latam: '(Brazil OR Argentina OR Venezuela OR Mexico OR Colombia) (protest OR unrest OR crisis OR coup)'
 };
 // ACLED region codes per zone (ACLED API region= numeric ids)
-const GSD_ACLED_REG = { na:[16,15,13], eu:[12,11], ap:[7,8,17,18], me:[9,5,1,2,3,4], latam:[14,15] };
+const GSD_ACLED_REG = { na:[16,15,13], eu:[12,11], ap:[7,8,17,18], me:[9], af:[1,2,3,4,5], latam:[14,15] };
 function _gsdRe(r){ return ({RUST:'CALM',SPANNING:'TENSION',CRISIS:'CRISIS'}[r])||r; }   // English regime display
 
 // ---- de-saturatie-helpers ------------------------------------------------------------
@@ -22080,7 +22082,7 @@ try{ Object.assign(window,{TrinityGSDBackfill}); window.gsdBackfill=()=>TrinityG
 // GSD · RENDER — toggles (zones/categorieën/schalen/TAM), grote chart, ranking, predictor
 // ==================================================================================
 const GSD_VIS = {
-  zones:{ na:true, eu:true, ap:true, me:true, latam:true, global:true },
+  zones:{ na:true, eu:true, ap:true, me:true, af:true, latam:true, global:true },
   cats:{ econ:true, cb:true, geo:true, conflict:true, disaster:true, weather:true, trade:true, tone:true, market:true },
   scales:{ micro:false, meso:true, macro:true, full:false, week:false, month:false, quarter:false, year:false, '2y':false, '5y':false, '10y':false },
   series:{ GLOBAL:true, VAR:true, VFM:true, ZONES:true },
@@ -22655,3 +22657,303 @@ function renderTrinityTools(){
   el.innerHTML = h + sent + `<div style="margin-top:8px;font-size:0.5rem;color:${DD};line-height:1.6;">Alle sentiment-dataflow is gratis (GDELT-tone via FSO-GSD; optioneel worker /social &amp; /news). De LLM vergelijkt de <b>betekenis</b> met de FSO/prijs-data en de weging is <b>autonoom adaptief</b>: alleen bewezen sentiment-edges tellen mee.<br><span style="color:#ff8a3c;">Margin-economie:</span> kleine winstmarges, veel (winnende) trades — winnaars langer vasthouden zolang de data steunt, verliezers snel knippen als de data tegendraait. Capital.com staat scalpen toe (they teach it · one-click · lage latency); dit is normaal scalpen op ~10s-ticks, geen latency-arbitrage. Houd het op demo/testnet.</div>`;
 }
 try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
+
+
+/* ---- Osiris ShockWave world map (d3 + topojson) ---- */
+/* ==================================================================================
+   OSIRIS · SHOCKWAVE — interactieve wereldkaart. d3 + topojson (al geladen). Zoom/pan tot
+   land/grensgebied. Lagen: pressure-choropleth, aardbevingen (USGS), rampen/vulkanen/bosbranden/
+   overstromingen (NASA EONET), tektonische platen + clash-zones, regen/overstroming-ETA (Open-Meteo),
+   capital-flow arcs, ΔV kill-switch startzones, ground-zero dots, zeestromen + human density (statisch).
+   ALLES gratis, geen API-key, browser-direct (CORS-ok) en zo realtime mogelijk.
+   ================================================================================== */
+(function(){
+  'use strict';
+  const CDN_ATLAS = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
+  const PLATES_URL = 'https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json';
+  const USGS_URL  = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson';
+  const EONET_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=20';
+
+  // ---- lagen (togglebaar + persistent) ----
+  const LAYERS = { pressure:true, quakes:true, disasters:true, plates:false, rain:false,
+                   capital:true, killzones:true, groundzero:true, currents:false, density:false };
+  try{ const s=JSON.parse(localStorage.getItem('swMapLayers')||'null'); if(s) Object.assign(LAYERS,s); }catch(e){}
+  function saveLayers(){ try{ localStorage.setItem('swMapLayers',JSON.stringify(LAYERS)); }catch(e){} }
+
+  const LAYER_META = [
+    ['pressure','Zones under pressure','#ff5f7e'],
+    ['killzones','ΔV kill-switch startzones','#ff8a3c'],
+    ['groundzero','Ground-zero (heat spots)','#ffd76a'],
+    ['quakes','Aardbevingen · USGS','#ff4f6d'],
+    ['disasters','Rampen/vulkaan/brand · EONET','#ffb627'],
+    ['plates','Tektonische platen + clash','#7fd8ff'],
+    ['rain','Regen/overstroming-ETA · Open-Meteo','#4fc3f7'],
+    ['capital','Capital-flow (dataflow)','#14f195'],
+    ['currents','Zee/warmte-stromen','#38bdf8'],
+    ['density','Human density','#c792ea']
+  ];
+
+  // ---- statische data (gratis, ingebed) ----
+  // grote metro's (human density proxy): [lat,lon,pop(mln),naam]
+  const METROS = [[35.7,139.7,37,'Tokyo'],[28.6,77.2,32,'Delhi'],[31.2,121.5,29,'Shanghai'],[23.6,90.4,23,'Dhaka'],
+    [-23.5,-46.6,22,'São Paulo'],[19.4,-99.1,22,'Mexico City'],[30.0,31.2,21,'Cairo'],[19.1,72.9,21,'Mumbai'],
+    [39.9,116.4,21,'Beijing'],[22.6,88.4,19,'Kolkata'],[40.7,-74.0,19,'New York'],[24.9,67.0,17,'Karachi'],
+    [-34.6,-58.4,15,'Buenos Aires'],[6.5,3.4,15,'Lagos'],[33.9,35.5,2.4,'Beirut'],[41.0,28.9,16,'Istanbul'],
+    [55.8,37.6,17,'Moscow'],[48.9,2.35,11,'Paris'],[51.5,-0.12,9.5,'London'],[-6.2,106.8,11,'Jakarta'],
+    [13.8,100.5,11,'Bangkok'],[37.6,127.0,10,'Seoul'],[-26.2,28.0,9.6,'Johannesburg'],[25.2,55.3,3.4,'Dubai'],
+    [1.35,103.8,6,'Singapore'],[-33.9,151.2,5.3,'Sydney'],[52.5,13.4,3.6,'Berlin'],[9.0,38.7,5.2,'Addis Abeba'],
+    [-1.29,36.8,5,'Nairobi'],[14.6,120.98,14,'Manila']];
+  // vereenvoudigde grote zeestromen (warm=rood-ish, koud=blauw): {warm, pts:[[lat,lon],...]}
+  const CURRENTS = [
+    {name:'Gulf Stream',warm:true, pts:[[25,-80],[32,-76],[40,-68],[45,-45],[50,-20],[58,-8]]},
+    {name:'North Atlantic Drift',warm:true, pts:[[50,-20],[58,-8],[62,2],[68,10]]},
+    {name:'Kuroshio',warm:true, pts:[[20,122],[28,128],[34,140],[40,150],[45,160]]},
+    {name:'Agulhas',warm:true, pts:[[-25,35],[-33,28],[-37,22],[-40,18]]},
+    {name:'Humboldt',warm:false, pts:[[-40,-74],[-30,-72],[-18,-72],[-6,-82]]},
+    {name:'California',warm:false, pts:[[45,-125],[38,-124],[30,-118],[24,-112]]},
+    {name:'Benguela',warm:false, pts:[[-34,18],[-25,14],[-15,11],[-8,12]]},
+    {name:'Antarctic Circumpolar',warm:false, pts:[[-55,-60],[-56,0],[-55,70],[-56,150],[-55,-140],[-55,-60]]}
+  ];
+  // regen-steden (Open-Meteo multi-point): [lat,lon,naam]
+  const RAIN_PTS = [[23.6,90.4,'Dhaka'],[27.7,85.3,'Kathmandu'],[19.1,72.9,'Mumbai'],[13.8,100.5,'Bangkok'],
+    [14.6,121.0,'Manila'],[-6.2,106.8,'Jakarta'],[6.5,3.4,'Lagos'],[30.0,31.2,'Cairo'],[-23.5,-46.6,'São Paulo'],
+    [4.7,-74.1,'Bogotá'],[9.0,38.7,'Addis'],[-1.29,36.8,'Nairobi'],[25.6,85.1,'Patna'],[21.0,105.8,'Hanoi'],
+    [16.8,96.2,'Yangon'],[-19.0,-65.3,'Sucre'],[3.1,101.7,'Kuala Lumpur'],[10.8,106.7,'Ho Chi Minh']];
+
+  // ---- zone-classificatie op centroid (na de me/af-split) ----
+  function zoneOfCentroid(lon,lat){
+    if(lon>=34&&lon<=63&&lat>=12&&lat<=42) return 'me';           // Midden-Oosten eerst (wint van EU/AF)
+    if(lon>=-25&&lon<=45&&lat>=34&&lat<=72) return 'eu';
+    if(lon>=-20&&lon<=52&&lat>=-38&&lat<=37) return 'af';         // Afrika (los van ME)
+    if(lon>=-92&&lon<=-33&&lat>=-56&&lat<=14) return 'latam';
+    if(lon>=-170&&lon<=-50&&lat>=13&&lat<=84) return 'na';
+    if(lon>=60&&lon<=180&&lat>=-50&&lat<=78) return 'ap';
+    if(lon>=40&&lon<=60&&lat>=42&&lat<=78) return 'ap';           // Rusland/CentraalAzië → AP
+    return 'global';
+  }
+  function zoneCol(key){ try{ const z=GSD_ZONES.find(z=>z.key===key); return z?z.col:'#5c7488'; }catch(e){ return '#5c7488'; } }
+  function zoneName(key){ try{ const z=GSD_ZONES.find(z=>z.key===key); return z?z.name:key; }catch(e){ return key; } }
+  function zoneStress(key){ try{ return (TrinityGSD.zoneStress&&TrinityGSD.zoneStress[key])||0; }catch(e){ return 0; } }
+  function zoneCentroid(key){ try{ const z=GSD_ZONES.find(z=>z.key===key); if(z&&z.cities&&z.cities[0]) return [z.cities[0][1],z.cities[0][0]]; }catch(e){} return null; }
+
+  const M = { built:false, loading:false, atlas:null, plates:null, quakes:[], events:[], rain:[], byZone:{},
+              svg:null, g:null, path:null, proj:null, zoom:null, k:1, w:0, h:0, _t:{}, _hover:null };
+
+  function _fmtEta(ms){ if(!ms)return '—'; const d=Math.round((ms-Date.now())/864e5); return d<=0?'nu':d===1?'1 dag':d+' dagen'; }
+
+  // ---- init (lazy, wanneer de tab zichtbaar is) ----
+  function initShockWaveMap(){
+    if(M.built||M.loading) return;
+    const host=document.getElementById('sw-map'); if(!host||host.offsetParent===null) return;
+    if(typeof d3==='undefined'||typeof topojson==='undefined'){ host.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.6rem;padding:20px;">kaart-bibliotheek laadt…</div>'; return; }
+    M.loading=true;
+    d3.json(CDN_ATLAS).then(atlas=>{
+      M.atlas=atlas; M.built=true; M.loading=false; _build(host); _fetchAll(); _startTimers();
+    }).catch(e=>{ M.loading=false; host.innerHTML='<div class="mono" style="color:#ff8a94;font-size:0.6rem;padding:20px;">wereldatlas niet bereikbaar (offline?). Probeer later opnieuw.</div>'; });
+  }
+
+  function _build(host){
+    const rect=host.getBoundingClientRect(); const w=M.w=Math.max(320,rect.width), h=M.h=Math.max(360,Math.min(620,rect.width*0.52));
+    host.innerHTML='';
+    const svg=M.svg=d3.select(host).append('svg').attr('width','100%').attr('height',h).attr('viewBox',`0 0 ${w} ${h}`).style('display','block').style('background','radial-gradient(120% 90% at 50% 0%, #0a1420, #05090f)').style('border-radius','8px').style('cursor','grab');
+    const proj=M.proj=d3.geoNaturalEarth1().fitExtent([[6,6],[w-6,h-6]], {type:'Sphere'});
+    const path=M.path=d3.geoPath(proj);
+    const g=M.g=svg.append('g');
+    // sphere + graticule
+    g.append('path').attr('d',path({type:'Sphere'})).attr('fill','#0a1a2a').attr('stroke','#12324a').attr('stroke-width',0.6);
+    try{ const grat=d3.geoGraticule10(); g.append('path').attr('d',path(grat)).attr('fill','none').attr('stroke','rgba(90,140,180,0.10)').attr('stroke-width',0.4); }catch(e){}
+    // countries
+    const countries=topojson.feature(M.atlas,M.atlas.objects.countries).features;
+    M._countries=countries;
+    g.append('g').attr('class','sw-countries').selectAll('path').data(countries).join('path')
+      .attr('d',path).attr('fill','#0e2233').attr('stroke','#123047').attr('stroke-width',0.4)
+      .style('cursor','pointer')
+      .on('click',(ev,d)=>{ _zoomTo(d); })
+      .on('mousemove',(ev,d)=>_hoverCountry(ev,d))
+      .on('mouseleave',()=>_hideTip());
+    // overlay layer groups (order matters)
+    ['currents','plates','capital','rain','disasters','quakes','density','groundzero','killzones'].forEach(k=>g.append('g').attr('class','sw-l-'+k));
+    // zoom/pan
+    const zoom=M.zoom=d3.zoom().scaleExtent([1,14]).on('zoom',ev=>{ M.k=ev.transform.k; g.attr('transform',ev.transform); _scaleMarks(); });
+    svg.call(zoom).on('dblclick.zoom',null);
+    M._computeZones(); _drawPressure(); _renderCountryList(); _renderLegend(); _buildControls();
+    _drawStatic();
+  }
+
+  // classificeer elk land → zone (op centroid) en bewaar
+  M._computeZones=function(){ M.byZone={}; (M._countries||[]).forEach(f=>{ try{ const c=d3.geoCentroid(f); const z=zoneOfCentroid(c[0],c[1]); f._zone=z; (M.byZone[z]=M.byZone[z]||[]).push(f.properties&&f.properties.name||'?'); }catch(e){} }); };
+
+  function _scaleMarks(){ const k=M.k||1; M.g.selectAll('.sw-dot').attr('r',function(){ return (+this.getAttribute('data-r')||3)/Math.sqrt(k); }).attr('stroke-width',1/k);
+    M.g.selectAll('.sw-line').attr('stroke-width',function(){ return (+this.getAttribute('data-w')||1)/k; });
+    M.g.selectAll('.sw-country-sel').attr('stroke-width',2/k); }
+
+  function _zoomTo(d){ try{ const b=M.path.bounds(d), w=M.w,h=M.h; const dx=b[1][0]-b[0][0],dy=b[1][1]-b[0][1],x=(b[0][0]+b[1][0])/2,y=(b[0][1]+b[1][1])/2;
+    const k=Math.max(1,Math.min(12,0.9/Math.max(dx/w,dy/h))); const t=d3.zoomIdentity.translate(w/2,h/2).scale(k).translate(-x,-y);
+    M.svg.transition().duration(650).call(M.zoom.transform,t);
+    M._hover=d; _showCountryInfo(d);
+  }catch(e){} }
+  function _resetZoom(){ M.svg.transition().duration(500).call(M.zoom.transform,d3.zoomIdentity); }
+
+  // ---- PRESSURE choropleth (zones under pressure) ----
+  function _drawPressure(){ const on=LAYERS.pressure; M.g.selectAll('.sw-countries path').attr('fill',function(d){
+    if(!on) return '#0e2233'; const z=d._zone; if(!z||z==='global') return '#0e2233';
+    const s=zoneStress(z); const base=zoneCol(z);
+    // stress → opacity mix van zonekleur op donkere grond
+    const a=0.12+Math.max(0,Math.min(1,s))*0.6; return _mix('#0e2233',base,a);
+  }); }
+  function _mix(a,b,t){ const pa=_rgb(a),pb=_rgb(b); return `rgb(${Math.round(pa[0]+(pb[0]-pa[0])*t)},${Math.round(pa[1]+(pb[1]-pa[1])*t)},${Math.round(pa[2]+(pb[2]-pa[2])*t)})`; }
+  function _rgb(h){ h=h.replace('#',''); if(h.length===3)h=h.split('').map(c=>c+c).join(''); const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+
+  // ---- STATISCHE lagen ----
+  function _drawStatic(){
+    // zeestromen
+    const gc=M.g.select('.sw-l-currents').attr('display',LAYERS.currents?null:'none'); gc.selectAll('*').remove();
+    if(LAYERS.currents) CURRENTS.forEach(c=>{ const line={type:'LineString',coordinates:c.pts.map(p=>[p[1],p[0]])};
+      gc.append('path').attr('class','sw-line').attr('data-w',1.4).attr('d',M.path(line)).attr('fill','none')
+        .attr('stroke',c.warm?'rgba(255,120,90,0.55)':'rgba(80,180,255,0.5)').attr('stroke-width',1.4).attr('stroke-dasharray','5 4')
+        .append('title').text(c.name+(c.warm?' (warm)':' (koud)')); });
+    // human density
+    const gd=M.g.select('.sw-l-density').attr('display',LAYERS.density?null:'none'); gd.selectAll('*').remove();
+    if(LAYERS.density) METROS.forEach(m=>{ const xy=M.proj([m[1],m[0]]); if(!xy)return; const r=Math.max(2,Math.sqrt(m[2])*1.1);
+      gd.append('circle').attr('class','sw-dot').attr('data-r',r).attr('cx',xy[0]).attr('cy',xy[1]).attr('r',r)
+        .attr('fill','rgba(199,146,234,0.28)').attr('stroke','rgba(199,146,234,0.7)').attr('stroke-width',1)
+        .append('title').text(m[3]+' · '+m[2]+'M'); });
+  }
+
+  // ---- DATA-FETCHERS (gratis, CORS-ok) ----
+  function _fetchAll(){ _fetchQuakes(); _fetchEvents(); if(LAYERS.plates)_fetchPlates(); if(LAYERS.rain)_fetchRain(); }
+  function _fetchQuakes(){ fetch(USGS_URL,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ if(!j||!j.features)return;
+    M.quakes=j.features.map(f=>({lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],depth:f.geometry.coordinates[2],mag:f.properties.mag,place:f.properties.place,t:f.properties.time})).filter(q=>q.mag!=null);
+    _drawQuakes(); try{ TrinityFeeds&&TrinityFeeds.markOk&&TrinityFeeds.markOk('gsd','USGS '+M.quakes.length+' quakes'); }catch(e){}
+  }).catch(()=>{}); }
+  function _fetchEvents(){ fetch(EONET_URL,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ if(!j||!j.events)return;
+    M.events=j.events.map(e=>{ const g=e.geometry&&e.geometry[e.geometry.length-1]; if(!g||!g.coordinates)return null;
+      let lon,lat; if(g.type==='Point'){ lon=g.coordinates[0]; lat=g.coordinates[1]; } else { const c=g.coordinates[0]&&g.coordinates[0][0]; if(!c)return null; lon=c[0]; lat=c[1]; }
+      const cat=(e.categories&&e.categories[0]&&e.categories[0].id)||'other'; return {lon,lat,cat,title:e.title,t:g.date}; }).filter(Boolean);
+    _drawEvents();
+  }).catch(()=>{}); }
+  function _fetchPlates(){ if(M.plates){_drawPlates();return;} fetch(PLATES_URL,{cache:'force-cache'}).then(r=>r.ok?r.json():null).then(j=>{ if(j){M.plates=j;_drawPlates();} }).catch(()=>{}); }
+  function _fetchRain(){ const lats=RAIN_PTS.map(p=>p[0]).join(','), lons=RAIN_PTS.map(p=>p[1]).join(',');
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&daily=precipitation_sum&forecast_days=7&timezone=UTC`,{cache:'no-store'})
+      .then(r=>r.ok?r.json():null).then(j=>{ if(!j)return; const arr=Array.isArray(j)?j:[j];
+        M.rain=arr.map((loc,i)=>{ const ps=(loc.daily&&loc.daily.precipitation_sum)||[]; const days=(loc.daily&&loc.daily.time)||[];
+          const tot=ps.reduce((a,b)=>a+(b||0),0); let firstHeavy=-1,streak=0,maxStreak=0; for(let d=0;d<ps.length;d++){ if((ps[d]||0)>=15){ streak++; if(firstHeavy<0)firstHeavy=d; } else streak=0; maxStreak=Math.max(maxStreak,streak); }
+          const floodRisk = tot>=80||maxStreak>=3; const etaMs = firstHeavy>=0&&days[firstHeavy]?Date.parse(days[firstHeavy]):0;
+          return {lat:RAIN_PTS[i][0],lon:RAIN_PTS[i][1],name:RAIN_PTS[i][2],tot:+tot.toFixed(0),maxStreak,floodRisk,etaMs}; });
+        _drawRain();
+      }).catch(()=>{}); }
+
+  // ---- OVERLAY DRAW ----
+  function _drawQuakes(){ const g=M.g.select('.sw-l-quakes').attr('display',LAYERS.quakes?null:'none'); g.selectAll('*').remove(); if(!LAYERS.quakes)return;
+    M.quakes.forEach(q=>{ const xy=M.proj([q.lon,q.lat]); if(!xy)return; const r=Math.max(2,q.mag*1.4);
+      const col=q.depth>300?'#7fd8ff':q.depth>70?'#ffd76a':'#ff4f6d';
+      g.append('circle').attr('class','sw-dot').attr('data-r',r).attr('cx',xy[0]).attr('cy',xy[1]).attr('r',r/Math.sqrt(M.k))
+        .attr('fill','none').attr('stroke',col).attr('stroke-width',1.4/M.k).attr('opacity',0.85)
+        .append('title').text('M'+q.mag+' · '+q.depth+'km · '+(q.place||'')); }); }
+  const EONET_COL={wildfires:'#ff7a1a',volcanoes:'#ff4f6d',severeStorms:'#7fd8ff',floods:'#4fc3f7',seaLakeIce:'#a3e4ff',drought:'#ffd54a',dustHaze:'#c9a06a',landslides:'#b8865a',snow:'#e8f4ff',temperatureExtremes:'#ff8a3c'};
+  const EONET_SYM={wildfires:'▲',volcanoes:'★',floods:'≈',severeStorms:'◈',seaLakeIce:'❄'};
+  function _drawEvents(){ const g=M.g.select('.sw-l-disasters').attr('display',LAYERS.disasters?null:'none'); g.selectAll('*').remove(); if(!LAYERS.disasters)return;
+    M.events.forEach(e=>{ const xy=M.proj([e.lon,e.lat]); if(!xy)return; const col=EONET_COL[e.cat]||'#ffb627';
+      g.append('circle').attr('class','sw-dot').attr('data-r',3.4).attr('cx',xy[0]).attr('cy',xy[1]).attr('r',3.4/Math.sqrt(M.k))
+        .attr('fill',col).attr('fill-opacity',0.28).attr('stroke',col).attr('stroke-width',1.1/M.k)
+        .append('title').text((e.cat)+' · '+(e.title||'')); }); }
+  function _drawPlates(){ const g=M.g.select('.sw-l-plates').attr('display',LAYERS.plates?null:'none'); g.selectAll('*').remove(); if(!LAYERS.plates||!M.plates)return;
+    g.append('path').attr('class','sw-line').attr('data-w',0.9).attr('d',M.path(M.plates)).attr('fill','none').attr('stroke','rgba(127,216,255,0.55)').attr('stroke-width',0.9/M.k).attr('stroke-dasharray','2 2');
+    // clash-zones: platgrens-punten dicht bij zware recente quakes = drukopbouw
+    M.quakes.filter(q=>q.mag>=4.5).forEach(q=>{ const xy=M.proj([q.lon,q.lat]); if(!xy)return;
+      g.append('circle').attr('class','sw-dot').attr('data-r',6).attr('cx',xy[0]).attr('cy',xy[1]).attr('r',6/Math.sqrt(M.k))
+        .attr('fill','none').attr('stroke','#ff8a3c').attr('stroke-width',1.2/M.k).attr('opacity',0.7)
+        .append('title').text('drukzone · M'+q.mag+' nabij plaatgrens'); }); }
+  function _drawRain(){ const g=M.g.select('.sw-l-rain').attr('display',LAYERS.rain?null:'none'); g.selectAll('*').remove(); if(!LAYERS.rain)return;
+    M.rain.forEach(r=>{ const xy=M.proj([r.lon,r.lat]); if(!xy)return; const col=r.floodRisk?'#4fc3f7':'#2a5a7a'; const rad=Math.max(3,Math.min(12,r.tot/12));
+      g.append('circle').attr('class','sw-dot').attr('data-r',rad).attr('cx',xy[0]).attr('cy',xy[1]).attr('r',rad/Math.sqrt(M.k))
+        .attr('fill',col).attr('fill-opacity',r.floodRisk?0.35:0.15).attr('stroke',col).attr('stroke-width',(r.floodRisk?1.6:0.8)/M.k)
+        .append('title').text(r.name+' · '+r.tot+'mm/7d'+(r.floodRisk?(' · ⚠ overstromingsrisico · start '+_fmtEta(r.etaMs)):'')); }); }
+
+  // ---- CAPITAL FLOW arcs (uit FX/GSD) ----
+  function _drawCapital(){ const g=M.g.select('.sw-l-capital').attr('display',LAYERS.capital?null:'none'); g.selectAll('*').remove(); if(!LAYERS.capital)return;
+    let zones; try{ zones=GSD_ZONES.filter(z=>z.key!=='global'); }catch(e){ return; }
+    // flow-sterkte per zone uit gemiddelde |flow| van de valuta's
+    const flowOf=z=>{ let s=0,n=0; try{ (z.ccy||[]).forEach(c=>{ if(typeof flow!=='undefined'&&flow[c]!=null){ s+=Math.abs(flow[c]); n++; } }); }catch(e){} return n?s/n:0; };
+    const nodes=zones.map(z=>({z,xy:M.proj(zoneCentroid(z.key)||[0,0]),f:flowOf(z),s:zoneStress(z.key)})).filter(n=>n.xy);
+    // verbind hoogste-flow zones onderling (dataflow-web)
+    nodes.sort((a,b)=>b.f-a.f);
+    for(let i=0;i<nodes.length;i++){ for(let jx=i+1;jx<nodes.length;jx++){ const a=nodes[i],bn=nodes[jx]; const w=(a.f+bn.f)/2; if(w<0.04)continue;
+      const mx=(a.xy[0]+bn.xy[0])/2, my=(a.xy[1]+bn.xy[1])/2-Math.hypot(bn.xy[0]-a.xy[0],bn.xy[1]-a.xy[1])*0.18;
+      const pth=`M${a.xy[0]},${a.xy[1]} Q${mx},${my} ${bn.xy[0]},${bn.xy[1]}`;
+      g.append('path').attr('class','sw-line').attr('data-w',0.6+w*3).attr('d',pth).attr('fill','none').attr('stroke','rgba(20,241,149,0.35)').attr('stroke-width',(0.6+w*3)/M.k).attr('stroke-linecap','round'); } }
+    nodes.forEach(n=>{ g.append('circle').attr('class','sw-dot').attr('data-r',3+n.f*8).attr('cx',n.xy[0]).attr('cy',n.xy[1]).attr('r',(3+n.f*8)/Math.sqrt(M.k)).attr('fill','#14f195').attr('fill-opacity',0.5).attr('stroke','#14f195').attr('stroke-width',1/M.k).append('title').text(n.z.name+' · flow '+(n.f*100|0)+'%'); });
+  }
+
+  // ---- KILL-SWITCH startzones + GROUND-ZERO ----
+  function _drawKillzones(){ const g=M.g.select('.sw-l-killzones').attr('display',LAYERS.killzones?null:'none'); g.selectAll('*').remove(); if(!LAYERS.killzones)return;
+    let proj; try{ proj=TrinityGSD.killProjection||[]; }catch(e){ proj=[]; }
+    const seen={}; proj.forEach(pz=>{ if(!pz.zone||seen[pz.zone])return; seen[pz.zone]=1; const z=GSD_ZONES.find(z=>z.name===pz.zone); if(!z)return; const xy=M.proj(zoneCentroid(z.key)||[0,0]); if(!xy)return;
+      const r=10+ (pz.prob||0)*22;
+      g.append('circle').attr('class','sw-dot').attr('data-r',r).attr('cx',xy[0]).attr('cy',xy[1]).attr('r',r/Math.sqrt(M.k)).attr('fill','none').attr('stroke','#ff8a3c').attr('stroke-width',1.6/M.k).attr('opacity',0.8);
+      g.append('text').attr('x',xy[0]).attr('y',xy[1]-r-3).attr('text-anchor','middle').attr('fill','#ff8a3c').attr('font-family',"'JetBrains Mono',monospace").attr('font-size',9/M.k).text('★ '+pz.key+' '+Math.round((pz.prob||0)*100)+'%').append('title').text('ΔV kill-switch startzone · '+pz.topic);
+    }); }
+  function _drawGroundzero(){ const g=M.g.select('.sw-l-groundzero').attr('display',LAYERS.groundzero?null:'none'); g.selectAll('*').remove(); if(!LAYERS.groundzero)return;
+    let cells; try{ cells=TrinityGSD.cells; }catch(e){ return; } if(!cells)return;
+    GSD_ZONES.filter(z=>z.key!=='global').forEach(z=>{ const zc=cells[z.key]; if(!zc)return; let bestK=null,bestV=0; for(const k in zc){ const v=zc[k]&&zc[k].v; if(v!=null&&v>bestV){bestV=v;bestK=k;} }
+      if(bestV<0.5)return; const xy=M.proj(zoneCentroid(z.key)||[0,0]); if(!xy)return; const r=6+bestV*10;
+      g.append('circle').attr('class','sw-dot').attr('data-r',r).attr('cx',xy[0]).attr('cy',xy[1]).attr('r',r/Math.sqrt(M.k)).attr('fill','#ffd76a').attr('fill-opacity',0.18).attr('stroke','#ffd76a').attr('stroke-width',1.3/M.k).append('title').text(z.name+' ground-zero · '+bestK+' '+(bestV*100|0)); }); }
+
+  // ---- live-lagen die van GSD/FX afhangen (elke ~4s) ----
+  function refreshDynamic(){ if(!M.built)return; try{ _drawPressure(); }catch(e){} try{ _drawCapital(); }catch(e){} try{ _drawKillzones(); }catch(e){} try{ _drawGroundzero(); }catch(e){} _scaleMarks(); }
+
+  // ---- CONTROLS ----
+  function _buildControls(){ const el=document.getElementById('sw-controls'); if(!el)return;
+    el.innerHTML = `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+      <button class="btn btn-mini" onclick="__swZoomIn()" style="padding:3px 9px;">＋</button>
+      <button class="btn btn-mini" onclick="__swZoomOut()" style="padding:3px 9px;">－</button>
+      <button class="btn btn-mini" onclick="__swReset()" style="padding:3px 9px;">reset</button>
+      <span class="mono" style="font-size:0.5rem;color:var(--dimmer);">klik een land om in te zoomen · sleep om te pannen</span></div>`
+      + `<div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`+LAYER_META.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${LAYERS[k]?'checked':''} onchange="__swToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`;
+  }
+  function _renderLegend(){ const el=document.getElementById('sw-legend'); if(!el)return;
+    el.innerHTML=`<div class="mono" style="font-size:0.54rem;color:var(--dim);line-height:1.9;">`
+      +`<b style="color:#ff5f7e;">Zones under pressure</b>: landkleur = zone-stress (donker→fel). `
+      +`<span style="color:#ff4f6d;">● aardbeving</span> (kleur=diepte) · <span style="color:#ff7a1a;">▲ bosbrand</span> · <span style="color:#ff4f6d;">★ vulkaan</span> · <span style="color:#4fc3f7;">≈ overstroming/regen</span> · <span style="color:#7fd8ff;">— tektonische plaat</span> · <span style="color:#ff8a3c;">◌ drukzone/clash</span> · <span style="color:#14f195;">— capital-flow</span> · <span style="color:#ff8a3c;">★ ΔV kill-switch startzone</span> · <span style="color:#ffd76a;">◌ ground-zero</span>.`
+      +`</div>`; }
+
+  // ---- COUNTRY LIST per zone ----
+  function _renderCountryList(){ const el=document.getElementById('sw-countrylist'); if(!el)return;
+    let zones; try{ zones=GSD_ZONES; }catch(e){ return; }
+    el.innerHTML=zones.filter(z=>z.key!=='global').map(z=>{ const s=zoneStress(z.key); const cs=(M.byZone[z.key]||[]).slice().sort(); const col=z.col;
+      const sc = s>=0.5?'#ff5f7e':s>=0.3?'#ffb627':'#14f195';
+      return `<details style="margin-bottom:6px;border-left:3px solid ${col};padding-left:8px;">
+        <summary style="cursor:pointer;font-size:0.6rem;color:var(--tx);"><b style="color:${col}">${z.name}</b> <span style="color:${sc}">stress ${(s*100|0)}%</span> <span style="color:var(--dimmer)">· ${cs.length} landen</span></summary>
+        <div style="font-size:0.54rem;color:var(--dim);line-height:1.7;margin-top:3px;">${cs.join(' · ')||'—'}</div>
+      </details>`; }).join('');
+  }
+
+  // ---- hover tooltip ----
+  let _tip;
+  function _hoverCountry(ev,d){ if(!_tip){ _tip=document.createElement('div'); _tip.style.cssText='position:fixed;z-index:99999;pointer-events:none;background:#06111c;border:1px solid #1f4358;border-radius:6px;padding:5px 8px;font:0.58rem/1.4 JetBrains Mono,monospace;color:#dfeaf3;max-width:220px;'; document.body.appendChild(_tip); }
+    const z=d._zone; const nm=d.properties&&d.properties.name; _tip.innerHTML=`<b>${nm}</b><br><span style="color:${zoneCol(z)}">${zoneName(z)}</span> · stress ${(zoneStress(z)*100|0)}%`; _tip.style.display='block'; _tip.style.left=(ev.clientX+12)+'px'; _tip.style.top=(ev.clientY+12)+'px'; }
+  function _hideTip(){ if(_tip)_tip.style.display='none'; }
+  function _showCountryInfo(d){ /* toekomst: land-detailpaneel */ }
+
+  // ---- timers ----
+  function _startTimers(){ clearInterval(M._t.q); clearInterval(M._t.e); clearInterval(M._t.r); clearInterval(M._t.d);
+    M._t.q=setInterval(_fetchQuakes,120000); M._t.e=setInterval(_fetchEvents,300000); M._t.r=setInterval(()=>{ if(LAYERS.rain)_fetchRain(); },900000);
+    M._t.d=setInterval(refreshDynamic,4000); }
+
+  // ---- expose toggles ----
+  window.__swToggle=function(k){ LAYERS[k]=!LAYERS[k]; saveLayers();
+    if(k==='pressure')_drawPressure(); else if(k==='quakes')_drawQuakes(); else if(k==='disasters')_drawEvents();
+    else if(k==='plates'){ if(LAYERS.plates)_fetchPlates(); else M.g.select('.sw-l-plates').attr('display','none'); }
+    else if(k==='rain'){ if(LAYERS.rain)_fetchRain(); else M.g.select('.sw-l-rain').attr('display','none'); }
+    else if(k==='capital')_drawCapital(); else if(k==='killzones')_drawKillzones(); else if(k==='groundzero')_drawGroundzero();
+    else if(k==='currents'||k==='density')_drawStatic(); _scaleMarks(); };
+  window.__swZoomIn=function(){ M.svg.transition().duration(300).call(M.zoom.scaleBy,1.6); };
+  window.__swZoomOut=function(){ M.svg.transition().duration(300).call(M.zoom.scaleBy,0.65); };
+  window.__swReset=_resetZoom;
+
+  // ---- lazy-init hook (aangeroepen uit de render-loop) ----
+  let _tries=0;
+  window.maybeInitShockWaveMap=function(){ try{ const host=document.getElementById('sw-map'); if(!host)return; if(M.built){ return; } if(host.offsetParent!==null){ initShockWaveMap(); } }catch(e){} };
+  window.initShockWaveMap=initShockWaveMap;
+  window.refreshShockWaveMap=refreshDynamic;
+})();
