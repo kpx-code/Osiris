@@ -22906,7 +22906,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     wrap.appendChild(zc);
     const si=document.createElement('div'); si.id='sw-scaleind'; si.style.cssText='position:absolute;bottom:10px;right:12px;z-index:3;font:0.55rem JetBrains Mono,monospace;color:var(--dim);background:rgba(3,10,16,0.6);border:1px solid var(--line);border-radius:6px;padding:3px 7px;'; si.textContent='1.0×';
     wrap.appendChild(si);
-    const hud=document.createElement('div'); hud.id='sw-hud'; hud.style.cssText='position:absolute;top:10px;left:10px;z-index:3;font-family:JetBrains Mono,monospace;background:rgba(8,14,22,0.82);border:1px solid rgba(255,138,60,0.45);border-radius:8px;padding:7px 10px;width:172px;max-height:340px;overflow-y:auto;display:none;box-shadow:0 4px 18px -8px rgba(255,138,60,0.5);';
+    const hud=document.createElement('div'); hud.id='sw-hud'; hud.style.cssText='position:absolute;top:10px;left:10px;z-index:3;font-family:JetBrains Mono,monospace;background:rgba(8,14,22,0.86);border:1px solid rgba(255,138,60,0.45);border-radius:8px;padding:7px 10px;width:212px;max-height:min(70vh,460px);overflow-y:auto;display:none;box-shadow:0 4px 18px -8px rgba(255,138,60,0.5);';
     wrap.appendChild(hud);
     host.appendChild(wrap);
     M.ctx=cv.getContext('2d');
@@ -23026,6 +23026,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.beginPath(); ctx.moveTo(a.p[0],a.p[1]); ctx.quadraticCurveTo(mx,my,b.p[0],b.p[1]); ctx.strokeStyle=`rgba(20,241,149,0.3)`; ctx.lineWidth=(0.5+w*3)*iz; ctx.stroke(); }
     nodes.forEach(n=>{ ctx.beginPath(); ctx.arc(n.p[0],n.p[1],(2.5+n.f*7)*iz,0,6.283); ctx.fillStyle='rgba(20,241,149,0.55)'; ctx.fill(); }); }
 
+  function _fmtDate(ms){ if(ms==null||!isFinite(ms))return '—'; const d=new Date(ms),p=n=>String(n).padStart(2,'0'); return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+'/'+String(d.getUTCFullYear()).slice(2); }
   function _star(ctx,x,y,r,col){ ctx.save(); ctx.beginPath(); for(let i=0;i<10;i++){ const a=-Math.PI/2+i*Math.PI/5, rr=i%2?r*0.45:r; const px=x+Math.cos(a)*rr, py=y+Math.sin(a)*rr; i?ctx.lineTo(px,py):ctx.moveTo(px,py);} ctx.closePath(); ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=8; ctx.fill(); ctx.restore(); }
   function _drawKill(iz){ const ctx=M.ctx; let proj; try{ proj=TrinityGSD.killProjection||[]; }catch(e){ return; } const seen={}; M._primaryStar=null;
     proj.forEach(pz=>{ if(!pz.zone||seen[pz.zone])return; seen[pz.zone]=1; const z=GSD_ZONES.find(z=>z.name===pz.zone); if(!z)return; const c=zCentroid(z.key); if(!c)return; const sn=_snapLand(c[0],c[1]); const p=pB(sn[0],sn[1]); if(!p)return;
@@ -23034,13 +23035,34 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       if(M.view.scale>1.2){ ctx.fillStyle='#ff8a3c'; ctx.font=(8.5*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText(cn+'% '+pz.key,p[0]+8*iz,p[1]+3*iz); }
       if(pz.key==='week'||!M._primaryStar){ M._primaryStar=[M.view.tx+p[0]*M.view.scale, M.view.ty+p[1]*M.view.scale]; }
       M._markers.push({x:p[0],y:p[1],t:'ΔV kill-switch start-zone · '+pz.zone+' · '+cn+'% ('+pz.key+')'}); }); }
-  // per-country stress ranking (zone base + local event boost), throttled
-  function computeTopStress(){ const now=Date.now(); if(M._topStress&&now-(M._topStressTs||0)<8000) return M._topStress; const feats=M.countries||[]; const rows=[];
-    for(const f of feats){ if(!f._z||f._z==='global')continue; let cen; try{cen=d3.geoCentroid(f);}catch(e){continue;} const base=zStress(f._z); let boost=0;
-      M.quakes.forEach(q=>{ if(q.mag>=4){ const d=Math.hypot(q.lat-cen[1],(q.lon-cen[0])*Math.cos(cen[1]*Math.PI/180))*111; if(d<450) boost+=0.07*(q.mag/6); } });
-      M.events.forEach(e=>{ const d=Math.hypot(e.lat-cen[1],(e.lon-cen[0])*Math.cos(cen[1]*Math.PI/180))*111; if(d<300) boost+=0.05; });
-      rows.push({name:(f.properties&&f.properties.name)||'?',zone:f._z,score:Math.min(1,base+boost)}); }
-    rows.sort((a,b)=>b.score-a.score); M._topStress=rows.slice(0,10); M._topStressTs=now; return M._topStress; }
+  // per-category, per-country stress ranking. ECONOMY is the primary target.
+  const SW_STRESS_CATS = [
+    {key:'economic', label:'Economic stress', primary:true, col:'#14f195'},
+    {key:'conflict', label:'Conflict',            col:'#ff4f6d'},
+    {key:'geo',      label:'Geopolitics',         col:'#ff8a3c'},
+    {key:'disaster', label:'Natural disasters',   col:'#ffb627'},
+    {key:'weather',  label:'Extreme weather',     col:'#8fb8ff'},
+    {key:'tone',     label:'Media tone',          col:'#c792ea'},
+  ];
+  function _cellV(z,cat){ try{ const c=TrinityGSD.cells[z]; return (c&&c[cat]&&c[cat].v!=null)?c[cat].v:0; }catch(e){ return 0; } }
+  // economy = weighted blend of the money-side cells (markets / macro / central banks / trade)
+  function _econV(z){ const w={market:1.3,econ:1.1,cb:1.1,trade:1.0}; let s=0,ww=0; for(const k in w){ const v=_cellV(z,k); if(v){ s+=v*w[k]; ww+=w[k]; } } return ww? s/ww : 0; }
+  // kill-switch chance per zone-key (max over horizons)
+  function _killChanceByZone(){ const m={}; try{ (TrinityGSD.killProjection||[]).forEach(p=>{ const z=GSD_ZONES.find(z=>z.name===p.zone||z.key===p.zone); if(!z)return; const cn=p.chanceNow!=null?p.chanceNow:Math.round((p.prob||0)*100); if(m[z.key]==null||cn>m[z.key]) m[z.key]=cn; }); }catch(e){} return m; }
+  // full per-category top-10 (max 3 countries per zone so a list spans zones), throttled
+  function computeStressByCategory(){ const now=Date.now(); if(M._catStress&&now-(M._catStressTs||0)<8000) return M._catStress;
+    const feats=M.countries||[]; const out={}; SW_STRESS_CATS.forEach(c=>out[c.key]=[]);
+    for(const f of feats){ if(!f._z||f._z==='global')continue; let cen; try{cen=d3.geoCentroid(f);}catch(e){continue;} const nm=(f.properties&&f.properties.name)||'?'; const z=f._z;
+      let qb=0,eb=0;
+      M.quakes.forEach(q=>{ if(q.mag>=4){ const d=Math.hypot(q.lat-cen[1],(q.lon-cen[0])*Math.cos(cen[1]*Math.PI/180))*111; if(d<450) qb+=0.07*(q.mag/6); } });
+      M.events.forEach(e=>{ const d=Math.hypot(e.lat-cen[1],(e.lon-cen[0])*Math.cos(cen[1]*Math.PI/180))*111; if(d<300) eb+=0.05; });
+      SW_STRESS_CATS.forEach(c=>{ let sc;
+        if(c.key==='economic') sc=_econV(z);
+        else if(c.key==='disaster') sc=Math.min(1,_cellV(z,'disaster')+qb+eb);
+        else sc=_cellV(z,c.key);
+        out[c.key].push({name:nm,zone:z,score:Math.min(1,sc)}); }); }
+    SW_STRESS_CATS.forEach(c=>{ const seen={}; out[c.key]=out[c.key].sort((a,b)=>b.score-a.score).filter(r=>r.score>0.001).filter(r=>{ seen[r.zone]=(seen[r.zone]||0)+1; return seen[r.zone]<=3; }).slice(0,10); });
+    M._catStress=out; M._catStressTs=now; return out; }
   function _drawLeader(){ const el=document.getElementById('sw-hud'); if(!el||el.style.display==='none'||!M._primaryStar)return; const ctx=M.ctx;
     const ax=el.offsetLeft+el.offsetWidth, ay=el.offsetTop+Math.min(el.offsetHeight,60)/2; const sx=M._primaryStar[0], sy=M._primaryStar[1];
     if(sx<ax) return; // ster links van paneel → geen lijn
@@ -23066,14 +23088,31 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const zs=zStress(z.key); if(!best){ if(zs<0.5)return; const c=zCentroid(z.key); if(!c)return; best={lon:c[0],lat:c[1],l:'stress'}; bv=zs; }
     const sn=_snapLand(best.lon,best.lat); const p=pB(sn[0],sn[1]); if(!p)return; blob(p[0],p[1],24+bv*46,'#ffd76a',0.13+bv*0.18); }); }
 
-  // ---- ΔV kill-switch corner-HUD (oranje ShockWave-stijl) ----
-  function _updateHud(){ const el=document.getElementById('sw-hud'); if(!el)return; let P; try{ P=TrinityGSD.killProjection||[]; }catch(e){ P=[]; }
-    if(!P.length){ el.style.display='none'; return; } el.style.display='block';
-    const rowsH=P.map(p=>{ const d=p.chanceDelta,dc=d>0?'#ff5f7e':d<0?'#14f195':'#8aa0ad',ar=d>0?'▲':d<0?'▼':'·'; const cn=p.chanceNow!=null?p.chanceNow:Math.round((p.prob||0)*100);
-      return `<div style="display:flex;gap:5px;font-size:0.52rem;line-height:1.55;"><span style="flex:0 0 30px;color:#7fd8ff;">${p.key}</span><span style="flex:0 0 56px;color:#ff8a3c;font-weight:700;">${cn}% <span style="color:${dc};font-weight:400;">${d!=null?ar+Math.abs(d):''}</span></span><span style="flex:1 1 auto;color:#9fb2c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70px;">${p.zone||''}</span></div>`; }).join('');
-    const ts=computeTopStress(); const rowsS=ts.map((r,i)=>`<div style="font-size:0.5rem;color:#9fb2c4;line-height:1.5;white-space:nowrap;">${i+1}. <b style="color:${r.score>=0.5?'#ff5f7e':r.score>=0.3?'#ffb627':'#cfe0ec'}">${r.name}</b> ${(r.score*100|0)}%</div>`).join('');
-    el.innerHTML=`<div style="font-size:0.5rem;letter-spacing:0.1em;color:#ff8a3c;text-transform:uppercase;margin-bottom:3px;">ΔV kill-switch projection</div>`
-      +rowsH+`<div style="border-top:1px solid rgba(255,138,60,0.3);margin:5px 0 3px;"></div><div style="font-size:0.47rem;letter-spacing:0.08em;color:#ffb27e;text-transform:uppercase;margin-bottom:1px;">Top-10 stress countries</div>`+rowsS; }
+  // ---- ΔV kill-switch corner-HUD (orange ShockWave style) — economy-first stress ----
+  function _stressRow(r,i,km){ const sc=r.score>=0.5?'#ff5f7e':r.score>=0.3?'#ffb627':'#cfe0ec';
+    const kc=(km&&km[r.zone]!=null)?` <span style="color:#ff8a3c;">ks ${km[r.zone]}%</span>`:'';
+    return `<div style="font-size:0.5rem;color:#9fb2c4;line-height:1.55;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${i+1}. <b style="color:${sc}">${r.name}</b> ${(r.score*100|0)}%${kc}</div>`; }
+  function _updateHud(){ const el=document.getElementById('sw-hud'); if(!el)return;
+    if(!LAYERS.killzones){ el.style.display='none'; return; }   // panel toggles on/off with the ΔV kill-switch layer
+    el.style.display='block';
+    const now=Date.now(); if(el._built&&now-(M._hudTs||0)<800) return; M._hudTs=now; const sTop=el.scrollTop; // throttle + keep scroll so the panel is scrollable
+    let P; try{ P=TrinityGSD.killProjection||[]; }catch(e){ P=[]; }
+    const rowsH = P.length ? P.map(p=>{ const d=p.chanceDelta,dc=d>0?'#ff5f7e':d<0?'#14f195':'#8aa0ad',ar=d>0?'▲':d<0?'▼':'·'; const cn=p.chanceNow!=null?p.chanceNow:Math.round((p.prob||0)*100);
+        return `<div style="display:flex;gap:4px;font-size:0.5rem;line-height:1.5;"><span style="flex:0 0 26px;color:#7fd8ff;">${p.key}</span><span style="flex:0 0 48px;color:#9fb2c4;" title="projected ΔV trigger date">${_fmtDate(p.eta)}${p.estimate?'~':''}</span><span style="flex:0 0 52px;color:#ff8a3c;font-weight:700;">${cn}% <span style="color:${dc};font-weight:400;">${d!=null?ar+Math.abs(d):''}</span></span><span style="flex:1 1 auto;color:#9fb2c4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.zone||''}</span></div>`; }).join('')
+      : '<div style="font-size:0.5rem;color:#8aa0ad;">projection warming up…</div>';
+    const cats=computeStressByCategory(); const km=_killChanceByZone();
+    // PRIMARY: economic stress top-10 (with kill-switch chance per zone)
+    const econ=cats.economic||[]; const econRows = econ.length? econ.map((r,i)=>_stressRow(r,i,km)).join('') : '<div style="font-size:0.5rem;color:#8aa0ad;">gathering macro data…</div>';
+    // OTHER categories, top-5 each
+    const otherHtml = SW_STRESS_CATS.filter(c=>!c.primary).map(c=>{ const rows=(cats[c.key]||[]).slice(0,5); if(!rows.length)return '';
+        return `<div style="font-size:0.45rem;letter-spacing:0.08em;color:${c.col};text-transform:uppercase;margin:5px 0 1px;">${c.label}</div>`+rows.map((r,i)=>_stressRow(r,i)).join(''); }).join('');
+    const div='<div style="border-top:1px solid rgba(255,138,60,0.28);margin:6px 0 3px;"></div>';
+    el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;"><span style="font-size:0.5rem;letter-spacing:0.1em;color:#ff8a3c;text-transform:uppercase;">ΔV kill-switch projection</span><button onclick="window.__swExportData&&window.__swExportData()" title="Download all ShockWave data (JSON)" style="cursor:pointer;background:rgba(255,138,60,0.12);border:1px solid rgba(255,138,60,0.5);color:#ff8a3c;border-radius:4px;font:0.46rem JetBrains Mono,monospace;padding:1px 5px;">⭳ data</button></div>`
+      +`<div style="display:flex;gap:4px;font-size:0.42rem;letter-spacing:0.04em;color:#5c7488;text-transform:uppercase;margin-bottom:1px;"><span style="flex:0 0 26px;">hrzn</span><span style="flex:0 0 48px;">est. date</span><span style="flex:0 0 52px;">chance</span><span style="flex:1 1 auto;">zone</span></div>`
+      +rowsH+div
+      +`<div style="font-size:0.5rem;letter-spacing:0.08em;color:#14f195;text-transform:uppercase;margin-bottom:1px;">★ Economic stress · primary</div>`+econRows
+      +div+`<div style="font-size:0.44rem;letter-spacing:0.08em;color:#8aa0ad;text-transform:uppercase;margin-bottom:1px;">Other stress · by category</div>`+otherHtml;
+    el.scrollTop=sTop; el._built=1; }
 
   // ---- klik → land-detailpaneel ----
   function _selectAt(sx,sy){ if(!M.proj||!M.proj.invert)return; const v=M.view; const bx=(sx-v.tx)/v.scale, by=(sy-v.ty)/v.scale; const ll=M.proj.invert([bx,by]); if(!ll)return;
@@ -23092,7 +23131,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const line=(lab,val,vc)=>`<div style="display:flex;gap:8px;font-size:0.56rem;padding:2px 0;"><span style="flex:0 0 92px;color:var(--dimmer)">${lab}</span><span style="flex:1 1 auto;color:${vc||'var(--dim)'}">${val}</span></div>`;
     el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-family:'JetBrains Mono',monospace;font-size:0.72rem;color:var(--tx);font-weight:700;">${D.name}</div><button class="btn btn-mini" onclick="__swClearDetail()" style="padding:2px 7px;font-size:0.5rem;">✕</button></div>`
       +`<div style="font-size:0.54rem;color:${col};margin-bottom:5px;">${zc} · stress <b style="color:${sc}">${(zs*100|0)}%</b></div>`
-      +line('Kill-switch', kp?('chance <b style="color:#ff8a3c">'+kp.chanceNow+'%</b>'+(kp.chanceDelta!=null?' ('+(kp.chanceDelta>0?'▲':kp.chanceDelta<0?'▼':'■')+Math.abs(kp.chanceDelta)+', was '+kp.chancePrev+'%)':'')+' · '+kp.key):'—')
+      +line('Kill-switch', kp?('chance <b style="color:#ff8a3c">'+kp.chanceNow+'%</b>'+(kp.chanceDelta!=null?' ('+(kp.chanceDelta>0?'▲':kp.chanceDelta<0?'▼':'■')+Math.abs(kp.chanceDelta)+', was '+kp.chancePrev+'%)':'')+' · '+kp.key+' · est. '+_fmtDate(kp.eta)+(kp.estimate?'~':'')):'—')
       +line('Contagion', cons.length?cons.join(' · '):'no active targets')
       +line('Earthquakes', nq.length?nq.join(' · '):'none recent')
       +line('Disasters (zone)', ne.length?ne.join(' · '):'none active')
@@ -23139,7 +23178,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 
   // ---- controls / legend / country list ----
   function _buildControls(){ const el=document.getElementById('sw-controls'); if(!el)return;
-    el.innerHTML=`<div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-bottom:6px;">scroll/pinch = zoom · drag = pan · zoom in for city names · click a country for detail</div>`
+    el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;"><span class="mono" style="font-size:0.5rem;color:var(--dimmer);">scroll/pinch = zoom · drag = pan · zoom in for city names · click a country for detail</span><button onclick="window.__swExportData&&window.__swExportData()" title="Download all ShockWave data (JSON): global stress, kill-switch, contagion, per-category stress ranking & live feeds" style="flex:0 0 auto;cursor:pointer;background:rgba(255,138,60,0.12);border:1px solid rgba(255,138,60,0.5);color:#ff8a3c;border-radius:5px;font:0.54rem JetBrains Mono,monospace;padding:3px 9px;">⭳ Download ShockWave data</button></div>`
       +LAYER_GROUPS.map(([grp,items])=>`<div style="font:0.5rem JetBrains Mono,monospace;color:var(--dimmer);letter-spacing:0.1em;text-transform:uppercase;margin:6px 0 3px;">${grp}</div><div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`
         +items.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${LAYERS[k]?'checked':''} onchange="__swToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`).join('');
   }
@@ -23157,4 +23196,19 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   window.maybeInitShockWaveMap=function(){ try{ const host=document.getElementById('sw-map'); if(host&&!M.built&&host.offsetParent!==null) initShockWaveMap(); }catch(e){} };
   window.initShockWaveMap=initShockWaveMap;
   window.refreshShockWaveMap=function(){ _renderCountryList(); };
+
+  // ---- download ALL ShockWave data (JSON) — never any keys/secrets ----
+  window.__swExportData=function(){ try{
+    const cats=computeStressByCategory(); const km=_killChanceByZone();
+    const data={ meta:{ app:'Osiris ShockWave', generatedAt:new Date().toISOString(), note:'World-stress snapshot. No API keys or credentials are included.' } };
+    try{ data.globalStress=TrinityGSD.bundle(); }catch(e){}
+    try{ data.contagion={ summary:TrinityShockWave.bundle(), learnedWeights:TrinityShockWave.W, shocks:TrinityShockWave.shocks, predictions:TrinityShockWave.preds, score:TrinityShockWave.score }; }catch(e){}
+    data.stressRanking={ economic_primary:cats.economic, byCategory:cats, killSwitchChanceByZone:km };
+    data.live={ quakes:M.quakes, disasters:M.events, chokepoints:(typeof CHOKEPOINTS!=='undefined'?CHOKEPOINTS:[]), weather:M.wx, spaceWeatherKp:M.kp };
+    // defensive: strip anything that looks like a secret
+    const json=JSON.stringify(data,(k,v)=> /(^|_)(key|secret|token|password|passwd|apikey|api_key|bearer|auth)($|_)/i.test(k)?undefined:v ,2);
+    const blob=new Blob([json],{type:'application/json'}); const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='osiris-shockwave-'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.json';
+    document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },200);
+  }catch(e){ try{ alert('ShockWave export failed: '+e.message); }catch(_){} } };
 })();
