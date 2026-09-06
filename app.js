@@ -275,9 +275,42 @@ let _ictData = { htf: [], sweep: [], entry: [], lastHtfFetch: 0, lastEntryFetch:
 
 // Round-trip TRANSACTIEKOSTEN (fees + slippage, beide zijden) als PERCENTAGE -
 // dit is het getal dat elke trade minimaal moet overwinnen om break-even te zijn.
-function roundTripCostPct() { return ((botSettings.feePct || 0) + (botSettings.slippagePct || 0)) * 2; }
+function roundTripCostPct() { return ((botSettings.feePct || 0) * _bnbSpotMul() + (botSettings.slippagePct || 0)) * 2; }
 // Behouden voor bestaande aanroepen/leesbaarheid: alleen de fees, zonder slippage.
-function roundTripFeePct() { return (botSettings.feePct || 0) * 2; }
+function roundTripFeePct() { return (botSettings.feePct || 0) * _bnbSpotMul() * 2; }
+
+// ============================================================
+// FEE-MODEL (echte Binance-tarieven) — spot ≠ futures!
+//   Spot (VIP0): 0,1% maker/taker  · met BNB -25% → 0,075%
+//   USDⓈ-M Futures (VIP0): 0,02% maker / 0,05% taker · met BNB -10%
+// De margin/futures-wallet betaalt fees op de LEVERAGED notional; de round-trip
+// kost telt daarom ×hefboom bij de aanroeper. VOORHEEN rekende margin met het
+// SPOT-tarief (0,1%/zijde) → ~2× te hoog, waardoor de fee-guard de wallet bevroor.
+// ============================================================
+let MARGIN_TAKER_PCT = 0.05;   // futures taker per zijde
+let MARGIN_MAKER_PCT = 0.02;   // futures maker per zijde
+let osirisUseBNB = false;      // BNB fee-korting; de portfolio-manager (bouw 85) zet dit autonoom
+try { osirisUseBNB = localStorage.getItem('osirisUseBNB') === '1'; } catch (e) {}
+function osirisSetUseBNB(on) { osirisUseBNB = !!on; try { localStorage.setItem('osirisUseBNB', on ? '1' : '0'); } catch (e) {} }
+window.osirisSetUseBNB = osirisSetUseBNB;
+function _bnbSpotMul() { try { return osirisUseBNB ? 0.75 : 1; } catch (e) { return 1; } }   // -25% op spot-fees met BNB
+function _bnbFutMul() { try { return osirisUseBNB ? 0.90 : 1; } catch (e) { return 1; } }    // -10% op futures-fees met BNB
+// Futures round-trip kost% op de notional (excl. hefboom-factor; de aanroeper × hefboom).
+function marginRoundTripCostPct() { return (MARGIN_TAKER_PCT * _bnbFutMul() + (botSettings.slippagePct || 0)) * 2; }
+function marginRoundTripFeePct() { return MARGIN_TAKER_PCT * _bnbFutMul() * 2; }
+
+// ============================================================
+// REAL-WORLD MODUS (bouw 85) — spot zoals een échte spot-wallet werkt.
+//   • spot = ALLEEN LONG (op echte spot kun je niet shorten zonder muntbezit)
+//   • shorts lopen via futures/perps (de margin-engine handelt die al)
+//   • kapitaalbehoud: verkoop een winstgevende long naar USDT bij een omslag,
+//     zodat de equity behouden blijft en er later opnieuw gelongd kan worden
+// Default UIT — het huidige gedrag blijft ongewijzigd tot de gebruiker dit aanzet.
+// ============================================================
+let OSIRIS_REALWORLD = { on: false, spotLongOnly: true, capitalPreservation: true, shortsToFutures: true, preserveMinProfitPct: 0.15, preserveFlipProb: 0.60 };
+try { const s = JSON.parse(localStorage.getItem('osirisRealworld') || 'null'); if (s && typeof s === 'object') OSIRIS_REALWORLD = Object.assign(OSIRIS_REALWORLD, s); } catch (e) {}
+function osirisSetRealworld(on) { OSIRIS_REALWORLD.on = !!on; try { localStorage.setItem('osirisRealworld', JSON.stringify(OSIRIS_REALWORLD)); } catch (e) {} try { if (typeof _osirisToast === 'function') _osirisToast('Real-world modus ' + (on ? 'AAN — spot long-only, shorts via futures, kapitaalbehoud actief' : 'UIT — spot mag weer synthetisch shorten'), on ? 'ok' : 'info'); } catch (e) {} try { renderOsirisPortfolio(); } catch (e) {} }
+window.osirisSetRealworld = osirisSetRealworld; window.OSIRIS_REALWORLD = OSIRIS_REALWORLD;
 
 // ============================================================
 // FEE-AWARE EDGE (23-08) — "eten de fees de edge op?"
@@ -297,7 +330,8 @@ function osirisFeeEdge(wallet) {
             const aW = w.length ? w.reduce((a, t) => a + (t.pnl || 0), 0) / w.length : 0;
             const aL = l.length ? Math.abs(l.reduce((a, t) => a + (t.pnl || 0), 0) / l.length) : 0;
             const lev = cl.reduce((a, t) => a + (t.leverage || marginLeverage), 0) / cl.length;
-            const cost = rt * lev;
+            const rtM = (typeof marginRoundTripCostPct === 'function') ? marginRoundTripCostPct() / 100 : rt;   // FUTURES-fee (0,05%/zijde), NIET het spot-tarief
+            const cost = rtM * lev;
             const beWR = (aW + aL) > 0 ? Math.min(0.999, (aL + cost) / (aW + aL)) : null;
             const actWR = cl.length ? w.length / cl.length : null;
             const edge = (beWR != null && actWR != null) ? actWR > beWR : true;
@@ -2502,6 +2536,7 @@ function resetWallet() {
     updateWalletUI();
     updatePendingOrdersUI();
     try { localStorage.removeItem('osirisSessionLog'); } catch (e) {}   // learningLog NIET wissen: dat is de kalibratie-/leerhistorie die moet accumuleren
+    try { OsirisSessions._clearSig('spot'); } catch (e) {}              // sessie is beëindigd → volgende (nieuwe) sessie mag weer vers genoteerd worden
     try { updateWalletUI(); updatePendingOrdersUI(); syncWalletLive(); } catch (e) {}
     try { renderOsirisShadowPanel(); } catch (e) {}
     try { console.log(`Wallet gereset naar ${walletSymbol()}${walletState.startingCapital} (${walletState.currency})`); } catch (e) { console.log('Wallet gereset.'); }
@@ -2688,41 +2723,73 @@ function updateSpotEquityBreakdown() {
     const el = document.getElementById('spot-equity-breakdown');
     if (!el) return;
     const equity = (typeof getEquity === 'function') ? getEquity() : (walletState.balance || 0);
+    const cash   = (typeof getBalance === 'function') ? getBalance() : (walletState.balance || 0); // ECHTE gesettelde USDT (start + gerealiseerd)
     const sym = (typeof walletSymbol === 'function') ? walletSymbol() : '₮';
+    const costFrac = (typeof roundTripCostPct === 'function') ? roundTripCostPct() / 100 : 0;
     const coins = ['BTC', 'ETH', 'SOL'];
     const col = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' };
-    const per = {}; coins.forEach(c => per[c] = { val: 0, side: null });
+    // per munt: longVal = mark-to-market van een AANGEHOUDEN long; shortNotional = short-exposure
+    // (USDT-gesetteld, munt NIET aangehouden); pnl = live open P/L; side = primaire kant.
+    const per = {}; coins.forEach(c => per[c] = { longVal: 0, shortNotional: 0, pnl: 0, hasLong: false, hasShort: false });
     for (const p of (openPositions || [])) {
         let c = p.market || 'BTC';
         try { if (p.symbol && typeof MULTI_BINANCE !== 'undefined') { const k = Object.keys(MULTI_BINANCE).find(x => MULTI_BINANCE[x] === p.symbol); if (k) c = k; } } catch (e) {}
         if (!per[c]) continue;
         const price = (typeof priceForPosition === 'function' ? priceForPosition(p) : null) || p.entryPrice;
         const grossPct = p.side === 'LONG' ? (price - p.entryPrice) / p.entryPrice : (p.entryPrice - price) / p.entryPrice;
-        const curVal = (p.notional || 0) * (1 + (isFinite(grossPct) ? grossPct : 0));
-        per[c].val += curVal; per[c].side = p.side;
+        const g = isFinite(grossPct) ? grossPct : 0;
+        const notional = p.notional || 0;
+        per[c].pnl += notional * (g - costFrac);
+        if (p.side === 'LONG') { per[c].longVal += notional * (1 + g); per[c].hasLong = true; }
+        else { per[c].shortNotional += notional; per[c].hasShort = true; }
     }
-    const inCoins = coins.reduce((a, c) => a + per[c].val, 0);
-    const freeUSDT = Math.max(0, equity - inCoins);
+    // Alleen LONGs binden echte wallet-waarde in een munt. SHORTs zijn USDT-gesetteld
+    // (opbrengst + P/L zitten in USDT), dus die tellen NIET als "in de munt".
+    const heldLong = coins.reduce((a, c) => a + per[c].longVal, 0);
+    const usdtBucket = Math.max(0, equity - heldLong);                 // alle USDT (cash + short-opbrengst + short-P/L)
+    const committedPct = (typeof getAllocatedPct === 'function') ? getAllocatedPct() * 100 : 0; // risk-budget (Σ sizePct)
+    const shortExposure = coins.reduce((a, c) => a + per[c].shortNotional, 0);
+    const nShort = (openPositions || []).filter(p => p.side === 'SHORT').length;
+    const fmtPnl = v => (v >= 0 ? '+' : '') + sym + v.toFixed(2);
+    const pnlCol = v => v >= 0 ? '#14f195' : '#ff5f7e';
+
     let h = `<div style="font-family:'JetBrains Mono',monospace; font-size:0.6rem;">`;
     h += `<div style="display:flex; justify-content:space-between; margin-bottom:6px;"><span style="color:var(--dim);">Totale equity (testnet)</span><b style="color:#eaffff;">${sym}${equity.toFixed(2)}</b></div>`;
-    // gestapelde verdeel-balk
+    // gestapelde verdeel-balk — toont WAAR de equity werkelijk staat: aangehouden munten (LONG) + USDT.
+    // Shorts zitten NIET in deze balk (die waarde staat in USDT); ze worden los als exposure getoond.
     const segs = [];
-    coins.forEach(c => { if (per[c].val > 0.005) segs.push({ pct: per[c].val / equity * 100, color: per[c].side === 'SHORT' ? '#ff5f7e' : col[c], label: c }); });
-    if (freeUSDT > 0.005) segs.push({ pct: freeUSDT / equity * 100, color: '#3a4a5a', label: 'USDT' });
+    coins.forEach(c => { if (per[c].longVal > 0.005) segs.push({ pct: per[c].longVal / equity * 100, color: col[c], label: c + ' (aangehouden)' }); });
+    if (usdtBucket > 0.005) segs.push({ pct: usdtBucket / equity * 100, color: '#3a4a5a', label: 'USDT' });
     h += `<div style="display:flex; height:14px; border-radius:7px; overflow:hidden; border:1px solid var(--line); margin-bottom:9px;">`;
     segs.forEach(s => { h += `<div title="${s.label} ${s.pct.toFixed(1)}%" style="width:${s.pct}%; background:${s.color};"></div>`; });
     h += `</div>`;
     // regels per munt
     coins.forEach(c => {
-        const v = per[c].val, pct = equity > 0 ? v / equity * 100 : 0;
-        const state = v <= 0.005 ? '<span style="color:#5c7488;">geen positie</span>'
-            : (per[c].side === 'SHORT'
-                ? '<span style="color:#ff5f7e;">SHORT &middot; verkocht &rarr; USDT</span>'
-                : '<span style="color:#14f195;">LONG &middot; munt aangehouden</span>');
-        h += `<div style="display:flex; align-items:center; padding:2px 0;"><span style="color:${col[c]}; font-weight:700; width:38px;">${c}</span><span style="flex:1;">${state}</span><span style="color:#cfe; width:78px; text-align:right;">${sym}${v.toFixed(2)}</span><span style="color:var(--dim); width:48px; text-align:right;">${pct.toFixed(1)}%</span></div>`;
+        const d = per[c];
+        if (!d.hasLong && !d.hasShort) {
+            h += `<div style="display:flex; align-items:center; padding:2px 0;"><span style="color:${col[c]}; font-weight:700; width:38px;">${c}</span><span style="flex:1; color:#5c7488;">geen positie</span><span style="color:#cfe; width:86px; text-align:right;">${sym}0.00</span><span style="color:var(--dim); width:52px; text-align:right;">0.0%</span></div>`;
+            return;
+        }
+        if (d.hasLong) {
+            const pct = equity > 0 ? d.longVal / equity * 100 : 0;
+            h += `<div style="display:flex; align-items:center; padding:2px 0;"><span style="color:${col[c]}; font-weight:700; width:38px;">${c}</span><span style="flex:1;"><span style="color:#14f195;">LONG &middot; munt aangehouden</span> <span style="color:${pnlCol(d.pnl)};">${fmtPnl(d.pnl)}</span></span><span style="color:#cfe; width:86px; text-align:right;">${sym}${d.longVal.toFixed(2)}</span><span style="color:var(--dim); width:52px; text-align:right;">${pct.toFixed(1)}%</span></div>`;
+        }
+        if (d.hasShort) {
+            const riskPct = equity > 0 ? d.shortNotional / equity * 100 : 0;
+            h += `<div style="display:flex; align-items:center; padding:2px 0;"><span style="color:${col[c]}; font-weight:700; width:38px;">${d.hasLong ? '' : c}</span><span style="flex:1;"><span style="color:#ff5f7e;">SHORT &middot; USDT-gesetteld (munt niet aangehouden)</span> <span style="color:${pnlCol(d.pnl)};">${fmtPnl(d.pnl)}</span></span><span style="color:#9fb2c4; width:86px; text-align:right;" title="short-exposure (risk-budget), niet aangehouden">exp ${sym}${d.shortNotional.toFixed(2)}</span><span style="color:var(--dim); width:52px; text-align:right;" title="risk-alloc = exposure / equity">${riskPct.toFixed(1)}%</span></div>`;
+        }
     });
-    h += `<div style="display:flex; align-items:center; padding:3px 0; border-top:1px solid var(--line); margin-top:3px;"><span style="color:#8fb3c9; font-weight:700; width:38px;">USDT</span><span style="flex:1; color:#8fb3c9;">vrij kapitaal (cash)</span><span style="color:#cfe; width:78px; text-align:right;">${sym}${freeUSDT.toFixed(2)}</span><span style="color:var(--dim); width:48px; text-align:right;">${equity > 0 ? (freeUSDT / equity * 100).toFixed(1) : '0.0'}%</span></div>`;
-    h += `<div style="margin-top:8px; color:#7d99ac; font-size:0.54rem; line-height:1.6; border-top:1px dashed var(--line); padding-top:6px;">Spot kan niet echt shorten. <b style="color:#14f195;">LONG</b> = USDT omgezet in de munt (je houdt de munt aan). <b style="color:#ff5f7e;">SHORT</b> = Osiris verkoopt de aangehouden munt terug naar USDT, zodat winst/verlies bij verkoop wordt gerealiseerd en de wallet-equity op peil blijft. Bij een vlakke wallet staat 100% in USDT.</div>`;
+    // USDT cash-regel
+    h += `<div style="display:flex; align-items:center; padding:3px 0; border-top:1px solid var(--line); margin-top:3px;"><span style="color:#8fb3c9; font-weight:700; width:38px;">USDT</span><span style="flex:1; color:#8fb3c9;">vrij + short-gesetteld</span><span style="color:#cfe; width:86px; text-align:right;">${sym}${usdtBucket.toFixed(2)}</span><span style="color:var(--dim); width:52px; text-align:right;">${equity > 0 ? (usdtBucket / equity * 100).toFixed(1) : '0.0'}%</span></div>`;
+    // samenvatting: werkelijk aangehouden vs risk-budget ingezet
+    h += `<div style="display:flex; justify-content:space-between; margin-top:7px; padding-top:6px; border-top:1px solid var(--line); color:#9fb2c4;">`;
+    h += `<span title="werkelijke wallet-waarde die in munten (LONG) vastzit">in munten aangehouden <b style="color:#cfe;">${equity > 0 ? (heldLong / equity * 100).toFixed(1) : '0.0'}%</b></span>`;
+    h += `<span title="Σ positiegrootte (sizePct) — risk-budget dat is ingezet, incl. shorts">risk-budget ingezet <b style="color:#cfe;">${committedPct.toFixed(1)}%</b></span>`;
+    h += `</div>`;
+    if (nShort > 0) {
+        h += `<div style="margin-top:5px; color:#c98; font-size:0.54rem; line-height:1.5; background:rgba(255,95,126,0.06); border:1px solid rgba(255,95,126,0.25); border-radius:6px; padding:5px 8px;">⚠ ${nShort} SHORT-positie${nShort > 1 ? 's' : ''} open voor ${sym}${shortExposure.toFixed(2)} exposure. Op een <b>spot</b>-wallet kun je niet écht shorten — dit is een gesimuleerde short: er wordt <b>géén ${coins.filter(c=>per[c].hasShort).join('/')} aangehouden</b>, de waarde staat in USDT en alleen de open P/L beweegt met de prijs. De alloc-% bij zo'n positie is <b>risk-budget</b>, niet muntbezit.</div>`;
+    }
+    h += `<div style="margin-top:8px; color:#7d99ac; font-size:0.54rem; line-height:1.6; border-top:1px dashed var(--line); padding-top:6px;"><b style="color:#14f195;">LONG</b> = USDT omgezet in de munt → die waarde staat écht in de munt (balk-segment). <b style="color:#ff5f7e;">SHORT</b> = gesimuleerd, USDT-gesetteld → telt <b>niet</b> als muntbezit, alleen de open P/L telt. "Totale equity" = ${sym}${cash.toFixed(2)} cash ${equity>=cash?'+':'−'} ${sym}${Math.abs(equity-cash).toFixed(2)} open P/L. Bij een vlakke wallet staat 100% in USDT.</div>`;
     h += `</div>`;
     el.innerHTML = h;
 }
@@ -4149,6 +4216,8 @@ function scanForOpportunities(decision, metrics) {
     const _sideEvals = ['LONG', 'SHORT']
         .map(sd => ({ side: sd, evalResult: evaluateEntryOpportunity(sd, decision, metrics, livePrice) }))
         .filter(e => e.evalResult && e.evalResult.eligible)
+        // REAL-WORLD: spot = long-only → shorts vallen weg (die lopen via futures/perps)
+        .filter(e => !(OSIRIS_REALWORLD.on && OSIRIS_REALWORLD.spotLongOnly && e.side === 'SHORT'))
         .sort((a, b) => (b.evalResult.probabilityPct || 0) - (a.evalResult.probabilityPct || 0));
     if (_sideEvals.length) {
         const _opp = _sideEvals[0].side === 'LONG' ? 'SHORT' : 'LONG';
@@ -4685,6 +4754,37 @@ function closePosition(pos, pnlPct, reason) {
     const feeFraction = roundTripCostPct() / 100;
     finalizeClosePosition(pos, pnlPct - feeFraction, reason);
 }
+
+// ============================================================
+// KAPITAALBEHOUD (real-world modus) — bescherm de equity van een winstgevende spot-LONG.
+// Draait de markt om (bevestigd SHORT-signaal) terwijl de long in de winst staat, dan
+// verkoopt Osiris de munt naar USDT: winst blijft in de wallet en er is weer vrij kapitaal
+// om later opnieuw te longen. Doet niets bij verlies (dat is voor de gewone stop) of buiten
+// real-world modus. Alleen spot-longs (futures heeft eigen exits).
+// ============================================================
+function osirisCapitalPreserveTick() {
+    try {
+        if (!(OSIRIS_REALWORLD.on && OSIRIS_REALWORLD.capitalPreservation)) return;
+        const now = Date.now();
+        for (const pos of [...openPositions]) {
+            if (pos.side !== 'LONG' || pos.isMargin) continue;
+            if (pos.openTime && (now - pos.openTime) < 60000) continue;        // net geopend → geen instant flip
+            if (pos.pendingExchangeClose) continue;
+            const px = (typeof priceForPosition === 'function') ? priceForPosition(pos) : livePrice;
+            if (!px) continue;
+            const grossPct = (px - pos.entryPrice) / pos.entryPrice;
+            const nettoPct = grossPct - roundTripCostPct() / 100;
+            let sym = 'BTC'; try { if (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') sym = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || 'BTC'; } catch (e) {}
+            const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
+            const flip = m && m.bestSide === 'SHORT' && (m.bestProb || 0) >= (OSIRIS_REALWORLD.preserveFlipProb || 0.6);
+            if (flip && nettoPct >= (OSIRIS_REALWORLD.preserveMinProfitPct || 0.15) / 100) {
+                closePosition(pos, grossPct, `CAPITAL_PRESERVE (winst ${(nettoPct * 100).toFixed(2)}% → USDT — markt draait ${sym} SHORT ${((m.bestProb || 0) * 100 | 0)}%)`);
+                try { if (typeof logAdaptation === 'function') logAdaptation(`Kapitaalbehoud · ${sym}`, `long naar USDT bij omslag (winst ${(nettoPct * 100).toFixed(2)}%); equity beschermd, klaar om opnieuw te longen`); } catch (e) {}
+            }
+        }
+    } catch (e) {}
+}
+window.osirisCapitalPreserveTick = osirisCapitalPreserveTick;
 
 async function closePositionOnTestnet(pos, reason) {
     if (pos.pendingExchangeClose) return; // dubbele close voorkomen terwijl de order onderweg is
@@ -6152,7 +6252,10 @@ function syncMarginWallet() {
         // equity uit een groot testnet-futures-saldo komt.
         const baseline = (marginState.equitySource === 'exchange' && marginState.exchangeStart != null) ? marginState.exchangeStart : marginState.startEquity;
         const pnl = eq - baseline;
-        set('m-leverage', marginLeverage + 'x'); set('m-lev2', marginLeverage + 'x');
+        // per-trade autonome hefboom: toon de hefboom van de open posities (of de laatst gekozen), met "auto"-hint
+        const _openLevs = (marginState.positions || []).map(p => p.leverage).filter(v => v > 0);
+        const _levTxt = _openLevs.length ? (Math.min(..._openLevs) === Math.max(..._openLevs) ? _openLevs[0] + 'x' : Math.min(..._openLevs) + '–' + Math.max(..._openLevs) + 'x') : ('auto ' + MARGIN_LEV_MIN + '–' + MARGIN_LEV_MAX + 'x');
+        set('m-leverage', _levTxt); set('m-lev2', _levTxt);
         // RECONCILIATIE (22-08): de kern-P/L is equity \u2212 baseline en is dus NETTO (na echte
         // testnet-fees). De open-posities tonen BRUTO geleveraged rendement. We splitsen het
         // hier expliciet uit \u2014 onreal. (bruto) + realized \u2212 fees = kern-P/L \u2014 zodat het verschil
@@ -11374,6 +11477,9 @@ function osirisMasterBundle() {
         sessie_events: g(() => (typeof sessionLog !== 'undefined' ? sessionLog : null)),
         self_review: g(() => (typeof OsirisSelfReview !== 'undefined' ? OsirisSelfReview.bundle() : null)),
         fee_edge: g(() => (typeof osirisFeeEdge === 'function' ? { spot: osirisFeeEdge('spot'), margin: osirisFeeEdge('margin') } : null)),   // fee-aware edge per wallet (winrate vs break-even ná kosten)
+        fees: g(() => ({ spotRoundTripPct: (typeof roundTripCostPct === 'function' ? +roundTripCostPct().toFixed(3) : null), futuresRoundTripPct: (typeof marginRoundTripCostPct === 'function' ? +marginRoundTripCostPct().toFixed(3) : null), useBNB: (typeof osirisUseBNB !== 'undefined' ? osirisUseBNB : null), spotTakerPct: (typeof botSettings !== 'undefined' ? botSettings.feePct : null), futuresTakerPct: (typeof MARGIN_TAKER_PCT !== 'undefined' ? MARGIN_TAKER_PCT : null) })),
+        portfolio: g(() => (typeof OsirisPortfolio !== 'undefined' ? OsirisPortfolio.bundle() : null)),   // portfolio + autonome BNB fee-reserve
+        realworld: g(() => (typeof OSIRIS_REALWORLD !== 'undefined' ? OSIRIS_REALWORLD : null)),
         uitleg: 'Alle "waarom"-verklaringen bij elkaar: waarom Osiris de engine bijstelde, waarom margin/spot een positie wel/niet nam (incl. DeepNet-band + fee-aware guard), en de sessie-events die de config-segmenten markeren. fee_edge toont of de fees de edge opeten (edge=false ⇒ engine wordt strenger).'
     };
 
@@ -12164,8 +12270,8 @@ window.osirisRLTick = osirisRLTick;
 // ============================================================
 const MARGIN_BASE = 'https://testnet.binancefuture.com';
 let marginEngineEnabled = false;
-let marginLeverage = 3;                 // Osiris stelt dit autonoom bij tussen MIN..MAX
-const MARGIN_LEV_MIN = 3, MARGIN_LEV_MAX = 5;
+let marginLeverage = 3;                 // baseline/display; Osiris kiest de hefboom nu PER TRADE (osirisPickLeverage)
+const MARGIN_LEV_MIN = 1, MARGIN_LEV_MAX = 20;   // per-trade band 1..20× (autonoom door Osiris bepaald)
 // KALIBRATIE (19-08): margin is leveraged -> strengere entry, strakker target, FSO-pauze.
 // AANPASSING (19-08, op verzoek): margin moet VAKER traden dan spot. De oude drempel
 // (0.58) lag BOVEN spot's live minProbabilityPct (0.55) en de FSO-pauze sloeg al dicht
@@ -12401,12 +12507,40 @@ function marginAutoLeverage() {
 window.marginAutoLeverage = marginAutoLeverage;
 
 // --- Wallet-helpers (gespiegeld van spot, maar op marginState) ---
+// ============================================================
+// PER-TRADE HEFBOOM (autonoom, 1..20×) — Osiris bepaalt de hefboom voor ELKE trade
+// apart uit conviction × regime × volatiliteit × opportunity × fee-edge, i.p.v. één
+// vaste hefboom voor alles. Hoge overtuiging in een kalm/trending regime met lage
+// volatiliteit ⇒ hoge hefboom (tot 20×); ruis/chop/spike/crisis of fee-druk ⇒ terug naar 1×.
+//   pEff      = trust-gewogen kans (0..1)
+//   regimeCalm= true als het regime rustig/trending is (geen chop/crisis)
+//   volPen    = volatiliteitsstraf 0..1 (1 = zeer volatiel → hefboom omlaag)
+//   opp       = markt-opportunity 0..1 (bliksem-kans-tilt)
+//   feeOk     = false als de fees de edge opeten (dan hefboom halveren)
+// ============================================================
+function osirisPickLeverage(pEff, regimeCalm, volPen, opp, feeOk) {
+    try {
+        const p = Math.max(0, Math.min(1, pEff || 0));
+        // conviction-basis: 0,50 → 1×, 0,95+ → 20× (lineair over de bruikbare band)
+        let lev = 1 + (Math.max(0, Math.min(0.45, p - 0.50)) / 0.45) * 19;
+        lev *= regimeCalm ? 1.0 : 0.55;                 // onrustig regime → fors terug
+        lev *= (1 - 0.55 * Math.max(0, Math.min(1, volPen || 0)));   // volatiliteit → terug
+        lev *= (0.85 + 0.30 * Math.max(0, Math.min(1, opp || 0)));   // opportunity-tilt
+        if (feeOk === false) lev *= 0.5;                // fee-guard: minder notional
+        const MIN = (typeof MARGIN_LEV_MIN !== 'undefined') ? MARGIN_LEV_MIN : 1;
+        const MAX = (typeof MARGIN_LEV_MAX !== 'undefined') ? MARGIN_LEV_MAX : 20;
+        return Math.max(MIN, Math.min(MAX, Math.round(lev)));
+    } catch (e) { return (typeof MARGIN_LEV_MIN !== 'undefined') ? MARGIN_LEV_MIN : 1; }
+}
+window.osirisPickLeverage = osirisPickLeverage;
+
 function marginEquity() { let eq = marginState.equity; for (const p of marginState.positions) eq += (p.uPnl || 0); return eq; }
 function marginAllocatedPct() { let a = 0; for (const p of marginState.positions) a += (p.sizePct || 0); return a; }
 
 // Entry: gebruikt DEZELFDE osiris-picks (neoMultiState bestSide/bestProb) maar opent een
 // futures-positie met leverage. Long en short beide mogelijk.
 let _marginLastEntry = {};
+let _feeGuardActive = false, _feeGuardLastLog = 0;   // throttle voor de fee-aware guard-log (geen spam elke tick)
 // FIX (19-08, alloc-race): marginTick doet echte netwerk-calls (await marginOrder, ...)
 // vóórdat de positie in marginState.positions.push()'t. Zonder deze vlag kan de volgende
 // setInterval-tick (elke 10s, zie multiRoundRobinTick) een NIEUWE marginTick() starten
@@ -12450,7 +12584,17 @@ async function marginTick() {
                 _feeMinP = Math.min(0.14, _feeGuard.deficit * 0.6 + 0.03);
                 MINP = Math.min(0.85, MINP + _feeMinP);
                 marginState.lastAction = `fee-guard: winrate ${(_feeGuard.actWR * 100 | 0)}% < break-even-ná-fees ${(_feeGuard.beWR * 100 | 0)}% — strenger (drempel ${(MINP * 100 | 0)}%, hefboom↓)`;
-                try { _marginLog('adaptation', `Fee-aware guard actief: fees eten de edge (winrate ${(_feeGuard.actWR * 100 | 0)}% vs ${(_feeGuard.beWR * 100 | 0)}% nodig ná fees @ ${_feeGuard.leverage.toFixed(1)}x). Entry-drempel → ${(MINP * 100 | 0)}%, hefboom naar minimum, alleen nog top-setups.`); } catch (e) {}
+                // THROTTLE: log alleen bij een TRANSITIE (edge→geen-edge) of hoogstens elke 10 min,
+                // i.p.v. elke tick (~10s) — dat spamde de adaptation-log honderden keren met dezelfde regel.
+                const _nowG = Date.now();
+                if (!_feeGuardActive || (_nowG - (_feeGuardLastLog || 0)) > 600000) {
+                    _feeGuardLastLog = _nowG;
+                    try { _marginLog('adaptation', `Fee-aware guard AAN: fees eten de edge (winrate ${(_feeGuard.actWR * 100 | 0)}% vs ${(_feeGuard.beWR * 100 | 0)}% nodig ná futures-fees @ ${_feeGuard.leverage.toFixed(1)}x). Entry-drempel → ${(MINP * 100 | 0)}%, hefboom autonoom omlaag, alleen nog top-setups.`); } catch (e) {}
+                }
+                _feeGuardActive = true;
+            } else if (_feeGuardActive) {
+                _feeGuardActive = false;   // edge is terug → één keer melden dat de rem eraf gaat
+                try { _marginLog('adaptation', `Fee-aware guard UIT: edge is terug ná fees — normale entry-drempel/hefboom hersteld.`); } catch (e) {}
             }
             // FSO-PAUZE (19-08, versoepeld op verzoek): alleen nog een harde stop bij ECHTE
             // CRISIS. De oude SPANNING+variance>0.02-clausule sloot margin bijna permanent af
@@ -12529,10 +12673,23 @@ async function marginTick() {
             const _opp = (typeof osirisMarketOpportunity === 'function') ? osirisMarketOpportunity(sym) : 0;
             const perCap = MARGIN_PER_TRADE_EXPO * (0.6 + 0.9 * _opp);                             // 0.6×..1.5× de basis afhankelijk van opportunity
             const perTradeExpo = Math.min(perCap * _taSizeMul * _sgSizeMul, availExpo);              // per trade max notional (× equity), bijgesteld door Timing-Agent + spike-guard
-            // CHOP: verlaag de hefboom voor DEZE entry naar het minimum (minder gevoelig voor ruis).
-            let entryLev = _chopReg ? (typeof MARGIN_LEV_MIN !== 'undefined' ? Math.min(marginLeverage, MARGIN_LEV_MIN) : Math.min(marginLeverage, 2)) : marginLeverage;
-            if (_feeNoEdge) entryLev = Math.min(entryLev, (typeof MARGIN_LEV_MIN !== 'undefined' ? MARGIN_LEV_MIN : 2));   // fee-guard: lagere hefboom = minder notional = minder fees
-            if (_spikeTighten) entryLev = Math.min(entryLev, (typeof MARGIN_LEV_MIN !== 'undefined' ? MARGIN_LEV_MIN : 2));  // (step 3) spike-risico: hefboom omlaag = kleinere absolute klap
+            // PER-TRADE HEFBOOM (autonoom 1..20×): Osiris kiest de hefboom voor DEZE trade uit
+            // conviction × regime × volatiliteit × opportunity × fee-edge. Chop/spike/crisis of
+            // fee-druk drukken 'm richting 1×; hoge overtuiging in een kalm/trending regime tot 20×.
+            let _regimeCalm = false;
+            try {
+                const _hmm = (typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null;
+                const _fsoOK = (typeof osirisStress === 'undefined') || !osirisStress.ts || (Date.now() - osirisStress.ts > 30 * 60000) || (osirisStress.regime === 'RUST');
+                _regimeCalm = !_chopReg && _fsoOK && (_hmm === 'kalm' || _hmm === 'trending' || _hmm == null);
+            } catch (e) {}
+            let _volPen = 0;
+            try {
+                const _ch = Math.abs(m.chaos || 0);                                   // chaos-magnitude
+                const _sv = (typeof osirisStress !== 'undefined' && osirisStress.variance) ? osirisStress.variance : 0;
+                _volPen = Math.max(0, Math.min(1, _ch / 3 + _sv * 6 + (_spikeTighten ? 0.5 : 0) + (_chopReg ? 0.35 : 0)));
+            } catch (e) { _volPen = _spikeTighten ? 0.5 : 0; }
+            let entryLev = osirisPickLeverage(pEff, _regimeCalm, _volPen, _opp, !_feeNoEdge);
+            marginLeverage = entryLev;   // baseline/weergave volgt de laatst gekozen hefboom
             const sizePct = perTradeExpo / entryLev;                                               // bijhorende marge-fractie
             if (sizePct < 0.03) { marginState.lastAction = `exposure-cap bereikt (${(curNotionalPct * 100 | 0)}% / ${(effMaxExpo * 100 | 0)}% notional)`; continue; }
             const marginUSD = sizingBase * sizePct;
@@ -12752,6 +12909,7 @@ function resetMarginWallet() {
     };
     window.marginState = marginState;
     try { localStorage.removeItem('osirisMarginState'); } catch (e) {}
+    try { OsirisSessions._clearSig('margin'); } catch (e) {}          // sessie beëindigd → volgende margin-sessie mag weer vers genoteerd worden
     _marginLog('adaptation', `Margin-wallet gereset naar ₮${start.toFixed(2)}`);
     try { marginSave(); } catch (e) {}
     try { syncMarginWallet(); } catch (e) {}
@@ -13310,6 +13468,8 @@ function osirisShadowTick() {
             if (typeof _osirisSweep !== 'undefined' && _osirisSweep[sym]) { osirisState.skip[sym] = 'wacht op sweep-niveau'; continue; }
             // SHORT geblokkeerd (onvoldoende testnet-saldo)? sla over - anders sweep->skip->loop.
             if (p.side === 'SHORT' && _osirisShortBlock[sym] && (now - _osirisShortBlock[sym]) < 15 * 60000) { osirisState.skip[sym] = 'SHORT geblokkeerd (onvoldoende saldo op testnet)'; continue; }
+            // REAL-WORLD: spot kan niet shorten zonder muntbezit → laat de futures/margin-engine de short doen.
+            if (p.side === 'SHORT' && OSIRIS_REALWORLD.on && OSIRIS_REALWORLD.spotLongOnly) { osirisState.skip[sym] = 'SHORT → futures (real-world: spot is long-only)'; continue; }
             // cooldown: max 1 nieuwe entry per munt per 60s
             if (_osirisLastEntry[sym] && (now - _osirisLastEntry[sym]) < 60000) { osirisState.skip[sym] = '60s cooldown'; continue; }
             try { if (typeof osirisPredictGate === 'function') { const _pg = osirisPredictGate(sym, p.side); if (!_pg.allow) { osirisState.skip[sym] = _pg.reason; continue; } } } catch (e) {}
@@ -15198,7 +15358,8 @@ function osirisSpotSessionMetrics() {
     };
 }
 function osirisMarginSessionMetrics() {
-    const startMs = _osirisSessionStartMs(); const cost = roundTripCostPct() / 100;
+    const startMs = _osirisSessionStartMs();
+    const cost = ((typeof marginRoundTripCostPct === 'function') ? marginRoundTripCostPct() : roundTripCostPct()) / 100;   // FUTURES-fee op de leveraged notional
     const closed = (typeof marginState !== 'undefined' && marginState.closed) ? marginState.closed : [];
     const tlog = (typeof marginState !== 'undefined' && marginState.tradeLog) ? marginState.tradeLog : [];
     const inWin = t => startMs ? ((t.ts || 0) >= startMs) : true;
@@ -15220,20 +15381,42 @@ function osirisMarginSessionMetrics() {
         runtimeMs: startMs ? Date.now() - startMs : null, perMarkt: perMkt
     };
 }
+// Lichte, niet-blokkerende toast (rechtsonder) — voor korte meldingen zoals "sessie al genoteerd".
+function _osirisToast(msg, kind) {
+    try {
+        let wrap = document.getElementById('osiris-toasts');
+        if (!wrap) { wrap = document.createElement('div'); wrap.id = 'osiris-toasts'; wrap.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:100000;display:flex;flex-direction:column;gap:8px;max-width:360px;'; document.body.appendChild(wrap); }
+        const c = kind === 'ok' ? '#14f195' : kind === 'warn' ? '#ffb627' : kind === 'err' ? '#ff5f7e' : '#7fd8ff';
+        const t = document.createElement('div');
+        t.style.cssText = 'font:0.62rem/1.4 \'JetBrains Mono\',monospace;color:#dfeaf3;background:#08131f;border:1px solid ' + c + ';border-left:3px solid ' + c + ';border-radius:8px;padding:9px 12px;box-shadow:0 6px 22px rgba(0,0,0,0.45);opacity:0;transform:translateY(6px);transition:opacity .2s, transform .2s;';
+        t.innerHTML = '<span style="color:' + c + ';">◈</span> ' + msg;
+        wrap.appendChild(t);
+        requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'translateY(0)'; });
+        setTimeout(() => { t.style.opacity = '0'; t.style.transform = 'translateY(6px)'; setTimeout(() => { try { t.remove(); } catch (e) {} }, 250); }, 5200);
+    } catch (e) {}
+}
+window._osirisToast = _osirisToast;
+
 const OsirisSessions = {
     DISPLAY_CAP: 200,
     list: [],
     // LIFETIME-totalen per wallet — blijven kloppen ook nadat oude kaarten uit `list` vallen.
     totals: { spot: null, margin: null },
     _zero() { return { count: 0, net: 0, gains: 0, losses: 0, cost: 0, trades: 0, wins: 0, lossesN: 0, runtimeMs: 0, bestNet: null, worstNet: null, firstAt: null, lastAt: null }; },
+    _lastSig: { spot: null, margin: null },   // signatuur van de laatst gearchiveerde sessie per wallet (dedup)
     _restore() {
         try { const d = JSON.parse(localStorage.getItem('osirisSessions') || '[]'); if (Array.isArray(d)) this.list = d; } catch (e) {}
         try { const t = JSON.parse(localStorage.getItem('osirisSessionsTotals') || 'null'); if (t) this.totals = t; } catch (e) {}
+        try { const s = JSON.parse(localStorage.getItem('osirisSessionsLastSig') || 'null'); if (s) this._lastSig = s; } catch (e) {}
     },
     _save() {
         try { localStorage.setItem('osirisSessions', JSON.stringify(this.list.slice(0, this.DISPLAY_CAP))); } catch (e) {}
         try { localStorage.setItem('osirisSessionsTotals', JSON.stringify(this.totals)); } catch (e) {}
+        try { localStorage.setItem('osirisSessionsLastSig', JSON.stringify(this._lastSig)); } catch (e) {}
     },
+    // signatuur die een sessie identificeert op GESLOTEN-trade-feiten (stabiel tussen stop→reset;
+    // bewust GEEN live equity/unrealized, want die drift een cent tussen stop en reset en zou de dedup breken).
+    _sig(startMs, s) { const opened = s.perMarkt ? ((s.perMarkt.BTC.opened || 0) + (s.perMarkt.ETH.opened || 0) + (s.perMarkt.SOL.opened || 0)) : 0; return [startMs || 0, s.trades || 0, s.wins || 0, s.losses || 0, Math.round((s.sessionNet || 0) * 100), opened].join('|'); },
     _accum(w, s) {
         const t = this.totals[w] || (this.totals[w] = this._zero());
         t.count++; t.net += s.sessionNet || 0; t.gains += s.sessionGains || 0; t.losses += s.sessionLosses || 0; t.cost += s.sessionCost || 0;
@@ -15242,21 +15425,197 @@ const OsirisSessions = {
         if (t.firstAt == null) t.firstAt = s.endedAt || Date.now(); t.lastAt = s.endedAt || Date.now();
     },
     archive(reason, which) {
+        const added = [], skipped = [];
         try {
             which = which || 'both'; const startMs = _osirisSessionStartMs(); const now = Date.now();
             const base = { endedAt: now, endedISO: new Date(now).toISOString(), startedAt: startMs || null, startedISO: startMs ? new Date(startMs).toISOString() : null, reason: reason || 'stop' };
-            if (which === 'both' || which === 'spot') { const s = osirisSpotSessionMetrics(); if (s.trades > 0 || (s.perMarkt && (s.perMarkt.BTC.opened + s.perMarkt.ETH.opened + s.perMarkt.SOL.opened) > 0)) { const rec = Object.assign({ id: 'ses-' + now + '-spot' }, base, s); this.list.unshift(rec); this._accum('spot', rec); } }
-            if (which === 'both' || which === 'margin') { const mm = osirisMarginSessionMetrics(); if (mm.trades > 0 || (mm.perMarkt && (mm.perMarkt.BTC.opened + mm.perMarkt.ETH.opened + mm.perMarkt.SOL.opened) > 0)) { const rec = Object.assign({ id: 'ses-' + now + '-margin' }, base, mm); this.list.unshift(rec); this._accum('margin', rec); } }
+            const one = (w, metricsFn) => {
+                const s = metricsFn();
+                const hasActivity = s.trades > 0 || (s.perMarkt && (s.perMarkt.BTC.opened + s.perMarkt.ETH.opened + s.perMarkt.SOL.opened) > 0);
+                if (!hasActivity) return;                                  // niets te loggen (lege sessie)
+                const sig = this._sig(startMs, s);
+                if (this._lastSig[w] === sig) { skipped.push(w); return; } // ZELFDE sessie, geen nieuwe activiteit → niet nog eens loggen
+                const rec = Object.assign({ id: 'ses-' + now + '-' + w }, base, s);
+                this.list.unshift(rec); this._accum(w, rec); this._lastSig[w] = sig; added.push(w);
+            };
+            if (which === 'both' || which === 'spot') one('spot', osirisSpotSessionMetrics);
+            if (which === 'both' || which === 'margin') one('margin', osirisMarginSessionMetrics);
             if (this.list.length > this.DISPLAY_CAP) this.list.length = this.DISPLAY_CAP;
             this._save(); try { renderSessionsPanels(); } catch (e) {}
         } catch (e) {}
+        // gebruiker informeren: wat is toegevoegd, en wat is overgeslagen omdat het al genoteerd stond
+        try {
+            if (added.length) _osirisToast('Sessie genoteerd (' + added.join(' + ') + ') · reden: ' + (reason || 'stop'), 'ok');
+            else if (skipped.length) _osirisToast('Sessie stond al genoteerd (' + skipped.join(' + ') + ') — niet dubbel toegevoegd.', 'info');
+        } catch (e) {}
+        return { added, skipped };
     },
+    // reset de dedup-signatuur zodat een VOLGENDE (nieuwe) sessie weer vers genoteerd kan worden
+    _clearSig(which) { try { if (which === 'both' || which === 'spot') this._lastSig.spot = null; if (which === 'both' || which === 'margin') this._lastSig.margin = null; this._save(); } catch (e) {} },
     bundle() { return { shown: this.list.length, displayCap: this.DISPLAY_CAP, lifetimeTotals: this.totals, exportedAt: new Date().toISOString(), sessions: this.list, uitleg: 'sessions = de laatste ' + this.DISPLAY_CAP + ' gearchiveerde sessies (nieuwste eerst). lifetimeTotals = cumulatieve totalen over ALLE sessies ooit (blijven kloppen ook nadat oude kaarten uit de lijst vallen).' }; },
     download() { try { _dlSized(this.bundle(), `osiris_sessions_${Date.now()}.json`); } catch (e) {} }
 };
 window.OsirisSessions = OsirisSessions; try { OsirisSessions._restore(); } catch (e) {}
 function downloadSessions() { try { OsirisSessions.download(); } catch (e) {} }
 window.downloadSessions = downloadSessions;
+
+// ============================================================
+// OSIRIS PORTFOLIO & BNB FEE-MANAGER (bouw 85)
+// ------------------------------------------------------------
+// Één overkoepelend beeld van de héle portefeuille (spot + margin + BNB-reserve) én een
+// AUTONOME BNB fee-reserve: Osiris houdt zelf een BNB-buffer aan om fees met korting te
+// betalen (spot -25%, futures -10%), verdeelt BNB over de spot- en futures-kant, en zet de
+// korting alleen aan als het per saldo lóónt (bespaarde fees > het aanhouden waard). Op het
+// testnet is de BNB-reserve GESIMULEERD (aparte wallets, geen echte transfers); voor live
+// zijn er haken (_liveBuyBNB/_liveTransfer) die met echte keys de echte orders/transfers doen.
+// De trading-wallets (walletState/marginState) worden NIET aangeraakt — dit is een overlay,
+// zodat de P/L-boekhouding van de bot zuiver blijft.
+// ============================================================
+const OsirisPortfolio = {
+    BNB_FALLBACK: 600,
+    _bnbPx: null, _bnbPxAt: 0,
+    st: { enabled: false, mode: 'auto', bnbSpot: 0, bnbFut: 0, targetDays: 14, minBufferUSDT: 5,
+          lastTick: 0, lastTopUp: 0, spentUSDT: 0, savedUSDT: 0, topUps: [] },
+    _restore() { try { const d = JSON.parse(localStorage.getItem('osirisPortfolio') || 'null'); if (d && d.st) this.st = Object.assign(this.st, d.st); } catch (e) {} },
+    _save() { try { localStorage.setItem('osirisPortfolio', JSON.stringify({ st: this.st })); } catch (e) {} },
+
+    // --- BNB-prijs: probeer live (Binance ticker, gecached 5 min), val terug op de laatste/560 ---
+    bnbPrice() { return (this._bnbPx && this._bnbPx > 0) ? this._bnbPx : this.BNB_FALLBACK; },
+    _refreshBnbPrice() {
+        const now = Date.now(); if (now - this._bnbPxAt < 300000) return; this._bnbPxAt = now;
+        try {
+            if (typeof bFetch !== 'function') return;
+            bFetch('https://api.binance.com/api/v3/ticker/price?symbol=BNBUSDT')
+                .then(r => r.json()).then(d => { const px = parseFloat(d && d.price); if (isFinite(px) && px > 0) this._bnbPx = px; }).catch(() => {});
+        } catch (e) {}
+    },
+
+    totalBNB() { return (this.st.bnbSpot || 0) + (this.st.bnbFut || 0); },
+    bnbValueUSDT() { return this.totalBNB() * this.bnbPrice(); },
+
+    spotEquity() { try { return (typeof getEquity === 'function') ? getEquity() : (walletState.balance || 0); } catch (e) { return 0; } },
+    marginEq() { try { return (typeof marginEquity === 'function') ? marginEquity() : ((typeof marginState !== 'undefined') ? marginState.equity : 0); } catch (e) { return 0; } },
+    portfolioEquity() { return this.spotEquity() + this.marginEq() + this.bnbValueUSDT(); },
+
+    // geschatte fee-uitgave per dag, uit de lopende spot- + margin-sessie (kost / runtime → per dag)
+    feePerDay() {
+        try {
+            let cost = 0, ms = 0;
+            const s = (typeof osirisSpotSessionMetrics === 'function') ? osirisSpotSessionMetrics() : null;
+            const m = (typeof osirisMarginSessionMetrics === 'function') ? osirisMarginSessionMetrics() : null;
+            if (s && s.sessionCost) { cost += s.sessionCost; ms = Math.max(ms, s.runtimeMs || 0); }
+            if (m && m.sessionCost) { cost += m.sessionCost; ms = Math.max(ms, m.runtimeMs || 0); }
+            if (!(ms > 0) || cost <= 0) return 0;
+            return cost / (ms / 86400000);   // USDT per dag
+        } catch (e) { return 0; }
+    },
+    // gemiddelde fee-korting die BNB oplevert, gewogen naar waar de fees vallen (grof 50/50 spot/futures)
+    avgDiscount() { return 0.5 * 0.25 + 0.5 * 0.10; },   // ≈ 0.175
+    // doel-buffer in USDT: dek ~targetDays aan fees, met een vloer en een plafond (≤10% van de portfolio)
+    targetBufferUSDT() { const perDay = this.feePerDay(); const raw = perDay > 0 ? perDay * this.st.targetDays : this.st.minBufferUSDT; return Math.max(this.st.minBufferUSDT, Math.min(raw, 0.10 * Math.max(1, this.portfolioEquity()))); },
+
+    // Is BNB aanhouden het waard? bespaarde fees over ~30d vs. een kleine drempel.
+    worthHolding() { const save30 = this.feePerDay() * 30 * this.avgDiscount(); return { save30, worth: save30 >= 0.50 }; },
+
+    // --- top-up: koop BNB tot de doel-buffer (LIVE via API-haak, anders GESIMULEERD) ---
+    ensureBuffer() {
+        const px = this.bnbPrice(); if (!(px > 0)) return;
+        const targetUSDT = this.targetBufferUSDT();
+        const haveUSDT = this.bnbValueUSDT();
+        const deficitUSDT = targetUSDT - haveUSDT;
+        if (deficitUSDT > Math.max(1, targetUSDT * 0.15)) {   // pas bijkopen bij >15% tekort (geen constant geknabbel)
+            const buyBNB = deficitUSDT / px;
+            const live = (typeof marginKeys === 'function' && marginKeys().apiKey) || (typeof getTestnetKeys === 'function' && getTestnetKeys().apiKey);
+            if (live && typeof this._liveBuyBNB === 'function') { try { this._liveBuyBNB(buyBNB); } catch (e) {} }
+            // reserve-boekhouding (overlay; raakt de trading-wallets niet)
+            this.st.bnbSpot += buyBNB; this.st.spentUSDT += deficitUSDT; this.st.lastTopUp = Date.now();
+            this.st.topUps.unshift({ ts: Date.now(), bnb: +buyBNB.toFixed(4), usdt: +deficitUSDT.toFixed(2), px: +px.toFixed(2), sim: !live });
+            if (this.st.topUps.length > 40) this.st.topUps.pop();
+        }
+        this.rebalance();
+    },
+    // verdeel BNB over spot/futures zodat beide kanten fee-korting kunnen betalen (± 60% spot / 40% futures)
+    rebalance() {
+        const tot = this.totalBNB(); if (tot <= 0) return;
+        const wantFut = tot * 0.40;
+        if (Math.abs(this.st.bnbFut - wantFut) > tot * 0.1) {
+            const live = (typeof marginKeys === 'function' && marginKeys().apiKey);
+            if (live && typeof this._liveTransfer === 'function') { try { this._liveTransfer(wantFut - this.st.bnbFut); } catch (e) {} }
+            this.st.bnbFut = wantFut; this.st.bnbSpot = tot - wantFut;
+        }
+    },
+    // schat de fee-besparing bij deze tick (voor de cumulatieve savedUSDT-teller)
+    _accrueSavings() {
+        try {
+            const perDay = this.feePerDay(); if (perDay <= 0) return;
+            const dt = Math.min(3600000, Date.now() - (this.st.lastTick || Date.now()));   // tijd sinds vorige tick
+            const savedNow = perDay * (dt / 86400000) * this.avgDiscount();
+            if (this.st.enabled) this.st.savedUSDT += savedNow;
+        } catch (e) {}
+    },
+
+    tick() {
+        const now = Date.now(); if (now - (this.st.lastTick || 0) < 60000) return;
+        this._refreshBnbPrice();
+        this._accrueSavings();
+        if (this.st.mode === 'auto') {
+            const w = this.worthHolding();
+            if (w.worth) { this.st.enabled = true; this.ensureBuffer(); }
+            // als het niet (meer) loont laten we de bestaande BNB staan maar kopen niet bij
+            this.st.enabled = w.worth && this.totalBNB() > 1e-6 ? true : (w.worth ? this.st.enabled : false);
+        } else if (this.st.mode === 'on') { this.st.enabled = true; this.ensureBuffer(); }
+        else { this.st.enabled = false; }
+        // stuur het fee-model aan: gebruik BNB-korting alleen als we daadwerkelijk BNB aanhouden
+        try { if (typeof osirisSetUseBNB === 'function') osirisSetUseBNB(this.st.enabled && this.bnbValueUSDT() > 0.5); } catch (e) {}
+        this.st.lastTick = now; this._save();
+    },
+    setMode(mode) { this.st.mode = (['auto', 'on', 'off'].includes(mode)) ? mode : 'auto'; this.st.lastTick = 0; this.tick(); this._save(); try { renderOsirisPortfolio(); } catch (e) {} },
+
+    bundle() { return { enabled: this.st.enabled, mode: this.st.mode, bnbSpot: this.st.bnbSpot, bnbFut: this.st.bnbFut, bnbPrice: this.bnbPrice(), bnbValueUSDT: +this.bnbValueUSDT().toFixed(2), targetBufferUSDT: +this.targetBufferUSDT().toFixed(2), feePerDay: +this.feePerDay().toFixed(3), savedUSDT: +this.st.savedUSDT.toFixed(2), spentUSDT: +this.st.spentUSDT.toFixed(2), portfolioEquity: +this.portfolioEquity().toFixed(2), topUps: this.st.topUps.slice(0, 10), note: 'Portfolio + autonome BNB fee-reserve. Testnet = gesimuleerd (aparte wallets); live via _liveBuyBNB/_liveTransfer. Raakt de trading-wallets niet.' }; }
+};
+try { OsirisPortfolio._restore(); window.OsirisPortfolio = OsirisPortfolio; } catch (e) {}
+
+function renderOsirisPortfolio() {
+    const el = document.getElementById('osiris-portfolio'); if (!el) return;
+    try { OsirisPortfolio.tick(); } catch (e) {}
+    const P = OsirisPortfolio, sym = '₮';
+    const spot = P.spotEquity(), margin = P.marginEq(), bnb = P.bnbValueUSDT(), tot = spot + margin + bnb;
+    const G = '#14f195', A = '#ffb627', BNBc = '#f3ba2f', PU = '#c792ea', D = 'var(--dim)', DD = 'var(--dimmer)';
+    const pct = v => tot > 0 ? (v / tot * 100) : 0;
+    const live = (typeof marginKeys === 'function' && marginKeys().apiKey);
+    const badge = live ? `<span style="color:${G};">● LIVE</span>` : `<span style="color:${A};">◐ gesimuleerd (testnet)</span>`;
+    const modeSel = `<span style="color:${DD};">BNB-modus:</span> ` + ['auto', 'on', 'off'].map(mo =>
+        `<span onclick="OsirisPortfolio.setMode('${mo}')" style="cursor:pointer;padding:1px 6px;border-radius:4px;margin-left:3px;${P.st.mode === mo ? 'background:rgba(243,186,47,0.18);color:' + BNBc + ';border:1px solid ' + BNBc : 'color:' + DD + ';border:1px solid var(--line)'};">${mo === 'auto' ? 'auto' : mo === 'on' ? 'aan' : 'uit'}</span>`).join('');
+    let h = `<div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;">`;
+    h += `<div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="color:${D};">Totale portefeuille ${badge}</span><b style="color:#eaffff;">${sym}${tot.toFixed(2)}</b></div>`;
+    // verdeel-balk spot / margin / bnb
+    const segs = [{ v: spot, c: '#3a6f90', l: 'Spot' }, { v: margin, c: PU, l: 'Margin' }, { v: bnb, c: BNBc, l: 'BNB' }].filter(s => s.v > 0.005);
+    h += `<div style="display:flex;height:14px;border-radius:7px;overflow:hidden;border:1px solid var(--line);margin-bottom:9px;">`;
+    segs.forEach(s => { h += `<div title="${s.l} ${pct(s.v).toFixed(1)}%" style="width:${pct(s.v)}%;background:${s.c};"></div>`; });
+    h += `</div>`;
+    const row = (name, val, col) => `<div style="display:flex;align-items:center;padding:2px 0;"><span style="color:${col};font-weight:700;width:64px;">${name}</span><span style="flex:1;color:${D};"></span><span style="color:#cfe;width:86px;text-align:right;">${sym}${val.toFixed(2)}</span><span style="color:${DD};width:48px;text-align:right;">${pct(val).toFixed(1)}%</span></div>`;
+    h += row('Spot', spot, '#7fd8ff');
+    h += row('Margin', margin, PU);
+    h += `<div style="display:flex;align-items:center;padding:2px 0;"><span style="color:${BNBc};font-weight:700;width:64px;">BNB</span><span style="flex:1;color:${D};">fee-reserve ${P.st.enabled ? '<span style="color:' + G + '">korting actief</span>' : '<span style="color:' + DD + '">uit</span>'}</span><span style="color:#cfe;width:86px;text-align:right;">${sym}${bnb.toFixed(2)}</span><span style="color:${DD};width:48px;text-align:right;">${pct(bnb).toFixed(1)}%</span></div>`;
+    // fee-manager samenvatting
+    const perDay = P.feePerDay(), tgt = P.targetBufferUSDT(), w = P.worthHolding();
+    h += `<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:7px;line-height:1.7;">`;
+    h += `<div style="display:flex;justify-content:space-between;"><span style="color:${DD};">${modeSel}</span></div>`;
+    h += `<div style="color:${D};margin-top:4px;">fee-uitgave ~<b style="color:#cfe;">${sym}${perDay.toFixed(2)}/dag</b> · doel-buffer <b style="color:#cfe;">${sym}${tgt.toFixed(2)}</b> (${P.st.targetDays}d) · BNB-prijs ${sym}${P.bnbPrice().toFixed(0)}</div>`;
+    h += `<div style="color:${D};">bespaard met BNB (cum.) <b style="color:${G};">${sym}${P.st.savedUSDT.toFixed(2)}</b> · besteed aan BNB <b style="color:#cfe;">${sym}${P.st.spentUSDT.toFixed(2)}</b> · ~${sym}${w.save30.toFixed(2)}/30d ${w.worth ? '<span style="color:' + G + '">→ lonend</span>' : '<span style="color:' + DD + '">→ nog niet lonend</span>'}</div>`;
+    h += `</div>`;
+    // REAL-WORLD modus toggle
+    const rw = (typeof OSIRIS_REALWORLD !== 'undefined') ? OSIRIS_REALWORLD : { on: false };
+    h += `<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:7px;line-height:1.7;">`;
+    h += `<div style="display:flex;justify-content:space-between;align-items:center;"><span style="color:${DD};">Real-world modus <span title="spot = alleen LONG (+ kapitaalbehoud); shorts via futures/perps">ⓘ</span></span>`;
+    h += `<span onclick="osirisSetRealworld(${rw.on ? 'false' : 'true'})" style="cursor:pointer;padding:2px 10px;border-radius:5px;${rw.on ? 'background:rgba(20,241,149,0.15);color:' + G + ';border:1px solid ' + G : 'color:' + DD + ';border:1px solid var(--line)'};">${rw.on ? 'AAN' : 'UIT'}</span></div>`;
+    if (rw.on) h += `<div style="color:${D};margin-top:4px;font-size:0.53rem;">spot = <b style="color:${G}">long-only</b> + kapitaalbehoud · shorts → <b style="color:${PU}">futures</b> · hefboom per trade 1–20×</div>`;
+    h += `</div>`;
+    h += `<div style="margin-top:8px;color:#7d99ac;font-size:0.53rem;line-height:1.55;border-top:1px dashed var(--line);padding-top:6px;">Osiris houdt autonoom een BNB-buffer aan om fees met korting te betalen (spot −25%, futures −10%) en verdeelt die over de spot- en futures-kant. Op het <b>testnet</b> is de BNB-reserve gesimuleerd (aparte wallets, geen echte transfers); <b>live</b> koopt en verschuift Osiris de BNB echt via de API. De trading-wallets blijven ongemoeid — dit is een portfolio-overlay.</div>`;
+    h += `</div>`;
+    el.innerHTML = h;
+}
+window.renderOsirisPortfolio = renderOsirisPortfolio;
 
 function _setMetric(id, txt, c) { const e = document.getElementById(id); if (!e) return; e.textContent = txt; if (c) e.style.color = c; }
 function renderSpotSessionMetrics() {
@@ -20807,7 +21166,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,(typeof osirisCapitalPreserveTick==='function'?osirisCapitalPreserveTick:null),renderTable,renderOpp,renderTrinity,renderWallet,(typeof renderOsirisPortfolio==='function'?renderOsirisPortfolio:null),renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
