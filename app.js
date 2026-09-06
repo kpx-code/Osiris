@@ -22024,11 +22024,13 @@ const GSD_CATS = [
   { key:'tone',     name:'Media tone / sentiment',col:'#c792ea', direct:false, src:'GDELT*' },
   { key:'market',   name:'Market / FX',           col:'#14f195', direct:true,  src:'live FX-FSO' },
   { key:'finstress',name:'Financial stress',      col:'#ff6ec7', direct:false, src:'FRED (VIX/HY/CISS)' },
-  { key:'supply',   name:'Supply chain & manuf.', col:'#ffa94d', direct:false, src:'PortWatch / FRED IP' }
+  { key:'supply',   name:'Supply chain & manuf.', col:'#ffa94d', direct:false, src:'PortWatch / FRED IP' },
+  { key:'energy',   name:'Energy security',        col:'#ffd166', direct:false, src:'nodes/pipelines + FRED oil/gas' },
+  { key:'housing',  name:'Debt & real estate',     col:'#b088ff', direct:false, src:'BIS debt / property' }
 ];
 // LEADING SIGNAL for ShockWave: which categories drive the kill-switch zone/topic + ground-zero.
 // Economics leads by default; the rest are opt-in per category (toggled from the map controls).
-const GSD_LEAD = { econ:true, cb:true, trade:true, market:true, finstress:true, supply:true, geo:false, conflict:false, disaster:false, weather:false, tone:false };
+const GSD_LEAD = { econ:true, cb:true, trade:true, market:true, finstress:true, supply:true, energy:true, housing:true, geo:false, conflict:false, disaster:false, weather:false, tone:false };
 try{ const s=JSON.parse(localStorage.getItem('gsdLead')||'null'); if(s&&typeof s==='object') Object.assign(GSD_LEAD,s); }catch(e){}
 function gsdLeadToggle(c){ GSD_LEAD[c]=!GSD_LEAD[c]; try{ localStorage.setItem('gsdLead',JSON.stringify(GSD_LEAD)); }catch(e){} try{ TrinityGSD.projectKillSwitch(); }catch(e){} }
 try{ window.GSD_LEAD=GSD_LEAD; window.gsdLeadToggle=gsdLeadToggle; }catch(e){}
@@ -22165,8 +22167,11 @@ const TRADE_COM_IMPORTERS = {
   nickel:['ap'], wheat:['me','af','ap'], soy:['ap','eu'], rice:['me','af'], palm:['ap','eu'],
   autos:['na','eu','ap'], machinery:['na','ap','latam','af'], chemicals:['na','ap','eu'], pharma:['na','ap','af']
 };
-// bouw zone×zone handels-intensiteit + per-zone export-commodityprofiel uit TRADE_NET (één keer)
-const _tradeMats = (function(){
+// bouw zone×zone handels-intensiteit + per-zone export-commodityprofiel uit TRADE_NET. Herbruikbaar zodat de
+// UN Comtrade live-verversing TRADE_NET kan bijwerken en de matrices opnieuw kan opbouwen (mutatie in-place).
+const GSD_ZONE_TRADE = {};                    // GSD_ZONE_TRADE[dstZone][srcZone] = handels-afhankelijkheid 0..1
+const GSD_ZONE_EXPCOM = {};                   // GSD_ZONE_EXPCOM[zone] = {commodity: gewicht} dat de zone exporteert
+function _gsdBuildTradeMats(){
   const zoneOf = iso => TRADE_ZONE[iso] || null;
   const wOf = iso => { const e=GSD_ECON.find(x=>x.iso===iso); return e?e.w:0.15; };   // economisch gewicht van de exporteur
   const T = {}, EXP = {};   // T[dst][src]=afhankelijkheid; EXP[zone]=Set van export-commodities (gewogen)
@@ -22181,10 +22186,12 @@ const _tradeMats = (function(){
   }
   // normaliseer T per dst-zone op de zwaarste bron (0..1)
   ZK.forEach(dst=>{ let mx=0; ZK.forEach(src=>{ if(T[dst][src]>mx)mx=T[dst][src]; }); if(mx>0) ZK.forEach(src=>{ T[dst][src]=+(T[dst][src]/mx).toFixed(3); }); });
+  // mutatie in-place (const objecten behouden, inhoud vervangen) zodat live-verversing werkt
+  Object.keys(GSD_ZONE_TRADE).forEach(k=>delete GSD_ZONE_TRADE[k]); Object.assign(GSD_ZONE_TRADE, T);
+  Object.keys(GSD_ZONE_EXPCOM).forEach(k=>delete GSD_ZONE_EXPCOM[k]); Object.assign(GSD_ZONE_EXPCOM, EXP);
   return { T, EXP };
-})();
-const GSD_ZONE_TRADE = _tradeMats.T;         // GSD_ZONE_TRADE[dstZone][srcZone] = handels-afhankelijkheid 0..1
-const GSD_ZONE_EXPCOM = _tradeMats.EXP;      // GSD_ZONE_EXPCOM[zone] = {commodity: gewicht} dat de zone exporteert
+}
+_gsdBuildTradeMats();   // eenmalig op laadtijd (curated backbone)
 // welke zones worden geraakt als bronzone S een schok krijgt, gewogen op handels-afhankelijkheid + commodity-export van S
 function _gsdTradeTargets(srcZone){ try{ const out=[]; const ZK=['na','eu','ap','me','af','latam'];
     ZK.forEach(dst=>{ if(dst===srcZone)return; const dep=(GSD_ZONE_TRADE[dst]&&GSD_ZONE_TRADE[dst][srcZone])||0; if(dep>=0.12) out.push({zone:dst,dep:+dep.toFixed(3),via:'trade-link'}); });
@@ -22192,7 +22199,41 @@ function _gsdTradeTargets(srcZone){ try{ const out=[]; const ZK=['na','eu','ap',
     const exp=GSD_ZONE_EXPCOM[srcZone]||{}; const coms=Object.keys(exp).sort((a,b)=>exp[b]-exp[a]).slice(0,3);
     coms.forEach(cm=>{ const imps=TRADE_COM_IMPORTERS[cm]; if(!imps)return; imps.forEach(dst=>{ if(dst===srcZone)return; const ex=out.find(o=>o.zone===dst); const boost=0.35; if(ex){ ex.dep=Math.min(1,ex.dep+boost*0.5); ex.via='trade+'+cm; } else out.push({zone:dst,dep:boost,via:'commodity:'+cm}); }); });
     return out.sort((a,b)=>b.dep-a.dep); }catch(e){ return []; } }
-try{ window.TRADE_NET=TRADE_NET; window.GSD_ZONE_TRADE=GSD_ZONE_TRADE; window.GSD_ZONE_EXPCOM=GSD_ZONE_EXPCOM; window._gsdTradeTargets=_gsdTradeTargets; }catch(e){}
+try{ window.TRADE_NET=TRADE_NET; window.GSD_ZONE_TRADE=GSD_ZONE_TRADE; window.GSD_ZONE_EXPCOM=GSD_ZONE_EXPCOM; window._gsdTradeTargets=_gsdTradeTargets; window._gsdBuildTradeMats=_gsdBuildTradeMats; }catch(e){}
+// UN Comtrade M49 landcodes → onze ISO3 (voor het mappen van live handelspartners)
+const GSD_M49 = { '842':'USA','156':'CHN','276':'DEU','392':'JPN','410':'KOR','490':'TWN','356':'IND','826':'GBR','250':'FRA','380':'ITA','528':'NLD','124':'CAN','484':'MEX','76':'BRA','643':'RUS','682':'SAU','784':'ARE','36':'AUS','702':'SGP','360':'IDN','704':'VNM','764':'THA','458':'MYS','608':'PHL','344':'HKG','724':'ESP','756':'CHE','616':'POL','752':'SWE','578':'NOR','710':'ZAF','566':'NGA','818':'EGY','152':'CHL','32':'ARG','792':'TUR','376':'ISR','634':'QAT' };
+const GSD_ISO_M49 = (function(){ const o={}; for(const k in GSD_M49) o[GSD_M49[k]]=k; return o; })();
+
+/* ==================================================================================
+   GSD_ENERGY_NODES — energie-infrastructuur die NIET via schepen loopt: pijpleidingen,
+   LNG-terminals en energie-straten (steun-/aanvoerlijnen). Elk met zone, type, flow
+   (gas/oil), kriticaliteit en locatie (voor de kaart). Samen met de olie/gas-prijsstress
+   en de maritieme chokepoints vormt dit de energie-zekerheidsdimensie.
+   ================================================================================== */
+const GSD_ENERGY_NODES = [
+  // pijpleidingen
+  {name:'Nord Stream (RUS→DE gas)',      zone:'eu', type:'pipeline', flow:'gas', crit:0.85, lat:54.9, lon:13.6},
+  {name:'Yamal–Europe (RUS→PL/DE gas)',  zone:'eu', type:'pipeline', flow:'gas', crit:0.6,  lat:52.2, lon:20.0},
+  {name:'Druzhba (RUS→EU oil)',          zone:'eu', type:'pipeline', flow:'oil', crit:0.7,  lat:52.4, lon:24.0},
+  {name:'TurkStream (RUS→TR/EU gas)',    zone:'me', type:'pipeline', flow:'gas', crit:0.55, lat:41.6, lon:28.1},
+  {name:'TransMed (DZA→IT gas)',         zone:'eu', type:'pipeline', flow:'gas', crit:0.45, lat:37.5, lon:11.6},
+  {name:'Power of Siberia (RUS→CN gas)', zone:'ap', type:'pipeline', flow:'gas', crit:0.6,  lat:50.3, lon:127.5},
+  {name:'Central Asia–China (gas)',      zone:'ap', type:'pipeline', flow:'gas', crit:0.5,  lat:43.3, lon:76.9},
+  // LNG-terminals (aanvoer/afvoer knooppunten)
+  {name:'Ras Laffan LNG (QA export)',    zone:'me', type:'lng', flow:'gas', crit:0.75, lat:25.9, lon:51.6},
+  {name:'Sabine Pass LNG (US export)',   zone:'na', type:'lng', flow:'gas', crit:0.6,  lat:29.7, lon:-93.9},
+  {name:'Gate/Rotterdam LNG (EU import)',zone:'eu', type:'lng', flow:'gas', crit:0.55, lat:51.95,lon:4.05},
+  {name:'Incheon/Gwangyang LNG (KR)',    zone:'ap', type:'lng', flow:'gas', crit:0.5,  lat:37.4, lon:126.6},
+  {name:'Sodegaura LNG (JP import)',     zone:'ap', type:'lng', flow:'gas', crit:0.5,  lat:35.4, lon:140.0},
+  // energie-straten (olie/gas-doorvoer; overlappen deels de chokepoints maar hier als energie-lijn)
+  {name:'Strait of Hormuz (oil/LNG)',    zone:'me', type:'strait', flow:'oil', crit:0.95, lat:26.6, lon:56.4},
+  {name:'Bab el-Mandeb (oil)',           zone:'me', type:'strait', flow:'oil', crit:0.6,  lat:12.6, lon:43.4},
+  {name:'Strait of Malacca (oil/LNG)',   zone:'ap', type:'strait', flow:'oil', crit:0.7,  lat:2.5,  lon:101.3}
+];
+// energie-IMPORT-afhankelijkheid per zone (hoe hard raakt een energieschok de zone): EU/AP hoog (grote
+// netto-importeurs), NA/ME laag (netto-exporteurs). Stuurt zowel de energiestress als de contagion.
+const GSD_ENERGY_DEP = { eu:0.90, ap:0.85, latam:0.55, af:0.50, na:0.30, me:0.15 };
+try{ window.GSD_ENERGY_NODES=GSD_ENERGY_NODES; window.GSD_ENERGY_DEP=GSD_ENERGY_DEP; }catch(e){}
 
 // GDELT per-zone query terms (geopolitics/tone). Robust keyword queries beat FIPS codes.
 const GSD_GDELT_Q = {
@@ -22488,7 +22529,7 @@ const TrinityGSD = {
       const hv=this.histVFM||[]; const dVfm = hv.length>=6 ? (hv[hv.length-1]-hv[hv.length-6]) : 0;
       const kb=(typeof TrinityGSDBackfill!=='undefined'&&TrinityGSDBackfill.status)||{};
       const yrs=kb.years||36.7, kills=kb.killCount||0; const killsPerYear = kills>0? kills/Math.max(1,yrs) : 0.33;
-      const catN={econ:'economy',cb:'central banks',geo:'geopolitics',conflict:'conflict',disaster:'natural disasters',weather:'extreme weather',trade:'trade/commodities',tone:'media tone',market:'markets/FX',finstress:'financial stress',supply:'supply chain'};
+      const catN={econ:'economy',cb:'central banks',geo:'geopolitics',conflict:'conflict',disaster:'natural disasters',weather:'extreme weather',trade:'trade/commodities',tone:'media tone',market:'markets/FX',finstress:'financial stress',supply:'supply chain',energy:'energy security',housing:'debt & real estate'};
       // LEADING SIGNAL: which categories drive the kill-switch zone/topic. Economics leads by default;
       // the rest are opt-in per category (GSD_LEAD, toggled from the map controls).
       const lead=(typeof GSD_LEAD!=='undefined')?GSD_LEAD:{econ:1,cb:1,trade:1,market:1};
@@ -22586,9 +22627,9 @@ const TrinityGSD = {
     calibration:this._cal, shadow:this._shadow, histCal:this.histCal, historicalBackfill:(typeof TrinityGSDBackfill!=='undefined'?TrinityGSDBackfill.bundle():null), proxy:this.proxy?'(ingesteld)':'(geen)', tamAnchor:new Date(this.anchorTs).toISOString(),
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
-const GSD_CATWEIGHT = { market:1.3, econ:1.1, geo:1.2, conflict:1.2, disaster:0.9, weather:0.7, trade:1.0, cb:1.1, tone:1.0, finstress:1.1, supply:0.9 };
+const GSD_CATWEIGHT = { market:1.3, econ:1.1, geo:1.2, conflict:1.2, disaster:0.9, weather:0.7, trade:1.0, cb:1.1, tone:1.0, finstress:1.1, supply:0.9, energy:1.0, housing:0.9 };
 // het tijdvenster dat elke bron/categorie dekt (voor de "period"-kolom in de ranking)
-const GSD_CAT_WINDOW = { disaster:'last 7d', weather:'3d forecast', econ:'latest yr', trade:'latest', cb:'latest', geo:'last 3d', conflict:'last 3d', tone:'last 3d', market:'live', finstress:'live', supply:'latest' };
+const GSD_CAT_WINDOW = { disaster:'last 7d', weather:'3d forecast', econ:'latest yr', trade:'latest', cb:'latest', geo:'last 3d', conflict:'last 3d', tone:'last 3d', market:'live', finstress:'live', supply:'latest', energy:'live', housing:'latest qtr' };
 function _gsdWhen(ms){ if(!ms) return '—'; const d=new Date(ms), p=n=>String(n).padStart(2,'0'); return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())+'Z'; }
 const TPWIN = { micro:12*3600e3, meso:2*864e5, macro:5*864e5 };   // halve-window rond TAM-node per schaal
 
@@ -22629,6 +22670,11 @@ const GSDData = {
     run(()=>this.portwatch(), 6*3600000, 9400); // IMF PortWatch maritime chokepoints (Suez/Hormuz/…)
     run(()=>this.gdacs(), 20*60000, 1800);      // GDACS wereldwijde multi-hazard (incl. vulkanen) — via proxy
     run(()=>this.manuf(), 6*3600000, 8000);     // manufacturing/industrie (FRED IP + orders) → supply-dimensie
+    run(()=>this.energy(), 30*60000, 6200);     // energie-zekerheid (olie/gas × afhankelijkheid + straits)
+    run(()=>this.housing(), 12*3600000, 8800);  // household debt & vastgoed (curated + BIS)
+    run(()=>this.rates(), 6*3600000, 7000);     // beleidsrentes + renteverhoging-momentum + inflatie (FRED)
+    run(()=>this.tariffs(), 6*3600000, 9800);   // tarieven: World Bank baseline + GDELT tarief-nieuws
+    run(()=>this.comtrade(), 12*3600000, 11000);// UN Comtrade live-verversing van TRADE_NET (keyless preview)
   },
   // USGS aardbevingen (direct, GeoJSON) → disaster-stress per zone
   usgs(){
@@ -22822,6 +22868,7 @@ const GSDData = {
       GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cz=TrinityGSD._chokeZone&&TrinityGSD._chokeZone[z.key]; const ft=(cz!=null&&cz>tstress)?cz:tstress; TrinityGSD.setCell(z.key,'trade',ft,'FRED commodities'+(cz!=null&&cz>tstress?' + PortWatch':''),why); });
       if(gold>0){ const rf=_clamp01((gold-2200)/1600); if(rf>0.3) GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].market.v; if(cur==null||rf*0.6>cur) TrinityGSD.setCell(z.key,'market', rf*0.6, 'FRED (gold risk-off)', 'gold $'+gold.toFixed(0)); }); }
       TrinityFeeds.markOk('gsd-commod',why);
+      try{ this.energy(); }catch(e){}   // energie-cellen direct bijwerken op verse olie/gas-prijzen
     }).catch(e=>TrinityFeeds.markErr('gsd-commod',e.message,e.http)); },
   // BTC als cross-asset risk-appetite-proxy (keyless, browser-direct via Coinbase). Hoge crypto-vol /
   //   scherpe daling = risk-off → verhoogt de 'market'-stress (blend in _injectMarket).
@@ -22893,7 +22940,103 @@ const GSDData = {
       const why='mfg IP '+(ipY!=null?(ipY*100).toFixed(1)+'% YoY':'—')+(noY!=null?' · orders '+(noY*100).toFixed(1)+'%':'');
       GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const zw=_gsdZoneEconW(z.key); const s=_clamp01(mstress*(0.5+0.5*zw)); const cur=TrinityGSD.cells[z.key].supply&&TrinityGSD.cells[z.key].supply.v; TrinityGSD.setCell(z.key,'supply', cur!=null?Math.max(cur,s):s, 'FRED IP', why); });
       TrinityFeeds.markOk('gsd-manuf',why);
-    }).catch(e=>TrinityFeeds.markErr('gsd-manuf',e.message,e.http)); }
+    }).catch(e=>TrinityFeeds.markErr('gsd-manuf',e.message,e.http)); },
+  // ENERGIE-ZEKERHEID: olie/gas-prijsstress × energie-import-afhankelijkheid per zone, plus een boost als
+  //   een energie-strait (Hormuz/Bab el-Mandeb/Malacca) verstoord is (uit de chokepoint-feed). Zo raakt een
+  //   energieschok de netto-importeurs (EU gas, AP olie/LNG) zwaar en de exporteurs (NA/ME) licht. Geen key.
+  energy(){ try{
+    const com=TrinityGSD._com; const oilN=(com&&com.oilN)||0; const gasN=(com&&com.gasN)||0;
+    const price = gasN*0.55 + oilN*0.45;   // energie-prijsdruk (gas weegt iets zwaarder voor EU)
+    // strait-verstoring per zone uit de chokepoints (energie-relevante straten)
+    const chZone=TrinityGSD._chokeZone||{};
+    const eNames={'Strait of Hormuz':1,'Bab el-Mandeb':1,'Malacca Strait':1};
+    let straitBoost={}; try{ (TrinityGSD._chokepoints||[]).forEach(c=>{ if(eNames[c.name]){ straitBoost[c.zone]=Math.max(straitBoost[c.zone]||0, c.stress*0.8); // olie-straat dicht → ook importeurs (eu/ap) mee
+      if(c.name==='Strait of Hormuz'){ straitBoost.eu=Math.max(straitBoost.eu||0,c.stress*0.5); straitBoost.ap=Math.max(straitBoost.ap||0,c.stress*0.6); } } }); }catch(e){}
+    TrinityGSD._energy={ oilN, gasN, price:+price.toFixed(3), at:Date.now() };
+    let any=false;
+    GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const dep=(GSD_ENERGY_DEP[z.key]!=null?GSD_ENERGY_DEP[z.key]:0.5);
+      const s=_clamp01(price*dep + (straitBoost[z.key]||0)); if(price>0||straitBoost[z.key]){ any=true;
+        const why='olie '+Math.round(oilN*100)+'% · gas '+Math.round(gasN*100)+'% · afh. '+Math.round(dep*100)+'%'+(straitBoost[z.key]?' · strait −'+Math.round((straitBoost[z.key])*100)+'%':'');
+        TrinityGSD.setCell(z.key,'energy', s, 'nodes+FRED', why); } });
+    if(any) TrinityFeeds.markOk('gsd-energy','olie '+Math.round(oilN*100)+'% · gas '+Math.round(gasN*100)+'%');
+  }catch(e){ TrinityFeeds.markErr('gsd-energy',e.message); } },
+  // HOUSEHOLD DEBT & VASTGOED: financiele-stabiliteitsrisico. Curated baseline per zone (o.a. China-vastgoed,
+  //   hoge huishoudschuld KR/AU/CA) + BIS-overlay (household debt-to-GDP) wanneer bereikbaar. Keyless.
+  housing(){
+    // curated baseline (2024-achtig): AP hoog (China-vastgoedcrisis + hoge huishoudschuld), NA/EU verhoogd
+    const BASE={ ap:0.55, na:0.45, eu:0.40, latam:0.30, me:0.30, af:0.25 };
+    GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].housing&&TrinityGSD.cells[z.key].housing.v; const b=BASE[z.key]!=null?BASE[z.key]:0.3; if(cur==null) TrinityGSD.setCell(z.key,'housing', b, 'curated baseline', 'huishoudschuld + vastgoed (baseline)'); });
+    TrinityGSD._housing={ baseline:BASE, at:Date.now() };
+    // BIS household debt-to-GDP overlay (SDMX) — best-effort; faalt stil terug op de baseline
+    if(!TrinityGSD.proxy){ TrinityFeeds.markOk('gsd-housing','baseline (geen proxy voor BIS)'); return; }
+    try{ const url='https://stats.bis.org/api/v1/data/WS_TC/Q.US.H.A/all?lastNObservations=1&format=jsondata';
+      this._get(url,false).then(d=>{ let val=null; try{ const ds=d.dataSets&&d.dataSets[0]; const s=ds&&ds.series; const first=s&&s[Object.keys(s)[0]]; const o=first&&first.observations; const k=o&&Object.keys(o)[0]; if(k!=null)val=o[k][0]; }catch(e){}
+        if(val!=null){ const s=_clamp01((val-40)/60); const cur=TrinityGSD.cells.na.housing.v; TrinityGSD.setCell('na','housing', cur!=null?Math.max(cur,s):s,'BIS','US household debt '+(+val).toFixed(0)+'% GDP'); TrinityGSD._housing.usDebtGDP=+val; }
+        TrinityFeeds.markOk('gsd-housing', val!=null?('US debt '+(+val).toFixed(0)+'% GDP'):'baseline');
+      }).catch(e=>TrinityFeeds.markOk('gsd-housing','baseline (BIS n/a)'));
+    }catch(e){ TrinityFeeds.markOk('gsd-housing','baseline'); }
+  },
+  // BELEIDSRENTES + RENTEVERHOGING-MOMENTUM + INFLATIE (FRED, bestaande key). Hoge rente + oplopende
+  //   verkrapping = cb-stress; hoge CPI YoY = econ-stress. Exposeert _rates/_infl voor de panelen.
+  rates(){ if(!TrinityGSD.proxy) return;
+    const hist=(sid,n)=>{ const url='https://api.stlouisfed.org/fred/series/observations?series_id='+sid+'&sort_order=desc&limit='+n;
+      return this._get(url,false).then(d=>(d.observations||[]).map(o=>parseFloat(o.value)).filter(v=>!isNaN(v))).catch(()=>[]); };
+    Promise.all([ hist('FEDFUNDS',8), hist('ECBDFR',8), hist('CPIAUCSL',14) ]).then(([ff,ecb,cpi])=>{
+      const lvl=a=>(a&&a.length)?a[0]:null, mom=a=>(a&&a.length>=7)?(a[0]-a[6]):null;
+      const ffL=lvl(ff), ffM=mom(ff), ecbL=lvl(ecb), ecbM=mom(ecb);
+      const cpiY=(cpi&&cpi.length>=13&&cpi[12]>0)?((cpi[0]-cpi[12])/cpi[12]):null;
+      TrinityGSD._rates={ us:ffL, usHikeMom:ffM, eu:ecbL, euHikeMom:ecbM, at:Date.now() };
+      TrinityGSD._infl={ usCPIyoy:cpiY, at:Date.now() };
+      if(ffL!=null){ const s=_clamp01((ffL-2)/5 + Math.max(0,ffM||0)*0.15); const cur=TrinityGSD.cells.na.cb.v; TrinityGSD.setCell('na','cb', cur!=null?Math.max(cur,s):s, 'FRED rates', 'Fed '+ffL.toFixed(2)+'%'+(ffM!=null?' ('+(ffM>=0?'+':'')+ffM.toFixed(2)+'pp/6m)':'')); }
+      if(ecbL!=null){ const s=_clamp01((ecbL-1)/4 + Math.max(0,ecbM||0)*0.15); const cur=TrinityGSD.cells.eu.cb.v; TrinityGSD.setCell('eu','cb', cur!=null?Math.max(cur,s):s, 'FRED rates', 'ECB '+ecbL.toFixed(2)+'%'); }
+      if(cpiY!=null){ const s=_clamp01((cpiY*100-2)/8); const cur=TrinityGSD.cells.na.econ.v; TrinityGSD.setCell('na','econ', cur!=null?Math.max(cur,s):s, 'FRED CPI', 'US CPI '+(cpiY*100).toFixed(1)+'% YoY'); }
+      TrinityFeeds.markOk('gsd-rates','Fed '+(ffL!=null?ffL.toFixed(2):'—')+'% · ECB '+(ecbL!=null?ecbL.toFixed(2):'—')+'% · CPI '+(cpiY!=null?(cpiY*100).toFixed(1)+'%':'—'));
+    }).catch(e=>TrinityFeeds.markErr('gsd-rates',e.message,e.http)); },
+  // TARIEVEN: World Bank baseline (toegepast gewogen gemiddeld tarief per zone, keyless) = structurele
+  //   handelswrijving; + GDELT tarief-/handelsoorlog-nieuws (keyless) = real-time tariefverschuivingen.
+  //   Samen → een tarief-boost op de trade-cel (non-destructief, max-blend). Exposeert _tariff/_tariffNews.
+  tariffs(){
+    // 1) World Bank baseline per zone
+    GSD_ZONES.forEach(z=>{ if(z.synthetic||!z.wb.length)return;
+      const url='https://api.worldbank.org/v2/country/'+z.wb.join(';')+'/indicator/TM.TAX.MRCH.WM.AR.ZS?format=json&mrnev=1&per_page=200';
+      this._get(url,true).then(d=>{ const arr=Array.isArray(d)&&d[1]?d[1]:[]; let s=0,n=0; arr.forEach(r=>{ if(r.value!=null){s+=r.value;n++;} }); if(!n)return;
+        const avg=s/n; const t=TrinityGSD._tariff||(TrinityGSD._tariff={}); t[z.key]=+avg.toFixed(2);
+        this._tariffBlend(z.key);
+      }).catch(()=>{});
+    });
+    // 2) GDELT tarief-/handelsoorlog-nieuws (globaal, real-time)
+    if(TrinityGSD.proxy){ const gq='(tariff OR "trade war" OR "export ban" OR "import ban" OR sanctions) (impose OR raise OR announce OR retaliate OR ban)';
+      const url='https://api.gdeltproject.org/api/v2/doc/doc?query='+encodeURIComponent(gq)+'&mode=tonechart&format=json&timespan=5d';
+      this._get(url,false).then(d=>{ let neg=0,tot=0; (d.tonechart||[]).forEach(b=>{ const c=b.count||0; tot+=c; if((b.bin||0)<=-2)neg+=c; });
+        const intensity=_clamp01(tot/2500); const negFrac=tot?neg/tot:0; TrinityGSD._tariffNews={ articles:tot, negFrac:+negFrac.toFixed(2), score:+_clamp01(intensity*0.6+negFrac*0.6).toFixed(3), at:Date.now() };
+        GSD_ZONES.forEach(z=>{ if(!z.synthetic) this._tariffBlend(z.key); });
+        TrinityFeeds.markOk('gsd-tariffs','tariff-news '+tot+' art · '+(negFrac*100|0)+'% neg');
+      }).catch(e=>TrinityFeeds.markErr('gsd-tariffs',e.message,e.http));
+    }
+  },
+  _tariffBlend(zk){ try{ const base=(TrinityGSD._tariff&&TrinityGSD._tariff[zk]!=null)?_clamp01(TrinityGSD._tariff[zk]/15):0;   // ~15% tarief → vol
+      const news=(TrinityGSD._tariffNews&&TrinityGSD._tariffNews.score)||0; const boost=_clamp01(base*0.45+news*0.6);
+      if(boost<=0.02)return; const tc=TrinityGSD.cells[zk]&&TrinityGSD.cells[zk].trade; if(tc){ const cur=tc.v; if(cur==null||boost>cur){ const why='tarief '+(TrinityGSD._tariff&&TrinityGSD._tariff[zk]!=null?TrinityGSD._tariff[zk].toFixed(1)+'%':'—')+(news>0.05?' · handelsoorlog-nieuws':''); TrinityGSD.setCell(zk,'trade',boost,'WITS+GDELT',why); } } }catch(e){} },
+  // UN COMTRADE live-verversing (keyless preview-endpoint). Haalt per cyclus ÉÉN reporter (spaarzaam ivm
+  //   rate-limit) de laatste jaar-exporten per partner op, berekent de top-10-aandelen, ververst TRADE_NET
+  //   en herbouwt de zone-handelsmatrix. Bewaart de ruwe top-partners in _tradeLive voor weergave.
+  //   Vereist dat comtradeapi.un.org in de proxy-allowlist staat (worker-redeploy); faalt anders stil terug
+  //   op de curated backbone.
+  comtrade(){ if(!TrinityGSD.proxy) return; if(this._ctFail>=4) return;
+    const reporters=['842','156','276','392','410','826'];   // US, China, DE, JP, KR, UK
+    const period=(new Date().getFullYear()-1);
+    const idx=(this._ctIdx||0); const rc=reporters[idx % reporters.length]; this._ctIdx=idx+1;   // 1 reporter per cyclus
+    const url='https://comtradeapi.un.org/public/v1/preview/C/A/HS?reporterCode='+rc+'&period='+period+'&partnerCode=&flowCode=X&cmdCode=TOTAL';
+    this._get(url,false).then(d=>{ const rows=(d&&d.data)||[]; if(!rows.length){ this._ctFail=(this._ctFail||0)+1; TrinityFeeds.markErr('gsd-comtrade','no data (host allowlisted?)'); return; }
+      this._ctFail=0; const repIso=GSD_M49[rc]; if(!repIso)return;
+      let tot=0; const parts=[]; rows.forEach(r=>{ const pc=String(r.partnerCode||r.partnerCodeIsoAlpha||''); if(pc==='0'||pc==='')return; const iso=GSD_M49[pc]; const v=+ (r.primaryValue||r.PrimaryValue||0); if(v<=0)return; tot+=v; if(iso)parts.push([iso,v]); });
+      if(!tot||!parts.length){ TrinityFeeds.markOk('gsd-comtrade',repIso+' — geen bruikbare partners'); return; }
+      parts.sort((a,b)=>b[1]-a[1]); const top=parts.slice(0,10).map(([iso,v])=>[iso,+(v/tot).toFixed(3)]);
+      const live=TrinityGSD._tradeLive||(TrinityGSD._tradeLive={}); live[repIso]={exp:top, period, at:Date.now()};
+      if(TRADE_NET[repIso]){ TRADE_NET[repIso].exp=top.slice(0,6); try{ _gsdBuildTradeMats(); }catch(e){} }   // ververs backbone + matrix
+      TrinityFeeds.markOk('gsd-comtrade', repIso+' '+period+' · top '+(top[0]?top[0][0]+' '+Math.round(top[0][1]*100)+'%':'—')+' ('+top.length+' partners)');
+    }).catch(e=>{ this._ctFail=(this._ctFail||0)+1; TrinityFeeds.markErr('gsd-comtrade',e.message,e.http); });
+  }
 };
 // IMF PortWatch chokepoints we monitor (id → name, coords, GSD zone, geopolitical-strait flag).
 const GSD_CHOKE = [
@@ -23794,7 +23937,9 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     tone:    [['SELF',0.4,0,'sentiment'],['ALL',0.25,1,'media tone']],
     market:  [['ALL',0.4,0,'FX contagion']],
     finstress:[['ALL',0.6,0,'financial contagion / risk-off'],['na',0.5,0,'USD funding squeeze']],
-    supply:  [['SELF',0.55,0,'supply-chain hit'],['ap',0.45,1,'manufacturing hub'],['ALL',0.35,2,'supply shock']]
+    supply:  [['SELF',0.55,0,'supply-chain hit'],['ap',0.45,1,'manufacturing hub'],['ALL',0.35,2,'supply shock']],
+    energy:  [['SELF',0.5,0,'energy disruption'],['eu',0.55,1,'gas-import dependence'],['ap',0.5,1,'oil/LNG import'],['ALL',0.32,2,'energy price shock']],
+    housing: [['SELF',0.55,0,'property/debt stress'],['ALL',0.3,3,'financial spillover']]
   };
   const ZKEYS = ()=>{ try{ return GSD_ZONES.filter(z=>z.key!=='global').map(z=>z.key); }catch(e){ return ['na','eu','ap','me','af','latam']; } };
   const zName = k=>{ try{ const z=GSD_ZONES.find(z=>z.key===k); return z?z.name:k; }catch(e){ return k; } };
@@ -24820,7 +24965,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         +items.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${LAYERS[k]?'checked':''} onchange="__swToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`).join('');
   }
   // LEADING SIGNAL — which categories drive the kill-switch zone/topic + ground-zero. Economics is the default lead.
-  const LEAD_CATS=[['econ','Economy','#4fc3f7'],['cb','Central banks','#7fd8ff'],['trade','Trade/commodities','#ffd54a'],['market','Markets/FX','#14f195'],['finstress','Financial stress','#ff6ec7'],['supply','Supply chain','#ffa94d'],['geo','Geopolitics','#ff8a3c'],['conflict','Conflict','#ff4f6d'],['disaster','Natural disasters','#ffb627'],['weather','Extreme weather','#8fb8ff'],['tone','Media tone','#c792ea']];
+  const LEAD_CATS=[['econ','Economy','#4fc3f7'],['cb','Central banks','#7fd8ff'],['trade','Trade/commodities','#ffd54a'],['market','Markets/FX','#14f195'],['finstress','Financial stress','#ff6ec7'],['supply','Supply chain','#ffa94d'],['energy','Energy security','#ffd166'],['housing','Debt & real estate','#b088ff'],['geo','Geopolitics','#ff8a3c'],['conflict','Conflict','#ff4f6d'],['disaster','Natural disasters','#ffb627'],['weather','Extreme weather','#8fb8ff'],['tone','Media tone','#c792ea']];
   function _leadControlsHtml(){ const L=(typeof window!=='undefined'&&window.GSD_LEAD)||{};
     return `<div style="font:0.5rem JetBrains Mono,monospace;color:#ffd76a;letter-spacing:0.1em;text-transform:uppercase;margin:8px 0 2px;">★ Leading signal (drives kill-switch &amp; ground-zero) — economics by default</div><div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`
       +LEAD_CATS.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${L[k]?'checked':''} onchange="window.gsdLeadToggle&&window.gsdLeadToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`; }
