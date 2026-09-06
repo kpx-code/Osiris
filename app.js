@@ -22281,10 +22281,37 @@ const TrinityGSD = {
   scales:null, ranking:[], predictions:{}, _lastCompute:0, _built:false, _shadow:null, _cal:null, _calTs:0,
   predLog:[], predStats:null, _predLogTs:0,
   anchorTs: Date.UTC(2020,2,23),   // TAM-anker (COVID-krach 23-03-2020, hoog-energie release)
+  _impact:{}, _impactSnap:[], _lastImpactSnap:0,
+
+  // ---- ADAPTIEVE ECONOMISCHE-IMPACT-WEGING per categorie ----
+  // Effectieve impact = base-prior (CAT_ECON_IMPACT) × geleerde multiplier. De learner kijkt: als een
+  // categorie in een zone verhoogd was, liep daarna de ECONOMISCHE stress (econ/markt/financieel/handel)
+  // van die zone op? Zo ja → die categorie krijgt meer gewicht in de ground-zero/kill-switch; zo nee → minder.
+  // Hierdoor is alles standaard economisch gericht, maar kan een natuurramp die de economie ECHT raakt,
+  // autonoom doorwegen. Vóór genoeg samples (n<8) puur de base-prior.
+  catImpact(cat){ try{ const base=(typeof CAT_ECON_IMPACT!=='undefined'&&CAT_ECON_IMPACT[cat]!=null)?CAT_ECON_IMPACT[cat]:0.5;
+      const L=this._impact&&this._impact[cat]; if(!L||L.n<8) return base;
+      const hr=L.hit/L.n; const sh=L.n/(L.n+12); const mult=Math.max(0.5,Math.min(1.7, 1+(hr-0.35)*1.4*sh));
+      return Math.max(0.05, Math.min(1.15, base*mult)); }catch(e){ return 0.5; } },
+  _econComposite(z){ try{ const w={econ:1,market:1,finstress:1,trade:0.8,cb:0.6,housing:0.5,energy:0.5}; let s=0,ww=0; for(const k in w){ const c=this.cells[z]&&this.cells[z][k]; if(c&&c.v!=null){s+=c.v*w[k];ww+=w[k];} } return ww?s/ww:0; }catch(e){ return 0; } },
+  _impactTick(){ try{ const now=Date.now(); this._impact=this._impact||{}; this._impactSnap=this._impactSnap||[];
+    const WIN=90*60000; const keep=[];
+    for(const sn of this._impactSnap){ if(now-sn.ts<WIN){ keep.push(sn); continue; }
+      // resolve: liep de economische composite op sinds de snapshot? per zone; per verhoogde categorie → hit
+      GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return; const ec=this._econComposite(z.key); const d=ec-((sn.econ&&sn.econ[z.key])||0); const rose=d>=0.02;
+        const cv=(sn.cats&&sn.cats[z.key])||{}; for(const k in cv){ if(cv[k]>=0.4){ const Lk=this._impact[k]||(this._impact[k]={n:0,hit:0}); Lk.n++; Lk.hit+=(rose?1:0); if(Lk.n>600){Lk.n=Math.round(Lk.n*0.7);Lk.hit=Math.round(Lk.hit*0.7);} } } });
+    }
+    this._impactSnap=keep;
+    if(!this._impactSnap.length || now-(this._lastImpactSnap||0)>15*60000){ this._lastImpactSnap=now;
+      const snap={ts:now,econ:{},cats:{}}; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return; snap.econ[z.key]=this._econComposite(z.key); const cv={}; GSD_CATS.forEach(c=>{ const cell=this.cells[z.key]&&this.cells[z.key][c.key]; if(cell&&cell.v!=null)cv[c.key]=cell.v; }); snap.cats[z.key]=cv; });
+      this._impactSnap.push(snap); try{ localStorage.setItem('trinityGSDimpact',JSON.stringify(this._impact)); }catch(e){}
+    }
+  }catch(e){} },
 
   init(){
     if(this._built) return; this._built=true;
     GSD_ZONES.forEach(z=>{ this.cells[z.key]={}; GSD_CATS.forEach(c=>{ this.cells[z.key][c.key]={v:null,at:0,src:c.src,status:c.direct?'idle':'proxy'}; }); });
+    try{ const im=JSON.parse(localStorage.getItem('trinityGSDimpact')||'null'); if(im&&typeof im==='object') this._impact=im; }catch(e){}
     try{ const p=localStorage.getItem('trinityGSDproxy'); if(p) this.proxy=p; }catch(e){}
     try{ const v=JSON.parse(localStorage.getItem('trinityGSDcal')||'null'); if(v){ this._cal=v; if(v.nodeTh)this.nodeTh=v.nodeTh; if(v.spanT)this.spanT=v.spanT; if(v.crisT)this.crisT=v.crisT; this.calibrated=!!v.calibrated; } }catch(e){}
     try{ const h=JSON.parse(localStorage.getItem('trinityGSDhistCal')||'null'); if(h&&h.nodeTh){ this.histCal=h; this.nodeTh=h.nodeTh; this.spanT=h.spanT; this.crisT=h.crisT; if(h.escapeCrit!=null)this.escapeCrit=h.escapeCrit; this.calibrated=true; } }catch(e){}
@@ -22375,6 +22402,7 @@ const TrinityGSD = {
       if(now-this._calTs>15000){ this._calTs=now; this._calibrate(); }
       this._predict();
       this._scorePredictor(now);
+      try{ this._impactTick(); }catch(e){}   // adaptieve economische-impact-weging bijwerken
       if(now-(this._projTs||0)>10000){ this._projTs=now; this.projectKillSwitch(); }
       try{ TrinityGSDHistory.push(now, stress); }catch(e){}
       _gsdRollSave();
@@ -22530,17 +22558,23 @@ const TrinityGSD = {
       const kb=(typeof TrinityGSDBackfill!=='undefined'&&TrinityGSDBackfill.status)||{};
       const yrs=kb.years||36.7, kills=kb.killCount||0; const killsPerYear = kills>0? kills/Math.max(1,yrs) : 0.33;
       const catN={econ:'economy',cb:'central banks',geo:'geopolitics',conflict:'conflict',disaster:'natural disasters',weather:'extreme weather',trade:'trade/commodities',tone:'media tone',market:'markets/FX',finstress:'financial stress',supply:'supply chain',energy:'energy security',housing:'debt & real estate'};
-      // LEADING SIGNAL: which categories drive the kill-switch zone/topic. Economics leads by default;
-      // the rest are opt-in per category (GSD_LEAD, toggled from the map controls).
-      const lead=(typeof GSD_LEAD!=='undefined')?GSD_LEAD:{econ:1,cb:1,trade:1,market:1};
-      const leadKeys=GSD_CATS.map(c=>c.key).filter(k=>lead[k]); if(!leadKeys.length) leadKeys.push('econ');
-      const cats=leadKeys.map(k=>[k,this.catStress&&this.catStress[k]!=null?this.catStress[k]:0]).sort((a,b)=>b[1]-a[1]);
+      // LEADING SIGNAL = ACCENT, GEEN FILTER. Alle categorieen worden ALTIJD verwerkt voor de voorspelling
+      // (achtergrond-processing), ongeacht de vinkjes. Een uitgevinkte categorie telt nog steeds mee — alleen
+      // op halve weging — zodat de real-time ShockWave-projectie nooit "blind" wordt voor een databron.
+      // ECONOMISCH GERICHT + ADAPTIEF: elke categorie weegt naar zijn ECONOMISCHE IMPACT (catImpact = base-prior ×
+      // geleerde multiplier), niet naar de vinkjes. Zo sturen de direct-economische categorieen de ground-zero/
+      // kill-switch, en tellen natuurrampen/weer alleen zwaar mee als de data laat zien dat ze de economie raken.
+      // De vinkjes blijven puur een klein accent (aangevinkt of niet — alle data wordt altijd verwerkt).
+      const lead=(typeof GSD_LEAD!=='undefined')?GSD_LEAD:{};
+      const allKeys=GSD_CATS.map(c=>c.key);
+      const iw=k=>{ const imp=(typeof this.catImpact==='function')?this.catImpact(k):0.5; return imp*(lead[k]?1.0:0.9); };   // economische impact × klein toggle-accent
+      const cats=allKeys.map(k=>[k,(this.catStress&&this.catStress[k]!=null?this.catStress[k]:0)*iw(k)]).sort((a,b)=>b[1]-a[1]);
       const topCats=cats.slice(0,2).map(([k])=>catN[k]||k);
-      // PER-HORIZON zone: near term = what's loading now (leading cats); long term shifts toward
-      // structural/persistent risk (conflict/geo/central-banks). So week≈economics-leader, decades≈structural-leader.
+      // PER-HORIZON zone: near term = wat nu oplaadt (economisch-impact-gewogen over ALLE cats); long term
+      // schuift naar structureel/persistent risico (conflict/geo/central-banks). Alle data telt altijd mee.
       const leadMean={}, structMean={};
       GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return;
-        let s=0,n=0; leadKeys.forEach(k=>{ const c=this.cells[z.key]&&this.cells[z.key][k]; if(c&&c.v!=null){s+=c.v;n++;} }); leadMean[z.key]=n?s/n:0;
+        let s=0,w=0; allKeys.forEach(k=>{ const c=this.cells[z.key]&&this.cells[z.key][k]; if(c&&c.v!=null){ const e=iw(k); s+=c.v*e; w+=e; } }); leadMean[z.key]=w?s/w:0;
         let ss=0,sn=0; ['conflict','geo','cb'].forEach(k=>{ const c=this.cells[z.key]&&this.cells[z.key][k]; if(c&&c.v!=null){ss+=c.v;sn++;} }); structMean[z.key]=sn?ss/sn:0; });
       // ECONOMISCHE WEGING van de ground-zero-keuze: dezelfde stress in een zone met groot economisch/
       // supplychain-gewicht (NA/AP/EU, of ME via de olie-chokepoints) weegt zwaarder dan in een licht-
@@ -22628,6 +22662,14 @@ const TrinityGSD = {
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
 const GSD_CATWEIGHT = { market:1.3, econ:1.1, geo:1.2, conflict:1.2, disaster:0.9, weather:0.7, trade:1.0, cb:1.1, tone:1.0, finstress:1.1, supply:0.9, energy:1.0, housing:0.9 };
+// ECONOMISCHE-IMPACT-PRIOR per categorie: hoe direct vertaalt stress in deze categorie zich naar de
+// WERELDECONOMIE. Direct-economisch (econ/markt/financieel/handel/energie/supply/housing) = vol; geopolitiek
+// werkt via kanalen = medium; natuurrampen/weer/sentiment = laag (tellen pas zwaar mee als ze een economisch
+// zwaartepunt raken — de cel is al locatie-econ-gewogen). Dit stuurt de ground-zero/kill-switch-keuze naar
+// economische impact. Wordt ADAPTIEF bijgesteld (TrinityGSD.catImpact) op basis van wat werkelijk de
+// economische stress deed oplopen — zodat een ramp die de economie écht raakt, wél kan doorwegen.
+const CAT_ECON_IMPACT = { econ:1.00, market:1.00, finstress:1.00, trade:0.95, cb:0.90, energy:0.90, supply:0.85, housing:0.85, geo:0.55, conflict:0.60, disaster:0.35, weather:0.30, tone:0.35 };
+try{ window.CAT_ECON_IMPACT=CAT_ECON_IMPACT; }catch(e){}
 // het tijdvenster dat elke bron/categorie dekt (voor de "period"-kolom in de ranking)
 const GSD_CAT_WINDOW = { disaster:'last 7d', weather:'3d forecast', econ:'latest yr', trade:'latest', cb:'latest', geo:'last 3d', conflict:'last 3d', tone:'last 3d', market:'live', finstress:'live', supply:'latest', energy:'live', housing:'latest qtr' };
 function _gsdWhen(ms){ if(!ms) return '—'; const d=new Date(ms), p=n=>String(n).padStart(2,'0'); return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())+'Z'; }
@@ -24967,7 +25009,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // LEADING SIGNAL — which categories drive the kill-switch zone/topic + ground-zero. Economics is the default lead.
   const LEAD_CATS=[['econ','Economy','#4fc3f7'],['cb','Central banks','#7fd8ff'],['trade','Trade/commodities','#ffd54a'],['market','Markets/FX','#14f195'],['finstress','Financial stress','#ff6ec7'],['supply','Supply chain','#ffa94d'],['energy','Energy security','#ffd166'],['housing','Debt & real estate','#b088ff'],['geo','Geopolitics','#ff8a3c'],['conflict','Conflict','#ff4f6d'],['disaster','Natural disasters','#ffb627'],['weather','Extreme weather','#8fb8ff'],['tone','Media tone','#c792ea']];
   function _leadControlsHtml(){ const L=(typeof window!=='undefined'&&window.GSD_LEAD)||{};
-    return `<div style="font:0.5rem JetBrains Mono,monospace;color:#ffd76a;letter-spacing:0.1em;text-transform:uppercase;margin:8px 0 2px;">★ Leading signal (drives kill-switch &amp; ground-zero) — economics by default</div><div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`
+    return `<div style="font:0.5rem JetBrains Mono,monospace;color:#ffd76a;letter-spacing:0.1em;text-transform:uppercase;margin:8px 0 2px;">★ Leading signal — accent op de ground-zero (economics by default)</div>`
+      +`<div style="font:0.46rem JetBrains Mono,monospace;color:#5c7488;margin:0 0 3px;line-height:1.5;">Alle bronnen worden altijd op de achtergrond verwerkt voor de real-time voorspelling — de vinkjes filteren niets weg, ze leggen alleen accent (uitgevinkt telt op halve weging mee).</div><div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`
       +LEAD_CATS.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${L[k]?'checked':''} onchange="window.gsdLeadToggle&&window.gsdLeadToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`; }
   function _renderLegend(){ const el=document.getElementById('sw-legend'); if(!el)return;
     el.innerHTML=`<div class="mono" style="font-size:0.54rem;color:var(--dim);line-height:1.9;"><b style="color:#ff5f7e;">Heat zones = glow</b> (opacity overlap) over the regions — brighter = more pressure/heat/rain. <span style="color:#ff4f6d;">● earthquake</span> · <span style="color:#ff7a1a;">● wildfire</span> · <span style="color:#ff4f6d;">● volcano</span> · <span style="color:#4fc3f7;">● flood</span> · <span style="color:#7fd8ff;">— plate boundary</span> · <span style="color:#ff8a3c;">◌ clash/pressure zone</span> · <span style="color:#14f195;">— capital flow</span> · <span style="color:#ff8a3c;">★ ΔV kill-switch start-zone</span> · <span style="color:#ffd76a;">◌ ground-zero</span> · <span style="color:#ff2d55;">● live conflict</span> · <span style="color:#ec4899;">+ migration destination (est. inflow)</span> · <span style="color:#14f195;">▲ zone capital-flow +</span>/<span style="color:#ff4f6d;">▼ −</span> (solid box = real USD via IMF BoP proxy; dashed box = simulated FX-flow index fallback).</div>`; }
