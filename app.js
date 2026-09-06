@@ -12752,7 +12752,8 @@ async function marginTick() {
             let entryLev = osirisPickLeverage(pEff, _regimeCalm, _volPen, _opp, !_feeNoEdge);
             if (_mdd.level > 0) entryLev = Math.max(1, Math.round(entryLev * (1 - 0.6 * _mdd.level)));   // drawdown → minder hefboom = kleinere klap
             marginLeverage = entryLev;   // baseline/weergave volgt de laatst gekozen hefboom
-            const sizePct = perTradeExpo / entryLev;                                               // bijhorende marge-fractie
+            const _crySizeMulM = (typeof OsirisCryptoRisk !== 'undefined') ? OsirisCryptoRisk.sizeMult() : 1;   // ShockWave→Neo: wereld-risk-off verkleint (shadow-gated, ≥0,5×)
+            const sizePct = (perTradeExpo / entryLev) * _crySizeMulM;                               // bijhorende marge-fractie × wereld-risk
             if (sizePct < 0.03) { marginState.lastAction = `exposure-cap bereikt (${(curNotionalPct * 100 | 0)}% / ${(effMaxExpo * 100 | 0)}% notional)`; continue; }
             const marginUSD = sizingBase * sizePct;
             const notional = marginUSD * entryLev;                                                 // leverage!
@@ -13596,7 +13597,10 @@ function osirisShadowTick() {
             const _btcOpen = openPositions.some(x => ((x.symbol === 'BTCUSDT') || (x.market === 'BTC')) && !x.isOsiris);
             const btcReserve = _btcOpen ? 0 : (typeof OSIRIS_BTC_RESERVE !== 'undefined' ? OSIRIS_BTC_RESERVE : 0.15);
             const availablePct = Math.max(0, 1 - allocSoFar - reservePct - btcReserve);
-            const sizePct = Math.min(a * maxAlloc * _taSizeMulSpot, availablePct);   // Timing-Agent size-tilt
+            // ShockWave→Neo: begrensde, shadow-gated verkleining bij hoge wereld-risk-off + contagion (1,0 tot bewezen)
+            const _crySizeMul = (typeof OsirisCryptoRisk !== 'undefined') ? OsirisCryptoRisk.sizeMult() : 1;
+            const sizePct = Math.min(a * maxAlloc * _taSizeMulSpot * _crySizeMul, availablePct);   // Timing-Agent size-tilt × wereld-risk
+            if (_crySizeMul < 0.98) { try { osirisState.skip[sym] = null; } catch (e) {} }
             if (sizePct <= 0) { osirisState.skip[sym] = 'geen vrije equity'; continue; }   // wallet al vol
             const notionalUSD = freeEquity * sizePct;
             if (notionalUSD < 5) { osirisState.skip[sym] = 'order < $5'; continue; }
@@ -19938,6 +19942,7 @@ function tick(){
   try{ const px={}; for(const p of PAIRS){ const st=pair[p]; if(st&&st.rate) px[p]=st.rate; } TrinityCompRelease.feed(TrinityFSO.sysVar, TrinityFSO.nodeTh, px); }catch(e){}
   try{ if(typeof _trinityToolsTick==='function') _trinityToolsTick(); }catch(e){}   // regime-HMM observe + LLM sentiment-scan
   try{ if(typeof TrinityShockWave!=='undefined') TrinityShockWave.tick(); }catch(e){}  // ShockWave contagion: detecteer schokken + resolve voorspellingen
+  try{ if(typeof OsirisCryptoRisk!=='undefined') OsirisCryptoRisk.tick(); }catch(e){}  // ShockWave→Neo crypto-risk shadow-backtest (record/resolve)
   try{ TrinityFeeds.markOk('engine', feed.mode==='live'&&feed.ok ? 'live-prijzen actief' : 'sim-tick actief'); }catch(e){}
   manageTrinity();
 }
@@ -21404,7 +21409,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,(typeof osirisCapitalPreserveTick==='function'?osirisCapitalPreserveTick:null),(typeof OsirisAdaptive!=='undefined'?()=>OsirisAdaptive.tick():null),renderTable,renderOpp,renderTrinity,renderWallet,(typeof renderOsirisPortfolio==='function'?renderOsirisPortfolio:null),renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
@@ -22017,16 +22022,178 @@ const GSD_CATS = [
   { key:'weather',  name:'Extreme weather',       col:'#8fb8ff', direct:true,  src:'Open-Meteo' },
   { key:'trade',    name:'Trade & commodities',   col:'#ffd54a', direct:true,  src:'World Bank / FRED*' },
   { key:'tone',     name:'Media tone / sentiment',col:'#c792ea', direct:false, src:'GDELT*' },
-  { key:'market',   name:'Market / FX',           col:'#14f195', direct:true,  src:'live FX-FSO' }
+  { key:'market',   name:'Market / FX',           col:'#14f195', direct:true,  src:'live FX-FSO' },
+  { key:'finstress',name:'Financial stress',      col:'#ff6ec7', direct:false, src:'FRED (VIX/HY/CISS)' },
+  { key:'supply',   name:'Supply chain & manuf.', col:'#ffa94d', direct:false, src:'PortWatch / FRED IP' }
 ];
 // LEADING SIGNAL for ShockWave: which categories drive the kill-switch zone/topic + ground-zero.
 // Economics leads by default; the rest are opt-in per category (toggled from the map controls).
-const GSD_LEAD = { econ:true, cb:true, trade:true, market:true, geo:false, conflict:false, disaster:false, weather:false, tone:false };
+const GSD_LEAD = { econ:true, cb:true, trade:true, market:true, finstress:true, supply:true, geo:false, conflict:false, disaster:false, weather:false, tone:false };
 try{ const s=JSON.parse(localStorage.getItem('gsdLead')||'null'); if(s&&typeof s==='object') Object.assign(GSD_LEAD,s); }catch(e){}
 function gsdLeadToggle(c){ GSD_LEAD[c]=!GSD_LEAD[c]; try{ localStorage.setItem('gsdLead',JSON.stringify(GSD_LEAD)); }catch(e){} try{ TrinityGSD.projectKillSwitch(); }catch(e){} }
 try{ window.GSD_LEAD=GSD_LEAD; window.gsdLeadToggle=gsdLeadToggle; }catch(e){}
 const GSD_TH_DEFAULT = 0.20;   // UOTAM start value; calibrated to the engine's own σ² distribution
 const GSD_VAR_REF = 0.06;      // fixed σ² normalisation reference (zone-variance scale) — keeps σ² dynamic, not pinned
+
+/* ==================================================================================
+   GSD_ECON — gedeelde economische/handels-ruggengraat (land-niveau). Bevat per grote
+   economie: locatie (economisch zwaartepunt), zone, en een GEWICHT dat economisch belang
+   ÉN supplychain-/handelskriticaliteit combineert (0..1; VS/China ~1, Taiwan/Korea hoog
+   door halfgeleiders, Nederland/Singapore/UAE hoog door haven-/logistiek-hubs).
+   Wordt gebruikt om (a) elke ramp te wegen op de economische massa van de EXACTE locatie
+   — een beving in Tokio telt veel zwaarder dan dezelfde in leeg gebied — en (b) de
+   kill-switch-/ground-zero-zone economisch te wegen. Later breidt trade-netwerk (task)
+   dit uit met per-land top-export/-import + commodities voor echte handels-contagion.
+   ================================================================================== */
+const GSD_ECON = [
+  // North America
+  {iso:'USA',name:'United States',zone:'na',lat:38.9,lon:-77.0,w:1.00},
+  {iso:'USA2',name:'US West',zone:'na',lat:34.0,lon:-118.2,w:0.72},
+  {iso:'USA3',name:'US Gulf/energy',zone:'na',lat:29.7,lon:-95.4,w:0.55},
+  {iso:'CAN',name:'Canada',zone:'na',lat:43.7,lon:-79.4,w:0.33},
+  {iso:'MEX',name:'Mexico',zone:'latam',lat:19.4,lon:-99.1,w:0.32},
+  // Europe
+  {iso:'DEU',name:'Germany',zone:'eu',lat:50.1,lon:8.7,w:0.58},
+  {iso:'GBR',name:'United Kingdom',zone:'eu',lat:51.5,lon:-0.12,w:0.40},
+  {iso:'FRA',name:'France',zone:'eu',lat:48.9,lon:2.35,w:0.38},
+  {iso:'ITA',name:'Italy',zone:'eu',lat:45.5,lon:9.2,w:0.32},
+  {iso:'NLD',name:'Netherlands (Rotterdam hub)',zone:'eu',lat:51.9,lon:4.5,w:0.34},
+  {iso:'ESP',name:'Spain',zone:'eu',lat:40.4,lon:-3.7,w:0.25},
+  {iso:'CHE',name:'Switzerland',zone:'eu',lat:47.4,lon:8.5,w:0.26},
+  {iso:'BEL',name:'Belgium (Antwerp hub)',zone:'eu',lat:51.2,lon:4.4,w:0.22},
+  {iso:'SWE',name:'Sweden',zone:'eu',lat:59.3,lon:18.1,w:0.18},
+  {iso:'POL',name:'Poland',zone:'eu',lat:52.2,lon:21.0,w:0.20},
+  {iso:'NOR',name:'Norway (energy)',zone:'eu',lat:59.9,lon:10.7,w:0.20},
+  {iso:'AUT',name:'Austria',zone:'eu',lat:48.2,lon:16.4,w:0.15},
+  {iso:'DNK',name:'Denmark (Maersk)',zone:'eu',lat:55.7,lon:12.6,w:0.16},
+  // Asia-Pacific
+  {iso:'CHN',name:'China (Beijing/North)',zone:'ap',lat:39.9,lon:116.4,w:0.97},
+  {iso:'CHN2',name:'China (Shanghai/Yangtze)',zone:'ap',lat:31.2,lon:121.5,w:0.90},
+  {iso:'CHN3',name:'China (Shenzhen/Pearl)',zone:'ap',lat:22.5,lon:114.1,w:0.80},
+  {iso:'JPN',name:'Japan',zone:'ap',lat:35.7,lon:139.7,w:0.60},
+  {iso:'KOR',name:'South Korea (semis)',zone:'ap',lat:37.6,lon:127.0,w:0.44},
+  {iso:'TWN',name:'Taiwan (semis — critical)',zone:'ap',lat:25.0,lon:121.6,w:0.55},
+  {iso:'IND',name:'India',zone:'ap',lat:19.1,lon:72.9,w:0.42},
+  {iso:'SGP',name:'Singapore (port/logistics hub)',zone:'ap',lat:1.35,lon:103.8,w:0.36},
+  {iso:'IDN',name:'Indonesia',zone:'ap',lat:-6.2,lon:106.8,w:0.28},
+  {iso:'AUS',name:'Australia (commodities)',zone:'ap',lat:-33.9,lon:151.2,w:0.30},
+  {iso:'THA',name:'Thailand (manufacturing)',zone:'ap',lat:13.8,lon:100.5,w:0.24},
+  {iso:'VNM',name:'Vietnam (manufacturing)',zone:'ap',lat:21.0,lon:105.8,w:0.26},
+  {iso:'MYS',name:'Malaysia (semis/palm)',zone:'ap',lat:3.1,lon:101.7,w:0.22},
+  {iso:'PHL',name:'Philippines',zone:'ap',lat:14.6,lon:121.0,w:0.16},
+  {iso:'HKG',name:'Hong Kong (finance/port)',zone:'ap',lat:22.3,lon:114.2,w:0.28},
+  {iso:'NZL',name:'New Zealand (dairy)',zone:'ap',lat:-36.8,lon:174.8,w:0.14},
+  {iso:'BGD',name:'Bangladesh (textiles)',zone:'ap',lat:23.8,lon:90.4,w:0.14},
+  {iso:'PAK',name:'Pakistan',zone:'ap',lat:24.9,lon:67.0,w:0.12},
+  // Middle East
+  {iso:'SAU',name:'Saudi Arabia (oil)',zone:'me',lat:24.7,lon:46.7,w:0.30},
+  {iso:'ARE',name:'UAE (Dubai/Jebel Ali hub)',zone:'me',lat:25.2,lon:55.3,w:0.26},
+  {iso:'TUR',name:'Turkey',zone:'me',lat:41.0,lon:28.9,w:0.24},
+  {iso:'ISR',name:'Israel (tech)',zone:'me',lat:32.1,lon:34.8,w:0.20},
+  {iso:'IRN',name:'Iran (oil)',zone:'me',lat:35.7,lon:51.4,w:0.18},
+  {iso:'QAT',name:'Qatar (LNG)',zone:'me',lat:25.3,lon:51.5,w:0.18},
+  {iso:'KWT',name:'Kuwait (oil)',zone:'me',lat:29.4,lon:47.9,w:0.15},
+  {iso:'IRQ',name:'Iraq (oil)',zone:'me',lat:33.3,lon:44.4,w:0.14},
+  // Africa
+  {iso:'ZAF',name:'South Africa (minerals)',zone:'af',lat:-26.2,lon:28.0,w:0.20},
+  {iso:'NGA',name:'Nigeria (oil)',zone:'af',lat:6.5,lon:3.4,w:0.14},
+  {iso:'EGY',name:'Egypt (Suez)',zone:'af',lat:30.0,lon:31.2,w:0.16},
+  {iso:'MAR',name:'Morocco',zone:'af',lat:33.6,lon:-7.6,w:0.10},
+  {iso:'DZA',name:'Algeria (gas)',zone:'af',lat:36.8,lon:3.1,w:0.12},
+  {iso:'KEN',name:'Kenya',zone:'af',lat:-1.3,lon:36.8,w:0.09},
+  // Latin America
+  {iso:'BRA',name:'Brazil (soy/iron/oil)',zone:'latam',lat:-23.5,lon:-46.6,w:0.30},
+  {iso:'ARG',name:'Argentina (grain)',zone:'latam',lat:-34.6,lon:-58.4,w:0.15},
+  {iso:'CHL',name:'Chile (copper)',zone:'latam',lat:-33.4,lon:-70.6,w:0.16},
+  {iso:'COL',name:'Colombia (oil)',zone:'latam',lat:4.7,lon:-74.1,w:0.13},
+  {iso:'PER',name:'Peru (copper)',zone:'latam',lat:-12.0,lon:-77.0,w:0.11}
+];
+// afstand (km, equirectangular-benadering) + economische massa van een exacte locatie (0.12..1)
+function _gsdDistKm(la1,lo1,la2,lo2){ const dLa=(la2-la1)*111; const dLo=(lo2-lo1)*111*Math.cos((la1+la2)/2*Math.PI/180); return Math.sqrt(dLa*dLa+dLo*dLo); }
+function _gsdEconMass(lon,lat){ try{ let mx=0; const SC=680; for(let i=0;i<GSD_ECON.length;i++){ const e=GSD_ECON[i]; const d=_gsdDistKm(lat,lon,e.lat,e.lon); const c=e.w*Math.exp(-(d/SC)*(d/SC)); if(c>mx)mx=c; } return Math.max(0.12, Math.min(1, 0.12+0.88*mx)); }catch(e){ return 0.5; } }
+// per-zone economisch gewicht (0..1, genormaliseerd op de zwaarste zone) → weegt de kill-switch-/ground-zero-
+// keuze. Expliciete tabel op basis van echt BBP + handels-/manufacturing-aandeel (niet afgeleid uit het aantal
+// opgesomde hubs, want dat zou zones met meer entries kunstmatig bevoordelen). ME is verhoogd t.o.v. puur BBP
+// vanwege zijn olie-/chokepoint-kriticaliteit (Hormuz) voor de wereldhandel.
+const GSD_ZONE_ECONW = { ap:1.00, na:0.94, eu:0.82, me:0.46, latam:0.34, af:0.24, global:1.0 };
+function _gsdZoneEconW(z){ return GSD_ZONE_ECONW[z]!=null?GSD_ZONE_ECONW[z]:0.5; }
+try{ window.GSD_ECON=GSD_ECON; window._gsdEconMass=_gsdEconMass; window.GSD_ZONE_ECONW=GSD_ZONE_ECONW; }catch(e){}
+
+/* ==================================================================================
+   TRADE_NET — handelsrelatie-ruggengraat (curated, land-niveau). Per grote exporteur:
+     exp = top export-BESTEMMINGEN [partnerISO, aandeel van export]  (waar hun spullen heen gaan)
+     imp = top import-BRONNEN       [partnerISO, aandeel van import]  (waar ze afhankelijk van zijn)
+     com = kern-exportgoederen (commodities/manufacturing/goederen)
+   Dit is de "letterlijke ShockWave"-laag: een schok propageert langs ECHTE handelslijnen — een
+   supply-schok in een bron raakt wie ervan importeert; een vraag-schok raakt wie eraan exporteert.
+   Cijfers zijn realistisch-benaderd (grounded prior); de latere live-laag (UN Comtrade/WITS) verfijnt.
+   ================================================================================== */
+const TRADE_ZONE = { // partner-ISO → zone (dekt ook partners buiten GSD_ECON)
+  USA:'na',CAN:'na', DEU:'eu',GBR:'eu',FRA:'eu',ITA:'eu',NLD:'eu',ESP:'eu',CHE:'eu',BEL:'eu',SWE:'eu',POL:'eu',NOR:'eu',AUT:'eu',DNK:'eu',RUS:'eu',UKR:'eu',
+  CHN:'ap',JPN:'ap',KOR:'ap',TWN:'ap',IND:'ap',SGP:'ap',IDN:'ap',AUS:'ap',THA:'ap',VNM:'ap',MYS:'ap',PHL:'ap',HKG:'ap',NZL:'ap',BGD:'ap',PAK:'ap',
+  SAU:'me',ARE:'me',TUR:'me',ISR:'me',IRN:'me',QAT:'me',KWT:'me',IRQ:'me',
+  ZAF:'af',NGA:'af',EGY:'af',MAR:'af',DZA:'af',KEN:'af',
+  BRA:'latam',ARG:'latam',CHL:'latam',COL:'latam',PER:'latam',MEX:'latam' };
+const TRADE_NET = {
+  USA:{exp:[['CAN',.17],['MEX',.16],['CHN',.07],['JPN',.04],['GBR',.04],['DEU',.04]], imp:[['CHN',.14],['MEX',.15],['CAN',.13],['JPN',.05],['DEU',.05]], com:['machinery','autos','oil','gas','soy','chemicals','semis','pharma','aircraft']},
+  CHN:{exp:[['USA',.16],['HKG',.08],['JPN',.05],['KOR',.04],['VNM',.04],['DEU',.03]], imp:[['TWN',.08],['KOR',.08],['JPN',.07],['USA',.07],['AUS',.06],['DEU',.04]], com:['electronics','machinery','textiles','semis','steel','solar']},
+  DEU:{exp:[['USA',.10],['FRA',.08],['CHN',.07],['NLD',.06],['POL',.05],['ITA',.05]], imp:[['CHN',.12],['NLD',.09],['USA',.07],['POL',.06],['FRA',.05]], com:['autos','machinery','chemicals','pharma']},
+  JPN:{exp:[['USA',.19],['CHN',.19],['KOR',.07],['TWN',.07]], imp:[['CHN',.24],['USA',.10],['AUS',.10],['SAU',.05]], com:['autos','machinery','semis','electronics']},
+  KOR:{exp:[['CHN',.23],['USA',.16],['VNM',.08],['JPN',.05]], imp:[['CHN',.23],['USA',.12],['JPN',.08],['AUS',.05]], com:['semis','electronics','autos','ships','steel']},
+  TWN:{exp:[['CHN',.35],['USA',.15],['HKG',.14],['JPN',.07]], imp:[['CHN',.22],['JPN',.16],['USA',.10],['KOR',.07]], com:['semis','electronics','machinery']},
+  IND:{exp:[['USA',.18],['ARE',.09],['CHN',.05],['NLD',.05]], imp:[['CHN',.15],['ARE',.07],['USA',.07],['SAU',.06],['IRQ',.05]], com:['pharma','textiles','chemicals','rice','machinery']},
+  GBR:{exp:[['USA',.15],['DEU',.09],['NLD',.08],['FRA',.07]], imp:[['CHN',.13],['DEU',.12],['USA',.09],['NLD',.06]], com:['machinery','autos','pharma','oil']},
+  FRA:{exp:[['DEU',.14],['USA',.08],['ITA',.07],['ESP',.07]], imp:[['DEU',.15],['BEL',.09],['NLD',.08],['ITA',.08],['CHN',.08]], com:['aircraft','machinery','autos','pharma','wine']},
+  NLD:{exp:[['DEU',.23],['BEL',.11],['FRA',.08],['GBR',.07]], imp:[['CHN',.16],['DEU',.14],['BEL',.09],['USA',.08]], com:['machinery','chemicals','gas','refined-oil','agri']},
+  ITA:{exp:[['DEU',.12],['USA',.10],['FRA',.10]], imp:[['DEU',.16],['CHN',.09],['FRA',.08]], com:['machinery','autos','pharma','luxury']},
+  CAN:{exp:[['USA',.75],['CHN',.04]], imp:[['USA',.49],['CHN',.14],['MEX',.06]], com:['oil','gas','autos','machinery','wheat','potash']},
+  MEX:{exp:[['USA',.80],['CAN',.03]], imp:[['USA',.44],['CHN',.20]], com:['autos','electronics','machinery','oil']},
+  BRA:{exp:[['CHN',.31],['USA',.11],['ARG',.04]], imp:[['CHN',.23],['USA',.18],['DEU',.05]], com:['soy','iron','oil','sugar','beef','coffee']},
+  RUS:{exp:[['CHN',.30],['IND',.10],['TUR',.08]], imp:[['CHN',.40],['DEU',.05]], com:['oil','gas','wheat','metals','coal']},
+  SAU:{exp:[['CHN',.19],['IND',.11],['JPN',.11],['KOR',.09]], imp:[['CHN',.21],['USA',.10],['ARE',.07]], com:['oil','petrochemicals']},
+  ARE:{exp:[['IND',.12],['CHN',.06],['SAU',.06]], imp:[['CHN',.18],['IND',.10],['USA',.08]], com:['oil','gold','re-exports']},
+  AUS:{exp:[['CHN',.35],['JPN',.15],['KOR',.07],['IND',.05]], imp:[['CHN',.28],['USA',.10],['JPN',.06]], com:['iron','coal','lng','gold','wheat']},
+  SGP:{exp:[['CHN',.15],['USA',.11],['HKG',.13],['MYS',.09]], imp:[['CHN',.17],['MYS',.13],['USA',.11],['TWN',.08]], com:['electronics','refined-oil','chemicals','semis']},
+  IDN:{exp:[['CHN',.23],['USA',.10],['JPN',.08],['IND',.08]], imp:[['CHN',.28],['SGP',.09],['JPN',.08]], com:['coal','palm','gas','nickel']},
+  VNM:{exp:[['USA',.29],['CHN',.17],['KOR',.06]], imp:[['CHN',.38],['KOR',.17]], com:['electronics','textiles','footwear']},
+  THA:{exp:[['USA',.17],['CHN',.12],['JPN',.09]], imp:[['CHN',.25],['JPN',.11],['USA',.06]], com:['electronics','autos','machinery','rice']}
+};
+// commodity-vraag: welke zones importeren een commodity zwaar (→ geraakt bij een supply-/prijs-schok in die commodity)
+const TRADE_COM_IMPORTERS = {
+  oil:['ap','eu','na'], gas:['eu','ap'], lng:['eu','ap'], coal:['ap','eu'],
+  semis:['na','ap','eu'], electronics:['na','eu'], iron:['ap'], copper:['ap','na','eu'],
+  nickel:['ap'], wheat:['me','af','ap'], soy:['ap','eu'], rice:['me','af'], palm:['ap','eu'],
+  autos:['na','eu','ap'], machinery:['na','ap','latam','af'], chemicals:['na','ap','eu'], pharma:['na','ap','af']
+};
+// bouw zone×zone handels-intensiteit + per-zone export-commodityprofiel uit TRADE_NET (één keer)
+const _tradeMats = (function(){
+  const zoneOf = iso => TRADE_ZONE[iso] || null;
+  const wOf = iso => { const e=GSD_ECON.find(x=>x.iso===iso); return e?e.w:0.15; };   // economisch gewicht van de exporteur
+  const T = {}, EXP = {};   // T[dst][src]=afhankelijkheid; EXP[zone]=Set van export-commodities (gewogen)
+  const ZK=['na','eu','ap','me','af','latam']; ZK.forEach(a=>{ T[a]={}; ZK.forEach(b=>T[a][b]=0); EXP[a]={}; });
+  for(const iso in TRADE_NET){ const rec=TRADE_NET[iso]; const zc=zoneOf(iso); if(!zc)continue; const cw=wOf(iso);
+    // imports: dst-land (iso, zone zc) hangt af van bron-partner-zones → T[zc][srcZone]
+    (rec.imp||[]).forEach(([pi,sh])=>{ const pz=zoneOf(pi); if(pz&&pz!==zc){ T[zc][pz]+=sh*cw; } });
+    // exports: iso's zone hangt (als afzetmarkt) samen met bestemmings-zones → T[destZone][zc] (afzet-afhankelijkheid omgekeerd)
+    (rec.exp||[]).forEach(([pi,sh])=>{ const pz=zoneOf(pi); if(pz&&pz!==zc){ T[pz][zc]+=sh*cw*0.6; } });   // afzetmarkt telt iets lichter dan aanvoer
+    // export-commodityprofiel van de zone
+    (rec.com||[]).forEach(cm=>{ EXP[zc][cm]=(EXP[zc][cm]||0)+cw; });
+  }
+  // normaliseer T per dst-zone op de zwaarste bron (0..1)
+  ZK.forEach(dst=>{ let mx=0; ZK.forEach(src=>{ if(T[dst][src]>mx)mx=T[dst][src]; }); if(mx>0) ZK.forEach(src=>{ T[dst][src]=+(T[dst][src]/mx).toFixed(3); }); });
+  return { T, EXP };
+})();
+const GSD_ZONE_TRADE = _tradeMats.T;         // GSD_ZONE_TRADE[dstZone][srcZone] = handels-afhankelijkheid 0..1
+const GSD_ZONE_EXPCOM = _tradeMats.EXP;      // GSD_ZONE_EXPCOM[zone] = {commodity: gewicht} dat de zone exporteert
+// welke zones worden geraakt als bronzone S een schok krijgt, gewogen op handels-afhankelijkheid + commodity-export van S
+function _gsdTradeTargets(srcZone){ try{ const out=[]; const ZK=['na','eu','ap','me','af','latam'];
+    ZK.forEach(dst=>{ if(dst===srcZone)return; const dep=(GSD_ZONE_TRADE[dst]&&GSD_ZONE_TRADE[dst][srcZone])||0; if(dep>=0.12) out.push({zone:dst,dep:+dep.toFixed(3),via:'trade-link'}); });
+    // commodity-route: als S een grote exporteur van commodity X is, raak de zware importeurs van X
+    const exp=GSD_ZONE_EXPCOM[srcZone]||{}; const coms=Object.keys(exp).sort((a,b)=>exp[b]-exp[a]).slice(0,3);
+    coms.forEach(cm=>{ const imps=TRADE_COM_IMPORTERS[cm]; if(!imps)return; imps.forEach(dst=>{ if(dst===srcZone)return; const ex=out.find(o=>o.zone===dst); const boost=0.35; if(ex){ ex.dep=Math.min(1,ex.dep+boost*0.5); ex.via='trade+'+cm; } else out.push({zone:dst,dep:boost,via:'commodity:'+cm}); }); });
+    return out.sort((a,b)=>b.dep-a.dep); }catch(e){ return []; } }
+try{ window.TRADE_NET=TRADE_NET; window.GSD_ZONE_TRADE=GSD_ZONE_TRADE; window.GSD_ZONE_EXPCOM=GSD_ZONE_EXPCOM; window._gsdTradeTargets=_gsdTradeTargets; }catch(e){}
+
 // GDELT per-zone query terms (geopolitics/tone). Robust keyword queries beat FIPS codes.
 const GSD_GDELT_Q = {
   na:    '("United States" OR Canada OR Mexico) (protest OR shooting OR strike OR crisis OR shutdown)',
@@ -22321,7 +22488,7 @@ const TrinityGSD = {
       const hv=this.histVFM||[]; const dVfm = hv.length>=6 ? (hv[hv.length-1]-hv[hv.length-6]) : 0;
       const kb=(typeof TrinityGSDBackfill!=='undefined'&&TrinityGSDBackfill.status)||{};
       const yrs=kb.years||36.7, kills=kb.killCount||0; const killsPerYear = kills>0? kills/Math.max(1,yrs) : 0.33;
-      const catN={econ:'economy',cb:'central banks',geo:'geopolitics',conflict:'conflict',disaster:'natural disasters',weather:'extreme weather',trade:'trade/commodities',tone:'media tone',market:'markets/FX'};
+      const catN={econ:'economy',cb:'central banks',geo:'geopolitics',conflict:'conflict',disaster:'natural disasters',weather:'extreme weather',trade:'trade/commodities',tone:'media tone',market:'markets/FX',finstress:'financial stress',supply:'supply chain'};
       // LEADING SIGNAL: which categories drive the kill-switch zone/topic. Economics leads by default;
       // the rest are opt-in per category (GSD_LEAD, toggled from the map controls).
       const lead=(typeof GSD_LEAD!=='undefined')?GSD_LEAD:{econ:1,cb:1,trade:1,market:1};
@@ -22334,7 +22501,11 @@ const TrinityGSD = {
       GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return;
         let s=0,n=0; leadKeys.forEach(k=>{ const c=this.cells[z.key]&&this.cells[z.key][k]; if(c&&c.v!=null){s+=c.v;n++;} }); leadMean[z.key]=n?s/n:0;
         let ss=0,sn=0; ['conflict','geo','cb'].forEach(k=>{ const c=this.cells[z.key]&&this.cells[z.key][k]; if(c&&c.v!=null){ss+=c.v;sn++;} }); structMean[z.key]=sn?ss/sn:0; });
-      const zoneFor=(days)=>{ const w=Math.min(1,days/3650)*0.7; let best=null,bv=-1; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return; const sc=leadMean[z.key]*(1-w)+structMean[z.key]*w; if(sc>bv){bv=sc;best=z;} }); return best?best.name:'Global'; };
+      // ECONOMISCHE WEGING van de ground-zero-keuze: dezelfde stress in een zone met groot economisch/
+      // supplychain-gewicht (NA/AP/EU, of ME via de olie-chokepoints) weegt zwaarder dan in een licht-
+      // economische zone. Een lichte zone kan nog steeds ground-zero worden als de stress echt hoog is,
+      // maar krijgt niet gratis voorrang op een puur fysiek (bv. afgelegen) event.
+      const zoneFor=(days)=>{ const w=Math.min(1,days/3650)*0.7; let best=null,bv=-1; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return; const raw=leadMean[z.key]*(1-w)+structMean[z.key]*w; const sc=raw*(0.55+0.45*_gsdZoneEconW(z.key)); if(sc>bv){bv=sc;best=z;} }); return best?best.name:'Global'; };
       const topZone=zoneFor(7);
       const out=[];
       HZ.forEach(([key,days,hk])=>{
@@ -22415,9 +22586,9 @@ const TrinityGSD = {
     calibration:this._cal, shadow:this._shadow, histCal:this.histCal, historicalBackfill:(typeof TrinityGSDBackfill!=='undefined'?TrinityGSDBackfill.bundle():null), proxy:this.proxy?'(ingesteld)':'(geen)', tamAnchor:new Date(this.anchorTs).toISOString(),
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
-const GSD_CATWEIGHT = { market:1.3, econ:1.1, geo:1.2, conflict:1.2, disaster:0.9, weather:0.7, trade:1.0, cb:1.1, tone:1.0 };
+const GSD_CATWEIGHT = { market:1.3, econ:1.1, geo:1.2, conflict:1.2, disaster:0.9, weather:0.7, trade:1.0, cb:1.1, tone:1.0, finstress:1.1, supply:0.9 };
 // het tijdvenster dat elke bron/categorie dekt (voor de "period"-kolom in de ranking)
-const GSD_CAT_WINDOW = { disaster:'last 7d', weather:'3d forecast', econ:'latest yr', trade:'latest', cb:'latest', geo:'last 3d', conflict:'last 3d', tone:'last 3d', market:'live' };
+const GSD_CAT_WINDOW = { disaster:'last 7d', weather:'3d forecast', econ:'latest yr', trade:'latest', cb:'latest', geo:'last 3d', conflict:'last 3d', tone:'last 3d', market:'live', finstress:'live', supply:'latest' };
 function _gsdWhen(ms){ if(!ms) return '—'; const d=new Date(ms), p=n=>String(n).padStart(2,'0'); return p(d.getUTCDate())+'/'+p(d.getUTCMonth()+1)+' '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())+'Z'; }
 const TPWIN = { micro:12*3600e3, meso:2*864e5, macro:5*864e5 };   // halve-window rond TAM-node per schaal
 
@@ -22456,27 +22627,60 @@ const GSDData = {
     run(()=>this.z1tic(), 6*3600000, 7600);   // Fed Z.1 + US Treasury TIC (via FRED)
     run(()=>this.bis(),   12*3600000, 8600);  // BIS credit-to-GDP gap (systemic)
     run(()=>this.portwatch(), 6*3600000, 9400); // IMF PortWatch maritime chokepoints (Suez/Hormuz/…)
+    run(()=>this.gdacs(), 20*60000, 1800);      // GDACS wereldwijde multi-hazard (incl. vulkanen) — via proxy
+    run(()=>this.manuf(), 6*3600000, 8000);     // manufacturing/industrie (FRED IP + orders) → supply-dimensie
   },
   // USGS aardbevingen (direct, GeoJSON) → disaster-stress per zone
   usgs(){
     const url='https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime='+new Date(Date.now()-7*864e5).toISOString().slice(0,10)+'&minmagnitude=4.5&orderby=time';
     this._get(url,true).then(d=>{ const acc={},mx={}; GSD_ZONES.forEach(z=>{acc[z.key]=0;mx[z.key]=0;});
       (d.features||[]).forEach(f=>{ const c=f.geometry&&f.geometry.coordinates; const mag=f.properties&&f.properties.mag; if(!c||mag==null)return; const lon=c[0],lat=c[1];
-        GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const b=z.bbox; if(lon>=b[0]&&lon<=b[2]&&lat>=b[1]&&lat<=b[3]){ acc[z.key]+=Math.pow(10,Math.max(0,mag-4.5))/200; if(mag>mx[z.key])mx[z.key]=mag; } }); });
+        const em=_gsdEconMass(lon,lat);   // weeg op economische massa van het epicentrum: beving in leeg gebied telt licht, in Tokio/Shenzhen zwaar
+        GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const b=z.bbox; if(lon>=b[0]&&lon<=b[2]&&lat>=b[1]&&lat<=b[3]){ acc[z.key]+=Math.pow(10,Math.max(0,mag-4.5))/200*em; if(mag>mx[z.key])mx[z.key]=mag; } }); });
       GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].disaster.v; const q=_gsdSoft(acc[z.key]); const why=mx[z.key]?('max M'+mx[z.key].toFixed(1)):'no strong quakes'; TrinityGSD.setCell(z.key,'disaster', cur!=null?Math.max(cur*0.5,q):q, 'USGS', why); });
       TrinityFeeds.markOk('gsd-usgs',(d.features||[]).length+' quakes 7d');
     }).catch(e=>TrinityFeeds.markErr('gsd-usgs',e.message,e.http));
   },
-  // NASA EONET open natuur-events (direct) → disaster blend
+  // NASA EONET open natuur-events → disaster blend (via proxy indien beschikbaar → geen CORS; anders direct).
+  // Per-categorie ernst × economische massa van de EXACTE locatie. Events worden ook wereldwijd bewaard
+  // voor de kaart (TrinityGSD._disEvents).
   eonet(){
-    const url='https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=20';
-    this._get(url,true).then(d=>{ const acc={},cnt={}; GSD_ZONES.forEach(z=>{acc[z.key]=0;cnt[z.key]=0;});
-      (d.events||[]).forEach(ev=>{ const g=ev.geometry&&ev.geometry[ev.geometry.length-1]; const c=g&&g.coordinates; if(!c)return; const lon=c[0],lat=c[1];
-        GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const b=z.bbox; if(lon>=b[0]&&lon<=b[2]&&lat>=b[1]&&lat<=b[3]){ acc[z.key]+=0.12; cnt[z.key]++; } }); });
-      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].disaster.v; const e=_gsdSoft(acc[z.key]); if(cnt[z.key]){ const why=cnt[z.key]+' open nat. events'; TrinityGSD.setCell(z.key,'disaster', cur!=null?Math.max(cur,e):e, 'USGS+EONET', why); } else if(cur!=null){ TrinityGSD.setCell(z.key,'disaster', cur, 'USGS+EONET'); } });
+    const url='https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=20&limit=500';
+    const SEV={ volcanoes:0.55, severeStorms:0.35, floods:0.42, wildfires:0.18, drought:0.22, dustHaze:0.15, landslides:0.30, seaLakeIce:0.10, snow:0.12, temperatureExtremes:0.20 };
+    this._get(url, !TrinityGSD.proxy).then(d=>{ const acc={},cnt={},top={}; GSD_ZONES.forEach(z=>{acc[z.key]=0;cnt[z.key]=0;top[z.key]='';});
+      const evs=[];
+      (d.events||[]).forEach(ev=>{ const g=ev.geometry&&ev.geometry[ev.geometry.length-1]; const c=g&&g.coordinates; if(!c||!isFinite(c[0]))return; const lon=c[0],lat=c[1];
+        const cat=(ev.categories&&ev.categories[0]&&ev.categories[0].id)||'other'; const sev=SEV[cat]!=null?SEV[cat]:0.14; const em=_gsdEconMass(lon,lat);
+        evs.push({lon,lat,cat,title:ev.title||cat,sev:sev,em:+em.toFixed(2),src:'EONET'});
+        GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const b=z.bbox; if(lon>=b[0]&&lon<=b[2]&&lat>=b[1]&&lat<=b[3]){ acc[z.key]+=sev*em; cnt[z.key]++; if(!top[z.key])top[z.key]=cat; } }); });
+      TrinityGSD._eonetEvents=evs; this._mergeDisEvents();
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].disaster.v; const e=_gsdSoft(acc[z.key]); if(cnt[z.key]){ const why=cnt[z.key]+' events (econ-gewogen) · '+(top[z.key]||''); TrinityGSD.setCell(z.key,'disaster', cur!=null?Math.max(cur,e):e, 'EONET', why); } });
       TrinityFeeds.markOk('gsd-eonet',(d.events||[]).length+' open events');
     }).catch(e=>TrinityFeeds.markErr('gsd-eonet',e.message,e.http));
   },
+  // GDACS — wereldwijde multi-hazard (aardbevingen, cyclonen, overstromingen, VULKANEN, droogte, bosbrand)
+  // met alertniveau (Green/Orange/Red). Dé bron die EONET's gaten dicht (vulkanen + wereldwijde dekking).
+  // Via proxy (geen CORS). Ernst = type-basis × alert-multiplier × economische massa van de locatie.
+  gdacs(){ if(!TrinityGSD.proxy) return; if(this._gdacsFail>=4) return;
+    const url='https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?alertlevel=Green;Orange;Red&eventlist=EQ;TC;FL;VO;DR;WF';
+    const BASE={ EQ:0.50, TC:0.60, FL:0.48, VO:0.70, DR:0.32, WF:0.30 };
+    const ALERT={ Green:0.25, Orange:0.60, Red:1.00 };
+    const NAME={ EQ:'earthquake', TC:'cyclone', FL:'flood', VO:'volcano', DR:'drought', WF:'wildfire' };
+    this._get(url,false).then(d=>{ const feats=(d&&d.features)||[]; if(!feats.length){ this._gdacsFail=(this._gdacsFail||0)+1; TrinityFeeds.markErr('gsd-gdacs','no data'); return; }
+      this._gdacsFail=0; const acc={},cnt={},top={}; GSD_ZONES.forEach(z=>{acc[z.key]=0;cnt[z.key]=0;top[z.key]='';});
+      const evs=[]; let redOrange=0;
+      feats.forEach(f=>{ const p=f.properties||{}; const g=f.geometry||{}; const c=g.coordinates; if(!c||!isFinite(c[0]))return; const lon=c[0],lat=c[1];
+        const et=(p.eventtype||'').toUpperCase(); const al=p.alertlevel||'Green'; const base=BASE[et]!=null?BASE[et]:0.35; const am=ALERT[al]!=null?ALERT[al]:0.25;
+        const em=_gsdEconMass(lon,lat); const contrib=base*am*em; if(al==='Red'||al==='Orange')redOrange++;
+        evs.push({lon,lat,cat:NAME[et]||et.toLowerCase(),title:(p.name||p.eventname||NAME[et]||et)+(p.country?(' · '+p.country):''),sev:base*am,em:+em.toFixed(2),alert:al,src:'GDACS'});
+        GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const b=z.bbox; if(lon>=b[0]&&lon<=b[2]&&lat>=b[1]&&lat<=b[3]){ acc[z.key]+=contrib; cnt[z.key]++; if(!top[z.key]||base*am>0.4)top[z.key]=(NAME[et]||et); } }); });
+      TrinityGSD._gdacsEvents=evs; this._mergeDisEvents();
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].disaster.v; const e=_gsdSoft(acc[z.key]); if(cnt[z.key]){ const why=cnt[z.key]+' hazards (econ-gewogen) · '+(top[z.key]||''); TrinityGSD.setCell(z.key,'disaster', cur!=null?Math.max(cur,e):e, 'GDACS', why); } });
+      TrinityFeeds.markOk('gsd-gdacs', feats.length+' hazards · '+redOrange+' orange/red');
+    }).catch(e=>{ this._gdacsFail=(this._gdacsFail||0)+1; TrinityFeeds.markErr('gsd-gdacs',e.message,e.http); });
+  },
+  // combineer GDACS + EONET tot één wereldwijde event-lijst voor de kaart (nieuwste/zwaarste eerst)
+  _mergeDisEvents(){ try{ const a=(TrinityGSD._gdacsEvents||[]).concat(TrinityGSD._eonetEvents||[]); a.sort((x,y)=>(y.sev*y.em)-(x.sev*x.em)); TrinityGSD._disEvents=a.slice(0,300); }catch(e){} },
   // Open-Meteo extreem weer (direct) → weather-stress per zone (wind/regen/temp-extremen)
   weather(){
     GSD_ZONES.forEach(z=>{ if(z.synthetic||!z.cities.length)return;
@@ -22529,14 +22733,18 @@ const GSDData = {
       new Promise(r=>latest('NFCI',v=>r(v))),          // financiële condities (Chicago Fed)
       new Promise(r=>latest('BAMLH0A0HYM2',v=>r(v)))   // high-yield credit-spread (kredietstress)
     ]).then(([vix,nfci,hy])=>{
-      let parts=[]; if(vix!=null) parts.push(_clamp01((vix-11)/40));           // VIX ~11 calm → ~50 crisis
-      if(nfci!=null) parts.push(_clamp01((nfci+0.7)/1.4));                     // NFCI <0 loose, >0 tight
-      if(hy!=null) parts.push(_clamp01((hy-2.5)/8));                          // HY OAS 2.5% calm → 10%+ crisis
-      if(!parts.length){ TrinityFeeds.markErr('gsd-fred','no data'); return; }
-      const fc=parts.reduce((a,b)=>a+b,0)/parts.length;
-      const cbWhy='VIX '+(vix!=null?vix.toFixed(1):'—')+' · NFCI '+(nfci!=null?nfci.toFixed(2):'—')+(hy!=null?' · HY '+hy.toFixed(1)+'%':'');
-      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const extra=z.key==='na'?0.08:0; TrinityGSD.setCell(z.key,'cb',_clamp01(fc+extra),'FRED',cbWhy); });
-      TrinityFeeds.markOk('gsd-fred',cbWhy);
+      // FINANCIËLE STRESS (eigen dimensie): aandelen-volatiliteit (VIX) + high-yield creditspreads (HY OAS) —
+      // dit ís financiële besmetting. Los van 'cb' (financiële condities/beleid via NFCI).
+      const finParts=[]; if(vix!=null) finParts.push(_clamp01((vix-11)/40)); if(hy!=null) finParts.push(_clamp01((hy-2.5)/8));
+      const finScore = finParts.length? finParts.reduce((a,b)=>a+b,0)/finParts.length : null;
+      const cbScore = nfci!=null? _clamp01((nfci+0.7)/1.4) : (finScore!=null?finScore*0.6:null);
+      TrinityGSD._fin = { vix, hy, nfci, score: finScore };
+      if(finScore==null && cbScore==null){ TrinityFeeds.markErr('gsd-fred','no data'); return; }
+      const finWhy='VIX '+(vix!=null?vix.toFixed(1):'—')+(hy!=null?' · HY '+hy.toFixed(1)+'%':'');
+      const cbWhy='NFCI '+(nfci!=null?nfci.toFixed(2):'—');
+      if(finScore!=null) GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const extra=z.key==='na'?0.06:0; TrinityGSD.setCell(z.key,'finstress',_clamp01(finScore+extra),'FRED',finWhy); });
+      if(cbScore!=null) GSD_ZONES.forEach(z=>{ if(z.synthetic)return; TrinityGSD.setCell(z.key,'cb',_clamp01(cbScore),'FRED',cbWhy); });
+      TrinityFeeds.markOk('gsd-fred',finWhy+' · '+cbWhy);
     }).catch(e=>TrinityFeeds.markErr('gsd-fred',e.message,e.http));   // (trade/commodities owned by commodities() below)
   },
   // ECB euro-area systemic stress CISS (proxy, no key) → EU 'econ'/'cb'
@@ -22546,9 +22754,10 @@ const GSDData = {
     this._get(url,false).then(d=>{ let val=null;
       try{ const ds=d.dataSets&&d.dataSets[0]; const s=ds&&ds.series; const first=s&&s[Object.keys(s)[0]]; const obs=first&&first.observations; const k=obs&&Object.keys(obs)[0]; if(k!=null) val=obs[k][0]; }catch(e){}
       if(val==null){ TrinityFeeds.markErr('gsd-ecb','no CISS'); return; }
-      const ciss=_clamp01(val);   // CISS is al 0..1
+      const ciss=_clamp01(val);   // CISS is al 0..1 (euro-area systeemstress = financiële stress)
       const why='CISS '+ciss.toFixed(2);
-      TrinityGSD.setCell('eu','econ',_clamp01(ciss*0.9+0.05),'ECB CISS',why); TrinityGSD.setCell('eu','cb',_clamp01(ciss),'ECB CISS',why);
+      TrinityGSD.setCell('eu','econ',_clamp01(ciss*0.9+0.05),'ECB CISS',why);
+      const fc=TrinityGSD.cells.eu.finstress&&TrinityGSD.cells.eu.finstress.v; TrinityGSD.setCell('eu','finstress',_clamp01(Math.max(fc||0,ciss)),'ECB CISS',why);
       TrinityFeeds.markOk('gsd-ecb','CISS '+ciss.toFixed(2));
     }).catch(e=>TrinityFeeds.markErr('gsd-ecb',e.message,e.http));
   },
@@ -22597,13 +22806,19 @@ const GSDData = {
   commodities(){ if(!TrinityGSD.proxy) return;
     const one=(sid)=>{ const url='https://api.stlouisfed.org/fred/series/observations?series_id='+sid+'&sort_order=desc&limit=1';
       return this._get(url,false).then(d=>{ const o=(d.observations||[])[0]; const v=o?parseFloat(o.value):NaN; return isNaN(v)?null:v; }).catch(()=>null); };
-    Promise.all([ one('DCOILWTICO'), one('DCOILBRENTEU'), one('DHHNGSP'), one('PWHEAMTUSDM'), one('DTWEXBGS'), one('GOLDAMGBD228NLBM') ])
-    .then(([wti,brent,gas,wheat,usd,gold])=>{
+    Promise.all([ one('DCOILWTICO'), one('DCOILBRENTEU'), one('DHHNGSP'), one('PWHEAMTUSDM'), one('DTWEXBGS'), one('GOLDAMGBD228NLBM'), one('PCOPPUSDM') ])
+    .then(([wti,brent,gas,wheat,usd,gold,copper])=>{
       const oil=[wti,brent].filter(x=>x>0); const oilAvg=oil.length?oil.reduce((a,b)=>a+b,0)/oil.length:null;
       const parts=[]; if(oilAvg!=null)parts.push(_clamp01((oilAvg-55)/70)); if(gas!=null)parts.push(_clamp01((gas-2.5)/8)); if(wheat!=null)parts.push(_clamp01((wheat-250)/300)); if(usd!=null)parts.push(_clamp01((usd-100)/40));
       if(!parts.length){ TrinityFeeds.markErr('gsd-commod','no data'); return; }
       const tstress=parts.reduce((a,b)=>a+b,0)/parts.length;
-      const why='WTI $'+(wti?wti.toFixed(0):'—')+' · Brent $'+(brent?brent.toFixed(0):'—')+' · gas $'+(gas?gas.toFixed(1):'—')+' · wheat $'+(wheat?wheat.toFixed(0):'—')+(gold?' · gold $'+gold.toFixed(0):'');
+      // per-commodity GENORMALISEERDE prijsniveaus (0..1) → gebruikt door de commodity-currency-peg in de macro-bridge.
+      // >0.5 = verhoogde prijs (helpt exporteurs van die commodity, schaadt importeurs).
+      TrinityGSD._com = { oil:oilAvg, gas:gas, wheat:wheat, gold:gold, copper:copper, usd:usd,
+        oilN:oilAvg!=null?_clamp01((oilAvg-55)/70):null, gasN:gas!=null?_clamp01((gas-2.5)/8):null,
+        wheatN:wheat!=null?_clamp01((wheat-250)/300):null, goldN:gold!=null?_clamp01((gold-1700)/1200):null,
+        copperN:copper!=null?_clamp01((copper-6000)/6000):null, usdN:usd!=null?_clamp01((usd-100)/40):null, at:Date.now() };
+      const why='WTI $'+(wti?wti.toFixed(0):'—')+' · Brent $'+(brent?brent.toFixed(0):'—')+' · gas $'+(gas?gas.toFixed(1):'—')+' · wheat $'+(wheat?wheat.toFixed(0):'—')+(gold?' · gold $'+gold.toFixed(0):'')+(copper?' · copper $'+copper.toFixed(0):'');
       GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cz=TrinityGSD._chokeZone&&TrinityGSD._chokeZone[z.key]; const ft=(cz!=null&&cz>tstress)?cz:tstress; TrinityGSD.setCell(z.key,'trade',ft,'FRED commodities'+(cz!=null&&cz>tstress?' + PortWatch':''),why); });
       if(gold>0){ const rf=_clamp01((gold-2200)/1600); if(rf>0.3) GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].market.v; if(cur==null||rf*0.6>cur) TrinityGSD.setCell(z.key,'market', rf*0.6, 'FRED (gold risk-off)', 'gold $'+gold.toFixed(0)); }); }
       TrinityFeeds.markOk('gsd-commod',why);
@@ -22655,10 +22870,30 @@ const GSDData = {
       // lift trade-stress (and geo for conflict-straits) in affected zones — max-blend, non-destructive
       out.forEach(c=>{ if(c.stress<0.08) return;
         const tc=TrinityGSD.cells[c.zone]&&TrinityGSD.cells[c.zone].trade; if(tc){ const cur=tc.v; if(cur==null||c.stress>cur) TrinityGSD.setCell(c.zone,'trade',c.stress,'PortWatch',c.name+' transits −'+Math.round(c.shortfall*100)+'%'); }
+        // SUPPLY-dimensie: chokepoint-verstoring is directe supply-chain-onderbreking
+        const sc=TrinityGSD.cells[c.zone]&&TrinityGSD.cells[c.zone].supply; if(sc){ const cur=sc.v; if(cur==null||c.stress>cur) TrinityGSD.setCell(c.zone,'supply',c.stress,'PortWatch',c.name+' transits −'+Math.round(c.shortfall*100)+'%'); }
         if(c.geo && c.stress>=0.15){ const gc=TrinityGSD.cells[c.zone]&&TrinityGSD.cells[c.zone].geo; if(gc){ const cur=gc.v, g=_clamp01(c.stress*0.6); if(cur==null||g>cur) TrinityGSD.setCell(c.zone,'geo',g,'PortWatch',c.name+' disruption'); } }
       });
       const top=out[0]; TrinityFeeds.markOk('gsd-portwatch', top? (top.name+' −'+Math.round(top.shortfall*100)+'% · '+out.length+' straits') : (out.length+' straits ok'));
-    }).catch(e=>{ this._pwFail=(this._pwFail||0)+1; TrinityFeeds.markErr('gsd-portwatch',e.message,e.http); }); }
+    }).catch(e=>{ this._pwFail=(this._pwFail||0)+1; TrinityFeeds.markErr('gsd-portwatch',e.message,e.http); }); },
+  // MANUFACTURING / INDUSTRIE via FRED (IPMAN = US manufacturing industrial production, AMTMNO = new orders).
+  //   Een YoY-KRIMP in productie/orders = industriële verzwakking → supply-/handelsstress. Toegepast op alle
+  //   zones, gewogen naar hun economisch/industrieel gewicht (blend met de chokepoint-supply, non-destructief).
+  manuf(){ if(!TrinityGSD.proxy) return;
+    const hist=(sid,n)=>{ const url='https://api.stlouisfed.org/fred/series/observations?series_id='+sid+'&sort_order=desc&limit='+n;
+      return this._get(url,false).then(d=>(d.observations||[]).map(o=>parseFloat(o.value)).filter(v=>!isNaN(v))).catch(()=>[]); };
+    Promise.all([ hist('IPMAN',14), hist('AMTMNO',14) ]).then(([ip,no])=>{
+      const yoy=(a)=>{ if(!a||a.length<13||!(a[12]>0))return null; return (a[0]-a[12])/a[12]; };   // a[0]=nieuwste, a[12]=~1 jaar terug
+      const ipY=yoy(ip), noY=yoy(no); const parts=[];
+      if(ipY!=null) parts.push(_clamp01(-ipY*6));   // −6% YoY productie → ~0.36 stress; groei → ~0
+      if(noY!=null) parts.push(_clamp01(-noY*5));
+      if(!parts.length){ TrinityFeeds.markErr('gsd-manuf','no data'); return; }
+      const mstress=parts.reduce((a,b)=>a+b,0)/parts.length;
+      TrinityGSD._mfg={ ipYoY:ipY, ordersYoY:noY, score:mstress, at:Date.now() };
+      const why='mfg IP '+(ipY!=null?(ipY*100).toFixed(1)+'% YoY':'—')+(noY!=null?' · orders '+(noY*100).toFixed(1)+'%':'');
+      GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const zw=_gsdZoneEconW(z.key); const s=_clamp01(mstress*(0.5+0.5*zw)); const cur=TrinityGSD.cells[z.key].supply&&TrinityGSD.cells[z.key].supply.v; TrinityGSD.setCell(z.key,'supply', cur!=null?Math.max(cur,s):s, 'FRED IP', why); });
+      TrinityFeeds.markOk('gsd-manuf',why);
+    }).catch(e=>TrinityFeeds.markErr('gsd-manuf',e.message,e.http)); }
 };
 // IMF PortWatch chokepoints we monitor (id → name, coords, GSD zone, geopolitical-strait flag).
 const GSD_CHOKE = [
@@ -23557,7 +23792,9 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     disaster:[['SELF',0.65,0,'local disaster'],['ALL',0.2,3,'supply shock']],
     weather: [['SELF',0.55,1,'local extreme'],['ap',0.3,4,'agri / rice'],['af',0.25,4,'harvest']],
     tone:    [['SELF',0.4,0,'sentiment'],['ALL',0.25,1,'media tone']],
-    market:  [['ALL',0.4,0,'FX contagion']]
+    market:  [['ALL',0.4,0,'FX contagion']],
+    finstress:[['ALL',0.6,0,'financial contagion / risk-off'],['na',0.5,0,'USD funding squeeze']],
+    supply:  [['SELF',0.55,0,'supply-chain hit'],['ap',0.45,1,'manufacturing hub'],['ALL',0.35,2,'supply shock']]
   };
   const ZKEYS = ()=>{ try{ return GSD_ZONES.filter(z=>z.key!=='global').map(z=>z.key); }catch(e){ return ['na','eu','ap','me','af','latam']; } };
   const zName = k=>{ try{ const z=GSD_ZONES.find(z=>z.key===k); return z?z.name:k; }catch(e){ return k; } };
@@ -23568,9 +23805,13 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const REGMULT = { calm:0.9, tension:1.1, crisis:1.25 };
 
   const SW = {
-    W:{}, prev:{}, shocks:[], preds:[], score:null, regScore:null, _lastShockAt:{}, _lastScan:0,
-    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityShockWave')||'null'); if(d){ this.W=d.W||{}; this.preds=d.preds||[]; this.shocks=d.shocks||[]; this.score=d.score||null; this.calib=d.calib||null; this.regScore=d.regScore||null; } }catch(e){} },
-    _save(){ try{ localStorage.setItem('trinityShockWave',JSON.stringify({W:this.W,preds:this.preds.slice(-120),shocks:this.shocks.slice(-60),score:this.score,calib:this.calib,regScore:this.regScore})); }catch(e){} },
+    W:{}, L:{}, prev:{}, shocks:[], preds:[], score:null, regScore:null, _lastShockAt:{}, _lastScan:0,
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityShockWave')||'null'); if(d){ this.W=d.W||{}; this.L=d.L||{}; this.preds=d.preds||[]; this.shocks=d.shocks||[]; this.score=d.score||null; this.calib=d.calib||null; this.regScore=d.regScore||null; } }catch(e){} },
+    _save(){ try{ localStorage.setItem('trinityShockWave',JSON.stringify({W:this.W,L:this.L,preds:this.preds.slice(-120),shocks:this.shocks.slice(-60),score:this.score,calib:this.calib,regScore:this.regScore})); }catch(e){} },
+    // ADAPTIEVE LAG: geleerde werkelijke tijd-tot-stijging per kanaal (cat/TRADE > doelzone).
+    // EMA over waargenomen lags; sample-size-bewust gemengd met de prior-lag in _predict.
+    _recordLag(key,lagDays){ try{ if(!(lagDays>=0))return; const l=this.L[key]||(this.L[key]={lag:lagDays,n:0}); const a=Math.min(0.35, 1/(l.n+2)); l.lag=l.lag*(1-a)+lagDays*a; l.n++; }catch(e){} },
+    _learnedLag(key,prior){ try{ const l=this.L[key]; if(!l||l.n<3) return prior; const sh=l.n/(l.n+4); const v=prior*(1-sh)+l.lag*sh; return Math.max(0,Math.min(14, Math.round(v))); }catch(e){ return prior; } },
     // current market regime, mapped to a compact contagion regime key
     _regime(){ try{ const r=TrinityGSD.regime; return r==='CRISIS'?'crisis':r==='SPANNING'?'tension':'calm'; }catch(e){ return 'calm'; } },
 
@@ -23602,13 +23843,22 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     },
     _predict(shock){ const rows=PRIOR[shock.srcCat]||[['ALL',0.3,2,'algemeen']]; const zk=ZKEYS(); const out=[]; const seen={};
       const reg=shock.regime||this._regime(); const rm=REGMULT[reg]||1;   // regime-conditioning
-      const add=(tgt,w,lag,eff)=>{ if(seen[tgt])return; seen[tgt]=1;
-        const lf=this._learned(shock.srcCat,tgt,reg);                   // adaptive factor (regime-aware)
+      const add=(tgt,w,lag,eff,chan)=>{ if(seen[tgt]){ // al aanwezig via de categorie-prior → handelslijn BEVESTIGT het kanaal (prob omhoog)
+          if(chan==='TRADE'){ const ex=out.find(o=>o.zone===tgt); if(ex){ ex.prob=Math.min(0.95, +(ex.prob + w*shock.mag*0.25).toFixed(2)); if(!/·/.test(ex.effect)) ex.effect=ex.effect+' · '+eff; } }
+          return; }
+        seen[tgt]=1;
+        const lf=this._learned(chan||shock.srcCat,tgt,reg);             // adaptive factor (regime-aware); handelslijnen leren onder 'TRADE'
         const prob=Math.max(0.05,Math.min(0.95, w*shock.mag*lf*rm));
-        out.push({zone:tgt,prob:+prob.toFixed(2),lagDays:lag,eta:shock.at+Math.max(lag,0.04)*864e5,effect:eff}); };
+        const alag=this._learnedLag((chan||shock.srcCat)+'>'+tgt, lag); // adaptieve lag: geleerde tijd-tot-stijging (val terug op de prior-lag)
+        out.push({zone:tgt,prob:+prob.toFixed(2),lagDays:alag,priorLag:lag,eta:shock.at+Math.max(alag,0.04)*864e5,effect:eff,chan:chan||null}); };
       for(const [dst,w,lag,eff] of rows){ if(dst==='ALL'){ zk.forEach(z=>{ if(z!==shock.srcZone) add(z,w,lag,eff); }); }
         else if(dst==='SELF'){ add(shock.srcZone,w,lag,eff); } else add(dst,w,lag,eff); }
-      return out.sort((a,b)=>b.prob-a.prob).slice(0,6);
+      // ---- HANDELSNETWERK-CONTAGION: propageer langs echte handelslijnen vanuit de bronzone ("letterlijk ShockWave").
+      //      Een schok raakt de zones die van de bronzone afhankelijk zijn (import-aanvoer of afzetmarkt), plus de
+      //      zware importeurs van de commodities die de bronzone exporteert (bv. ME-oliebron → olie-importerende zones).
+      try{ if(typeof _gsdTradeTargets==='function'){ const tt=_gsdTradeTargets(shock.srcZone); const TW=0.62;   // handelskanaal-basisgewicht
+        tt.forEach(t=>{ const lag=/commodity/.test(t.via)?3:2; add(t.zone, TW*t.dep, lag, t.via, 'TRADE'); }); } }catch(e){}
+      return out.sort((a,b)=>b.prob-a.prob).slice(0,7);
     },
     // learned adaptive factor: prefer the REGIME-SPECIFIC channel weight, fall back to the
     // regime-agnostic aggregate when the regime bucket is still thin, then to neutral (1).
@@ -23623,9 +23873,11 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         const nowS=zs[t.zone]||0;
         if(t.base==null){ t.base=nowS; t.peak=nowS; }                    // baseline at first sight
         else t.peak=Math.max(t.peak==null?t.base:t.peak, nowS);          // track the peak reached in-window
+        if(t.roseAt==null && t.base!=null && (nowS-t.base)>=0.025) t.roseAt=now;   // WANNEER de doelzone werkelijk opliep → leer de lag
         if(now>=t.eta){ const rise=Math.max(t.peak||nowS, nowS)-t.base; const hit=rise>=0.025?1:0;   // stress rose ≥2.5pt at any point in window (bar lowered)
-          const reg=p.regime; const keys=[p.srcCat+'>'+t.zone]; if(reg)keys.push(p.srcCat+'>'+t.zone+'|'+reg);   // update agnostic + regime-specific channel
+          const reg=p.regime; const base=(t.chan||p.srcCat); const keys=[base+'>'+t.zone]; if(reg)keys.push(base+'>'+t.zone+'|'+reg);   // update agnostic + regime-specific channel (handelslijnen leren onder 'TRADE')
           keys.forEach(k=>{ const w=this.W[k]||(this.W[k]={n:0,hit:0}); w.n++; w.hit+=hit; });
+          if(hit && t.roseAt){ this._recordLag(base+'>'+t.zone, Math.max(0,(t.roseAt-(p.made||p.at))/864e5)); }   // adaptieve lag: geleerde werkelijke tijd-tot-stijging
           if(reg){ const rs=this.regScore||(this.regScore={}); const g=rs[reg]||(rs[reg]={n:0,hit:0}); g.n++; g.hit+=hit; }
           t._done=1; t.hit=hit; t.outS=+nowS.toFixed(3); t.rise=+rise.toFixed(3); changed=true; }
       } if(p.targets.every(t=>t._done)) p._done=1; }
@@ -23714,6 +23966,23 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     AUD:0.70, NZD:0.70, CAD:0.50, NOK:0.60, SEK:0.45,
     CNH:0.40, INR:0.45, THB:0.45, ZAR:0.90, MXN:0.80, BRL:0.90, TRY:1.00
   };
+  // COMMODITY-CURRENCY-PEG (Trinity-theorie): sommige valuta bewegen mét grondstofprijzen. Een hoge
+  // prijs (genormaliseerd niveau in TrinityGSD._com) versterkt EXPORTEURS (+) en verzwakt IMPORTEURS (−).
+  //   [commodity-key in _com, teken, gewicht]. Alleen valuta die Trinity daadwerkelijk verhandelt.
+  const COMMODITY_PEG = {
+    CAD:[['oilN',+1,0.55]],                         // olie-exporteur
+    NOK:[['oilN',+1,0.45],['gasN',+1,0.30]],        // olie/gas
+    AUD:[['copperN',+1,0.45],['goldN',+1,0.30]],    // ijzer/koper (proxy koper) + goud
+    NZD:[['copperN',+1,0.15]],                      // grondstof-beta (zuivel niet in FRED)
+    ZAR:[['goldN',+1,0.50],['copperN',+1,0.20]],    // goud/platina/mineralen
+    BRL:[['copperN',+1,0.30],['oilN',+1,0.20]],     // ijzer/soja/olie (proxy)
+    MXN:[['oilN',+1,0.25]],                         // olie
+    JPY:[['oilN',-1,0.22]],                         // grote olie-importeur (verzwakt bij dure olie)
+    EUR:[['oilN',-1,0.15],['gasN',-1,0.20]],        // olie/gas-importeur
+    INR:[['oilN',-1,0.30]],                         // olie-importeur
+    TRY:[['oilN',-1,0.30]]                          // olie-importeur
+  };
+  function _comLvl(k){ try{ const c=TrinityGSD._com; const v=c&&c[k]; return (v!=null&&isFinite(v))?v:null; }catch(e){ return null; } }
 
   const M = {
     _bt:{ open:[], score:null }, _lastRec:0, _lastRender:0, _biasCache:{}, _biasAt:0,
@@ -23751,6 +24020,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       bias -= this.zoneStress(c) * 0.55;                          // a currency whose home zone is stressed is penalised
       const carry=(CCY_META[c].rate - this._meanRate())/this._rates();
       bias += carry * 0.35 * (1-ro);                              // carry attracts in calm, unwinds as risk-off rises
+      // COMMODITY-PEG: hoge grondstofprijs helpt exporteurs (CAD/NOK/AUD/ZAR/BRL/MXN), schaadt importeurs (JPY/EUR/INR/TRY)
+      const peg=COMMODITY_PEG[c]; if(peg){ let pc=0; peg.forEach(([k,sgn,w])=>{ const lv=_comLvl(k); if(lv!=null) pc += sgn*(lv-0.45)*w; }); bias += pc; }
       return clamp(bias,-1,1);
     }catch(e){ return 0; } },
 
@@ -23883,6 +24154,62 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     note:'READ-ONLY advisory world-risk lens for Osiris Neo. Reports ShockWave/GSD/contagion/FX-macro state; never writes to Neo, Trinity or the engines, never trades.'
   };
   try{ window.OsirisWorldRisk=API; }catch(e){}
+})();
+
+/* ==================================================================================
+   OSIRIS · CRYPTO-RISK BRIDGE — ShockWave → Osiris Neo (crypto position-sizing)
+   ----------------------------------------------------------------------------------
+   Spiegelt de FX-macro-bridge, maar dan voor crypto: vertaalt de wereld-risk-off + actieve
+   contagion-druk op crypto-relevante zones (NA/EU/AP) + financiële stress naar één 0..1
+   "crypto-risk"-signaal. SHADOW-BACKTEST: elke ~10 min wordt het signaal + de BTC-prijs
+   vastgelegd, na 2 uur afgewikkeld en eerlijk gescoord (voorspelt hoog risico een daling?).
+   Pas ALS de shadow bewezen is (hit-rate > 50% over ≥30 samples) levert sizeMult() een
+   begrensde verkleining van Neo's positiegrootte (nooit onder 0,5×). Tot dan = 1,0 (advies).
+   Read-only: Neo past het zelf toe; deze bridge opent/sluit nooit een trade.
+   ================================================================================== */
+(function(){
+  'use strict';
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  const CR = {
+    _bt:{ open:[], score:null }, _lastRec:0,
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('osirisCryptoRisk')||'null'); if(d){ this._bt.open=d.open||[]; this._bt.score=d.score||null; } }catch(e){} },
+    _save(){ try{ localStorage.setItem('osirisCryptoRisk',JSON.stringify({open:this._bt.open.slice(-400),score:this._bt.score})); }catch(e){} },
+    // crypto-risk-signaal 0..1 (≈0 = rustig/constructief, 1 = zwaar risk-off + besmetting)
+    pressure(){ try{ const ro=(typeof OsirisMacro!=='undefined')?OsirisMacro.riskOff():0.4;
+      let cp=0; try{ if(typeof TrinityShockWave!=='undefined'){ (TrinityShockWave.active()||[]).forEach(p=>{ (p.targets||[]).forEach(t=>{ if(t.zone==='na'||t.zone==='eu'||t.zone==='ap'){ const pr=(TrinityShockWave.calibrate?TrinityShockWave.calibrate(t.prob):t.prob)||0; if(pr>cp)cp=pr; } }); }); } }catch(e){}
+      let fin=0; try{ fin=(TrinityGSD.catStress&&TrinityGSD.catStress.finstress)||0; }catch(e){}
+      let btc=0; try{ btc=TrinityGSD._btcRisk||0; }catch(e){}
+      const score=clamp(ro*0.5 + cp*0.25 + fin*0.3 + btc*0.2 - 0.18, 0, 1);
+      return { ro:+ro.toFixed(3), cp:+cp.toFixed(3), fin:+fin.toFixed(3), btc:+btc.toFixed(3), score:+score.toFixed(3) };
+    }catch(e){ return {ro:0.4,cp:0,fin:0,btc:0,score:0}; } },
+    _btcPx(){ try{ const m=(typeof neoMultiState!=='undefined')&&neoMultiState.markets&&neoMultiState.markets.BTC; return (m&&m.lastPrice)||null; }catch(e){ return null; } },
+    record(){ const now=Date.now(); if(now-this._lastRec<10*60000) return; this._lastRec=now;
+      const px=this._btcPx(); if(px){ this._bt.open.push({sig:this.pressure().score, px, made:now, due:now+2*3600000, done:false}); if(this._bt.open.length>800)this._bt.open=this._bt.open.slice(-800); }
+      this.resolve();
+    },
+    resolve(){ const now=Date.now(); let changed=false;
+      for(const e of this._bt.open){ if(e.done||now<e.due) continue; const px=this._btcPx(); if(!px){ e.done=true; e.skip=true; changed=true; continue; }
+        const ret=e.px>0?(px/e.px-1):0; const moved=Math.abs(ret)>=0.002;
+        // hoog signaal → verwacht DALING; laag signaal → verwacht vlak/omhoog
+        e.done=true; e.hit = moved ? ((e.sig>=0.5) ? (ret<0?1:0) : (ret>=0?1:0)) : ((e.sig>=0.5)?0:1); e.ret=+(ret*100).toFixed(2); changed=true; }
+      if(changed){ const done=this._bt.open.filter(x=>x.done && x.hit!=null && !x.skip);
+        if(done.length){ let hits=0,br=0; done.forEach(x=>{ const pr=clamp(0.5+Math.abs(x.sig-0.5)*0.8,0.5,0.9); hits+=x.hit; br+=(pr-x.hit)*(pr-x.hit); });
+          const n=done.length; this._bt.score={ n, hitRate:+(hits/n).toFixed(3), brier:+(br/n).toFixed(3), proven:n>=30 }; }
+        if(this._bt.open.length>800) this._bt.open=this._bt.open.slice(-800);
+        this._save();
+      }
+    },
+    // de ENIGE output naar Neo: een begrensde, shadow-gated verkleining van de positiegrootte.
+    // 1,0 = geen effect (default & tot bewezen). Bij bewezen shadow + hoog risico → tot 0,5×.
+    sizeMult(){ try{ const s=this._bt.score; if(!s||!s.proven) return 1;
+      const pr=this.pressure(); const edge=Math.max(0, s.hitRate-0.5);
+      const cut=clamp(pr.score*edge*2.4, 0, 0.5); return +(1-cut).toFixed(3);
+    }catch(e){ return 1; } },
+    tick(){ try{ this.record(); }catch(e){} },
+    bundle(){ return { pressure:this.pressure(), shadow:this._bt.score, sizeMult:this.sizeMult(),
+      note:'ShockWave→Neo crypto: wereld-risk-off + contagion + financiële stress → shadow-backtested, begrensde (≥0,5×) positiegrootte-verkleining; alleen actief zodra bewezen.' }; }
+  };
+  CR._restore(); try{ window.OsirisCryptoRisk=CR; }catch(e){}
 })();
 
 
@@ -24464,7 +24791,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // GDACS — wereldwijde multi-hazard (EQ/cycloon/flood/volcano/droogte/wildfire), gratis, geen key. Merge met EONET.
   function _fetchGdacs(){ if(M._gdacsFail>=3) return;   // give up after repeated failures → geen console-spam
     const GD={EQ:'earthquake',TC:'severeStorms',FL:'floods',VO:'volcanoes',DR:'drought',WF:'wildfires'};
-    const raw='https://www.gdacs.org/gdacsapi/api/events/geteventlist/MAP';
+    const raw='https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?alertlevel=Green;Orange;Red&eventlist=EQ;TC;FL;VO;DR;WF';   // MAP-endpoint geeft 400 → SEARCH werkt wél (wereldwijd, incl. vulkanen)
     let px=null; try{ px=TrinityGSD.proxy; }catch(e){}
     const url = px ? (px+'/pass?url='+encodeURIComponent(raw)) : raw;   // via proxy = CORS + server-side UA (dodges the browser 400)
     fetchT(url,12000,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{ if(!j||!j.features){ M._gdacsFail=(M._gdacsFail||0)+1; try{ TrinityFeeds.markErr('gsd-gdacs','no data'); }catch(e){} return; }
@@ -24493,7 +24820,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         +items.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${LAYERS[k]?'checked':''} onchange="__swToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`).join('');
   }
   // LEADING SIGNAL — which categories drive the kill-switch zone/topic + ground-zero. Economics is the default lead.
-  const LEAD_CATS=[['econ','Economy','#4fc3f7'],['cb','Central banks','#7fd8ff'],['trade','Trade/commodities','#ffd54a'],['market','Markets/FX','#14f195'],['geo','Geopolitics','#ff8a3c'],['conflict','Conflict','#ff4f6d'],['disaster','Natural disasters','#ffb627'],['weather','Extreme weather','#8fb8ff'],['tone','Media tone','#c792ea']];
+  const LEAD_CATS=[['econ','Economy','#4fc3f7'],['cb','Central banks','#7fd8ff'],['trade','Trade/commodities','#ffd54a'],['market','Markets/FX','#14f195'],['finstress','Financial stress','#ff6ec7'],['supply','Supply chain','#ffa94d'],['geo','Geopolitics','#ff8a3c'],['conflict','Conflict','#ff4f6d'],['disaster','Natural disasters','#ffb627'],['weather','Extreme weather','#8fb8ff'],['tone','Media tone','#c792ea']];
   function _leadControlsHtml(){ const L=(typeof window!=='undefined'&&window.GSD_LEAD)||{};
     return `<div style="font:0.5rem JetBrains Mono,monospace;color:#ffd76a;letter-spacing:0.1em;text-transform:uppercase;margin:8px 0 2px;">★ Leading signal (drives kill-switch &amp; ground-zero) — economics by default</div><div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`
       +LEAD_CATS.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${L[k]?'checked':''} onchange="window.gsdLeadToggle&&window.gsdLeadToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`; }
