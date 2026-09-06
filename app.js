@@ -325,7 +325,7 @@ function osirisFeeEdge(wallet) {
         const rt = roundTripCostPct() / 100;
         if (wallet === 'margin') {
             const cl = (typeof marginState !== 'undefined' && marginState.closed) ? marginState.closed : [];
-            if (cl.length < 12) return { ready: false, wallet, n: cl.length };
+            if (cl.length < 6) return { ready: false, wallet, n: cl.length };   // eerder ingrijpen (was 12) — anders lopen de eerste ~12 verliezers ongeremd
             const w = cl.filter(t => (t.pnl || 0) > 0), l = cl.filter(t => (t.pnl || 0) <= 0);
             const aW = w.length ? w.reduce((a, t) => a + (t.pnl || 0), 0) / w.length : 0;
             const aL = l.length ? Math.abs(l.reduce((a, t) => a + (t.pnl || 0), 0) / l.length) : 0;
@@ -338,7 +338,7 @@ function osirisFeeEdge(wallet) {
             return { ready: true, wallet, n: cl.length, actWR, beWR, edge, deficit: (beWR != null && actWR != null) ? Math.max(0, beWR - actWR) : 0, avgWin: aW, avgLoss: aL, costPct: cost, leverage: lev };
         } else {
             const rows = (typeof learningLog !== 'undefined' ? learningLog : []).filter(l => !l.manual && l.pnlPct != null).slice(0, 60);
-            if (rows.length < 12) return { ready: false, wallet, n: rows.length };
+            if (rows.length < 8) return { ready: false, wallet, n: rows.length };   // eerder ingrijpen (was 12)
             const w = rows.filter(r => r.pnlPct > 0), l = rows.filter(r => r.pnlPct <= 0);
             const aW = w.length ? w.reduce((a, r) => a + r.pnlPct, 0) / w.length : 0;
             const aL = l.length ? Math.abs(l.reduce((a, r) => a + r.pnlPct, 0) / l.length) : 0;
@@ -4783,12 +4783,38 @@ function osirisCapitalPreserveTick() {
             const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
             const flipProb = (typeof OsirisAdaptive !== 'undefined') ? OsirisAdaptive.preserveFlipProb() : (OSIRIS_REALWORLD.preserveFlipProb || 0.6);
             const minProfit = (typeof OsirisAdaptive !== 'undefined') ? OsirisAdaptive.preserveMinProfit() : (OSIRIS_REALWORLD.preserveMinProfitPct || 0.15);
+            // (1) OMSLAG-BEHOUD: de markt draait bevestigd naar beneden terwijl de long in de winst staat →
+            //     verkoop de AANGEHOUDEN munt (dat is toegestaan op echte spot: je verkoopt wat je bezit) en
+            //     bescherm de winst; koop later lager terug.
             const flip = m && m.bestSide === 'SHORT' && (m.bestProb || 0) >= flipProb;
             if (flip && nettoPct >= minProfit / 100) {
-                try { if (typeof OsirisAdaptive !== 'undefined') OsirisAdaptive.recordPreserve(sym, px); } catch (e) {}   // leren: klopte dit behoud achteraf?
+                try { if (typeof OsirisAdaptive !== 'undefined') OsirisAdaptive.recordPreserve(sym, px); } catch (e) {}
                 closePosition(pos, grossPct, `CAPITAL_PRESERVE (winst ${(nettoPct * 100).toFixed(2)}% → USDT — markt draait ${sym} SHORT ${((m.bestProb || 0) * 100 | 0)}%)`);
-                try { if (typeof logAdaptation === 'function') logAdaptation(`Kapitaalbehoud · ${sym}`, `long naar USDT bij omslag (winst ${(nettoPct * 100).toFixed(2)}%, drempel ${minProfit.toFixed(2)}%/${(flipProb * 100 | 0)}%); equity beschermd, klaar om opnieuw te longen`); } catch (e) {}
+                try { if (typeof logAdaptation === 'function') logAdaptation(`Kapitaalbehoud · ${sym}`, `aangehouden ${sym} verkocht naar USDT bij omslag (winst ${(nettoPct * 100).toFixed(2)}%); klaar om lager terug te longen`); } catch (e) {}
+                continue;
             }
+            // (2) ROUND-TRIP (alleen in een rustige/zijwaartse markt): bank een winstgevende long als de
+            //     opwaartse beweging stokt/omdraait — verkoop de aangehouden munt hoog, koop 'm lager terug.
+            //     In een TREND doen we dit NIET: dan laten we de winnaar lopen.
+            try {
+                const q = (typeof OsirisAdaptive !== 'undefined') ? OsirisAdaptive.marketQuiet() : { quiet: false };
+                if (q.quiet) {
+                    // Round-trip-drempel = realistisch aan Binance-kosten (kosten + kleine marge), maar groeit adaptief mee
+                    // met de bewezen winst-range van deze markt: een grotere range → later verkopen, een smallere → eerder.
+                    const rtTarget = (typeof OsirisAdaptive !== 'undefined')
+                        ? OsirisAdaptive.roundTripTarget(sym)
+                        : Math.max(roundTripCostPct() / 100 + 0.0008, minProfit / 100);
+                    const _thr = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
+                    const _longFaded = !m || m.bestSide !== 'LONG' || (m.bestProb || 0) < _thr;      // long is niet meer de keuze
+                    const _stall = _longFaded || (m && (m.vfm || 0) < 0);                            // of momentum draait naar beneden
+                    if (nettoPct >= rtTarget && _stall) {
+                        try { if (typeof OsirisAdaptive !== 'undefined') OsirisAdaptive.recordPreserve(sym, px); } catch (e) {}
+                        closePosition(pos, grossPct, `RANGE_HARVEST (+${(nettoPct * 100).toFixed(2)}% → USDT — zijwaarts, top gepakt; koopt lager terug)`);
+                        try { if (typeof logAdaptation === 'function') logAdaptation(`Round-trip · ${sym}`, `aangehouden ${sym} verkocht met +${(nettoPct * 100).toFixed(2)}% (drempel ${(rtTarget * 100).toFixed(2)}%, adaptief o.b.v. bewezen range) in een rustige/zijwaartse markt; wacht op een lagere herinstap`); } catch (e) {}
+                        continue;
+                    }
+                }
+            } catch (e) {}
         }
     } catch (e) {}
 }
@@ -4826,6 +4852,16 @@ function finalizeClosePosition(pos, pnlPct, reason) {
     pos.closeTime = Date.now();
     // adaptieve time-stop: leerde het doorrollen? (positie die is doorgerold + winstgevend sloot = venster mag langer)
     try { if ((pos._tsRolls || 0) > 0 && typeof OsirisAdaptive !== 'undefined') OsirisAdaptive.recordRoll(pnlPct > 0); } catch (e) {}
+    // adaptieve round-trip: leer per markt hoe groot de winst-range van een LONG doorgaans wordt (piek-gunstige-excursie),
+    // zodat de round-trip-drempel meegroeit met een grotere range (later verkopen) en krimpt bij een smallere range.
+    try {
+        if (pos.side === 'LONG' && !pos.isMargin && typeof OsirisAdaptive !== 'undefined') {
+            let _rsym = 'BTC';
+            if (pos.symbol && typeof MULTI_BINANCE !== 'undefined') _rsym = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || 'BTC';
+            const _peak = Math.max(pos.mfe || 0, pos.peakPnlPct || 0);
+            if (_peak > 0) OsirisAdaptive.recordRange(_rsym, _peak);
+        }
+    } catch (e) {}
 
     // AUTO-CAL (23-08): voed de dode-trade-A/B (netto-uitkomst per arm) en de regime×richting
     // edge-tabel met de NETTO (ná-kosten) uitkomst van deze echte trade.
@@ -12615,6 +12651,11 @@ async function marginTick() {
             // Osiris blijft traden. Wordt 0 zodra er weer gehandeld wordt of bij een harde stop/crisis.
             let _relax = 0; try { if (typeof OsirisAdaptive !== 'undefined') _relax = OsirisAdaptive.relaxFactor(); } catch (e) {}
             if (_relax > 0) MINP = Math.max(0.42, MINP - _relax);
+            // DRAWDOWN-COOLDOWN: bij een verliesreeks strenger + minder hefboom (zelf-herstellend).
+            let _mdd = { level: 0 }; try { if (typeof OsirisAdaptive !== 'undefined') _mdd = OsirisAdaptive.drawdown('margin'); } catch (e) {}
+            if (_mdd.level > 0) { MINP = Math.min(0.85, MINP + 0.12 * _mdd.level); if (_mdd.level >= 0.4) marginState.lastAction = `drawdown-cooldown: ${_mdd.streak} verliezen op rij — strenger (drempel ${(MINP * 100 | 0)}%, hefboom↓)`; }
+            // regime-selectiviteit: rustige/kalme markt (niet al als chop afgevangen) → selectiever
+            try { if (!_chopReg && typeof OsirisAdaptive !== 'undefined') { const _rselM = OsirisAdaptive.regimeSelectivity(); if (_rselM > 0) MINP = Math.min(0.85, MINP + _rselM); } } catch (e) {}
             // FSO-PAUZE (19-08, versoepeld op verzoek): alleen nog een harde stop bij ECHTE
             // CRISIS. De oude SPANNING+variance>0.02-clausule sloot margin bijna permanent af
             // (variance zat doorgaans al boven 0.02 in SPANNING) - spot heeft sowieso geen
@@ -12630,6 +12671,7 @@ async function marginTick() {
             if (marginState.positions.some(p => p.symbol === binSym)) continue;                 // al open
             if (_marginLastEntry[sym] && (now - _marginLastEntry[sym]) < Math.max(12000, 30000 * (1 - _relax * 5))) continue;   // cooldown 30s, korter naarmate de activiteits-governor versoepelt (vloer 12s)
             if (pEff < MINP) continue;
+            if (_mdd.level >= 0.6 && pEff < 0.70) { marginState.lastAction = `${sym} overgeslagen: drawdown-cooldown (alleen top-setups ≥70%, kans ${(pEff * 100 | 0)}%)`; continue; }   // in een verliesreeks alleen de sterkste kansen
             // fee-guard: bij een grote edge-achterstand alleen nog top-setups (kans ≥ 70%)
             if (_feeNoEdge && _feeGuard.deficit > 0.10 && pEff < 0.70) { marginState.lastAction = `${sym} overgeslagen: fee-guard (edge-tekort ${(_feeGuard.deficit * 100 | 0)}pt, kans ${(pEff * 100 | 0)}% < 70%)`; continue; }
             // adaptieve predict-poort: blokkeert tegengestelde trades zodra de voorspeller vertrouwd is
@@ -12708,6 +12750,7 @@ async function marginTick() {
                 _volPen = Math.max(0, Math.min(1, _ch / 3 + _sv * 6 + (_spikeTighten ? 0.5 : 0) + (_chopReg ? 0.35 : 0)));
             } catch (e) { _volPen = _spikeTighten ? 0.5 : 0; }
             let entryLev = osirisPickLeverage(pEff, _regimeCalm, _volPen, _opp, !_feeNoEdge);
+            if (_mdd.level > 0) entryLev = Math.max(1, Math.round(entryLev * (1 - 0.6 * _mdd.level)));   // drawdown → minder hefboom = kleinere klap
             marginLeverage = entryLev;   // baseline/weergave volgt de laatst gekozen hefboom
             const sizePct = perTradeExpo / entryLev;                                               // bijhorende marge-fractie
             if (sizePct < 0.03) { marginState.lastAction = `exposure-cap bereikt (${(curNotionalPct * 100 | 0)}% / ${(effMaxExpo * 100 | 0)}% notional)`; continue; }
@@ -13504,6 +13547,11 @@ function osirisShadowTick() {
             // FEE-AWARE guard (spot): als de netto-edge negatief is (fees eten 'm op), alleen nog
             // sterke setups toelaten zodat Osiris niet op ruis blijft handelen.
             try { const _fe = osirisFeeEdge('spot'); const _feCut = Math.max(0.58, 0.66 - _relaxS); if (_fe && _fe.ready && !_fe.edge && _fe.deficit > 0.06 && (p.prob != null ? p.prob : 1) < _feCut) { osirisState.skip[sym] = `fee-guard: netto-edge negatief (winrate ${(_fe.actWR * 100 | 0)}% < ${(_fe.beWR * 100 | 0)}%), alleen sterke setups`; continue; } } catch (e) {}
+            // DRAWDOWN-COOLDOWN (spot): bij een verliesreeks alleen nog de sterkste setups (zelf-herstellend).
+            try { if (typeof OsirisAdaptive !== 'undefined') { const _sdd = OsirisAdaptive.drawdown('spot'); if (_sdd.level >= 0.5 && (p.prob != null ? p.prob : 1) < 0.68) { osirisState.skip[sym] = `drawdown-cooldown: ${_sdd.streak} verliezen op rij — alleen top-setups ≥68%`; continue; } } } catch (e) {}
+            // REGIME-SELECTIVITEIT: in een rustige/zijwaartse markt is trendvolgen zwak → minder, selectievere
+            // trend-entries (de round-trip-oogst pakt in zo'n markt de winst; zie kapitaalbehoud).
+            try { if (typeof OsirisAdaptive !== 'undefined') { const _rsel = OsirisAdaptive.regimeSelectivity(); if (_rsel > 0 && (p.prob != null ? p.prob : 1) < (0.60 + _rsel)) { osirisState.skip[sym] = `rustige markt — selectiever (kans ${((p.prob || 0) * 100 | 0)}% < ${((0.60 + _rsel) * 100 | 0)}%)`; continue; } } } catch (e) {}
             const m = neoMultiState.markets[sym];
             if (!m || m.lastPrice == null) { osirisState.skip[sym] = 'geen verse prijs (multi-engine?)'; continue; }
             // INGREEP 1 - DeepNet-poort: alleen instappen als de per-markt DeepNet het eens
@@ -15698,9 +15746,23 @@ window.renderOsirisPortfolio = renderOsirisPortfolio;
 //    zoveel mogelijk traden zonder de bescherming te slopen.
 // ============================================================
 const OsirisAdaptive = {
-    st: { pMinProfit: 0.15, pFlipProb: 0.60, bets: [], score: null, lastSpot: 0, lastMargin: 0, relax: 0, idleTargetMin: 8, maxRelax: 0.08, tsWindowMult: 1.0, rollWins: 0, rollLosses: 0 },
-    _restore() { try { const d = JSON.parse(localStorage.getItem('osirisAdaptive') || 'null'); if (d && d.st) { this.st.pMinProfit = d.st.pMinProfit != null ? d.st.pMinProfit : this.st.pMinProfit; this.st.pFlipProb = d.st.pFlipProb != null ? d.st.pFlipProb : this.st.pFlipProb; this.st.bets = Array.isArray(d.st.bets) ? d.st.bets : []; this.st.score = d.st.score || null; this.st.tsWindowMult = d.st.tsWindowMult != null ? d.st.tsWindowMult : 1.0; this.st.rollWins = d.st.rollWins || 0; this.st.rollLosses = d.st.rollLosses || 0; } } catch (e) {} },
-    _save() { try { localStorage.setItem('osirisAdaptive', JSON.stringify({ st: { pMinProfit: this.st.pMinProfit, pFlipProb: this.st.pFlipProb, bets: this.st.bets.slice(-100), score: this.st.score, tsWindowMult: this.st.tsWindowMult, rollWins: this.st.rollWins, rollLosses: this.st.rollLosses } })); } catch (e) {} },
+    st: { pMinProfit: 0.15, pFlipProb: 0.60, bets: [], score: null, lastSpot: 0, lastMargin: 0, relax: 0, idleTargetMin: 8, maxRelax: 0.08, tsWindowMult: 1.0, rollWins: 0, rollLosses: 0, rtPeak: {} },
+    _restore() { try { const d = JSON.parse(localStorage.getItem('osirisAdaptive') || 'null'); if (d && d.st) { this.st.pMinProfit = d.st.pMinProfit != null ? d.st.pMinProfit : this.st.pMinProfit; this.st.pFlipProb = d.st.pFlipProb != null ? d.st.pFlipProb : this.st.pFlipProb; this.st.bets = Array.isArray(d.st.bets) ? d.st.bets : []; this.st.score = d.st.score || null; this.st.tsWindowMult = d.st.tsWindowMult != null ? d.st.tsWindowMult : 1.0; this.st.rollWins = d.st.rollWins || 0; this.st.rollLosses = d.st.rollLosses || 0; this.st.rtPeak = (d.st.rtPeak && typeof d.st.rtPeak === 'object') ? d.st.rtPeak : {}; } } catch (e) {} },
+    _save() { try { localStorage.setItem('osirisAdaptive', JSON.stringify({ st: { pMinProfit: this.st.pMinProfit, pFlipProb: this.st.pFlipProb, bets: this.st.bets.slice(-100), score: this.st.score, tsWindowMult: this.st.tsWindowMult, rollWins: this.st.rollWins, rollLosses: this.st.rollLosses, rtPeak: this.st.rtPeak } })); } catch (e) {} },
+    // ADAPTIEVE ROUND-TRIP-DREMPEL. Vloer = de ECHTE Binance round-trip-kosten (fee×2 + slippage, incl.
+    // BNB-korting) + een kleine marge, zodat een oogst altijd netto winst is. Daarbovenop leert Osiris
+    // per markt de typische swing-grootte: blijken de ranges breder, dan mik hoger (later verkopen);
+    // zijn ze smaller, dan mik lager (eerder de winst pakken).
+    recordRange(sym, peakPct) { try { if (!(peakPct > 0)) return; const t = this.st.rtPeak || (this.st.rtPeak = {}); t[sym] = (t[sym] == null) ? peakPct : t[sym] * 0.8 + peakPct * 0.2; this._save(); } catch (e) {} },
+    roundTripTarget(sym) {
+        try {
+            const cost = (typeof roundTripCostPct === 'function') ? roundTripCostPct() / 100 : 0.002;   // echte round-trip-kosten
+            const floor = cost + 0.0008;                                                                // kosten + kleine marge → netto positief
+            const peak = (this.st.rtPeak && this.st.rtPeak[sym]) || 0;
+            const adaptive = peak > 0 ? peak * 0.70 : floor;                                            // mik op ~70% van de typische top
+            return Math.max(floor, Math.min(adaptive, 0.05));                                           // begrensd op 5%
+        } catch (e) { return 0.003; }
+    },
     // ADAPTIEVE TIME-STOP-DUUR: leert uit doorgerolde posities. Sloot een doorgerolde positie
     // winstgevend → doorrollen loont → venster mag langer; sloot ze verliesgevend → korter snijden.
     tsWindowMult() { return this.st.tsWindowMult || 1; },
@@ -15721,6 +15783,36 @@ const OsirisAdaptive = {
     preserveMinProfit() { return this.st.pMinProfit; },
     preserveFlipProb() { return this.st.pFlipProb; },
     relaxFactor() { return this.st.relax || 0; },
+    // DRAWDOWN-COOLDOWN: reageert al vanaf een korte verliesreeks (i.p.v. pas na 12 trades). Bij een
+    // reeks verliezen wordt Osiris SELECTIEVER (hogere drempel, lagere hefboom, minder trades) en
+    // herstelt vanzelf zodra er weer gewonnen wordt. Geen freeze — een zelf-oplossende rem.
+    drawdown(wallet) {
+        try {
+            let recent = [];   // newest-first
+            if (wallet === 'margin') { recent = (typeof marginState !== 'undefined' && marginState.closed) ? marginState.closed.slice(0, 8).map(t => (typeof t.pnlUSD === 'number' ? t.pnlUSD : (t.pnl || 0))) : []; }
+            else { const ll = (typeof learningLog !== 'undefined' ? learningLog.filter(l => !l.manual && l.pnlPct != null) : []); recent = ll.slice(-8).reverse().map(l => l.pnlPct); }
+            const n = recent.length; if (!n) return { level: 0, streak: 0, wr: 1, n: 0 };
+            let streak = 0; for (const p of recent) { if (p <= 0) streak++; else break; }
+            const wins = recent.filter(p => p > 0).length, wr = wins / n;
+            let dd = 0;
+            if (streak >= 4) dd = Math.min(1, (streak - 3) * 0.2);              // 4 op rij → 0.2 … 8 op rij → 1.0
+            if (n >= 5 && wr < 0.30) dd = Math.max(dd, 0.5 + (0.30 - wr));       // slechte winrate → minstens 0.5
+            return { level: Math.min(1, dd), streak, wr: +wr.toFixed(2), n };
+        } catch (e) { return { level: 0, streak: 0, wr: 1, n: 0 }; }
+    },
+    // RUSTIGE/ZIJWAARTSE markt? (compressie of kalm regime, of lage systeem-stress). In zo'n markt
+    // is trendvolgen zwak en round-trippen (koop laag, verkoop hoog binnen de range) juist sterk.
+    marketQuiet() {
+        try {
+            const hmm = (typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null;
+            if (hmm === 'compressie') return { quiet: true, strong: true };
+            const fso = (typeof osirisStress !== 'undefined' && osirisStress.ts && (Date.now() - osirisStress.ts < 30 * 60000)) ? osirisStress.regime : null;
+            if (hmm === 'kalm' || fso === 'RUST') return { quiet: true, strong: false };
+            return { quiet: false, strong: false };
+        } catch (e) { return { quiet: false, strong: false }; }
+    },
+    // extra instap-strengheid (procentpunten) in een rustige/zijwaartse markt — minder, selectievere trend-entries
+    regimeSelectivity() { const q = this.marketQuiet(); return q.strong ? 0.08 : (q.quiet ? 0.05 : 0); },
     _price(sym) { try { if (sym === 'BTC') return (typeof livePrice !== 'undefined') ? livePrice : null; const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null; return m ? m.lastPrice : null; } catch (e) { return null; } },
     recordPreserve(sym, exitPrice) { if (!(exitPrice > 0)) return; this.st.bets.unshift({ sym, px: exitPrice, ts: Date.now(), due: Date.now() + 45 * 60000, done: false }); if (this.st.bets.length > 120) this.st.bets.pop(); },
     resolvePreserves() {
@@ -15759,7 +15851,7 @@ const OsirisAdaptive = {
     },
     _lastTick: 0,
     tick() { const now = Date.now(); if (now - this._lastTick < 20000) return; this._lastTick = now; this.resolvePreserves(); this.tickActivity(); },
-    bundle() { return { preserveMinProfitPct: this.st.pMinProfit, preserveFlipProb: this.st.pFlipProb, preserveScore: this.st.score, activityRelax: +(this.st.relax || 0).toFixed(3), timeStopWindowMult: +this.tsWindowMult().toFixed(2), rollWins: this.st.rollWins, rollLosses: this.st.rollLosses, minsSinceSpotEntry: this.st.lastSpot ? +((Date.now() - this.st.lastSpot) / 60000).toFixed(1) : null, minsSinceMarginEntry: this.st.lastMargin ? +((Date.now() - this.st.lastMargin) / 60000).toFixed(1) : null, note: 'Adaptieve kapitaalbehoud-drempels + activiteits-governor + lerende time-stop-duur (rollt langer als doorrollen loont, korter als niet). Harde stops blijven gelden.' }; }
+    bundle() { return { preserveMinProfitPct: this.st.pMinProfit, preserveFlipProb: this.st.pFlipProb, preserveScore: this.st.score, activityRelax: +(this.st.relax || 0).toFixed(3), timeStopWindowMult: +this.tsWindowMult().toFixed(2), rollWins: this.st.rollWins, rollLosses: this.st.rollLosses, drawdownSpot: this.drawdown('spot'), drawdownMargin: this.drawdown('margin'), minsSinceSpotEntry: this.st.lastSpot ? +((Date.now() - this.st.lastSpot) / 60000).toFixed(1) : null, minsSinceMarginEntry: this.st.lastMargin ? +((Date.now() - this.st.lastMargin) / 60000).toFixed(1) : null, note: 'Adaptieve kapitaalbehoud-drempels + activiteits-governor + lerende time-stop-duur (rollt langer als doorrollen loont, korter als niet). Harde stops blijven gelden.' }; }
 };
 try { OsirisAdaptive._restore(); window.OsirisAdaptive = OsirisAdaptive; } catch (e) {}
 
