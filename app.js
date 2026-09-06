@@ -5807,24 +5807,27 @@ function checkOpenPositionsExits() {
                 }
             } catch (e) {}
             if (ageMin >= deadline && Math.abs(pnlPct) < costBand) {
-                // TIME-STOP KALIBRATIE (16-08): staat de positie (licht) negatief maar is de
-                // kans op succes in dezelfde richting ECHT groot, houd dan langer vast i.p.v.
-                // sluiten en meteen dezelfde kant weer openen. Alleen bij zeer sterk signaal.
+                // FLEXIBELE TIME-STOP (fix churn): sluit NIET als dezelfde markt+richting nog de
+                // actieve keuze van de engine is — dan zou de entry-engine 'm meteen heropenen
+                // (zelfde markt, zelfde kant) en betaal je alleen fees. In dat geval ROLLEN we de
+                // positie door met een vers tijd-venster i.p.v. sluiten+heropenen. Time-stop snijdt
+                // dus alleen nog als het signaal de positie NIET meer steunt (these echt weg).
+                let _favored = false, _prob = 0, _rlHold = false;
                 try {
-                    if (pnlPct < 0) {
-                        const _tsym = (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') ? Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) : 'BTC';
-                        const _tm = neoMultiState.markets[_tsym];
-                        const _rlHold = (typeof OsirisRL !== 'undefined' && OsirisRL.episodes > 2000) ? (() => { const dd = OsirisRL.decide(pos, _tm, pnlPct, ageMin); return dd && (dd.action === 0 || dd.action === 2) && dd.conf > 0.55; })() : false;
-                        if (_tm && _tm.bestSide === pos.side && ((_tm.bestProb || 0) >= 0.65 || _rlHold) && (pos._tsHoldCount || 0) < 2) {
-                            pos._tsHoldCount = (pos._tsHoldCount || 0) + 1;
-                            pos.openTime = (pos.openTime || Date.now()) + deadline * 0.5 * 60000;   // deadline verlengen
-                            try { logAdaptation('Osiris houdt langer vast', `${_tsym} ${pos.side} negatief maar kans ${(( _tm.bestProb||0)*100|0)}%${_rlHold ? ' + RL-HOLD' : ''} - time-stop uitgesteld i.p.v. sluiten+heropenen`); } catch (e) {}
-                            return;
-                        }
+                    const _tsym = (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') ? Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) : 'BTC';
+                    const _tm = neoMultiState.markets[_tsym];
+                    const _thr = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? osirisTune.minProb : 0.55;
+                    if (_tm && _tm.bestSide === pos.side && (_tm.bestProb || 0) >= _thr) { _favored = true; _prob = _tm.bestProb || 0; }
+                    if (typeof OsirisRL !== 'undefined' && OsirisRL.episodes > 2000) { const dd = OsirisRL.decide(pos, _tm, pnlPct, ageMin); if (dd && (dd.action === 0 || dd.action === 2) && dd.conf > 0.55) { _rlHold = true; _favored = true; } }
+                    if (_favored) {
+                        pos.openTime = Date.now();                      // vers tijd-venster — géén sluiten+heropenen
+                        pos._tsRolls = (pos._tsRolls || 0) + 1;
+                        try { logAdaptation('Osiris rolt positie door', `${_tsym} ${pos.side} is nog steeds de keuze (${(_prob * 100 | 0)}%${_rlHold ? ' + RL-HOLD' : ''}) — time-stop uitgesteld i.p.v. sluiten+heropenen (roll #${pos._tsRolls})`); } catch (e) {}
+                        return;
                     }
                 } catch (e) {}
                 try { if (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.LIVE) OsirisDeepNet.recordTimeStop(pos._tsMode || 'FIXED', pnlPct); } catch (e) {}
-                closePosition(pos, pnlPct, `TIME_STOP (${ageMin.toFixed(0)}/${deadline.toFixed(0)} min${dyn ? ' dyn-EV' : ' vast'} - these niet uitgekomen)`);
+                closePosition(pos, pnlPct, `TIME_STOP (${ageMin.toFixed(0)}/${deadline.toFixed(0)} min${dyn ? ' dyn-EV' : ' vast'} - signaal weg, these niet uitgekomen)`);
                 return;
             }
         }
@@ -12770,10 +12773,12 @@ async function marginTick() {
             else if (raw >= pos.targetPct && !rlHold) reason = 'TARGET';           // RL mag de winnaar laten lopen
             else if (rlClose && lev > 0.0005) reason = 'RL_EXIT';                  // RL zegt sluiten (in winst)
             else if (ageMin > (botSettings.maxPositionAgeMinutes || 90) && Math.abs(lev) < 0.02 && !rlHold) {
-                // sterk aanhoudend signaal dezelfde kant? geef de trade meer tijd (max 1x) i.p.v.
-                // sluiten+heropenen. Anders: sneller oogsten (breekt de TIME_STOP-churn).
+                // FLEXIBELE TIME-STOP (fix churn): is dezelfde markt+richting nog de actieve keuze,
+                // dan zou de engine 'm meteen heropenen — dus ROLLEN we door met een vers venster
+                // i.p.v. sluiten+heropenen (fees voor niets). Alleen sluiten als het signaal weg is.
                 const _sm = neoMultiState.markets[pos.sym];
-                if (_sm && _sm.bestSide === pos.side && (_sm.bestProb || 0) >= 0.66 && (pos._mTsExt || 0) < 1) { pos._mTsExt = 1; pos.openTime += (botSettings.maxPositionAgeMinutes || 90) * 0.5 * 60000; _marginLog('reasoning', `${pos.sym}: sterk signaal (${((_sm.bestProb||0)*100|0)}%) - time-stop uitgesteld i.p.v. sluiten`); }
+                const _mthr = (typeof osirisTune !== 'undefined' && osirisTune.minProb) ? Math.max(0.55, osirisTune.minProb) : 0.58;
+                if (_sm && _sm.bestSide === pos.side && (_sm.bestProb || 0) >= _mthr) { pos.openTime = now; pos._mTsRolls = (pos._mTsRolls || 0) + 1; _marginLog('reasoning', `${pos.sym}: nog steeds de keuze (${((_sm.bestProb || 0) * 100 | 0)}%) — time-stop doorgerold i.p.v. sluiten+heropenen (roll #${pos._mTsRolls})`); }
                 else reason = 'TIME_STOP';
             }
             if (reason) { await marginClose(pos, price, lev, reason); }
