@@ -30,6 +30,7 @@ const ALLOW = new Set([
   'www.cpc.ncep.noaa.gov',     // NOAA CPC — Oceanic Niño Index (El Niño/La Niña)
   'stats.bis.org',             // BIS — credit-to-GDP gap (systeemrisico)
   'services9.arcgis.com',      // IMF PortWatch — maritieme chokepoints (Suez/Hormuz/Panama/Malacca/…)
+  'comtradeapi.un.org',        // UN Comtrade — live bilaterale handel (keyless preview-endpoint)
 ]);
 
 const CORS = {
