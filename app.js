@@ -307,8 +307,8 @@ function marginRoundTripFeePct() { return MARGIN_TAKER_PCT * _bnbFutMul() * 2; }
 //     zodat de equity behouden blijft en er later opnieuw gelongd kan worden
 // Default UIT — het huidige gedrag blijft ongewijzigd tot de gebruiker dit aanzet.
 // ============================================================
-let OSIRIS_REALWORLD = { on: false, spotLongOnly: true, capitalPreservation: true, shortsToFutures: true, preserveMinProfitPct: 0.15, preserveFlipProb: 0.60 };
-try { const s = JSON.parse(localStorage.getItem('osirisRealworld') || 'null'); if (s && typeof s === 'object') OSIRIS_REALWORLD = Object.assign(OSIRIS_REALWORLD, s); } catch (e) {}
+let OSIRIS_REALWORLD = { on: true, spotLongOnly: true, capitalPreservation: true, shortsToFutures: true, preserveMinProfitPct: 0.15, preserveFlipProb: 0.60, _v2: true };
+try { const s = JSON.parse(localStorage.getItem('osirisRealworld') || 'null'); if (s && typeof s === 'object') { OSIRIS_REALWORLD = Object.assign(OSIRIS_REALWORLD, s); if (!s._v2) { OSIRIS_REALWORLD.on = true; OSIRIS_REALWORLD._v2 = true; try { localStorage.setItem('osirisRealworld', JSON.stringify(OSIRIS_REALWORLD)); } catch (e) {} } } } catch (e) {}   // real-world is standaard AAN (architectuur is hiervoor gebouwd); eenmalige migratie zet bestaande installaties ook op AAN
 function osirisSetRealworld(on) { OSIRIS_REALWORLD.on = !!on; try { localStorage.setItem('osirisRealworld', JSON.stringify(OSIRIS_REALWORLD)); } catch (e) {} try { if (typeof _osirisToast === 'function') _osirisToast('Real-world modus ' + (on ? 'AAN — spot long-only, shorts via futures, kapitaalbehoud actief' : 'UIT — spot mag weer synthetisch shorten'), on ? 'ok' : 'info'); } catch (e) {} try { renderOsirisPortfolio(); } catch (e) {} }
 window.osirisSetRealworld = osirisSetRealworld; window.OSIRIS_REALWORLD = OSIRIS_REALWORLD;
 
@@ -2537,6 +2537,7 @@ function resetWallet() {
     updatePendingOrdersUI();
     try { localStorage.removeItem('osirisSessionLog'); } catch (e) {}   // learningLog NIET wissen: dat is de kalibratie-/leerhistorie die moet accumuleren
     try { OsirisSessions._clearSig('spot'); } catch (e) {}              // sessie is beëindigd → volgende (nieuwe) sessie mag weer vers genoteerd worden
+    try { if (typeof OsirisPortfolio !== 'undefined') OsirisPortfolio._releaseReserve(); } catch (e) {}   // BNB-reserve was uit spot gefinancierd → vrijgeven bij reset
     try { updateWalletUI(); updatePendingOrdersUI(); syncWalletLive(); } catch (e) {}
     try { renderOsirisShadowPanel(); } catch (e) {}
     try { console.log(`Wallet gereset naar ${walletSymbol()}${walletState.startingCapital} (${walletState.currency})`); } catch (e) { console.log('Wallet gereset.'); }
@@ -2746,7 +2747,8 @@ function updateSpotEquityBreakdown() {
     // Alleen LONGs binden echte wallet-waarde in een munt. SHORTs zijn USDT-gesetteld
     // (opbrengst + P/L zitten in USDT), dus die tellen NIET als "in de munt".
     const heldLong = coins.reduce((a, c) => a + per[c].longVal, 0);
-    const usdtBucket = Math.max(0, equity - heldLong);                 // alle USDT (cash + short-opbrengst + short-P/L)
+    const bnbReserve = (typeof OsirisPortfolio !== 'undefined') ? OsirisPortfolio.bnbReserveUSDT() : ((walletState && walletState.bnbReserveUSDT) || 0);   // uit spot gefinancierde BNB fee-reserve
+    const usdtBucket = Math.max(0, equity - heldLong - bnbReserve);    // vrije USDT (cash + short-opbrengst + short-P/L), excl. BNB-reserve
     const committedPct = (typeof getAllocatedPct === 'function') ? getAllocatedPct() * 100 : 0; // risk-budget (Σ sizePct)
     const shortExposure = coins.reduce((a, c) => a + per[c].shortNotional, 0);
     const nShort = (openPositions || []).filter(p => p.side === 'SHORT').length;
@@ -2781,6 +2783,8 @@ function updateSpotEquityBreakdown() {
     });
     // USDT cash-regel
     h += `<div style="display:flex; align-items:center; padding:3px 0; border-top:1px solid var(--line); margin-top:3px;"><span style="color:#8fb3c9; font-weight:700; width:38px;">USDT</span><span style="flex:1; color:#8fb3c9;">vrij + short-gesetteld</span><span style="color:#cfe; width:86px; text-align:right;">${sym}${usdtBucket.toFixed(2)}</span><span style="color:var(--dim); width:52px; text-align:right;">${equity > 0 ? (usdtBucket / equity * 100).toFixed(1) : '0.0'}%</span></div>`;
+    // BNB fee-reserve (gefinancierd uit deze spot-wallet) — apart getoond zodat zichtbaar is waar de BNB vandaan kwam
+    if (bnbReserve > 0.005) h += `<div style="display:flex; align-items:center; padding:2px 0;"><span style="color:#f3ba2f; font-weight:700; width:38px;">BNB</span><span style="flex:1; color:#c9a94a;">fee-reserve (uit spot afgeschreven)</span><span style="color:#cfe; width:86px; text-align:right;">${sym}${bnbReserve.toFixed(2)}</span><span style="color:var(--dim); width:52px; text-align:right;">${equity > 0 ? (bnbReserve / equity * 100).toFixed(1) : '0.0'}%</span></div>`;
     // samenvatting: werkelijk aangehouden vs risk-budget ingezet
     h += `<div style="display:flex; justify-content:space-between; margin-top:7px; padding-top:6px; border-top:1px solid var(--line); color:#9fb2c4;">`;
     h += `<span title="werkelijke wallet-waarde die in munten (LONG) vastzit">in munten aangehouden <b style="color:#cfe;">${equity > 0 ? (heldLong / equity * 100).toFixed(1) : '0.0'}%</b></span>`;
@@ -4641,6 +4645,7 @@ function checkIctExit(pos) {
 }
 
 function commitPositionEntry(position, reasonText) {
+    try { if (typeof OsirisAdaptive !== 'undefined') OsirisAdaptive.markEntry('spot'); } catch (e) {}   // activiteits-governor: handel hervat
     // ANTI-CHURN (15-08): geen tweede positie in dezelfde markt + richting. Voorheen
     // kon een wachtende order een near-identieke positie openen terwijl de oude nog
     // (net) open was -> sluiten + heropenen van hetzelfde. Bestaat die al, dan is dit
@@ -4776,10 +4781,13 @@ function osirisCapitalPreserveTick() {
             const nettoPct = grossPct - roundTripCostPct() / 100;
             let sym = 'BTC'; try { if (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') sym = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || 'BTC'; } catch (e) {}
             const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
-            const flip = m && m.bestSide === 'SHORT' && (m.bestProb || 0) >= (OSIRIS_REALWORLD.preserveFlipProb || 0.6);
-            if (flip && nettoPct >= (OSIRIS_REALWORLD.preserveMinProfitPct || 0.15) / 100) {
+            const flipProb = (typeof OsirisAdaptive !== 'undefined') ? OsirisAdaptive.preserveFlipProb() : (OSIRIS_REALWORLD.preserveFlipProb || 0.6);
+            const minProfit = (typeof OsirisAdaptive !== 'undefined') ? OsirisAdaptive.preserveMinProfit() : (OSIRIS_REALWORLD.preserveMinProfitPct || 0.15);
+            const flip = m && m.bestSide === 'SHORT' && (m.bestProb || 0) >= flipProb;
+            if (flip && nettoPct >= minProfit / 100) {
+                try { if (typeof OsirisAdaptive !== 'undefined') OsirisAdaptive.recordPreserve(sym, px); } catch (e) {}   // leren: klopte dit behoud achteraf?
                 closePosition(pos, grossPct, `CAPITAL_PRESERVE (winst ${(nettoPct * 100).toFixed(2)}% → USDT — markt draait ${sym} SHORT ${((m.bestProb || 0) * 100 | 0)}%)`);
-                try { if (typeof logAdaptation === 'function') logAdaptation(`Kapitaalbehoud · ${sym}`, `long naar USDT bij omslag (winst ${(nettoPct * 100).toFixed(2)}%); equity beschermd, klaar om opnieuw te longen`); } catch (e) {}
+                try { if (typeof logAdaptation === 'function') logAdaptation(`Kapitaalbehoud · ${sym}`, `long naar USDT bij omslag (winst ${(nettoPct * 100).toFixed(2)}%, drempel ${minProfit.toFixed(2)}%/${(flipProb * 100 | 0)}%); equity beschermd, klaar om opnieuw te longen`); } catch (e) {}
             }
         }
     } catch (e) {}
@@ -11480,6 +11488,7 @@ function osirisMasterBundle() {
         fees: g(() => ({ spotRoundTripPct: (typeof roundTripCostPct === 'function' ? +roundTripCostPct().toFixed(3) : null), futuresRoundTripPct: (typeof marginRoundTripCostPct === 'function' ? +marginRoundTripCostPct().toFixed(3) : null), useBNB: (typeof osirisUseBNB !== 'undefined' ? osirisUseBNB : null), spotTakerPct: (typeof botSettings !== 'undefined' ? botSettings.feePct : null), futuresTakerPct: (typeof MARGIN_TAKER_PCT !== 'undefined' ? MARGIN_TAKER_PCT : null) })),
         portfolio: g(() => (typeof OsirisPortfolio !== 'undefined' ? OsirisPortfolio.bundle() : null)),   // portfolio + autonome BNB fee-reserve
         realworld: g(() => (typeof OSIRIS_REALWORLD !== 'undefined' ? OSIRIS_REALWORLD : null)),
+        adaptive: g(() => (typeof OsirisAdaptive !== 'undefined' ? OsirisAdaptive.bundle() : null)),   // adaptieve kapitaalbehoud + activiteits-governor
         uitleg: 'Alle "waarom"-verklaringen bij elkaar: waarom Osiris de engine bijstelde, waarom margin/spot een positie wel/niet nam (incl. DeepNet-band + fee-aware guard), en de sessie-events die de config-segmenten markeren. fee_edge toont of de fees de edge opeten (edge=false ⇒ engine wordt strenger).'
     };
 
@@ -12596,6 +12605,10 @@ async function marginTick() {
                 _feeGuardActive = false;   // edge is terug → één keer melden dat de rem eraf gaat
                 try { _marginLog('adaptation', `Fee-aware guard UIT: edge is terug ná fees — normale entry-drempel/hefboom hersteld.`); } catch (e) {}
             }
+            // ACTIVITEITS-GOVERNOR: staat margin te lang stil, versoepel de entry-drempel (vloer 0,42) zodat
+            // Osiris blijft traden. Wordt 0 zodra er weer gehandeld wordt of bij een harde stop/crisis.
+            let _relax = 0; try { if (typeof OsirisAdaptive !== 'undefined') _relax = OsirisAdaptive.relaxFactor(); } catch (e) {}
+            if (_relax > 0) MINP = Math.max(0.42, MINP - _relax);
             // FSO-PAUZE (19-08, versoepeld op verzoek): alleen nog een harde stop bij ECHTE
             // CRISIS. De oude SPANNING+variance>0.02-clausule sloot margin bijna permanent af
             // (variance zat doorgaans al boven 0.02 in SPANNING) - spot heeft sowieso geen
@@ -12609,7 +12622,7 @@ async function marginTick() {
             const pEff = (m.trustProb != null ? m.trustProb : m.bestProb);
             const binSym = MULTI_BINANCE[sym];
             if (marginState.positions.some(p => p.symbol === binSym)) continue;                 // al open
-            if (_marginLastEntry[sym] && (now - _marginLastEntry[sym]) < 30000) continue;        // cooldown verkort 60s -> 30s (vaker traden dan spot)
+            if (_marginLastEntry[sym] && (now - _marginLastEntry[sym]) < Math.max(12000, 30000 * (1 - _relax * 5))) continue;   // cooldown 30s, korter naarmate de activiteits-governor versoepelt (vloer 12s)
             if (pEff < MINP) continue;
             // fee-guard: bij een grote edge-achterstand alleen nog top-setups (kans ≥ 70%)
             if (_feeNoEdge && _feeGuard.deficit > 0.10 && pEff < 0.70) { marginState.lastAction = `${sym} overgeslagen: fee-guard (edge-tekort ${(_feeGuard.deficit * 100 | 0)}pt, kans ${(pEff * 100 | 0)}% < 70%)`; continue; }
@@ -12723,6 +12736,7 @@ async function marginTick() {
             const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, entryFillPrice: entryPrice, entryFilled, qty, notional: notionalReal, marginUSD: marginReal, sizePct, leverage: entryLev, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100 * _stopMul, chop: _chopReg, targetPct: ((typeof OsirisAutoCal !== 'undefined') ? OsirisAutoCal.marginTargetFrac((preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT) : (preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT), entryProb: (m.bestProb * 100), regimeAtEntry: ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null),
                 factorsAtEntry: (() => { try { const bf = m.bestFactors || {}; return { vfm: m.vfm || 0, rsi: (m.rsi != null ? (m.rsi - 50) / 10 : 0), ema: (m.ema != null && m.emaSlow) ? ((m.ema - m.emaSlow) / m.emaSlow * 100) : 0, nn: 0, fundamentals: (m.fund && m.fund.fundingRate != null ? -Math.tanh(m.fund.fundingRate * 2000) * 3 : 0), chaos: m.chaos || 0, mtfDirInfluence: bf.mtfDir || 0, mtfMomInfluence: bf.mtfMom || 0, nodeFadeInfluence: bf.nodeFade || 0 }; } catch (e) { return null; } })() };
             marginState.positions.push(pos);
+            try { if (typeof OsirisAdaptive !== 'undefined') OsirisAdaptive.markEntry('margin'); } catch (e) {}   // activiteits-governor: handel hervat
             marginState.tradeLog.unshift({ action: 'ENTRY', ts: now, sym, side: m.bestSide, price: entryPrice, notional: notionalReal, leverage: entryLev, filled: entryFilled });
             marginState.lastAction = `ENTRY ${sym} ${m.bestSide} ${entryLev}x @ ${entryPrice}${_chopReg ? ' [chop-modus]' : ''}${entryFilled ? ' [fill]' : ' [sim]'}`;
             _marginLog('reasoning', `opent ${sym} ${m.bestSide} ${entryLev}x (kans ${(m.bestProb * 100 | 0)}%, $${marginReal.toFixed(0)} margin${_chopReg ? `, chop-modus: hefboom↓ stop×1.6 (${(typeof OsirisRegimeHMM !== 'undefined' ? OsirisRegimeHMM.label : 'compressie')})` : ''}${entryFilled ? ', echte fill @ ' + entryPrice : ', sim'})`);
@@ -13471,7 +13485,8 @@ function osirisShadowTick() {
             // REAL-WORLD: spot kan niet shorten zonder muntbezit → laat de futures/margin-engine de short doen.
             if (p.side === 'SHORT' && OSIRIS_REALWORLD.on && OSIRIS_REALWORLD.spotLongOnly) { osirisState.skip[sym] = 'SHORT → futures (real-world: spot is long-only)'; continue; }
             // cooldown: max 1 nieuwe entry per munt per 60s
-            if (_osirisLastEntry[sym] && (now - _osirisLastEntry[sym]) < 60000) { osirisState.skip[sym] = '60s cooldown'; continue; }
+            const _relaxS = (typeof OsirisAdaptive !== 'undefined') ? OsirisAdaptive.relaxFactor() : 0;   // activiteits-governor
+            if (_osirisLastEntry[sym] && (now - _osirisLastEntry[sym]) < Math.max(20000, 60000 * (1 - _relaxS * 5))) { osirisState.skip[sym] = 'cooldown'; continue; }
             try { if (typeof osirisPredictGate === 'function') { const _pg = osirisPredictGate(sym, p.side); if (!_pg.allow) { osirisState.skip[sym] = _pg.reason; continue; } } } catch (e) {}
             try { if (typeof osirisTrendVeto === 'function') { const _tv = osirisTrendVeto(sym, p.side); if (_tv.veto) { osirisState.skip[sym] = _tv.reason; continue; } } } catch (e) {}
             // (23-08) TIMING-AGENT soft-gate voor spot: stel uit tot de timing gunstig staat + size-tilt.
@@ -13479,7 +13494,7 @@ function osirisShadowTick() {
             try { if (typeof osirisTimingGate === 'function') { const _tg = osirisTimingGate(sym, p.side); _taSizeMulSpot = _tg.sizeMult || 1; if (!_tg.allow) { osirisState.skip[sym] = `TA: ${_tg.reason}`; continue; } } } catch (e) {}
             // FEE-AWARE guard (spot): als de netto-edge negatief is (fees eten 'm op), alleen nog
             // sterke setups toelaten zodat Osiris niet op ruis blijft handelen.
-            try { const _fe = osirisFeeEdge('spot'); if (_fe && _fe.ready && !_fe.edge && _fe.deficit > 0.06 && (p.prob != null ? p.prob : 1) < 0.66) { osirisState.skip[sym] = `fee-guard: netto-edge negatief (winrate ${(_fe.actWR * 100 | 0)}% < ${(_fe.beWR * 100 | 0)}%), alleen sterke setups`; continue; } } catch (e) {}
+            try { const _fe = osirisFeeEdge('spot'); const _feCut = Math.max(0.58, 0.66 - _relaxS); if (_fe && _fe.ready && !_fe.edge && _fe.deficit > 0.06 && (p.prob != null ? p.prob : 1) < _feCut) { osirisState.skip[sym] = `fee-guard: netto-edge negatief (winrate ${(_fe.actWR * 100 | 0)}% < ${(_fe.beWR * 100 | 0)}%), alleen sterke setups`; continue; } } catch (e) {}
             const m = neoMultiState.markets[sym];
             if (!m || m.lastPrice == null) { osirisState.skip[sym] = 'geen verse prijs (multi-engine?)'; continue; }
             // INGREEP 1 - DeepNet-poort: alleen instappen als de per-markt DeepNet het eens
@@ -13511,7 +13526,7 @@ function osirisShadowTick() {
             const preset = (m.brain && m.brain.preset) ? m.brain.preset : {};
             // grootte uit de gedeelde wallet met de munt-eigen max-allocatie (valt terug
             // op de globale als het preset die niet definieert).
-            const freeEquity = (walletState.balance != null ? walletState.balance : walletState.realizedPnL + 1000);
+            const freeEquity = (walletState.balance != null ? walletState.balance : walletState.realizedPnL + 1000) - (walletState.bnbReserveUSDT || 0);   // BNB fee-reserve is niet verhandelbaar
             const maxAlloc = preset.maxAllocationPct != null ? preset.maxAllocationPct : (botSettings.maxAllocationPct || 0.7);
             // FIX over-allocatie (140%-bug): begrens op de VRIJE equity - wat al in open
             // posities zit plus de hedge-reserve. Twee winner-take-all entries kunnen zo
@@ -15495,9 +15510,19 @@ const OsirisPortfolio = {
 
     spotEquity() { try { return (typeof getEquity === 'function') ? getEquity() : (walletState.balance || 0); } catch (e) { return 0; } },
     marginEq() { try { return (typeof marginEquity === 'function') ? marginEquity() : ((typeof marginState !== 'undefined') ? marginState.equity : 0); } catch (e) { return 0; } },
-    portfolioEquity() { return this.spotEquity() + this.marginEq() + this.bnbValueUSDT(); },
+    // cost-basis van de BNB die uit de SPOT-wallet is gefinancierd (carve-out; staat op walletState)
+    bnbReserveUSDT() { try { return (typeof walletState !== 'undefined' && walletState.bnbReserveUSDT) ? walletState.bnbReserveUSDT : 0; } catch (e) { return 0; } },
+    // waarde van aangehouden LONG-posities (die binden echte spot-USDT); shorts zijn USDT-gesetteld
+    heldLongValue() { try { let v = 0; const cf = (typeof roundTripCostPct === 'function' ? roundTripCostPct() / 100 : 0); for (const p of (openPositions || [])) { if (p.side !== 'LONG') continue; const px = (typeof priceForPosition === 'function' ? priceForPosition(p) : livePrice) || p.entryPrice; const g = (px - p.entryPrice) / p.entryPrice; v += (p.notional || 0) * (1 + (isFinite(g) ? g : 0)); } return v; } catch (e) { return 0; } },
+    // écht vrije, verhandelbare spot-USDT (equity − aangehouden longs − BNB-reserve)
+    spotFreeUSDT() { return Math.max(0, this.spotEquity() - this.heldLongValue() - this.bnbReserveUSDT()); },
+    // BNB-reserve mag nooit meer dan 5% van de spot-equity beslaan (starve de handel niet)
+    maxReserveUSDT() { return 0.05 * Math.max(1, this.spotEquity()); },
+    // portfolio-totaal ZONDER dubbeltelling: spot-deel is exclusief de BNB-reserve (die staat in de BNB-slice)
+    portfolioEquity() { return (this.spotEquity() - this.bnbReserveUSDT()) + this.marginEq() + this.bnbValueUSDT(); },
 
-    // geschatte fee-uitgave per dag, uit de lopende spot- + margin-sessie (kost / runtime → per dag)
+    // geschatte fee-uitgave per dag, uit de lopende spot- + margin-sessie (kost / runtime → per dag).
+    // Runtime-vloer van 6u voorkomt de absurde extrapolatie (₮118/dag) vlak na een verse start.
     feePerDay() {
         try {
             let cost = 0, ms = 0;
@@ -15505,35 +15530,57 @@ const OsirisPortfolio = {
             const m = (typeof osirisMarginSessionMetrics === 'function') ? osirisMarginSessionMetrics() : null;
             if (s && s.sessionCost) { cost += s.sessionCost; ms = Math.max(ms, s.runtimeMs || 0); }
             if (m && m.sessionCost) { cost += m.sessionCost; ms = Math.max(ms, m.runtimeMs || 0); }
-            if (!(ms > 0) || cost <= 0) return 0;
-            return cost / (ms / 86400000);   // USDT per dag
+            if (cost <= 0) return 0;
+            const days = Math.max(ms / 86400000, 0.25);   // minstens een 6-uursvenster
+            return cost / days;                            // USDT per dag
         } catch (e) { return 0; }
     },
     // gemiddelde fee-korting die BNB oplevert, gewogen naar waar de fees vallen (grof 50/50 spot/futures)
     avgDiscount() { return 0.5 * 0.25 + 0.5 * 0.10; },   // ≈ 0.175
-    // doel-buffer in USDT: dek ~targetDays aan fees, met een vloer en een plafond (≤10% van de portfolio)
-    targetBufferUSDT() { const perDay = this.feePerDay(); const raw = perDay > 0 ? perDay * this.st.targetDays : this.st.minBufferUSDT; return Math.max(this.st.minBufferUSDT, Math.min(raw, 0.10 * Math.max(1, this.portfolioEquity()))); },
+    // doel-buffer in USDT: dek ~targetDays aan fees, met een vloer (minBuffer) en een HARD plafond (5% van spot)
+    targetBufferUSDT() { const perDay = this.feePerDay(); const raw = perDay > 0 ? perDay * this.st.targetDays : this.st.minBufferUSDT; return Math.max(this.st.minBufferUSDT, Math.min(raw, this.maxReserveUSDT())); },
 
     // Is BNB aanhouden het waard? bespaarde fees over ~30d vs. een kleine drempel.
     worthHolding() { const save30 = this.feePerDay() * 30 * this.avgDiscount(); return { save30, worth: save30 >= 0.50 }; },
 
-    // --- top-up: koop BNB tot de doel-buffer (LIVE via API-haak, anders GESIMULEERD) ---
+    // --- top-up: koop BNB tot de doel-buffer, GEFINANCIERD uit de vrije spot-USDT ---
+    // De kosten worden WEL van de spot-wallet afgeschreven (walletState.bnbReserveUSDT = carve-out),
+    // zodat er geen geld uit het niets ontstaat en het portfolio-totaal blijft kloppen. Met echte
+    // testnet-keys wordt een ECHTE BNBUSDT-marktorder geplaatst (zichtbaar in de fill-historie),
+    // anders een gesimuleerde afschrijving van dezelfde spot-USDT.
     ensureBuffer() {
         const px = this.bnbPrice(); if (!(px > 0)) return;
         const targetUSDT = this.targetBufferUSDT();
         const haveUSDT = this.bnbValueUSDT();
-        const deficitUSDT = targetUSDT - haveUSDT;
-        if (deficitUSDT > Math.max(1, targetUSDT * 0.15)) {   // pas bijkopen bij >15% tekort (geen constant geknabbel)
-            const buyBNB = deficitUSDT / px;
-            const live = (typeof marginKeys === 'function' && marginKeys().apiKey) || (typeof getTestnetKeys === 'function' && getTestnetKeys().apiKey);
-            if (live && typeof this._liveBuyBNB === 'function') { try { this._liveBuyBNB(buyBNB); } catch (e) {} }
-            // reserve-boekhouding (overlay; raakt de trading-wallets niet)
-            this.st.bnbSpot += buyBNB; this.st.spentUSDT += deficitUSDT; this.st.lastTopUp = Date.now();
-            this.st.topUps.unshift({ ts: Date.now(), bnb: +buyBNB.toFixed(4), usdt: +deficitUSDT.toFixed(2), px: +px.toFixed(2), sim: !live });
-            if (this.st.topUps.length > 40) this.st.topUps.pop();
-        }
+        let deficitUSDT = targetUSDT - haveUSDT;
+        if (deficitUSDT <= Math.max(1, targetUSDT * 0.15)) { this.rebalance(); return; }   // pas bij >15% tekort
+        // financier ALLEEN uit vrije spot-USDT, en nooit boven het reserve-plafond
+        const free = this.spotFreeUSDT();
+        const roomToCap = Math.max(0, this.maxReserveUSDT() - this.bnbReserveUSDT());
+        const spend = Math.min(deficitUSDT, free, roomToCap);
+        if (spend < 1) { return; }   // geen vrije USDT of plafond bereikt → niet kopen
+        const buyBNB = spend / px;
+        const keyed = (typeof getTestnetKeys === 'function' && getTestnetKeys().apiKey);
+        let real = false;
+        if (keyed) { try { this._liveBuyBNB(spend); real = true; } catch (e) { real = false; } }   // echte testnet-fill
+        // spot-wallet AFSCHRIJVEN (carve-out) — hier ontstaat geen geld uit het niets
+        try { walletState.bnbReserveUSDT = (walletState.bnbReserveUSDT || 0) + spend; if (typeof persistState === 'function') persistState(); } catch (e) {}
+        this.st.bnbSpot += buyBNB; this.st.spentUSDT += spend; this.st.lastTopUp = Date.now();
+        this.st.topUps.unshift({ ts: Date.now(), bnb: +buyBNB.toFixed(4), usdt: +spend.toFixed(2), px: +px.toFixed(2), sim: !real, from: 'spot' });
+        if (this.st.topUps.length > 40) this.st.topUps.pop();
         this.rebalance();
     },
+    // ECHTE testnet-aankoop van BNB voor het meegegeven USDT-bedrag (zichtbaar in de fill-historie).
+    _liveBuyBNB(usdt) {
+        try {
+            if (typeof testnetMarketOrder !== 'function' || !(usdt > 0)) throw new Error('geen testnet-order mogelijk');
+            testnetMarketOrder('BUY', { symbol: 'BNBUSDT', quoteOrderQty: usdt })
+                .then(r => { try { _osirisToast('BNB-reserve: ₮' + usdt.toFixed(2) + ' BNB gekocht (echte testnet-fill)', 'ok'); } catch (e) {} })
+                .catch(e => { try { _osirisToast('BNB-aankoop testnet mislukt: ' + (e && e.message || e), 'warn'); } catch (_) {} });
+        } catch (e) { throw e; }
+    },
+    // geef de BNB-reserve terug aan de spot-wallet (bij reset / uitzetten)
+    _releaseReserve() { try { walletState.bnbReserveUSDT = 0; } catch (e) {} this.st.bnbSpot = 0; this.st.bnbFut = 0; try { this._save(); } catch (e) {} },
     // verdeel BNB over spot/futures zodat beide kanten fee-korting kunnen betalen (± 60% spot / 40% futures)
     rebalance() {
         const tot = this.totalBNB(); if (tot <= 0) return;
@@ -15564,14 +15611,14 @@ const OsirisPortfolio = {
             // als het niet (meer) loont laten we de bestaande BNB staan maar kopen niet bij
             this.st.enabled = w.worth && this.totalBNB() > 1e-6 ? true : (w.worth ? this.st.enabled : false);
         } else if (this.st.mode === 'on') { this.st.enabled = true; this.ensureBuffer(); }
-        else { this.st.enabled = false; }
+        else { this.st.enabled = false; if (this.bnbReserveUSDT() > 0) this._releaseReserve(); }   // uit → reserve terug naar vrije spot-USDT
         // stuur het fee-model aan: gebruik BNB-korting alleen als we daadwerkelijk BNB aanhouden
         try { if (typeof osirisSetUseBNB === 'function') osirisSetUseBNB(this.st.enabled && this.bnbValueUSDT() > 0.5); } catch (e) {}
         this.st.lastTick = now; this._save();
     },
     setMode(mode) { this.st.mode = (['auto', 'on', 'off'].includes(mode)) ? mode : 'auto'; this.st.lastTick = 0; this.tick(); this._save(); try { renderOsirisPortfolio(); } catch (e) {} },
 
-    bundle() { return { enabled: this.st.enabled, mode: this.st.mode, bnbSpot: this.st.bnbSpot, bnbFut: this.st.bnbFut, bnbPrice: this.bnbPrice(), bnbValueUSDT: +this.bnbValueUSDT().toFixed(2), targetBufferUSDT: +this.targetBufferUSDT().toFixed(2), feePerDay: +this.feePerDay().toFixed(3), savedUSDT: +this.st.savedUSDT.toFixed(2), spentUSDT: +this.st.spentUSDT.toFixed(2), portfolioEquity: +this.portfolioEquity().toFixed(2), topUps: this.st.topUps.slice(0, 10), note: 'Portfolio + autonome BNB fee-reserve. Testnet = gesimuleerd (aparte wallets); live via _liveBuyBNB/_liveTransfer. Raakt de trading-wallets niet.' }; }
+    bundle() { return { enabled: this.st.enabled, mode: this.st.mode, bnbSpot: this.st.bnbSpot, bnbFut: this.st.bnbFut, bnbPrice: this.bnbPrice(), bnbValueUSDT: +this.bnbValueUSDT().toFixed(2), bnbReserveCostUSDT: +this.bnbReserveUSDT().toFixed(2), targetBufferUSDT: +this.targetBufferUSDT().toFixed(2), maxReserveUSDT: +this.maxReserveUSDT().toFixed(2), feePerDay: +this.feePerDay().toFixed(3), savedUSDT: +this.st.savedUSDT.toFixed(2), spentUSDT: +this.st.spentUSDT.toFixed(2), spotFreeUSDT: +this.spotFreeUSDT().toFixed(2), portfolioEquity: +this.portfolioEquity().toFixed(2), topUps: this.st.topUps.slice(0, 10), note: 'Portfolio + autonome BNB fee-reserve. De BNB wordt GEFINANCIERD uit de vrije spot-USDT (walletState.bnbReserveUSDT = carve-out), dus er ontstaat geen geld uit het niets en het totaal blijft behouden. Met testnet-keys is het een echte BNBUSDT-fill (zichtbaar in de historie), anders een gesimuleerde afschrijving van dezelfde spot-USDT. Gecapt op 5% van de spot-equity.' }; }
 };
 try { OsirisPortfolio._restore(); window.OsirisPortfolio = OsirisPortfolio; } catch (e) {}
 
@@ -15579,7 +15626,9 @@ function renderOsirisPortfolio() {
     const el = document.getElementById('osiris-portfolio'); if (!el) return;
     try { OsirisPortfolio.tick(); } catch (e) {}
     const P = OsirisPortfolio, sym = '₮';
-    const spot = P.spotEquity(), margin = P.marginEq(), bnb = P.bnbValueUSDT(), tot = spot + margin + bnb;
+    const reserve = P.bnbReserveUSDT();
+    const spot = P.spotEquity() - reserve;   // pure spot-waarde ZONDER de BNB-reserve (die zit in de BNB-slice → geen dubbeltelling)
+    const margin = P.marginEq(), bnb = P.bnbValueUSDT(), tot = spot + margin + bnb;
     const G = '#14f195', A = '#ffb627', BNBc = '#f3ba2f', PU = '#c792ea', D = 'var(--dim)', DD = 'var(--dimmer)';
     const pct = v => tot > 0 ? (v / tot * 100) : 0;
     const live = (typeof marginKeys === 'function' && marginKeys().apiKey);
@@ -15610,12 +15659,82 @@ function renderOsirisPortfolio() {
     h += `<div style="display:flex;justify-content:space-between;align-items:center;"><span style="color:${DD};">Real-world modus <span title="spot = alleen LONG (+ kapitaalbehoud); shorts via futures/perps">ⓘ</span></span>`;
     h += `<span onclick="osirisSetRealworld(${rw.on ? 'false' : 'true'})" style="cursor:pointer;padding:2px 10px;border-radius:5px;${rw.on ? 'background:rgba(20,241,149,0.15);color:' + G + ';border:1px solid ' + G : 'color:' + DD + ';border:1px solid var(--line)'};">${rw.on ? 'AAN' : 'UIT'}</span></div>`;
     if (rw.on) h += `<div style="color:${D};margin-top:4px;font-size:0.53rem;">spot = <b style="color:${G}">long-only</b> + kapitaalbehoud · shorts → <b style="color:${PU}">futures</b> · hefboom per trade 1–20×</div>`;
+    // adaptieve staat (kapitaalbehoud-leren + activiteits-governor)
+    try {
+        if (typeof OsirisAdaptive !== 'undefined') {
+            const AD = OsirisAdaptive, sc = AD.st.score, relax = AD.relaxFactor();
+            h += `<div style="color:${D};margin-top:5px;font-size:0.53rem;">adaptief · kapitaalbehoud-drempel <b style="color:#cfe">${AD.preserveMinProfit().toFixed(2)}%</b> / flip <b style="color:#cfe">${(AD.preserveFlipProb() * 100 | 0)}%</b>${sc ? ` (behoud-hitrate ${(sc.hitRate * 100 | 0)}%, n=${sc.n})` : ' (leert nog)'}`;
+            h += ` · activiteit ${relax > 0 ? `<b style="color:${A}">versoepelt +${(relax * 100).toFixed(1)}pt (te lang stil)</b>` : `<b style="color:${G}">normaal</b>`}</div>`;
+        }
+    } catch (e) {}
     h += `</div>`;
-    h += `<div style="margin-top:8px;color:#7d99ac;font-size:0.53rem;line-height:1.55;border-top:1px dashed var(--line);padding-top:6px;">Osiris houdt autonoom een BNB-buffer aan om fees met korting te betalen (spot −25%, futures −10%) en verdeelt die over de spot- en futures-kant. Op het <b>testnet</b> is de BNB-reserve gesimuleerd (aparte wallets, geen echte transfers); <b>live</b> koopt en verschuift Osiris de BNB echt via de API. De trading-wallets blijven ongemoeid — dit is een portfolio-overlay.</div>`;
+    h += `<div style="margin-top:8px;color:#7d99ac;font-size:0.53rem;line-height:1.55;border-top:1px dashed var(--line);padding-top:6px;">Osiris houdt autonoom een BNB-buffer aan om fees met korting te betalen (spot −25%, futures −10%). De BNB wordt <b>gefinancierd uit de vrije spot-USDT</b> — de spot-wallet wordt afgeschreven (zie "BNB fee-reserve" in de spot-verdeling), dus het totaal blijft behouden; er ontstaat niets uit het niets. Met testnet-keys is het een <b>echte BNBUSDT-fill</b> (zichtbaar in de historie), anders een gesimuleerde afschrijving. Gecapt op 5% van de spot-equity; bij "uit" gaat de reserve terug naar vrije USDT.</div>`;
     h += `</div>`;
     el.innerHTML = h;
 }
 window.renderOsirisPortfolio = renderOsirisPortfolio;
+
+// ============================================================
+// OSIRIS ADAPTIVE (bouw 87) — alles adaptief, maar Osiris moet blijven TRADEN.
+// ------------------------------------------------------------
+// 1) Kapitaalbehoud-drempels LEREN van de uitkomst: nadat een winstgevende long naar USDT is
+//    verkocht, checkt Osiris of de prijs daarna écht zakte (behoud terecht) of juist herstelde
+//    (te vroeg verkocht). Herstelt de munt vaak → verkoop minder snel (drempels omhoog), zodat
+//    goede posities niet onnodig worden afgekapt. Zakt de munt vaak → mag scherper.
+// 2) ACTIVITEITS-GOVERNOR: staat Osiris te lang stil (terwijl 't mag), dan versoepelt hij
+//    geleidelijk de ZACHTE poorten (entry-drempel/cooldown) tot hij weer handelt — de harde
+//    veiligheidsstops (data/risk-halt, echte crisis) blijven altijd gelden. Zo blijft Osiris
+//    zoveel mogelijk traden zonder de bescherming te slopen.
+// ============================================================
+const OsirisAdaptive = {
+    st: { pMinProfit: 0.15, pFlipProb: 0.60, bets: [], score: null, lastSpot: 0, lastMargin: 0, relax: 0, idleTargetMin: 8, maxRelax: 0.08 },
+    _restore() { try { const d = JSON.parse(localStorage.getItem('osirisAdaptive') || 'null'); if (d && d.st) { this.st.pMinProfit = d.st.pMinProfit != null ? d.st.pMinProfit : this.st.pMinProfit; this.st.pFlipProb = d.st.pFlipProb != null ? d.st.pFlipProb : this.st.pFlipProb; this.st.bets = Array.isArray(d.st.bets) ? d.st.bets : []; this.st.score = d.st.score || null; } } catch (e) {} },
+    _save() { try { localStorage.setItem('osirisAdaptive', JSON.stringify({ st: { pMinProfit: this.st.pMinProfit, pFlipProb: this.st.pFlipProb, bets: this.st.bets.slice(-100), score: this.st.score } })); } catch (e) {} },
+    markEntry(which) { const now = Date.now(); if (which === 'margin') this.st.lastMargin = now; else this.st.lastSpot = now; this.st.relax = 0; },   // handel hervat → versoepeling terug naar 0
+    preserveMinProfit() { return this.st.pMinProfit; },
+    preserveFlipProb() { return this.st.pFlipProb; },
+    relaxFactor() { return this.st.relax || 0; },
+    _price(sym) { try { if (sym === 'BTC') return (typeof livePrice !== 'undefined') ? livePrice : null; const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null; return m ? m.lastPrice : null; } catch (e) { return null; } },
+    recordPreserve(sym, exitPrice) { if (!(exitPrice > 0)) return; this.st.bets.unshift({ sym, px: exitPrice, ts: Date.now(), due: Date.now() + 45 * 60000, done: false }); if (this.st.bets.length > 120) this.st.bets.pop(); },
+    resolvePreserves() {
+        const now = Date.now(); let changed = false;
+        for (const b of this.st.bets) {
+            if (b.done || now < b.due) continue;
+            const px = this._price(b.sym); if (!px) { b.done = true; b.skip = true; changed = true; continue; }
+            const ret = (px - b.px) / b.px;                 // prijsbeweging sinds we (long) naar USDT verkochten
+            if (ret <= -0.003) { b.done = true; b.hit = 1; changed = true; }        // prijs zakte → behoud terecht
+            else if (ret >= 0.003) { b.done = true; b.hit = 0; changed = true; }    // prijs herstelde → te vroeg verkocht
+            else { b.due = now + 15 * 60000; }              // nog vlak → venster iets verlengen
+        }
+        if (changed) {
+            const done = this.st.bets.filter(b => b.done && b.hit != null);
+            if (done.length >= 8) { const hr = done.reduce((a, b) => a + b.hit, 0) / done.length; this.st.score = { n: done.length, hitRate: +hr.toFixed(3) }; this._adaptPreserve(hr); }
+            this._save();
+        }
+    },
+    _adaptPreserve(hr) {
+        // lage hit-rate = we verkopen te snel en de munt herstelt → BEHOUD MINDER (drempels omhoog → meer traden/vasthouden)
+        if (hr < 0.45) { this.st.pFlipProb = Math.min(0.75, this.st.pFlipProb + 0.01); this.st.pMinProfit = Math.min(0.50, this.st.pMinProfit + 0.01); }
+        else if (hr > 0.62) { this.st.pFlipProb = Math.max(0.52, this.st.pFlipProb - 0.01); this.st.pMinProfit = Math.max(0.05, this.st.pMinProfit - 0.01); }
+    },
+    tickActivity() {
+        try {
+            const now = Date.now();
+            const halted = (typeof osirisSafetyHalt === 'function' && osirisSafetyHalt());
+            const crisis = (typeof osirisStress !== 'undefined' && osirisStress.regime === 'CRISIS' && osirisStress.ts && (now - osirisStress.ts < 30 * 60000));
+            if (halted || crisis) { this.st.relax = 0; return; }               // respecteer de harde stops
+            const last = Math.max(this.st.lastSpot || 0, this.st.lastMargin || 0);
+            const idleMin = last ? (now - last) / 60000 : 999;
+            const target = this.st.idleTargetMin || 8;
+            if (idleMin > target) this.st.relax = Math.min(this.st.maxRelax, (idleMin - target) / 40 * this.st.maxRelax);   // ramp naar max over ~40 min idle
+            else this.st.relax = Math.max(0, this.st.relax * 0.9);
+        } catch (e) {}
+    },
+    _lastTick: 0,
+    tick() { const now = Date.now(); if (now - this._lastTick < 20000) return; this._lastTick = now; this.resolvePreserves(); this.tickActivity(); },
+    bundle() { return { preserveMinProfitPct: this.st.pMinProfit, preserveFlipProb: this.st.pFlipProb, preserveScore: this.st.score, activityRelax: +(this.st.relax || 0).toFixed(3), minsSinceSpotEntry: this.st.lastSpot ? +((Date.now() - this.st.lastSpot) / 60000).toFixed(1) : null, minsSinceMarginEntry: this.st.lastMargin ? +((Date.now() - this.st.lastMargin) / 60000).toFixed(1) : null, note: 'Adaptieve kapitaalbehoud-drempels (leren van post-exit prijs) + activiteits-governor die de zachte poorten versoepelt bij stilstand (harde stops blijven gelden).' }; }
+};
+try { OsirisAdaptive._restore(); window.OsirisAdaptive = OsirisAdaptive; } catch (e) {}
 
 function _setMetric(id, txt, c) { const e = document.getElementById(id); if (!e) return; e.textContent = txt; if (c) e.style.color = c; }
 function renderSpotSessionMetrics() {
@@ -21166,7 +21285,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,(typeof osirisCapitalPreserveTick==='function'?osirisCapitalPreserveTick:null),renderTable,renderOpp,renderTrinity,renderWallet,(typeof renderOsirisPortfolio==='function'?renderOsirisPortfolio:null),renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,(typeof osirisCapitalPreserveTick==='function'?osirisCapitalPreserveTick:null),(typeof OsirisAdaptive!=='undefined'?()=>OsirisAdaptive.tick():null),renderTable,renderOpp,renderTrinity,renderWallet,(typeof renderOsirisPortfolio==='function'?renderOsirisPortfolio:null),renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
