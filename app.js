@@ -325,7 +325,7 @@ function osirisFeeEdge(wallet) {
         const rt = roundTripCostPct() / 100;
         if (wallet === 'margin') {
             const cl = (typeof marginState !== 'undefined' && marginState.closed) ? marginState.closed : [];
-            if (cl.length < 6) return { ready: false, wallet, n: cl.length };   // eerder ingrijpen (was 12) — anders lopen de eerste ~12 verliezers ongeremd
+            if (cl.length < 10) return { ready: false, wallet, n: cl.length };   // genoeg sample vóór de fee-guard ingrijpt (6 was te weinig → latchte op toeval)
             const w = cl.filter(t => (t.pnl || 0) > 0), l = cl.filter(t => (t.pnl || 0) <= 0);
             const aW = w.length ? w.reduce((a, t) => a + (t.pnl || 0), 0) / w.length : 0;
             const aL = l.length ? Math.abs(l.reduce((a, t) => a + (t.pnl || 0), 0) / l.length) : 0;
@@ -10812,14 +10812,23 @@ const OsirisSelfReview = {
             // edge en dwingen dan de voorzichtige tak af (en blokkeren de agressieve).
             let _fe = null; try { _fe = osirisFeeEdge('margin'); } catch (e) {}
             const _feeEatsEdge = !!(_fe && _fe.ready && !_fe.edge);
-            if (_feeEatsEdge) {
-                this.aggr = Math.max(0.5, +(this.aggr - 0.1).toFixed(2));
-                MARGIN_PER_TRADE_EXPO = Math.max(0.25, +(MARGIN_PER_TRADE_EXPO * 0.85).toFixed(3));
-                MARGIN_MIN_PROB = Math.min(0.7, +(MARGIN_MIN_PROB + 0.02).toFixed(3));
-                if (typeof marginLeverage !== 'undefined' && typeof MARGIN_LEV_MIN !== 'undefined' && marginLeverage > MARGIN_LEV_MIN) { marginLeverage = MARGIN_LEV_MIN; try { localStorage.setItem('osirisMarginLeverage', String(marginLeverage)); } catch (e) {} }
-                changes.push(`FEE-GUARD: fees eten de edge (winrate ${(_fe.actWR * 100 | 0)}% < ${(_fe.beWR * 100 | 0)}% nodig ná fees @ ${_fe.leverage.toFixed(1)}x) → voorzichtiger: expo ${MARGIN_PER_TRADE_EXPO}, minProb ${MARGIN_MIN_PROB}, hefboom→min`);
-                notes.push('fee-aware edge negatief: netto verliesrisico ondanks hoge bruto-winrate');
+            if (_feeEatsEdge && (_fe.n || 0) >= 12) {
+                // ONT-LATCHED (07-09): bereken de voorzichtigheid DETERMINISTISCH uit het HUIDIGE edge-tekort
+                // i.p.v. een ratchet die elke cyclus verder oploopt en nooit herstelt. Zodra het tekort krimpt,
+                // versoepelt dit vanzelf. GEEN harde leverage→1× latch meer (dat bevroor margin): de per-trade
+                // hefboom-picker + drawdown-cooldown regelen de hefboom al, en margin blijft altijd genoeg traden
+                // om zijn steekproef te herstellen.
+                const _def = Math.min(0.5, _fe.deficit || 0);
+                this.aggr = Math.max(0.6, +(1.0 - _def).toFixed(2));
+                MARGIN_PER_TRADE_EXPO = Math.max(0.35, +(0.6 * (1 - _def)).toFixed(3));
+                MARGIN_MIN_PROB = Math.max(0.50, Math.min(0.60, +(0.50 + _def * 0.22).toFixed(3)));
+                changes.push(`FEE-GUARD (n=${_fe.n}): edge-tekort ${((_fe.deficit || 0) * 100 | 0)}pt → voorzichtiger maar blijft traden (expo ${MARGIN_PER_TRADE_EXPO}, minProb ${(MARGIN_MIN_PROB * 100 | 0)}%, zelf-herstellend)`);
+                notes.push('fee-aware edge negatief — bijgesteld naar het huidige tekort, niet gelatcht');
             } else if (wr != null && all.length >= 5) {
+                // HERSTEL: edge OK/onbekend of te weinig fee-guard-data → trek voorzichtigheid geleidelijk terug
+                // naar default zodat de engine na een slechte reeks weer normaal gaat traden.
+                if (MARGIN_MIN_PROB > 0.50) MARGIN_MIN_PROB = Math.max(0.50, +(MARGIN_MIN_PROB - 0.02).toFixed(3));
+                if (MARGIN_PER_TRADE_EXPO < 0.6) MARGIN_PER_TRADE_EXPO = Math.min(0.6, +(MARGIN_PER_TRADE_EXPO + 0.04).toFixed(3));
                 if (wr < 0.40) { this.aggr = Math.max(0.5, +(this.aggr - 0.1).toFixed(2)); MARGIN_PER_TRADE_EXPO = Math.max(0.3, +(MARGIN_PER_TRADE_EXPO * 0.9).toFixed(3)); MARGIN_MIN_PROB = Math.min(0.6, +(MARGIN_MIN_PROB + 0.01).toFixed(3)); changes.push(`voorzichtiger: per-trade expo → ${MARGIN_PER_TRADE_EXPO}, margin-minProb → ${MARGIN_MIN_PROB}`); notes.push(`recente winrate ${(wr * 100 | 0)}% te laag`); }
                 else if (wr > 0.58) {
                     // (23-08) VP2: agressiever ALLEEN bij statistisch bewijs — niet op geluk over een
@@ -12672,8 +12681,14 @@ async function marginTick() {
             if (_marginLastEntry[sym] && (now - _marginLastEntry[sym]) < Math.max(12000, 30000 * (1 - _relax * 5))) continue;   // cooldown 30s, korter naarmate de activiteits-governor versoepelt (vloer 12s)
             if (pEff < MINP) continue;
             if (_mdd.level >= 0.6 && pEff < 0.70) { marginState.lastAction = `${sym} overgeslagen: drawdown-cooldown (alleen top-setups ≥70%, kans ${(pEff * 100 | 0)}%)`; continue; }   // in een verliesreeks alleen de sterkste kansen
-            // fee-guard: bij een grote edge-achterstand alleen nog top-setups (kans ≥ 70%)
-            if (_feeNoEdge && _feeGuard.deficit > 0.10 && pEff < 0.70) { marginState.lastAction = `${sym} overgeslagen: fee-guard (edge-tekort ${(_feeGuard.deficit * 100 | 0)}pt, kans ${(pEff * 100 | 0)}% < 70%)`; continue; }
+            // fee-guard: bij een edge-achterstand strenger — maar met een GESCHAALDE vloer (0,58–0,66) i.p.v.
+            // een harde 70%-muur die margin bevroor. En een IDLE-PROBE: staat margin te lang stil (activity-
+            // governor hoog), laat dan tóch een kleinere probe toe zodat de steekproef herstelt en de fee-guard
+            // uit de latch kan komen.
+            if (_feeNoEdge && _feeGuard.deficit > 0.10) {
+                const _fgFloor = Math.min(0.66, 0.58 + _feeGuard.deficit * 0.2);
+                if (_relax < 0.05 && pEff < _fgFloor) { marginState.lastAction = `${sym} overgeslagen: fee-guard (edge-tekort ${(_feeGuard.deficit * 100 | 0)}pt, kans ${(pEff * 100 | 0)}% < ${(_fgFloor * 100 | 0)}%)`; continue; }
+            }
             // adaptieve predict-poort: blokkeert tegengestelde trades zodra de voorspeller vertrouwd is
             try { if (typeof osirisPredictGate === 'function') { const _g = osirisPredictGate(sym, m.bestSide); if (!_g.allow) { marginState.lastAction = `${sym} overgeslagen: ${_g.reason}`; continue; } } } catch (e) {}
             // trend-alignment veto: geen counter-trend margin-entry bij een sterke trend
@@ -12819,6 +12834,12 @@ async function marginTick() {
             if (raw <= -pos.stopPct) reason = 'STOP_LOSS';                         // harde stop blijft altijd
             else if (raw >= pos.targetPct && !rlHold) reason = 'TARGET';           // RL mag de winnaar laten lopen
             else if (rlClose && lev > 0.0005) reason = 'RL_EXIT';                  // RL zegt sluiten (in winst)
+            // PROFIT-PROTECT (07-09): bank een winnaar die z'n piek teruggeeft i.p.v. hem te laten terugzakken
+            // naar vlak en dan als TIME_STOP te sluiten (fees voor niets). Actief zodra de piek ≥60% van het
+            // doel (of ≥0,8% leveraged) was en de huidige winst tot ≤55% van die piek is teruggevallen.
+            else if (!rlHold && (pos.mfe || 0) >= Math.max((pos.targetPct || 0.01) * 0.6, 0.008) && lev > 0.001 && lev <= (pos.mfe || 0) * 0.55) {
+                reason = 'PROFIT_PROTECT'; try { _marginLog('reasoning', `${pos.sym}: winst-bescherming — piek +${((pos.mfe || 0) * 100).toFixed(2)}% teruggevallen naar +${(lev * 100).toFixed(2)}%, geboekt i.p.v. laten verdampen`); } catch (e) {}
+            }
             else if (ageMin > (botSettings.maxPositionAgeMinutes || 90) * ((typeof OsirisAdaptive !== 'undefined') ? OsirisAdaptive.tsWindowMult() : 1) && Math.abs(lev) < 0.02 && !rlHold) {
                 // FLEXIBELE TIME-STOP (fix churn): is dezelfde markt+richting nog de actieve keuze,
                 // dan zou de engine 'm meteen heropenen — dus ROLLEN we door met een vers venster
@@ -21409,7 +21430,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null),(typeof renderTrinityCommodities==='function'?renderTrinityCommodities:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
@@ -22587,9 +22608,11 @@ const TrinityGSD = {
         const horizonMs=days*864e5; const nodes=this.tamNodes(now, now+horizonMs*1.05, hk); const nn=nodes.find(t=>t>now);
         let prob, eta, basis, est;
         if(days<=120){
-          prob=_clamp01(0.12 + tip*0.5 + Math.max(0,dVfm)*3 + (comp?0.15:0) + vfm*0.2);
+          // MARKOV-ESCALATIE: geleerde kans dat de systeem-stress naar een hogere toestand/crisis overgaat.
+          let _mkEsc=0; try{ if(typeof TrinityShockWave!=='undefined'){ const mk=TrinityShockWave.markov(); if(mk&&mk.ready&&mk.pEscalate!=null) _mkEsc=mk.pEscalate; } }catch(e){}
+          prob=_clamp01(0.12 + tip*0.5 + Math.max(0,dVfm)*3 + (comp?0.15:0) + vfm*0.2 + _mkEsc*0.15);
           eta = nn || (now+horizonMs*0.6);
-          basis='live loading · VFM '+(vfm*100|0)+'% · tipping '+(tip*100|0)+'%'; est=true;
+          basis='live loading · VFM '+(vfm*100|0)+'% · tipping '+(tip*100|0)+'%'+(_mkEsc>0?' · Markov-escalatie '+(_mkEsc*100|0)+'%':''); est=true;
         } else {
           // CUMULATIVE probability of ≥1 ΔV kill-switch within this horizon (Poisson).
           prob = 1 - Math.exp(-killsPerYear*(days/365));
@@ -23993,8 +24016,21 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 
   const SW = {
     W:{}, L:{}, prev:{}, shocks:[], preds:[], score:null, regScore:null, _lastShockAt:{}, _lastScan:0,
-    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityShockWave')||'null'); if(d){ this.W=d.W||{}; this.L=d.L||{}; this.preds=d.preds||[]; this.shocks=d.shocks||[]; this.score=d.score||null; this.calib=d.calib||null; this.regScore=d.regScore||null; } }catch(e){} },
-    _save(){ try{ localStorage.setItem('trinityShockWave',JSON.stringify({W:this.W,L:this.L,preds:this.preds.slice(-120),shocks:this.shocks.slice(-60),score:this.score,calib:this.calib,regScore:this.regScore})); }catch(e){} },
+    // MARKOV-KETEN over de systeem-stress-toestanden (5 buckets, van rustig → crisis). Leert uit de historie
+    // de OVERGANGSKANSEN tussen toestanden → geeft de kans dat de wereld-stress ESCALEERT (naar een hogere
+    // toestand / crisis) in de volgende stap. Voedt de kill-switch-nabijprojectie en de ShockWave-feed.
+    Mk:{ C:[[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]], last:null, at:0 },
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityShockWave')||'null'); if(d){ this.W=d.W||{}; this.L=d.L||{}; this.preds=d.preds||[]; this.shocks=d.shocks||[]; this.score=d.score||null; this.calib=d.calib||null; this.regScore=d.regScore||null; if(d.Mk&&Array.isArray(d.Mk.C)&&d.Mk.C.length===5) this.Mk=d.Mk; } }catch(e){} },
+    _save(){ try{ localStorage.setItem('trinityShockWave',JSON.stringify({W:this.W,L:this.L,preds:this.preds.slice(-120),shocks:this.shocks.slice(-60),score:this.score,calib:this.calib,regScore:this.regScore,Mk:this.Mk})); }catch(e){} },
+    // stress → toestand 0..4 (t.o.v. de gekalibreerde drempels), Markov observeren (≥1× per 5 min)
+    _stressState(){ try{ const g=TrinityGSD; const s=g.stress||0; const sp=g.spanT||0.267, cr=g.crisT||0.347; if(g.killSwitch||s>=cr+0.06)return 4; if(s>=cr)return 3; if(s>=sp)return 2; if(s>=sp*0.6)return 1; return 0; }catch(e){ return 0; } },
+    _markovObs(){ try{ const now=Date.now(); if(now-(this.Mk.at||0)<5*60000)return; this.Mk.at=now; const s=this._stressState();
+      if(this.Mk.last!=null && s>=0){ this.Mk.C[this.Mk.last][s]++; if(this.Mk.C[this.Mk.last][s]>500){ for(let j=0;j<5;j++)this.Mk.C[this.Mk.last][j]=Math.round(this.Mk.C[this.Mk.last][j]*0.7); } }
+      this.Mk.last=s; }catch(e){} },
+    markov(){ try{ const s=this._stressState(); const row=this.Mk.C[s]||[]; const tot=row.reduce((a,b)=>a+b,0);
+      if(tot<8){ return { state:s, ready:false, pEscalate:null, pCrisis:null, dist:null }; }
+      const dist=row.map(x=>+(x/tot).toFixed(3)); let esc=0; for(let j=s+1;j<5;j++)esc+=dist[j]; const pc=dist[3]+dist[4];
+      return { state:s, ready:true, n:tot, pEscalate:+esc.toFixed(3), pCrisis:+pc.toFixed(3), dist }; }catch(e){ return {state:0,ready:false}; } },
     // ADAPTIEVE LAG: geleerde werkelijke tijd-tot-stijging per kanaal (cat/TRADE > doelzone).
     // EMA over waargenomen lags; sample-size-bewust gemengd met de prior-lag in _predict.
     _recordLag(key,lagDays){ try{ if(!(lagDays>=0))return; const l=this.L[key]||(this.L[key]={lag:lagDays,n:0}); const a=Math.min(0.35, 1/(l.n+2)); l.lag=l.lag*(1-a)+lagDays*a; l.n++; }catch(e){} },
@@ -24079,10 +24115,10 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     },
     // map a raw propagation-probability to its calibrated value (shrunk toward raw when a bucket is thin)
     calibrate(p){ try{ if(!this.calib)return p; const bi=Math.min(4,Math.max(0,Math.floor((p||0)*5))); const c=this.calib[bi]; return c==null?p:c; }catch(e){ return p; } },
-    tick(){ const now=Date.now(); if(now-this._lastScan<8000) return; this._lastScan=now; try{ this.detect(); }catch(e){} try{ this.resolve(); }catch(e){} },
+    tick(){ const now=Date.now(); if(now-this._lastScan<8000) return; this._lastScan=now; try{ this.detect(); }catch(e){} try{ this.resolve(); }catch(e){} try{ this._markovObs(); }catch(e){} },
     active(){ return this.preds.filter(p=>!p._done).slice(0,8); },
-    bundle(){ return { weightsLearned:Object.keys(this.W).length, activePreds:this.active().length, score:this.score, regime:this._regime(), regimeScore:this.regScore,
-      note:'Contagion: shock in zone×category → predicted propagation (lag+direction+probability), grounded prior + adaptive on outcomes, conditioned on the market regime (calm/tension/crisis).' }; }
+    bundle(){ return { weightsLearned:Object.keys(this.W).length, activePreds:this.active().length, score:this.score, regime:this._regime(), regimeScore:this.regScore, markov:this.markov(),
+      note:'Contagion: shock in zone×category → predicted propagation (lag+direction+probability), grounded prior + adaptive on outcomes, conditioned on the market regime + Markov stress-state transitions.' }; }
   };
   SW._restore(); try{ window.TrinityShockWave=SW; }catch(e){}
 
@@ -24397,6 +24433,115 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       note:'ShockWave→Neo crypto: wereld-risk-off + contagion + financiële stress → shadow-backtested, begrensde (≥0,5×) positiegrootte-verkleining; alleen actief zodra bewezen.' }; }
   };
   CR._restore(); try{ window.OsirisCryptoRisk=CR; }catch(e){}
+})();
+
+/* ==================================================================================
+   TRINITY · COMMODITIES — grondstof-signaalmodule (crude/gas/metalen) voor Trinity.
+   ----------------------------------------------------------------------------------
+   Zelfstandige module (raakt de FX-paar-engine NIET): leest de live grondstofprijzen
+   (FRED via TrinityGSD._com) + de ShockWave energie-/supply-/geo-signalen, bouwt per
+   grondstof een FSO (stress-oscillator) + richting + een Trinity commodity-currency-peg-
+   read, en rendert een eigen Commodities-sectie op de Neural Net-tab. Voedt later de
+   Capital.com-trade-executie (dated CFD's) — Fase 1B. Data die er nog niet is (silver/
+   platinum/palladium-prijs zonder FRED-serie) komt live binnen zodra Capital verbindt.
+   ================================================================================== */
+(function(){
+  'use strict';
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  // registry: key, Capital.com-epic, naam, groep, welke _com-prijsveld (of null → via Capital), peg-valuta (+/-), rol
+  const COMMO = [
+    {key:'WTI',   epic:'OIL_CRUDE',  name:'Crude Oil · WTI',   grp:'energy', px:'oil',    peg:[['CAD',+1],['NOK',+1],['JPY',-1]], role:'energie' },
+    {key:'BRENT', epic:'OIL_BRENT',  name:'Crude Oil · Brent', grp:'energy', px:'oil',    peg:[['NOK',+1],['CAD',+1]],            role:'energie' },
+    {key:'NGAS',  epic:'NATURALGAS', name:'Natural Gas',       grp:'energy', px:'gas',    peg:[['NOK',+1],['EUR',-1]],            role:'energie' },
+    {key:'GOLD',  epic:'GOLD',       name:'Gold',              grp:'metaal', px:'gold',   peg:[['AUD',+1],['ZAR',+1],['CHF',+1]], role:'veilige haven' },
+    {key:'SILVER',epic:'SILVER',     name:'Silver',            grp:'metaal', px:null,     peg:[['AUD',+1],['ZAR',+1]],            role:'edelmetaal' },
+    {key:'PLAT',  epic:'PLATINUM',   name:'Platinum',          grp:'metaal', px:null,     peg:[['ZAR',+1]],                        role:'edelmetaal' },
+    {key:'PALL',  epic:'PALLADIUM',  name:'Palladium',         grp:'metaal', px:null,     peg:[['ZAR',+1]],                        role:'edelmetaal' },
+    {key:'COPPER',epic:'COPPER',     name:'Copper',            grp:'metaal', px:'copper', peg:[['AUD',+1],['CLP',+1]],             role:'groei-proxy' }
+  ];
+  const C = {
+    _buf:{}, _last:{}, _lastTick:0, _mk:{}, hist:{}, _histAt:{}, _histTF:{'5m':'MINUTE_5','15m':'MINUTE_15','1h':'HOUR','4h':'HOUR_4','all':'DAY'},
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityCommodities')||'null'); if(d){ if(d.buf)this._buf=d.buf; if(d.mk)this._mk=d.mk; } }catch(e){} },
+    _save(){ try{ localStorage.setItem('trinityCommodities',JSON.stringify({buf:this._buf,mk:this._mk})); }catch(e){} },
+    epicOf(key){ const c=COMMO.find(x=>x.key===key); return c?c.epic:key; },
+    candles(key,tf){ try{ return (this.hist[key]&&this.hist[key][tf])||[]; }catch(e){ return []; } },
+    // haal echte candles op via de Capital /history-proxy (per grondstof × timeframe). Voedt de charts +
+    // de per-grondstof NN/TAM-kalibratie. Throttled per (key,tf): intraday vaker, daily minder vaak.
+    loadHistory(key,tf){ try{ const px=(typeof capProxy!=='undefined'&&capProxy)?capProxy:null; if(!px)return Promise.resolve(null);
+      const res=this._histTF[tf]; if(!res)return Promise.resolve(null); const now=Date.now(); const k=key+'|'+tf;
+      const minGap=(tf==='all')?30*60000:(tf==='4h'?10*60000:(tf==='1h'?4*60000:2*60000));
+      if(now-(this._histAt[k]||0)<minGap)return Promise.resolve(this.candles(key,tf)); this._histAt[k]=now;
+      return fetch(px+'/history?epic='+encodeURIComponent(this.epicOf(key))+'&resolution='+res+'&max=300').then(r=>r.ok?r.json():null).then(d=>{
+        if(d&&Array.isArray(d.candles)&&d.candles.length){ (this.hist[key]||(this.hist[key]={}))[tf]=d.candles; try{ TrinityFeeds&&TrinityFeeds.markOk&&TrinityFeeds.markOk('cap-history',key+' '+tf+' '+d.candles.length); }catch(e){} return d.candles; } return null;
+      }).catch(()=>null); }catch(e){ return Promise.resolve(null); } },
+    refreshHistory(){ try{ const px=(typeof capProxy!=='undefined'&&capProxy)?capProxy:null; if(!px)return;
+      // gestaggerd om de rate-limit te respecteren: 1 (key,tf)-paar per aanroep, rondlopend
+      const keys=COMMO.map(c=>c.key); const tfs=Object.keys(this._histTF);
+      this._rr=(this._rr||0)+1; const flat=[]; keys.forEach(k=>tfs.forEach(tf=>flat.push([k,tf]))); const pick=flat[this._rr%flat.length];
+      if(pick) this.loadHistory(pick[0],pick[1]); }catch(e){} },
+    // MARKOV-KETEN per grondstof over 5 momentum-toestanden (sterk-omlaag → sterk-omhoog). Leert de
+    // overgangskansen → geeft de kans dat de PRIJS in de volgende stap omhoog gaat (voedt de predicted tooling).
+    _mkState(mom){ if(mom<=-0.5)return 0; if(mom<=-0.15)return 1; if(mom<0.15)return 2; if(mom<0.5)return 3; return 4; },
+    _mkObs(key,st){ try{ const m=this._mk[key]||(this._mk[key]={C:[[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0],[0,0,0,0,0]],last:null}); if(m.last!=null&&st>=0){ m.C[m.last][st]++; if(m.C[m.last][st]>400){ for(let j=0;j<5;j++)m.C[m.last][j]=Math.round(m.C[m.last][j]*0.7); } } m.last=st; }catch(e){} },
+    markov(key,mom){ try{ const m=this._mk[key]; const st=this._mkState(mom||0); if(!m)return {state:st,ready:false,upProb:null,exp:null}; const row=m.C[st]||[]; const tot=row.reduce((a,b)=>a+b,0); if(tot<6)return {state:st,ready:false,upProb:null,exp:null,n:tot};
+      const dist=row.map(x=>x/tot); const up=dist[3]+dist[4], dn=dist[0]+dist[1]; let exp=0; for(let j=0;j<5;j++)exp+=dist[j]*(j-2)/2; // verwachte drift -1..1
+      return { state:st, ready:true, n:tot, upProb:+up.toFixed(3), downProb:+dn.toFixed(3), exp:+exp.toFixed(3), dist:dist.map(x=>+x.toFixed(2)) }; }catch(e){ return {state:2,ready:false}; } },
+    // live prijs: eerst uit Capital (window.pair[epic] als die verbonden is), anders uit FRED (_com)
+    _price(c){ try{ const pr=(typeof pair!=='undefined'&&pair[c.epic]&&pair[c.epic].rate); if(pr>0)return pr; const com=(typeof TrinityGSD!=='undefined')&&TrinityGSD._com; if(com&&c.px&&com[c.px]>0)return com[c.px]; }catch(e){} return null; },
+    _mom(c,px){ try{ const b=this._buf[c.key]||(this._buf[c.key]=[]); if(px>0){ b.push(px); if(b.length>40)b.shift(); } if(b.length<6)return 0; const a=b[b.length-1],p=b[Math.max(0,b.length-8)]; return p>0?clamp((a/p-1)*12,-1,1):0; }catch(e){ return 0; } },
+    // per-grondstof signaal: prijsmomentum + ShockWave-macro (energie-stress/risk-off/supply) + rol
+    // ALLE ShockWave-data in één beeld: energie/supply/geo/conflict/financiële stress, risk-off, kill-switch/
+    // tipping, ÉN de contagion-engine (propagatiedruk). Wordt hieronder per grondstof-rol gewogen.
+    _shock(){ try{ const G=(typeof TrinityGSD!=='undefined')?TrinityGSD:null; const cs=(G&&G.catStress)||{};
+      const ro=(typeof OsirisMacro!=='undefined')?OsirisMacro.riskOff():0.4;
+      let contag=0; try{ if(typeof TrinityShockWave!=='undefined'){ (TrinityShockWave.active()||[]).forEach(p=>{ (p.targets||[]).forEach(t=>{ const pr=(TrinityShockWave.calibrate?TrinityShockWave.calibrate(t.prob):t.prob)||0; if(pr>contag)contag=pr; }); }); } }catch(e){}
+      return { ro, contag, tip:(G&&G.tippingRisk)||0, energy:(G&&G._energy&&G._energy.price)||0,
+        supply:cs.supply||0, geo:cs.geo||0, conflict:cs.conflict||0, fin:cs.finstress||0 }; }catch(e){ return {ro:0.4,contag:0,tip:0,energy:0,supply:0,geo:0,conflict:0,fin:0}; } },
+    signal(c){ try{
+      const px=this._price(c); const mom=this._mom(c,px); const s=this._shock();
+      let macro=0;
+      if(c.grp==='energy'){
+        // energie: prijs-/aanvoerstress + geopolitiek + conflict + contagion-propagatie stuwen olie/gas op
+        macro = s.energy*0.55 + s.supply*0.22 + s.geo*0.18 + s.conflict*0.15 + s.contag*0.22 - 0.2;
+      } else if(c.key==='GOLD'){ macro = (s.ro-0.45)*1.25 + s.fin*0.6 + s.tip*0.45 + s.contag*0.2; }   // veilige haven: risk-off + financiële stress + tipping + besmetting
+      else if(c.key==='COPPER'){ macro = (0.5-s.ro)*1.2 + s.supply*0.3 - s.contag*0.2; }                // groei-proxy: risk-on, besmetting drukt
+      else { macro = (s.ro-0.45)*0.8 + s.fin*0.3 + s.tip*0.25 + s.contag*0.12; }                        // overige edelmetalen: mild veilige haven
+      const mk=this.markov(c.key, mom);                                    // Markov: geleerde kans op omhoog in de volgende stap
+      const mkTilt = mk.ready ? mk.exp*0.25 : 0;                           // verwachte drift uit de overgangsmatrix
+      const score=clamp(mom*0.45 + clamp(macro,-1,1)*0.55 + mkTilt, -1, 1);
+      const fso=clamp(Math.abs(score) + Math.abs(mom)*0.2, 0, 1);
+      return { key:c.key, px, mom:+mom.toFixed(3), macro:+clamp(macro,-1,1).toFixed(3), markov:mk, score:+score.toFixed(3), side:score>=0?'LONG':'SHORT', fso:+fso.toFixed(3), contag:+s.contag.toFixed(2), hasPrice:px!=null }; }catch(e){ return {key:c.key,score:0,side:'LONG',fso:0,hasPrice:false}; } },
+    // peg-read: gemiddelde ccyBias van de gekoppelde valuta (teken-gecorrigeerd) → bevestigt/ontkracht de richting
+    pegRead(c){ try{ if(typeof OsirisMacro==='undefined')return null; let s=0,n=0; c.peg.forEach(([ccy,sgn])=>{ const b=OsirisMacro.ccyBias(ccy); if(b!=null){ s+=b*sgn; n++; } }); return n?+(s/n).toFixed(3):null; }catch(e){ return null; } },
+    all(){ return COMMO.map(c=>{ const sig=this.signal(c); sig.name=c.name; sig.epic=c.epic; sig.grp=c.grp; sig.role=c.role; sig.peg=this.pegRead(c); this._last[c.key]=sig; return sig; }); },
+    tick(){ const now=Date.now(); if(now-this._lastTick<5000)return; this._lastTick=now; try{ COMMO.forEach(c=>{ const px=this._price(c); if(px>0){ const mom=this._mom(c,px); this._mkObs(c.key, this._mkState(mom)); } }); this.refreshHistory(); this._save(); }catch(e){} },
+    bundle(){ return { commodities:this.all(), note:'Trinity Commodities: crude/gas/metalen — FSO uit prijsmomentum + ShockWave energie/supply/risk-off, met commodity-currency-peg read. Handel via Capital.com (Fase 1B).' }; }
+  };
+  C._restore(); try{ window.TrinityCommodities=C; }catch(e){}
+
+  // ---- render: Commodities-sectie op de Neural Net-tab (#tr-commodities) ----
+  function renderTrinityCommodities(){ const el=document.getElementById('tr-commodities'); if(!el) return;
+    try{ C.tick(); }catch(e){}
+    const G='#14f195',R='#ff5f7e',A='#ffb627',D='var(--dim)',DD='var(--dimmer)',E='#ffd166',M='#b088ff';
+    const rows=C.all();
+    const bar=(v)=>{ const w=Math.round(Math.min(1,Math.abs(v))*100); const c=v>=0?G:R; return `<span style="display:inline-block;width:46px;height:6px;border-radius:3px;background:rgba(255,255,255,0.06);vertical-align:middle;position:relative;"><span style="position:absolute;left:0;top:0;height:6px;width:${w}%;background:${c};border-radius:3px;"></span></span>`; };
+    const fsoBar=(v)=>{ const w=Math.round(v*100); return `<span style="display:inline-block;width:40px;height:5px;border-radius:3px;background:rgba(255,255,255,0.06);vertical-align:middle;position:relative;"><span style="position:absolute;left:0;top:0;height:5px;width:${w}%;background:${v>=0.6?A:'#7fd8ff'};border-radius:3px;"></span></span>`; };
+    const group=(g,lbl,col)=>{ const rs=rows.filter(r=>r.grp===g); if(!rs.length)return '';
+      return `<div style="margin-bottom:8px;"><div style="font-size:0.52rem;color:${col};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">${lbl}</div>`
+        + rs.map(r=>`<div style="display:flex;align-items:center;gap:8px;font-size:0.58rem;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+            <b style="color:${r.side==='LONG'?G:R};width:12px;">${r.side==='LONG'?'▲':'▼'}</b>
+            <span style="color:var(--tx);width:120px;">${r.name}</span>
+            <span style="width:70px;color:${DD};">${r.hasPrice?('$'+(r.px>=100?r.px.toFixed(0):r.px.toFixed(2))):'<span style=\"color:'+A+'\">prijs via Capital</span>'}</span>
+            ${bar(r.score)} <span style="color:${DD};width:52px;">sig ${(r.score>=0?'+':'')}${r.score.toFixed(2)}</span>
+            <span style="color:${DD};">FSO</span> ${fsoBar(r.fso)}
+            <span style="color:${DD};width:92px;">peg ${r.peg!=null?((r.peg>=0?'+':'')+r.peg.toFixed(2)+(Math.sign(r.peg)===(r.side==='LONG'?1:-1)?' ✓':' ✗')):'—'}</span>
+            <span style="color:${DD};width:78px;">Markov ${(r.markov&&r.markov.ready)?('<b style=\"color:'+(r.markov.upProb>=0.5?G:R)+'\">'+Math.round(r.markov.upProb*100)+'%↑</b>'):'<span style=\"color:'+DD+'\">leert…</span>'}</span>
+            <span style="color:${DD};font-size:0.5rem;">${r.role}</span>
+          </div>`).join('') + `</div>`; };
+    const explain=`<div style="font-size:0.54rem;color:${D};line-height:1.7;margin-bottom:8px;">Grondstof-signalen uit <b>prijsmomentum</b> + de <b style="color:${E}">ShockWave energie/supply/risk-off + contagion</b>-lagen, een <b>commodity-currency-peg</b>-check (✓ = gekoppelde valuta bevestigt) en een <b>Markov-keten</b> (geleerde kans op omhoog in de volgende stap). <span style="color:${DD}">FSO = signaalsterkte. Handel via Capital.com-CFD's volgt in de trade-executielaag.</span></div>`;
+    el.innerHTML=explain+group('energy','Energie · crude &amp; gas',E)+group('metaal','Metalen',M);
+  }
+  try{ window.renderTrinityCommodities=renderTrinityCommodities; }catch(e){}
 })();
 
 
