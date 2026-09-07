@@ -19970,6 +19970,7 @@ function tick(){
 
 function manageTrinity(){
   mockClock+=MOCK_H_PER_TICK; scanTick++;
+  try{ if(typeof TrinityCommodityTrader!=='undefined') TrinityCommodityTrader.tick(); }catch(e){}   // commodity-executie (opt-in): live prijzen + entries via Capital
   const S=getSession(), pr=activePreset();
   const liveMode=feed.mode==='live'&&feed.ok&&feed.provider==='capital';
   // manage every open position. On LIVE, Trinity now actively guards exits (breakeven/horizon/stop/target)
@@ -20128,13 +20129,16 @@ function closeTrade(p,reason){
   p.status=reason; p.closedClock=mockClock;
   // NOTE: on live, manageTrinity already called closeLivePosition(brokerDealId) before this — don't double-close.
   if(feed.mode==='live'&&feed.provider==='capital'&&p.localId&&!p.brokerDealId) closeOrderCapital(p.localId);
-  if(reason==='STOP') p.pnlPct-=STOP_SLIP_PCT[pairCategory(p.pair)];       // extra adverse slippage realized on stop fills
+  if(reason==='STOP') p.pnlPct-=(STOP_SLIP_PCT[pairCategory(p.pair)]||STOP_SLIP_PCT.cross);       // extra adverse slippage realized on stop fills
   const win = reason==='TARGET' || reason==='AGENT-TP' || (['TIME','AGENT-CUT'].includes(reason)&&p.pnlPct>0), R=p.pnlPct/(p.stopPctUsed||0.4);
-  const b=trinity.byS[p.session]; if(b){b.n++; if(win)b.w++;}
-  trinity.trades.push({win,R,session:p.session,conf:p.conf});
-  const recent=trinity.trades.slice(-60), wr=recent.length?recent.filter(t=>t.win).length/recent.length:0.5;
-  trinity.wr=wr; trinity.mult=0.8+wr*0.5; trinity.avgR=recent.length?recent.reduce((a,t)=>a+t.R,0)/recent.length:0;
-  for(const k in calibB){ const cb=calibB[k]; if(p.conf>=cb.lo && p.conf<cb.hi){ cb.n++; if(win)cb.w++; break; } }   // predicted vs measured
+  if(p.isCommodity){ try{ if(typeof TrinityCommodityTrader!=='undefined') TrinityCommodityTrader.recordClose(p,win,reason); }catch(e){} }
+  else {   // FX-kalibratie alleen voor FX-trades — commodity-uitkomsten vervuilen de sessie/conf-statistiek niet
+    const b=trinity.byS[p.session]; if(b){b.n++; if(win)b.w++;}
+    trinity.trades.push({win,R,session:p.session,conf:p.conf});
+    const recent=trinity.trades.slice(-60), wr=recent.length?recent.filter(t=>t.win).length/recent.length:0.5;
+    trinity.wr=wr; trinity.mult=0.8+wr*0.5; trinity.avgR=recent.length?recent.reduce((a,t)=>a+t.R,0)/recent.length:0;
+    for(const k in calibB){ const cb=calibB[k]; if(p.conf>=cb.lo && p.conf<cb.hi){ cb.n++; if(win)cb.w++; break; } }   // predicted vs measured
+  }
   const grossPl=p.alloc*(p.pnlPctGross/100), netPl=p.alloc*(p.pnlPct/100);
   wallet.balance+=netPl; wallet.realized+=netPl; wallet.realizedGross+=grossPl; wallet.costPaid+=(grossPl-netPl); wallet.equity=wallet.balance;
   if(netPl>=0)wallet.wins++; else wallet.losses++;
@@ -20143,7 +20147,7 @@ function closeTrade(p,reason){
   // Op LIVE komt de Closed-tabel uit /transactions (broker = bron van waarheid) → hier niet loggen
   // om dubbele rijen te voorkomen. In sim/mock is dit wél de bron.
   if(!(feed.mode==='live'&&feed.provider==='capital')){
-    tradeLog.unshift({pair:p.pair,side:p.side,type:'FX',openedAt:p.openedAt||now,closedAt:now,entry:p.entry,exit:p.current,size:p.alloc,
+    tradeLog.unshift({pair:p.pair,side:p.side,type:p.isCommodity?'COMMODITY':'FX',openedAt:p.openedAt||now,closedAt:now,entry:p.entry,exit:p.current,size:p.alloc,
       allocPct:wallet.balance?(p.alloc/wallet.balance*100):0,fill:p.current,session:p.session,
       plCur:netPl,plPct:p.pnlPct,plPctGross:p.pnlPctGross,costPct:costPct(p.pair),reason,conf:p.conf});
     if(tradeLog.length>500)tradeLog.pop();
@@ -20156,6 +20160,53 @@ function closeTrade(p,reason){
   persistState&&persistState();
   renderTrinity(); renderWallet(); renderCalib(); renderPositions(); renderClosed(); renderSettings();
 }
+/* ---- COMMODITY TRADER: verhandelt crude/gas/metaal-CFD's via Capital.com door DEZELFDE bewezen
+   order-/beheer-pipeline (positions[] + placeOrderCapital + manageTrinity), maar met eigen entry-
+   logica uit de commodity-signalen (TrinityCommodities + per-grondstof NN/TAM). OPT-IN (default uit),
+   eigen positie-cap, en volledig geïsoleerd van de FX-kalibratie. ---- */
+const TrinityCommodityTrader = {
+  enabled:false, maxPos:3, perPosPct:8, minConv:0.32, _rules:{}, _rulesAt:0, _pxAt:0, _lastScan:0, ledger:{n:0,wins:0,pnl:0},
+  _live(){ return feed.mode==='live'&&feed.ok&&feed.provider==='capital'&&!!capProxy; },
+  rows(){ try{ return (typeof TrinityCommodities!=='undefined') ? TrinityCommodities.all() : []; }catch(e){ return []; } },
+  fetchRules(){ if(!this._live())return; if(Date.now()-this._rulesAt<3600000)return; this._rulesAt=Date.now();
+    const eps=this.rows().map(r=>r.epic).filter(Boolean).join(','); if(!eps)return;
+    fetch(capProxy+'/rules?epics='+encodeURIComponent(eps)).then(r=>r.ok?r.json():null).then(d=>{ const arr=(d&&(d.rules||d))||[]; if(Array.isArray(arr))arr.forEach(x=>{ if(x&&x.epic)this._rules[x.epic]={minSize:x.minSize||x.minDealSize||1,sizeStep:x.sizeStep||x.dealSizeStep||1,minStopPct:x.minStopPct||0.1}; }); }).catch(()=>{});
+  },
+  syncPrices(){ if(!this._live())return; const eps=this.rows().map(r=>r.epic).filter(Boolean); if(!eps.length)return; if(Date.now()-this._pxAt<5000)return; this._pxAt=Date.now();
+    fetch(capProxy+'/prices?epics='+encodeURIComponent(eps.join(','))).then(r=>r.ok?r.json():null).then(d=>{ if(!d||!d.prices)return;
+      const last=(typeof TrinityCommodities!=='undefined'&&TrinityCommodities._last)||{}; const byEpic={}; try{ this.rows().forEach(rw=>{ if(rw.epic)byEpic[rw.epic]=rw; }); }catch(e){}
+      d.prices.forEach(p=>{ const st=pair[p.epic]||(pair[p.epic]={}); const prev=st.rate; st.rate=p.mid; if(prev>0)st._vol=(st._vol||0)*0.8+Math.abs(p.mid/prev-1)*0.2; const r=this._rules[p.epic]||{}; st._minSize=r.minSize||st._minSize||1; st._sizeStep=r.sizeStep||st._sizeStep||1; st._minStopPct=r.minStopPct||st._minStopPct||0.1; const rw=byEpic[p.epic]; st.sig=rw?(rw.score||0):0; });
+    }).catch(()=>{});
+  },
+  openCount(){ return positions.filter(p=>p.status==='open'&&p.isCommodity).length; },
+  scan(){ if(!this.enabled||!this._live()||!trinityOn)return; if(Date.now()-this._lastScan<8000)return; this._lastScan=Date.now();
+    if(this.openCount()>=this.maxPos)return;
+    for(const r of this.rows()){ if(this.openCount()>=this.maxPos)break; if(!r.epic)continue;
+      const st=pair[r.epic]; if(!st||!(st.rate>0))continue;                                   // live Capital-prijs vereist
+      if(positions.some(p=>p.status==='open'&&p.pair===r.epic))continue;
+      if(livePositions.some(lp=>lp.pair===r.epic))continue;
+      const conv=Math.abs(r.score||0); if(conv<this.minConv)continue;
+      if(r.brain&&r.brain.cal&&r.brain.cal.proven&&r.brain.probUp!=null){ const bside=r.brain.probUp>=0.5?'LONG':'SHORT'; if(bside!==r.side && Math.abs(r.brain.probUp-0.5)>0.15)continue; }   // bewezen NN mag niet sterk tegenspreken
+      const long=r.side==='LONG', entry=st.rate; const volPct=Math.max(0.05,(st._vol||0.002)*100);
+      const stopPctUsed=Math.max(st._minStopPct||0.1, volPct*4), tgtPctUsed=stopPctUsed*1.4;
+      const stop=long?entry*(1-stopPctUsed/100):entry*(1+stopPctUsed/100), target=long?entry*(1+tgtPctUsed/100):entry*(1-tgtPctUsed/100);
+      let alloc=wallet.balance*(this.perPosPct/100)*Math.min(1.3,0.6+conv); const openA=positions.filter(p=>p.status==='open').reduce((a,p)=>a+(p.alloc||0),0); alloc=Math.max(0,Math.min(alloc,wallet.balance*0.5-openA)); if(alloc<wallet.balance*0.01)continue;
+      const localId='c'+Date.now()+Math.floor(Math.random()*1000);
+      positions.push({localId,pair:r.epic,isCommodity:true,side:r.side,entry,current:entry,stop,target,horizonH:4,ageH:0,openClock:mockClock,openedAt:new Date(),status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,session:'commo',conf:Math.round(50+conv*49),stopPctUsed,alloc,factors:{}});
+      pushReason(`OPEN ${r.side} ${r.name} (commodity) · conv ${(conv*100|0)}% · stop ${stopPctUsed.toFixed(2)}% · size $${alloc.toFixed(2)}`);
+      const minSz=st._minSize||1, step=st._sizeStep||1; let steps=Math.max(1,Math.round((alloc/entry)/step)); let sz=steps*step; if(sz<minSz)sz=Math.ceil(minSz/step)*step; sz=Math.round(sz*1e6)/1e6;
+      placeOrderCapital({instrument:r.epic,side:long?'BUY':'SELL',size:sz,entry,stopDistancePct:stopPctUsed,tgtDistancePct:tgtPctUsed,localId});
+    }
+  },
+  recordClose(p,win,reason){ try{ this.ledger.n++; if(win)this.ledger.wins++; this.ledger.pnl+=(p.alloc*(p.pnlPct/100)); }catch(e){} },
+  setEnabled(v){ this.enabled=!!v; try{ localStorage.setItem('trinityCommoTrade',this.enabled?'1':'0'); }catch(e){} try{ pushReason('Commodity-trading '+(this.enabled?'AAN':'UIT')+(this.enabled&&!this._live()?' (wacht op live Capital-verbinding)':'')); }catch(e){} },
+  _restore(){ try{ this.enabled=localStorage.getItem('trinityCommoTrade')==='1'; }catch(e){} },
+  tick(){ try{ this.fetchRules(); this.syncPrices(); this.scan(); }catch(e){} },
+  bundle(){ return { enabled:this.enabled, live:this._live(), open:this.openCount(), maxPos:this.maxPos, ledger:this.ledger }; }
+};
+try{ window.TrinityCommodityTrader=TrinityCommodityTrader; TrinityCommodityTrader._restore(); }catch(e){}
+try{ window.__commoTradeToggle=function(){ TrinityCommodityTrader.setEnabled(!TrinityCommodityTrader.enabled); try{ renderTrinityCommodities&&renderTrinityCommodities(); }catch(e){} }; }catch(e){}
+
 function setStartEquity(){
   const g=document.getElementById('start-equity'); let v=g?parseFloat(g.value):1000; if(!(v>0))v=1000;
   wallet={start:v,balance:v,equity:v,realized:0,realizedGross:0,costPaid:0,wins:0,losses:0,peak:v,maxDD:0};
@@ -21430,7 +21481,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null),(typeof renderTrinityCommodities==='function'?renderTrinityCommodities:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null),(typeof renderTrinityCommodities==='function'?renderTrinityCommodities:null),(typeof renderCommodityChart==='function'?renderCommodityChart:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
@@ -24461,8 +24512,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   ];
   const C = {
     _buf:{}, _last:{}, _lastTick:0, _mk:{}, hist:{}, _histAt:{}, _histTF:{'5m':'MINUTE_5','15m':'MINUTE_15','1h':'HOUR','4h':'HOUR_4','all':'DAY'},
-    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityCommodities')||'null'); if(d){ if(d.buf)this._buf=d.buf; if(d.mk)this._mk=d.mk; } }catch(e){} },
-    _save(){ try{ localStorage.setItem('trinityCommodities',JSON.stringify({buf:this._buf,mk:this._mk})); }catch(e){} },
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityCommodities')||'null'); if(d){ if(d.buf)this._buf=d.buf; if(d.mk)this._mk=d.mk; if(d.pbt)this._pbt=d.pbt; } }catch(e){} },
+    _save(){ try{ localStorage.setItem('trinityCommodities',JSON.stringify({buf:this._buf,mk:this._mk,pbt:this._pbt})); }catch(e){} },
     epicOf(key){ const c=COMMO.find(x=>x.key===key); return c?c.epic:key; },
     candles(key,tf){ try{ return (this.hist[key]&&this.hist[key][tf])||[]; }catch(e){ return []; } },
     // haal echte candles op via de Capital /history-proxy (per grondstof × timeframe). Voedt de charts +
@@ -24507,15 +24558,39 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       else if(c.key==='COPPER'){ macro = (0.5-s.ro)*1.2 + s.supply*0.3 - s.contag*0.2; }                // groei-proxy: risk-on, besmetting drukt
       else { macro = (s.ro-0.45)*0.8 + s.fin*0.3 + s.tip*0.25 + s.contag*0.12; }                        // overige edelmetalen: mild veilige haven
       const mk=this.markov(c.key, mom);                                    // Markov: geleerde kans op omhoog in de volgende stap
-      const mkTilt = mk.ready ? mk.exp*0.25 : 0;                           // verwachte drift uit de overgangsmatrix
-      const score=clamp(mom*0.45 + clamp(macro,-1,1)*0.55 + mkTilt, -1, 1);
+      const mkTilt = mk.ready ? mk.exp*0.22 : 0;                           // verwachte drift uit de overgangsmatrix
+      // per-grondstof NN/TAM brain (gekalibreerd op de Capital-candles) — weegt mee zodra bewezen
+      let brain=null, nnTilt=0; try{ if(typeof TrinityCommodityBrain!=='undefined'){ brain=TrinityCommodityBrain.analyze(c.key,'1h'); if(brain&&brain.probUp!=null){ const conf=(brain.cal&&brain.cal.proven)?1:0.4; nnTilt=(brain.probUp-0.5)*2*0.3*conf; } } }catch(e){}
+      const score=clamp(mom*0.4 + clamp(macro,-1,1)*0.5 + mkTilt + nnTilt, -1, 1);
       const fso=clamp(Math.abs(score) + Math.abs(mom)*0.2, 0, 1);
-      return { key:c.key, px, mom:+mom.toFixed(3), macro:+clamp(macro,-1,1).toFixed(3), markov:mk, score:+score.toFixed(3), side:score>=0?'LONG':'SHORT', fso:+fso.toFixed(3), contag:+s.contag.toFixed(2), hasPrice:px!=null }; }catch(e){ return {key:c.key,score:0,side:'LONG',fso:0,hasPrice:false}; } },
+      return { key:c.key, px, mom:+mom.toFixed(3), macro:+clamp(macro,-1,1).toFixed(3), markov:mk, brain:brain, score:+score.toFixed(3), side:score>=0?'LONG':'SHORT', fso:+fso.toFixed(3), contag:+s.contag.toFixed(2), hasPrice:px!=null }; }catch(e){ return {key:c.key,score:0,side:'LONG',fso:0,hasPrice:false}; } },
     // peg-read: gemiddelde ccyBias van de gekoppelde valuta (teken-gecorrigeerd) → bevestigt/ontkracht de richting
     pegRead(c){ try{ if(typeof OsirisMacro==='undefined')return null; let s=0,n=0; c.peg.forEach(([ccy,sgn])=>{ const b=OsirisMacro.ccyBias(ccy); if(b!=null){ s+=b*sgn; n++; } }); return n?+(s/n).toFixed(3):null; }catch(e){ return null; } },
-    all(){ return COMMO.map(c=>{ const sig=this.signal(c); sig.name=c.name; sig.epic=c.epic; sig.grp=c.grp; sig.role=c.role; sig.peg=this.pegRead(c); this._last[c.key]=sig; return sig; }); },
-    tick(){ const now=Date.now(); if(now-this._lastTick<5000)return; this._lastTick=now; try{ COMMO.forEach(c=>{ const px=this._price(c); if(px>0){ const mom=this._mom(c,px); this._mkObs(c.key, this._mkState(mom)); } }); this.refreshHistory(); this._save(); }catch(e){} },
-    bundle(){ return { commodities:this.all(), note:'Trinity Commodities: crude/gas/metalen — FSO uit prijsmomentum + ShockWave energie/supply/risk-off, met commodity-currency-peg read. Handel via Capital.com (Fase 1B).' }; }
+    // ---- PREDICTED TOOLING: verwachte richting + %-beweging over de KOMENDE 4h ----
+    // Combineert het samengestelde signaal (momentum + ShockWave-macro + Markov + per-grondstof NN) met de
+    // eigen 4h-volatiliteit van de grondstof → een verwacht prijspad + betrouwbaarheid.
+    predict4h(key){ try{ const sig=this._last[key]; if(!sig)return null; const cs=this.candles(key,'1h'); let vol=0.01;
+      if(cs&&cs.length>6){ const cl=cs.slice(-24).map(c=>c.c); const rets=[]; for(let i=1;i<cl.length;i++)rets.push(cl[i]/cl[i-1]-1); const m=rets.reduce((a,b)=>a+b,0)/rets.length; vol=Math.sqrt(rets.reduce((a,b)=>a+(b-m)*(b-m),0)/rets.length); }
+      const expMovePct=+(Math.abs(sig.score)*vol*4*100).toFixed(2);   // ~4 bars vooruit, geschaald op signaalsterkte
+      const dir=sig.score>=0?'LONG':'SHORT'; const px=sig.px; const target=px!=null?+(px*(1+(dir==='LONG'?1:-1)*expMovePct/100)).toFixed(px>=100?2:4):null;
+      let conf=0.5+Math.abs(sig.score)*0.3; if(sig.brain&&sig.brain.cal&&sig.brain.cal.proven)conf+=0.1; if(sig.markov&&sig.markov.ready&&((sig.markov.upProb>=0.5)===(dir==='LONG')))conf+=0.08;
+      const sc=this.pbtScore(key); return { dir, expMovePct, target, conf:+Math.min(0.95,conf).toFixed(2), horizon:'4h', shadow:sc }; }catch(e){ return null; } },
+    // ---- 4h SHADOW-SCENARIO-BACKTESTER: leg de voorspelling + prijs vast, wikkel na 4h af, scoor eerlijk ----
+    _pbt:{}, _pbtAt:{},
+    pbtRecord(){ try{ const now=Date.now(); COMMO.forEach(c=>{ const sig=this._last[c.key]; if(!sig||sig.px==null)return; const k=c.key; if(now-(this._pbtAt[k]||0)<30*60000)return; this._pbtAt[k]=now;
+      const arr=this._pbt[k]||(this._pbt[k]=[]); arr.push({s:sig.score,px:sig.px,made:now,due:now+4*3600000,done:false}); if(arr.length>200)arr.shift(); }); }catch(e){} },
+    pbtResolve(){ try{ const now=Date.now(); let ch=false; for(const k in this._pbt){ const cur=this._last[k]&&this._last[k].px; for(const e of this._pbt[k]){ if(e.done||now<e.due)continue; if(cur==null){e.done=true;e.skip=true;continue;} const ret=e.px>0?(cur/e.px-1):0; const moved=Math.abs(ret)>=1e-4; e.done=true; e.hit=moved?((Math.sign(ret)===Math.sign(e.s))?1:0):null; ch=true; } } if(ch)this._save(); }catch(e){} },
+    pbtScore(key){ try{ const arr=(this._pbt[key]||[]).filter(e=>e.done&&e.hit!=null); if(!arr.length)return null; const n=arr.length,h=arr.filter(e=>e.hit).length; return { n, hitRate:+(h/n).toFixed(3), proven:n>=20 }; }catch(e){ return null; } },
+    // ---- MARKT-UREN per grondstof-groep (bij benadering, UTC) — live status uit Capital indien beschikbaar ----
+    marketHours(key){ try{ const c=COMMO.find(x=>x.key===key); const epic=c?c.epic:key; const st=(typeof pair!=='undefined')&&pair[epic];
+      if(st&&st.status){ const open=/TRADEABLE|OPEN/i.test(st.status); return { open, status:st.status, src:'Capital' }; }
+      // benadering: energie & metalen ~23h/dag, dagelijkse onderbreking ~21:00–22:00 UTC, dicht van vr 21:00 tot zo 22:00
+      const d=new Date(); const day=d.getUTCDay(), h=d.getUTCHours()+d.getUTCMinutes()/60;
+      let open=true; if(day===6)open=false; else if(day===0&&h<22)open=false; else if(day===5&&h>=21)open=false; else if(h>=21&&h<22)open=false;
+      const ex=(c&&c.grp==='energy')?'NYMEX/ICE':'COMEX/LME'; return { open, status:open?'open':'gesloten', exchange:ex, src:'schema' }; }catch(e){ return {open:true,status:'?'}; } },
+    all(){ return COMMO.map(c=>{ const sig=this.signal(c); sig.name=c.name; sig.epic=c.epic; sig.grp=c.grp; sig.role=c.role; sig.peg=this.pegRead(c); this._last[c.key]=sig; sig.predict=this.predict4h(c.key); sig.market=this.marketHours(c.key); return sig; }); },
+    tick(){ const now=Date.now(); if(now-this._lastTick<5000)return; this._lastTick=now; try{ COMMO.forEach(c=>{ const px=this._price(c); if(px>0){ const mom=this._mom(c,px); this._mkObs(c.key, this._mkState(mom)); } }); this.refreshHistory(); this.pbtRecord(); this.pbtResolve(); this._save(); }catch(e){} },
+    bundle(){ return { commodities:this.all(), note:'Trinity Commodities: crude/gas/metalen — FSO + per-grondstof NN/TAM + Markov + 4h-predicted (shadow-backtested) + markt-uren. Handel via Capital.com.' }; }
   };
   C._restore(); try{ window.TrinityCommodities=C; }catch(e){}
 
@@ -24535,13 +24610,146 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
             ${bar(r.score)} <span style="color:${DD};width:52px;">sig ${(r.score>=0?'+':'')}${r.score.toFixed(2)}</span>
             <span style="color:${DD};">FSO</span> ${fsoBar(r.fso)}
             <span style="color:${DD};width:92px;">peg ${r.peg!=null?((r.peg>=0?'+':'')+r.peg.toFixed(2)+(Math.sign(r.peg)===(r.side==='LONG'?1:-1)?' ✓':' ✗')):'—'}</span>
-            <span style="color:${DD};width:78px;">Markov ${(r.markov&&r.markov.ready)?('<b style=\"color:'+(r.markov.upProb>=0.5?G:R)+'\">'+Math.round(r.markov.upProb*100)+'%↑</b>'):'<span style=\"color:'+DD+'\">leert…</span>'}</span>
-            <span style="color:${DD};font-size:0.5rem;">${r.role}</span>
+            <span style="color:${DD};width:74px;">Markov ${(r.markov&&r.markov.ready)?('<b style=\"color:'+(r.markov.upProb>=0.5?G:R)+'\">'+Math.round(r.markov.upProb*100)+'%↑</b>'):'<span style=\"color:'+DD+'\">leert…</span>'}</span>
+            <span style="color:${DD};width:78px;">NN ${(r.brain&&r.brain.probUp!=null)?('<b style=\"color:'+(r.brain.probUp>=0.5?G:R)+'\">'+Math.round(r.brain.probUp*100)+'%↑</b>'+((r.brain.cal&&r.brain.cal.proven)?'✓':'')):'<span style=\"color:'+DD+'\">leert…</span>'}</span>
+            <span style="color:${DD};width:64px;">${(r.brain&&r.brain.node)?('node ~'+r.brain.node.inBars+'b'):''}</span>
+            <span style="width:120px;">${r.predict?('<span style=\"color:'+DD+'\">4h</span> <b style=\"color:'+(r.predict.dir==='LONG'?G:R)+'\">'+r.predict.dir+' '+(r.predict.dir==='LONG'?'+':'-')+r.predict.expMovePct+'%</b> <span style=\"color:'+DD+'\">'+Math.round(r.predict.conf*100)+'%'+((r.predict.shadow&&r.predict.shadow.proven)?' ✓'+Math.round(r.predict.shadow.hitRate*100)+'%':'')+'</span>'):''}</span>
+            <span style="width:58px;font-size:0.5rem;">${r.market?('<span style=\"color:'+(r.market.open?G:R)+'\">'+(r.market.open?'● open':'○ dicht')+'</span>'):''}</span>
+            <span style="color:${DD};font-size:0.5rem;">${(r.brain&&r.brain.regime)||r.role}</span>
           </div>`).join('') + `</div>`; };
     const explain=`<div style="font-size:0.54rem;color:${D};line-height:1.7;margin-bottom:8px;">Grondstof-signalen uit <b>prijsmomentum</b> + de <b style="color:${E}">ShockWave energie/supply/risk-off + contagion</b>-lagen, een <b>commodity-currency-peg</b>-check (✓ = gekoppelde valuta bevestigt) en een <b>Markov-keten</b> (geleerde kans op omhoog in de volgende stap). <span style="color:${DD}">FSO = signaalsterkte. Handel via Capital.com-CFD's volgt in de trade-executielaag.</span></div>`;
-    el.innerHTML=explain+group('energy','Energie · crude &amp; gas',E)+group('metaal','Metalen',M);
+    let trade=''; try{ if(typeof TrinityCommodityTrader!=='undefined'){ const T=TrinityCommodityTrader; const on=T.enabled; const live=T._live&&T._live(); const led=T.ledger||{n:0,wins:0,pnl:0};
+      trade=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;padding:6px 9px;background:rgba(255,255,255,0.02);border:1px solid var(--line);border-radius:6px;">`
+        +`<button onclick="window.__commoTradeToggle&&window.__commoTradeToggle()" style="background:${on?'#134e4a':'#2a1a1a'};color:${on?G:R};border:1px solid ${on?'rgba(20,241,149,0.4)':'rgba(255,95,126,0.3)'};border-radius:5px;padding:3px 10px;font-family:'JetBrains Mono',monospace;font-size:0.58rem;cursor:pointer;">Commodity-trading: ${on?'AAN':'UIT'}</button>`
+        +`<span style="font-size:0.54rem;color:${DD};">${live?'<b style=\"color:'+G+'\">Capital live</b>':'Capital niet verbonden — trades starten zodra live'} · open ${T.openCount?T.openCount():0}/${T.maxPos} · ${led.n} closed${led.n?(' · '+Math.round(led.wins/led.n*100)+'% wr'):''}</span>`
+        +`<span style="font-size:0.5rem;color:${DD};margin-left:auto;">verhandelt via dezelfde Capital-pipeline; opt-in, eigen positie-cap, geïsoleerd van FX</span></div>`; } }catch(e){}
+    el.innerHTML=explain+trade+group('energy','Energie · crude &amp; gas',E)+group('metaal','Metalen',M);
   }
   try{ window.renderTrinityCommodities=renderTrinityCommodities; }catch(e){}
+})();
+
+/* ==================================================================================
+   TRINITY · COMMODITY BRAIN — Neo's toolchain PER GRONDSTOF, gekalibreerd op elke
+   grondstof zelf. Consumeert de echte Capital-candles (TrinityCommodities.candles):
+     • NN (logistische mini-DeepNet) op candle-features → kans op omhoog volgende candle,
+       walk-forward gekalibreerd (hit-rate + Brier) PER grondstof.
+     • TAM/UOTAM node-timing met een EIGEN timeframe/periode per grondstof (uit de swing-
+       frequentie van díe grondstof) → node-countdown + node-invloed.
+     • Regime-detectie per grondstof (trending / kalm / volatiel).
+   Degradeert netjes tot "leert…" zolang er nog geen candles zijn (worker/Capital nodig).
+   ================================================================================== */
+(function(){
+  'use strict';
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  const sig=x=>1/(1+Math.exp(-x));
+  const B = {
+    M:{}, _at:{},
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityCommodityBrain')||'null'); if(d&&d.M)this.M=d.M; }catch(e){} },
+    _save(){ try{ localStorage.setItem('trinityCommodityBrain',JSON.stringify({M:this.M})); }catch(e){} },
+    // features op index i uit een candle-reeks (close-array): [momentum-kort, momentum-lang, vol, range-positie, slope]
+    _feat(cl,i){ try{ if(i<12)return null; const c=cl[i];
+      const ms=(c/cl[i-3]-1)*10, ml=(c/cl[i-10]-1)*6;
+      const win=cl.slice(i-10,i+1); const rets=[]; for(let k=1;k<win.length;k++)rets.push(win[k]/win[k-1]-1);
+      const mean=rets.reduce((a,b)=>a+b,0)/rets.length; const vol=Math.sqrt(rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/rets.length)*30;
+      const hi=Math.max.apply(null,win),lo=Math.min.apply(null,win); const rp=hi>lo?((c-lo)/(hi-lo)-0.5)*2:0;
+      const slope=(cl[i]-cl[i-10])/(Math.abs(cl[i-10])||1)*8;
+      return [clamp(ms,-3,3),clamp(ml,-3,3),clamp(vol,0,3),clamp(rp,-1,1),clamp(slope,-3,3)]; }catch(e){ return null; } },
+    // train + walk-forward-evalueer een logistisch model op de candles van deze grondstof
+    _fit(key,tf){ try{ const cs=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[]; if(!cs||cs.length<40)return null;
+      const cl=cs.map(k=>k.c); const X=[],Y=[]; for(let i=12;i<cl.length-1;i++){ const f=this._feat(cl,i); if(!f)continue; X.push(f); Y.push(cl[i+1]>cl[i]?1:0); }
+      if(X.length<24)return null; const nF=5; let w=new Array(nF).fill(0), b=0; const lr=0.08; const split=Math.floor(X.length*0.7);
+      for(let ep=0;ep<120;ep++){ for(let i=0;i<split;i++){ const p=sig(w.reduce((a,wj,j)=>a+wj*X[i][j],b)); const g=p-Y[i]; for(let j=0;j<nF;j++)w[j]-=lr*g*X[i][j]; b-=lr*g; } }
+      // holdout-evaluatie
+      let n=0,hit=0,br=0; for(let i=split;i<X.length;i++){ const p=sig(w.reduce((a,wj,j)=>a+wj*X[i][j],b)); n++; const pred=p>=0.5?1:0; if(pred===Y[i])hit++; br+=(p-Y[i])*(p-Y[i]); }
+      const m=this.M[key]||(this.M[key]={}); m[tf]={ w, b, n, hitRate:n?+(hit/n).toFixed(3):null, brier:n?+(br/n).toFixed(3):null, proven:n>=30, at:Date.now(), bars:cl.length };
+      return m[tf]; }catch(e){ return null; } },
+    // TAM/UOTAM node-timing: schat de swing-periode van DEZE grondstof en geef node-countdown + invloed
+    _tam(key,tf){ try{ const cs=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[]; if(!cs||cs.length<30)return null;
+      const cl=cs.map(k=>k.c); const turns=[]; const thr=0.004; let lastEx=cl[0],lastIdx=0,dir=0;
+      for(let i=1;i<cl.length;i++){ const ch=(cl[i]-lastEx)/(Math.abs(lastEx)||1);
+        if(dir>=0 && ch<=-thr){ turns.push(i); dir=-1; lastEx=cl[i]; lastIdx=i; }
+        else if(dir<=0 && ch>=thr){ turns.push(i); dir=1; lastEx=cl[i]; lastIdx=i; }
+        else if((dir>0&&cl[i]>lastEx)||(dir<0&&cl[i]<lastEx)){ lastEx=cl[i]; lastIdx=i; } }
+      if(turns.length<3)return null; const gaps=[]; for(let i=1;i<turns.length;i++)gaps.push(turns[i]-turns[i-1]);
+      const period=Math.max(2,Math.round(gaps.reduce((a,b)=>a+b,0)/gaps.length)); const sinceLast=(cl.length-1)-turns[turns.length-1];
+      const inBars=Math.max(0,period-(sinceLast%period)); const phase=(sinceLast%period)/period; const influence=+(1-Math.abs(phase-1)).toFixed(2);
+      return { period, inBars, phase:+phase.toFixed(2), influence:clamp(1-phase,0,1), tf }; }catch(e){ return null; } },
+    _regime(key,tf){ try{ const cs=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[]; if(!cs||cs.length<20)return null;
+      const cl=cs.map(k=>k.c).slice(-30); const rets=[]; for(let i=1;i<cl.length;i++)rets.push(cl[i]/cl[i-1]-1);
+      const mean=rets.reduce((a,b)=>a+b,0)/rets.length; const vol=Math.sqrt(rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/rets.length);
+      const slope=(cl[cl.length-1]-cl[0])/(Math.abs(cl[0])||1); const av=Math.abs(vol);
+      if(av>0.02)return 'volatiel'; if(Math.abs(slope)>0.03)return 'trending'; return 'kalm'; }catch(e){ return null; } },
+    analyze(key,tf){ tf=tf||'1h'; try{ const now=Date.now(); const k=key+'|'+tf;
+      if(now-(this._at[k]||0)>60000){ this._at[k]=now; this._fit(key,tf); this._save(); }   // herkalibreer ~1×/min
+      const m=(this.M[key]&&this.M[key][tf])||null; const cs=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[];
+      let probUp=null; if(m&&cs&&cs.length>13){ const cl=cs.map(c=>c.c); const f=this._feat(cl,cl.length-1); if(f)probUp=+sig(m.w.reduce((a,wj,j)=>a+wj*f[j],m.b)).toFixed(3); }
+      const tam=this._tam(key,tf); const reg=this._regime(key,tf);
+      return { key, tf, ready:!!m, probUp, node:tam, regime:reg, cal:m?{hitRate:m.hitRate,brier:m.brier,n:m.n,proven:m.proven,bars:m.bars}:null }; }catch(e){ return {key,tf,ready:false}; } },
+    bundle(){ try{ const out={}; ['WTI','BRENT','NGAS','GOLD','COPPER','SILVER','PLAT','PALL'].forEach(k=>{ out[k]=this.analyze(k,'1h'); }); return { perCommodity:out, note:'Per-grondstof NN (logistisch, walk-forward gekalibreerd) + TAM node-timing (eigen periode) + regime, op de Capital-candles.' }; }catch(e){ return {}; } }
+  };
+  B._restore(); try{ window.TrinityCommodityBrain=B; }catch(e){}
+})();
+
+/* ==================================================================================
+   TRINITY · COMMODITY CHART — Capital-prijs (candles) met de FSO als SCHADUW eroverheen
+   (prijs-vol + range + momentum, versterkt door de LIVE ShockWave energie/supply/risk-off/
+   contagion) + TAM-node-markers. Timeframe-selector 5m/15m/1h/4h/all. Rendert de gekozen
+   grondstof in #tr-commo-chart. Vult zich zodra de Capital /history-route candles levert.
+   ================================================================================== */
+(function(){
+  'use strict';
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  const TFS=['5m','15m','1h','4h','all'];
+  let SEL='WTI', TF='1h', _built=false;
+  const NAMES={WTI:'Crude Oil · WTI',BRENT:'Crude Oil · Brent',NGAS:'Natural Gas',GOLD:'Gold',SILVER:'Silver',PLAT:'Platinum',PALL:'Palladium',COPPER:'Copper'};
+  try{ window.__commoChartSel=v=>{ SEL=v; renderCommodityChart(); }; window.__commoTF=v=>{ TF=v; renderCommodityChart(); }; }catch(e){}
+  function _fsoSeries(cl){ const out=[]; for(let i=0;i<cl.length;i++){ const w=cl.slice(Math.max(0,i-10),i+1); if(w.length<3){out.push(0);continue;}
+      const rets=[]; for(let k=1;k<w.length;k++)rets.push(w[k]/w[k-1]-1); const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
+      const vol=Math.sqrt(rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/rets.length); const hi=Math.max.apply(null,w),lo=Math.min.apply(null,w);
+      const rp=hi>lo?Math.abs((cl[i]-lo)/(hi-lo)-0.5)*2:0; const mom=Math.abs(cl[i]/w[0]-1);
+      out.push(clamp(vol*40 + rp*0.35 + mom*6, 0, 1)); } return out; }
+  function _buildControls(){ if(_built)return; _built=true;
+    try{ const sel=document.getElementById('commo-chart-sel'); if(sel&&!sel.options.length){ sel.innerHTML=Object.keys(NAMES).map(k=>`<option value="${k}">${NAMES[k]}</option>`).join(''); sel.value=SEL; }
+      const tfw=document.getElementById('commo-chart-tfs'); if(tfw&&!tfw.children.length){ tfw.innerHTML=TFS.map(t=>`<button data-tf="${t}" onclick="window.__commoTF&&window.__commoTF('${t}')" style="background:${t===TF?'#134e4a':'#0c1a24'};color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.56rem;cursor:pointer;">${t}</button>`).join(''); } }catch(e){}
+  }
+  function _syncTF(){ try{ const tfw=document.getElementById('commo-chart-tfs'); if(tfw)[...tfw.children].forEach(b=>{ b.style.background=(b.getAttribute('data-tf')===TF)?'#134e4a':'#0c1a24'; }); }catch(e){} }
+  function renderCommodityChart(){ const cv=document.getElementById('tr-commo-chart'); if(!cv)return; _buildControls(); _syncTF();
+    const ctx=cv.getContext('2d'); const dpr=window.devicePixelRatio||1; const W=cv.clientWidth||760, H=300;
+    cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+    const meta=document.getElementById('commo-chart-meta');
+    const cands=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(SEL,TF):[];
+    if(!cands||cands.length<3){ ctx.fillStyle='#5c7488'; ctx.font="12px 'JetBrains Mono',monospace"; ctx.textAlign='center';
+      ctx.fillText('Geen candles voor '+(NAMES[SEL]||SEL)+' · '+TF+' — verbind de Capital-proxy en deploy de /history-route.', W/2, H/2);
+      if(meta)meta.textContent=''; return; }
+    const cl=cands.map(c=>c.c); const n=cl.length; const padL=44,padR=10,padT=14,padB=18; const gw=W-padL-padR, gh=H-padT-padB;
+    let mn=Math.min.apply(null,cl), mx=Math.max.apply(null,cl); if(mn===mx){mn-=1;mx+=1;} const pad=(mx-mn)*0.08; mn-=pad; mx+=pad;
+    const x=i=>padL+gw*(i/(n-1)); const y=v=>padT+gh*(1-(v-mn)/(mx-mn));
+    // live ShockWave-versterking van de schaduw (energie/supply/risk-off/contagion) via het commodity-signaal
+    let liveFso=0.4; try{ const s=TrinityCommodities._last&&TrinityCommodities._last[SEL]; if(s&&s.fso!=null)liveFso=s.fso; }catch(e){}
+    const fso=_fsoSeries(cl); const tint=0.55+0.9*liveFso;
+    // FSO-schaduw (mountain, onderaan) — hoogte = per-candle FSO × live ShockWave-tint
+    ctx.beginPath(); ctx.moveTo(padL,H-padB);
+    for(let i=0;i<n;i++){ const h=clamp(fso[i]*tint,0,1); ctx.lineTo(x(i), (H-padB) - h*gh*0.9); }
+    ctx.lineTo(x(n-1),H-padB); ctx.closePath();
+    const grad=ctx.createLinearGradient(0,padT,0,H-padB); grad.addColorStop(0,'rgba(255,138,60,0.34)'); grad.addColorStop(1,'rgba(255,138,60,0.04)'); ctx.fillStyle=grad; ctx.fill();
+    // TAM-nodes (paars) — eigen periode per grondstof
+    try{ if(typeof TrinityCommodityBrain!=='undefined'){ const a=TrinityCommodityBrain.analyze(SEL,TF); const per=a&&a.node&&a.node.period; if(per>1){ ctx.fillStyle='rgba(199,146,234,0.9)'; for(let i=n-1;i>=0;i-=per){ ctx.beginPath(); ctx.arc(x(i),padT+6,2.4,0,6.283); ctx.fill(); ctx.strokeStyle='rgba(199,146,234,0.18)'; ctx.beginPath(); ctx.moveTo(x(i),padT); ctx.lineTo(x(i),H-padB); ctx.stroke(); } } } }catch(e){}
+    // prijslijn (blauw)
+    ctx.beginPath(); for(let i=0;i<n;i++){ const px=x(i),py=y(cl[i]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); } ctx.strokeStyle='#4fc3f7'; ctx.lineWidth=1.4; ctx.stroke();
+    // as-labels
+    ctx.fillStyle='#5c7488'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right';
+    ctx.fillText(mx.toFixed(mx>=100?0:2),padL-4,padT+8); ctx.fillText(mn.toFixed(mn>=100?0:2),padL-4,H-padB);
+    ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+' candles',padL+2,padT+8);
+    // PREDICTED 4h: gestippelde doellijn + pijl vanaf de laatste prijs
+    try{ if(typeof TrinityCommodities!=='undefined'){ const pr=TrinityCommodities.predict4h(SEL); if(pr&&pr.target!=null&&pr.target>=mn&&pr.target<=mx){ const yt=y(pr.target),yl=y(cl[n-1]),xl=x(n-1); const col=pr.dir==='LONG'?'#14f195':'#ff5f7e';
+      ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(xl,yl); ctx.lineTo(padL+gw,yt); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.globalAlpha=0.35; ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
+      ctx.fillStyle=col; ctx.textAlign='right'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillText('4h '+(pr.dir==='LONG'?'▲':'▼')+' '+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw-2,yt-3); } } }catch(e){}
+    // MARKT-STATUS badge rechtsboven
+    try{ if(typeof TrinityCommodities!=='undefined'){ const mh=TrinityCommodities.marketHours(SEL); if(mh){ ctx.textAlign='right'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillStyle=mh.open?'#14f195':'#ff5f7e'; ctx.fillText((mh.open?'● markt open':'○ markt gesloten')+(mh.exchange?' · '+mh.exchange:''),padL+gw,padT+8); } } }catch(e){}
+    if(meta){ let m=''; try{ const a=TrinityCommodityBrain.analyze(SEL,TF); if(a){ m='NN '+(a.probUp!=null?Math.round(a.probUp*100)+'%↑':'—')+(a.cal&&a.cal.proven?'✓':'')+' · '+(a.regime||'')+(a.node?' · node ~'+a.node.inBars+'b':''); } const pr=TrinityCommodities.predict4h(SEL); if(pr)m+=' · 4h '+pr.dir+' '+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'% ('+Math.round(pr.conf*100)+'%'+(pr.shadow&&pr.shadow.proven?' ✓'+Math.round(pr.shadow.hitRate*100)+'%':'')+')'; }catch(e){} meta.textContent=m; }
+  }
+  try{ window.renderCommodityChart=renderCommodityChart; }catch(e){}
 })();
 
 
