@@ -193,6 +193,32 @@ export default {
         return j({ prices }, 200, env);
       }
 
+      // ---- HISTORICAL CANDLES (voor commodity-charts + NN/TAM-kalibratie per grondstof) ----
+      // GET /history?epic=OIL_CRUDE&resolution=HOUR&max=300
+      //   resolution: MINUTE, MINUTE_5, MINUTE_15, MINUTE_30, HOUR, HOUR_4, DAY, WEEK
+      //   -> { epic, resolution, candles:[{t,o,h,l,c,v}] } (mid-prijzen)
+      if (request.method === 'GET' && path === '/history') {
+        const epic = (url.searchParams.get('epic') || '').trim();
+        if (!epic) return j({ error: 'no epic' }, 400, env);
+        const RES = { MINUTE:1, MINUTE_5:1, MINUTE_15:1, MINUTE_30:1, HOUR:1, HOUR_4:1, DAY:1, WEEK:1 };
+        const resolution = (url.searchParams.get('resolution') || 'HOUR').toUpperCase();
+        if (!RES[resolution]) return j({ error: 'bad resolution' }, 400, env);
+        const max = Math.max(10, Math.min(1000, parseInt(url.searchParams.get('max'), 10) || 300));
+        const s = await ensureSession(env);
+        const r = await fetch(base(env) + '/api/v1/prices/' + encodeURIComponent(epic) + '?resolution=' + resolution + '&max=' + max, {
+          headers: { 'CST': s.cst, 'X-SECURITY-TOKEN': s.xst, 'Content-Type': 'application/json' },
+        });
+        if (!r.ok) { const t = await r.text().catch(() => ''); return j({ error: 'history HTTP ' + r.status, detail: t.slice(0, 200) }, r.status, env); }
+        const d = await r.json();
+        const mid = (px) => { if (px == null) return null; if (typeof px === 'number') return px; const b = px.bid, a = px.ask != null ? px.ask : px.offer; return (b != null && a != null) ? (b + a) / 2 : (b != null ? b : a); };
+        const candles = (d.prices || []).map(p => ({
+          t: Date.parse(p.snapshotTime || p.snapshotTimeUTC || 0) || 0,
+          o: mid(p.openPrice), h: mid(p.highPrice), l: mid(p.lowPrice), c: mid(p.closePrice),
+          v: p.lastTradedVolume != null ? p.lastTradedVolume : null
+        })).filter(k => k.c != null);
+        return j({ epic, resolution, candles }, 200, env);
+      }
+
       // ---- PLACE ORDER (market position with broker-side stop/target) ----
       if (request.method === 'POST' && path === '/order') {
         const b = await request.json();
@@ -308,6 +334,30 @@ export default {
         const resp = await capFetch(env, '/api/v1/accounts/topUp', { method: 'POST', body: JSON.stringify({ amount: b.amount }) });
         const text = await resp.text();
         return j(resp.ok ? JSON.parse(text) : { error: 'topup HTTP ' + resp.status, detail: text.slice(0, 200) }, resp.ok ? 200 : resp.status, env);
+      }
+
+      // ---- SOCIAL / NEWS SENTIMENT (GRATIS, geen key) — GDELT DOC 2.0 timelinetone per valuta.
+      // Server-side (geen CORS/rate-limit-issues in de browser). Geeft sentiment ∈ [-1,1] per valuta
+      // terug + een korte headline-feed. Trinity's LLM-verify vergelijkt dit met de FSO/prijs-data. ----
+      if (request.method === 'GET' && path === '/social') {
+        const TERMS = { USD:'"US dollar"', EUR:'euro currency', GBP:'"British pound"', JPY:'"Japanese yen"',
+                        CHF:'"Swiss franc"', AUD:'"Australian dollar"', CAD:'"Canadian dollar"', NZD:'"New Zealand dollar"' };
+        const one = async (cur, q) => {
+          try {
+            const u = 'https://api.gdeltproject.org/api/v2/doc/doc?query=' + encodeURIComponent(q) +
+                      '&mode=timelinetone&timespan=3d&format=json';
+            const r = await fetch(u, { cf: { cacheTtl: 900 }, headers: { 'User-Agent': 'osiris-fso/1.0' } });
+            if (!r.ok) return [cur, null];
+            const d = await r.json();
+            const series = (d.timeline && d.timeline[0] && d.timeline[0].data) || [];
+            if (!series.length) return [cur, null];
+            const v = series[series.length - 1].value;                     // recente gem. tone ~ [-10,10]
+            return [cur, Math.max(-1, Math.min(1, v / 6))];
+          } catch (e) { return [cur, null]; }
+        };
+        const settled = await Promise.all(Object.entries(TERMS).map(([c, q]) => one(c, q)));
+        const ccy = {}; for (const [c, v] of settled) if (v != null) ccy[c] = +v.toFixed(3);
+        return j({ ccy, at: Date.now(), source: 'GDELT DOC 2.0 timelinetone (free)', note: 'sentiment ∈ [-1,1] per currency' }, 200, env);
       }
 
       return j({ error: 'not found' }, 404, env);
