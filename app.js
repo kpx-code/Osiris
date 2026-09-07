@@ -24589,7 +24589,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       let open=true; if(day===6)open=false; else if(day===0&&h<22)open=false; else if(day===5&&h>=21)open=false; else if(h>=21&&h<22)open=false;
       const ex=(c&&c.grp==='energy')?'NYMEX/ICE':'COMEX/LME'; return { open, status:open?'open':'gesloten', exchange:ex, src:'schema' }; }catch(e){ return {open:true,status:'?'}; } },
     all(){ return COMMO.map(c=>{ const sig=this.signal(c); sig.name=c.name; sig.epic=c.epic; sig.grp=c.grp; sig.role=c.role; sig.peg=this.pegRead(c); this._last[c.key]=sig; sig.predict=this.predict4h(c.key); sig.market=this.marketHours(c.key); return sig; }); },
-    tick(){ const now=Date.now(); if(now-this._lastTick<5000)return; this._lastTick=now; try{ COMMO.forEach(c=>{ const px=this._price(c); if(px>0){ const mom=this._mom(c,px); this._mkObs(c.key, this._mkState(mom)); } }); this.refreshHistory(); this.pbtRecord(); this.pbtResolve(); this._save(); }catch(e){} },
+    tick(){ const now=Date.now(); if(now-this._lastTick<5000)return; this._lastTick=now; try{ COMMO.forEach(c=>{ const px=this._price(c); if(px>0){ const mom=this._mom(c,px); this._mkObs(c.key, this._mkState(mom)); } }); this.refreshHistory(); this.pbtRecord(); this.pbtResolve(); try{ if(typeof TrinityCommodityFSO!=='undefined') TrinityCommodityFSO.tick(); }catch(e){} this._save(); }catch(e){} },
     bundle(){ return { commodities:this.all(), note:'Trinity Commodities: crude/gas/metalen — FSO + per-grondstof NN/TAM + Markov + 4h-predicted (shadow-backtested) + markt-uren. Handel via Capital.com.' }; }
   };
   C._restore(); try{ window.TrinityCommodities=C; }catch(e){}
@@ -24691,6 +24691,61 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 })();
 
 /* ==================================================================================
+   TRINITY · COMMODITY FSO — markt-als-systeem PER GRONDSTOF (zelfde model als de FX-FSO):
+   stress · σ²-variance · VFM-energie · ΔV · node-drempel · regime (RUST/SPANNING/CRISIS) ·
+   corr-breuk (t.o.v. de peer-grondstof) · LOW/HIGH-banden · volume-score · handelssessies.
+   Elke grondstof wordt op ZIJN EIGEN stress-verdeling gekalibreerd (drempels = percentielen),
+   met een autonome verificatie: voorspelde ΔV-breakpoints (compressie + hoge VFM) worden
+   teruggemeten tegen de echte breakout (hit-rate). Consumeert de Capital-candles.
+   ================================================================================== */
+(function(){
+  'use strict';
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  const PEER={ WTI:'BRENT', BRENT:'WTI', NGAS:'WTI', GOLD:'SILVER', SILVER:'GOLD', PLAT:'PALL', PALL:'PLAT', COPPER:'GOLD' };
+  function pct(sorted,p){ if(!sorted.length)return 0; const i=clamp(Math.floor(p*(sorted.length-1)),0,sorted.length-1); return sorted[i]; }
+  function pearson(a,b){ const n=Math.min(a.length,b.length); if(n<6)return 0; a=a.slice(-n); b=b.slice(-n);
+    const ma=a.reduce((x,y)=>x+y,0)/n, mb=b.reduce((x,y)=>x+y,0)/n; let sab=0,sa=0,sb=0;
+    for(let i=0;i<n;i++){ const da=a[i]-ma, db=b[i]-mb; sab+=da*db; sa+=da*da; sb+=db*db; } const d=Math.sqrt(sa*sb); return d>0?clamp(sab/d,-1,1):0; }
+  const F = {
+    _ver:{},
+    _rets(cl){ const r=[]; for(let i=1;i<cl.length;i++)r.push(cl[i-1]>0?cl[i]/cl[i-1]-1:0); return r; },
+    compute(key,tf){ try{ const C=(typeof TrinityCommodities!=='undefined')?TrinityCommodities:null; if(!C)return null;
+      const cs=C.candles(key,tf||'1h'); if(!cs||cs.length<24)return null;
+      const cl=cs.map(c=>c.c), vol=cs.map(c=>c.v||0), r=this._rets(cl); const N=cl.length;
+      // referentie (peer) returns voor corr-breuk
+      let pr=[]; try{ const pcs=C.candles(PEER[key]||'WTI',tf||'1h'); if(pcs&&pcs.length>10)pr=this._rets(pcs.map(c=>c.c)); }catch(e){}
+      const stress=[],varS=[],vfmA=[],dVA=[],corrB=[],volSc=[]; let vfm=0;
+      const volMean=vol.reduce((a,b)=>a+b,0)/Math.max(1,vol.length)||1;
+      // node-drempel eerst grof uit de variance-verdeling (twee-pass): eerst varS opbouwen
+      for(let i=0;i<r.length;i++){ const w=r.slice(Math.max(0,i-10),i+1); const m=w.reduce((a,b)=>a+b,0)/w.length;
+        const v=Math.sqrt(w.reduce((a,b)=>a+(b-m)*(b-m),0)/w.length); varS.push(v); }
+      const nodeTh=pct(varS.slice().sort((a,b)=>a-b),0.30);
+      for(let i=0;i<r.length;i++){ const v=varS[i]; const s=clamp(Math.abs(r[i])*22 + v*18, 0, 1); stress.push(s);
+        if(v<=nodeTh)vfm=clamp(vfm+0.03*(1-v/(nodeTh||1e-6))+0.008,0,1); else vfm=Math.max(0,vfm*0.96); vfmA.push(vfm);
+        dVA.push(i>=6?varS[i]-varS[i-6]:0);
+        const cw=r.slice(Math.max(0,i-14),i+1), pw=pr.slice(Math.max(0,pr.length-cw.length)); corrB.push(clamp(1-Math.abs(pearson(cw,pw)),0,1));
+        volSc.push(clamp((vol[i+1]||vol[i]||0)/(volMean||1)/2.5,0,1)); }
+      const sSort=stress.slice().sort((a,b)=>a-b); const spanT=pct(sSort,0.62), crisT=pct(sSort,0.82);
+      const lastS=stress[stress.length-1]||0, lastV=varS[varS.length-1]||0, lastVfm=vfmA[vfmA.length-1]||0, lastDV=dVA[dVA.length-1]||0;
+      const regime=lastS>=crisT?'CRISIS':lastS>=spanT?'SPANNING':'RUST';
+      const lowPct=varS.filter(v=>v<=nodeTh).length/Math.max(1,varS.length), highPct=stress.filter(s=>s>=crisT).length/Math.max(1,stress.length);
+      // predicted ΔV-breakpoint: node-periode (TAM) + compressie/VFM → verwachte release-bar
+      let bp=null; try{ if(typeof TrinityCommodityBrain!=='undefined'){ const a=TrinityCommodityBrain._tam(key,tf||'1h'); if(a&&a.period){ bp={inBars:a.inBars, period:a.period, charged:lastVfm>=0.45 && lastV<=nodeTh*1.2}; } } }catch(e){}
+      const volScore=+((volSc[volSc.length-1]||0)).toFixed(2);
+      return { key, tf:tf||'1h', n:N, stress, varS, vfm:vfmA, dV:dVA, corrB, volSc, nodeTh:+nodeTh.toFixed(4), spanT:+spanT.toFixed(3), crisT:+crisT.toFixed(3),
+        last:{ stress:+lastS.toFixed(3), varr:+lastV.toFixed(3), vfm:+lastVfm.toFixed(3), dV:+lastDV.toFixed(4), regime }, regime,
+        lowPct:+lowPct.toFixed(2), highPct:+highPct.toFixed(2), breakpoint:bp, volScore, verify:this.verifyScore(key), candles:cs }; }catch(e){ return null; } },
+    // autonome verificatie: leg voorspelde breakpoints vast en meet of er een stress-spike op volgt
+    _verObs(key,st){ try{ const now=Date.now(); const v=this._ver[key]||(this._ver[key]={open:[],n:0,hit:0}); if(!st||!st.breakpoint||!st.breakpoint.charged)return;
+      if(now-(v._at||0)<20*60000)return; v._at=now; v.open.push({made:now,base:st.last.stress,due:now+st.breakpoint.period*3600000}); if(v.open.length>60)v.open.shift(); }catch(e){} },
+    _verResolve(key,curStress){ try{ const v=this._ver[key]; if(!v)return; const now=Date.now(); v.open.forEach(o=>{ if(o.done||now<o.due)return; o.done=true; v.n++; if((curStress-o.base)>=0.08)v.hit++; }); v.open=v.open.filter(o=>!o.done||now-o.due<3600000); }catch(e){} },
+    verifyScore(key){ try{ const v=this._ver[key]; if(!v||v.n<8)return null; return { n:v.n, hitRate:+(v.hit/v.n).toFixed(2), proven:v.n>=20 }; }catch(e){ return null; } },
+    tick(){ try{ ['WTI','BRENT','NGAS','GOLD','SILVER','PLAT','PALL','COPPER'].forEach(k=>{ const st=this.compute(k); if(st){ this._verObs(k,st); this._verResolve(k,st.last.stress); } }); }catch(e){} }
+  };
+  try{ window.TrinityCommodityFSO=F; }catch(e){}
+})();
+
+/* ==================================================================================
    TRINITY · COMMODITY CHART — Capital-prijs (candles) met de FSO als SCHADUW eroverheen
    (prijs-vol + range + momentum, versterkt door de LIVE ShockWave energie/supply/risk-off/
    contagion) + TAM-node-markers. Timeframe-selector 5m/15m/1h/4h/all. Rendert de gekozen
@@ -24713,41 +24768,80 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const tfw=document.getElementById('commo-chart-tfs'); if(tfw&&!tfw.children.length){ tfw.innerHTML=TFS.map(t=>`<button data-tf="${t}" onclick="window.__commoTF&&window.__commoTF('${t}')" style="background:${t===TF?'#134e4a':'#0c1a24'};color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.56rem;cursor:pointer;">${t}</button>`).join(''); } }catch(e){}
   }
   function _syncTF(){ try{ const tfw=document.getElementById('commo-chart-tfs'); if(tfw)[...tfw.children].forEach(b=>{ b.style.background=(b.getAttribute('data-tf')===TF)?'#134e4a':'#0c1a24'; }); }catch(e){} }
+  function _sessTint(ts){ try{ const d=new Date(ts); const h=d.getUTCHours()+d.getUTCMinutes()/60; const eu=h>=7&&h<16, us=h>=13&&h<21, asia=(h>=23||h<8);
+    if(eu&&us)return 'rgba(255,183,60,0.10)'; if(us)return 'rgba(255,138,60,0.055)'; if(eu)return 'rgba(20,241,149,0.05)'; if(asia)return 'rgba(127,216,255,0.05)'; return 'rgba(255,95,126,0.05)'; }catch(e){ return 'transparent'; } }
   function renderCommodityChart(){ const cv=document.getElementById('tr-commo-chart'); if(!cv)return; _buildControls(); _syncTF();
-    const ctx=cv.getContext('2d'); const dpr=window.devicePixelRatio||1; const W=cv.clientWidth||760, H=300;
-    cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+    const ctx=cv.getContext('2d'); const dpr=window.devicePixelRatio||1; const W=cv.clientWidth||760, H=440;
+    cv.style.height=H+'px'; cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
     const meta=document.getElementById('commo-chart-meta');
     const cands=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(SEL,TF):[];
     if(!cands||cands.length<3){ ctx.fillStyle='#5c7488'; ctx.font="12px 'JetBrains Mono',monospace"; ctx.textAlign='center';
       ctx.fillText('Geen candles voor '+(NAMES[SEL]||SEL)+' · '+TF+' — verbind de Capital-proxy en deploy de /history-route.', W/2, H/2);
       if(meta)meta.textContent=''; return; }
-    const cl=cands.map(c=>c.c); const n=cl.length; const padL=44,padR=10,padT=14,padB=18; const gw=W-padL-padR, gh=H-padT-padB;
-    let mn=Math.min.apply(null,cl), mx=Math.max.apply(null,cl); if(mn===mx){mn-=1;mx+=1;} const pad=(mx-mn)*0.08; mn-=pad; mx+=pad;
-    const x=i=>padL+gw*(i/(n-1)); const y=v=>padT+gh*(1-(v-mn)/(mx-mn));
-    // live ShockWave-versterking van de schaduw (energie/supply/risk-off/contagion) via het commodity-signaal
+    const cl=cands.map(c=>c.c), vv=cands.map(c=>c.v||0); const n=cl.length;
+    const padL=50,padR=52,padT=16,padB=14; const gw=W-padL-padR;
+    // drie zones: prijs (boven) · FSO-oscillator (midden) · volume (onder)
+    const priceH=Math.round((H-padT-padB)*0.50), fsoH=Math.round((H-padT-padB)*0.30), volH=(H-padT-padB)-priceH-fsoH-16;
+    const pTop=padT, pBot=pTop+priceH; const fTop=pBot+10, fBot=fTop+fsoH; const vTop=fBot+6, vBot=vTop+volH;
+    const x=i=>padL+gw*(i/(n-1));
+    let mn=Math.min.apply(null,cl), mx=Math.max.apply(null,cl); if(mn===mx){mn-=1;mx+=1;} const pd=(mx-mn)*0.10; mn-=pd; mx+=pd;
+    const yP=v=>pTop+priceH*(1-(v-mn)/(mx-mn));
+    const F=(typeof TrinityCommodityFSO!=='undefined')?TrinityCommodityFSO.compute(SEL,TF):null;
+    // --- SESSIE-TINTEN als achtergrond over de hele hoogte (Asia/EU/US/overlap) ---
+    for(let i=0;i<n-1;i++){ ctx.fillStyle=_sessTint(cands[i].t); ctx.fillRect(x(i),pTop,Math.max(1,x(i+1)-x(i)+0.6),vBot-pTop); }
+    // ================= PRIJS-ZONE =================
+    // FSO-schaduw (mountain) achter de prijs, versterkt door live ShockWave
     let liveFso=0.4; try{ const s=TrinityCommodities._last&&TrinityCommodities._last[SEL]; if(s&&s.fso!=null)liveFso=s.fso; }catch(e){}
-    const fso=_fsoSeries(cl); const tint=0.55+0.9*liveFso;
-    // FSO-schaduw (mountain, onderaan) — hoogte = per-candle FSO × live ShockWave-tint
-    ctx.beginPath(); ctx.moveTo(padL,H-padB);
-    for(let i=0;i<n;i++){ const h=clamp(fso[i]*tint,0,1); ctx.lineTo(x(i), (H-padB) - h*gh*0.9); }
-    ctx.lineTo(x(n-1),H-padB); ctx.closePath();
-    const grad=ctx.createLinearGradient(0,padT,0,H-padB); grad.addColorStop(0,'rgba(255,138,60,0.34)'); grad.addColorStop(1,'rgba(255,138,60,0.04)'); ctx.fillStyle=grad; ctx.fill();
-    // TAM-nodes (paars) — eigen periode per grondstof
-    try{ if(typeof TrinityCommodityBrain!=='undefined'){ const a=TrinityCommodityBrain.analyze(SEL,TF); const per=a&&a.node&&a.node.period; if(per>1){ ctx.fillStyle='rgba(199,146,234,0.9)'; for(let i=n-1;i>=0;i-=per){ ctx.beginPath(); ctx.arc(x(i),padT+6,2.4,0,6.283); ctx.fill(); ctx.strokeStyle='rgba(199,146,234,0.18)'; ctx.beginPath(); ctx.moveTo(x(i),padT); ctx.lineTo(x(i),H-padB); ctx.stroke(); } } } }catch(e){}
-    // prijslijn (blauw)
-    ctx.beginPath(); for(let i=0;i<n;i++){ const px=x(i),py=y(cl[i]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); } ctx.strokeStyle='#4fc3f7'; ctx.lineWidth=1.4; ctx.stroke();
-    // as-labels
+    const fsh=_fsoSeries(cl); const tint=0.5+0.8*liveFso;
+    ctx.beginPath(); ctx.moveTo(padL,pBot); for(let i=0;i<n;i++){ ctx.lineTo(x(i), pBot - clamp(fsh[i]*tint,0,1)*priceH*0.85); } ctx.lineTo(x(n-1),pBot); ctx.closePath();
+    const grad=ctx.createLinearGradient(0,pTop,0,pBot); grad.addColorStop(0,'rgba(255,138,60,0.22)'); grad.addColorStop(1,'rgba(255,138,60,0.03)'); ctx.fillStyle=grad; ctx.fill();
+    // TAM-nodes (paars, in de prijs-zone onderaan)
+    let per=0; try{ const a=TrinityCommodityBrain.analyze(SEL,TF); per=(a&&a.node&&a.node.period)||0; }catch(e){}
+    if(per>1){ for(let i=n-1;i>=0;i-=per){ ctx.strokeStyle='rgba(199,146,234,0.14)'; ctx.beginPath(); ctx.moveTo(x(i),pTop); ctx.lineTo(x(i),pBot); ctx.stroke(); ctx.fillStyle='rgba(199,146,234,0.85)'; ctx.beginPath(); ctx.arc(x(i),pBot-3,2,0,6.283); ctx.fill(); } }
+    // prijslijn
+    ctx.beginPath(); for(let i=0;i<n;i++){ const px=x(i),py=yP(cl[i]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); } ctx.strokeStyle='#4fc3f7'; ctx.lineWidth=1.4; ctx.stroke();
+    // prijs-as
     ctx.fillStyle='#5c7488'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right';
-    ctx.fillText(mx.toFixed(mx>=100?0:2),padL-4,padT+8); ctx.fillText(mn.toFixed(mn>=100?0:2),padL-4,H-padB);
-    ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+' candles',padL+2,padT+8);
-    // PREDICTED 4h: gestippelde doellijn + pijl vanaf de laatste prijs
-    try{ if(typeof TrinityCommodities!=='undefined'){ const pr=TrinityCommodities.predict4h(SEL); if(pr&&pr.target!=null&&pr.target>=mn&&pr.target<=mx){ const yt=y(pr.target),yl=y(cl[n-1]),xl=x(n-1); const col=pr.dir==='LONG'?'#14f195':'#ff5f7e';
-      ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(xl,yl); ctx.lineTo(padL+gw,yt); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.globalAlpha=0.35; ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
-      ctx.fillStyle=col; ctx.textAlign='right'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillText('4h '+(pr.dir==='LONG'?'▲':'▼')+' '+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw-2,yt-3); } } }catch(e){}
-    // MARKT-STATUS badge rechtsboven
-    try{ if(typeof TrinityCommodities!=='undefined'){ const mh=TrinityCommodities.marketHours(SEL); if(mh){ ctx.textAlign='right'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillStyle=mh.open?'#14f195':'#ff5f7e'; ctx.fillText((mh.open?'● markt open':'○ markt gesloten')+(mh.exchange?' · '+mh.exchange:''),padL+gw,padT+8); } } }catch(e){}
-    if(meta){ let m=''; try{ const a=TrinityCommodityBrain.analyze(SEL,TF); if(a){ m='NN '+(a.probUp!=null?Math.round(a.probUp*100)+'%↑':'—')+(a.cal&&a.cal.proven?'✓':'')+' · '+(a.regime||'')+(a.node?' · node ~'+a.node.inBars+'b':''); } const pr=TrinityCommodities.predict4h(SEL); if(pr)m+=' · 4h '+pr.dir+' '+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'% ('+Math.round(pr.conf*100)+'%'+(pr.shadow&&pr.shadow.proven?' ✓'+Math.round(pr.shadow.hitRate*100)+'%':'')+')'; }catch(e){} meta.textContent=m; }
+    ctx.fillText(mx.toFixed(mx>=100?0:2),padL-5,pTop+8); ctx.fillText(mn.toFixed(mn>=100?0:2),padL-5,pBot);
+    // PREDICTED 4h doellijn
+    try{ const pr=TrinityCommodities.predict4h(SEL); if(pr&&pr.target!=null&&pr.target>=mn&&pr.target<=mx){ const yt=yP(pr.target),col=pr.dir==='LONG'?'#14f195':'#ff5f7e';
+      ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
+      ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillText('4h '+(pr.dir==='LONG'?'▲':'▼')+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw+3,yt+3); } }catch(e){}
+    // header (één regel, links) + markt-badge (rechts) — geen overlap
+    ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+'pt',padL+2,pTop-4);
+    try{ const mh=TrinityCommodities.marketHours(SEL); if(mh){ ctx.textAlign='right'; ctx.fillStyle=mh.open?'#14f195':'#ff5f7e'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillText((mh.open?'● open':'○ dicht')+(mh.exchange?' · '+mh.exchange:''),padL+gw,pTop-4); } }catch(e){}
+    // ================= FSO-OSCILLATOR-ZONE =================
+    ctx.fillStyle='rgba(255,255,255,0.015)'; ctx.fillRect(padL,fTop,gw,fsoH);
+    const yF=v=>fBot-clamp(v,0,1)*fsoH;
+    if(F){ const fN=F.stress.length; const xF=j=>padL+gw*(j/Math.max(1,fN-1));
+      // drempellijnen: CRISIS (roze) + SPANNING (geel) + node (dim)
+      const dLine=(val,col,lbl)=>{ const yy=yF(val); ctx.setLineDash([5,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.7; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(padL+gw,yy); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]); ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText(lbl,padL+gw+3,yy+3); };
+      dLine(F.crisT,'#ff5f7e','CRISIS '+F.crisT.toFixed(2)); dLine(F.spanT,'#ffb627','SPANNING '+F.spanT.toFixed(2));
+      // VFM-energie als gevulde area (paars)
+      ctx.beginPath(); ctx.moveTo(padL,fBot); for(let j=0;j<fN;j++)ctx.lineTo(xF(j),yF(F.vfm[j])); ctx.lineTo(padL+gw,fBot); ctx.closePath(); ctx.fillStyle='rgba(199,146,234,0.16)'; ctx.fill();
+      // σ²-variance (cyaan, genormaliseerd op max)
+      let vmax=0; for(const v of F.varS)if(v>vmax)vmax=v; vmax=vmax||1;
+      const drawLine=(arr,col,w,norm)=>{ ctx.beginPath(); for(let j=0;j<arr.length;j++){ const v=norm?arr[j]/vmax:arr[j]; const px=xF(j),py=yF(v); j?ctx.lineTo(px,py):ctx.moveTo(px,py);} ctx.strokeStyle=col; ctx.lineWidth=w; ctx.stroke(); };
+      drawLine(F.varS,'#7fd8ff',1,true);           // σ²
+      drawLine(F.corrB,'#ff8a3c',1,false);         // corr-breuk
+      drawLine(F.vfm,'rgba(199,146,234,0.9)',1,false); // VFM-lijn
+      drawLine(F.stress,'#e8f4ff',1.5,false);      // stress (wit, dik)
+      // LOW / HIGH badges rechtsboven in de FSO-zone
+      ctx.textAlign='right'; ctx.font="8px 'JetBrains Mono',monospace";
+      ctx.fillStyle='#ffb627'; ctx.fillText('LOW '+Math.round(F.lowPct*100)+'%',padL+gw-2,fTop+9);
+      ctx.fillStyle='#ff5f7e'; ctx.fillText('HIGH '+Math.round(F.highPct*100)+'%',padL+gw-58,fTop+9);
+      // ΔV-breakpoint marker (verwachte release)
+      if(F.breakpoint&&F.breakpoint.charged){ ctx.fillStyle='#14f195'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('⚡ΔV-breakpoint ~'+F.breakpoint.inBars+'b',padL+3,fBot-3); }
+      ctx.fillStyle='#5c7488'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('FSO',padL+2,fTop+9);
+    } else { ctx.fillStyle='#5c7488'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText('FSO leert… (meer candles nodig)',padL+4,fTop+fsoH/2); }
+    // ================= VOLUME-STRIP =================
+    let vmaxV=0; for(const v of vv)if(v>vmaxV)vmaxV=v; vmaxV=vmaxV||1;
+    for(let i=0;i<n;i++){ const bh=(vv[i]/vmaxV)*volH; const up=i>0?cl[i]>=cl[i-1]:true; ctx.fillStyle=up?'rgba(20,241,149,0.5)':'rgba(255,95,126,0.5)'; ctx.fillRect(x(i)-1,vBot-bh,2,bh); }
+    ctx.fillStyle='#5c7488'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('VOLUME',padL+2,vTop+8);
+    // ---- meta-regel (alle scalars, DOM — geen canvas-clutter) ----
+    if(meta){ let m=''; try{ const a=TrinityCommodityBrain.analyze(SEL,TF);
+      if(F){ const rc=F.regime==='CRISIS'?'#ff5f7e':F.regime==='SPANNING'?'#ffb627':'#14f195'; m='FSO '+F.regime+' · stress '+F.last.stress+' · σ² '+F.last.varr+' · VFM '+Math.round(F.last.vfm*100)+'% · ΔV '+(F.last.dV>=0?'+':'')+F.last.dV.toFixed(3)+' · node '+F.nodeTh.toFixed(2)+' · vol '+Math.round(F.volScore*100)+'% · LOW '+Math.round(F.lowPct*100)+'%/HIGH '+Math.round(F.highPct*100)+'%'; if(F.verify)m+=' · verif '+Math.round(F.verify.hitRate*100)+'%'+(F.verify.proven?'✓':''); }
+      if(a)m+=' · NN '+(a.probUp!=null?Math.round(a.probUp*100)+'%↑':'—')+(a.cal&&a.cal.proven?'✓':'')+' '+(a.regime||''); const pr=TrinityCommodities.predict4h(SEL); if(pr)m+=' · 4h '+pr.dir+' '+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%'; }catch(e){} meta.textContent=m; }
   }
   try{ window.renderCommodityChart=renderCommodityChart; }catch(e){}
 })();
