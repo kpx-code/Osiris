@@ -24793,23 +24793,61 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
   const TFS=['5m','15m','1h','4h','all'];
   let SEL='WTI', TF='1h', MODE='line', _built=false;   // MODE: 'line' | 'candle'
+  // overlay-toggles (net als de crypto-chart): standaard uit, per-grondstof gekalibreerd wanneer aan
+  const VIS={ nodes:true, nn:true, fib:false, ma:false, rsi:false, energy:true };
+  let FIBSCALE='meso';   // micro | meso | macro
   const NAMES={WTI:'Crude Oil · WTI',BRENT:'Crude Oil · Brent',NGAS:'Natural Gas',GOLD:'Gold',SILVER:'Silver',PLAT:'Platinum',PALL:'Palladium',COPPER:'Copper'};
-  try{ window.__commoChartSel=v=>{ SEL=v; renderCommodityChart(); }; window.__commoTF=v=>{ TF=v; renderCommodityChart(); }; window.__commoMode=v=>{ MODE=v; renderCommodityChart(); }; }catch(e){}
+  try{ window.__commoChartSel=v=>{ SEL=v; renderCommodityChart(); }; window.__commoTF=v=>{ TF=v; renderCommodityChart(); }; window.__commoMode=v=>{ MODE=v; renderCommodityChart(); };
+    window.__commoTgl=k=>{ if(k in VIS){ VIS[k]=!VIS[k]; renderCommodityChart(); } }; window.__commoFibScale=v=>{ FIBSCALE=v; VIS.fib=true; renderCommodityChart(); }; }catch(e){}
   function _fsoSeries(cl){ const out=[]; for(let i=0;i<cl.length;i++){ const w=cl.slice(Math.max(0,i-10),i+1); if(w.length<3){out.push(0);continue;}
       const rets=[]; for(let k=1;k<w.length;k++)rets.push(w[k]/w[k-1]-1); const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
       const vol=Math.sqrt(rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/rets.length); const hi=Math.max.apply(null,w),lo=Math.min.apply(null,w);
       const rp=hi>lo?Math.abs((cl[i]-lo)/(hi-lo)-0.5)*2:0; const mom=Math.abs(cl[i]/w[0]-1);
       out.push(clamp(vol*40 + rp*0.35 + mom*6, 0, 1)); } return out; }
+  // ---- SMA ----
+  function _sma(cl,p){ const o=new Array(cl.length).fill(null); let s=0; for(let i=0;i<cl.length;i++){ s+=cl[i]; if(i>=p)s-=cl[i-p]; if(i>=p-1)o[i]=s/p; } return o; }
+  // ---- RSI (Wilder) ----
+  function _rsi(cl,p){ const o=new Array(cl.length).fill(null); if(cl.length<p+1)return o; let ag=0,al=0;
+    for(let i=1;i<=p;i++){ const d=cl[i]-cl[i-1]; if(d>=0)ag+=d; else al-=d; } ag/=p; al/=p; o[p]=al===0?100:100-100/(1+ag/al);
+    for(let i=p+1;i<cl.length;i++){ const d=cl[i]-cl[i-1]; ag=(ag*(p-1)+(d>0?d:0))/p; al=(al*(p-1)+(d<0?-d:0))/p; o[i]=al===0?100:100-100/(1+ag/al); } return o; }
+  // per-grondstof kalibratie van MA- en RSI-periode: kies de periode die de volgende-bar-richting
+  // het best voorspelt (hoogste hit-rate) op DEZE grondstof. Gecachet per (key,tf).
+  const _calCache={};
+  function _calib(key,tf,cl){ const ck=key+'|'+tf+'|'+cl.length; if(_calCache[ck])return _calCache[ck];
+    let maP=20,maBest=-1; for(const p of [10,20,50]){ const m=_sma(cl,p); let n=0,h=0; for(let i=p;i<cl.length-1;i++){ if(m[i]==null)continue; const long=cl[i]>m[i]; if((long&&cl[i+1]>cl[i])||(!long&&cl[i+1]<cl[i]))h++; n++; } const hr=n?h/n:0; if(hr>maBest){maBest=hr;maP=p;} }
+    let rsiP=14,rsiBest=-1; for(const p of [7,14,21]){ const r=_rsi(cl,p); let n=0,h=0; for(let i=p;i<cl.length-1;i++){ if(r[i]==null)continue; if(r[i]<=30){n++;if(cl[i+1]>cl[i])h++;} else if(r[i]>=70){n++;if(cl[i+1]<cl[i])h++;} } const hr=n?h/n:0; if(hr>rsiBest){rsiBest=hr;rsiP=p;} }
+    const out={maP,maHit:+Math.max(0,maBest).toFixed(2),rsiP,rsiHit:+Math.max(0,rsiBest).toFixed(2)}; _calCache[ck]=out; return out; }
+  // per-candle NN probUp uit het per-grondstof logistische model (voor de NN-cap-pijlen op de candles)
+  function _nnSeries(key,tf,cl){ try{ const B=window.TrinityCommodityBrain; if(!B)return null; B.analyze(key,tf); let m=(B.M[key]&&B.M[key][tf])||null; if(!m||!m.w){ try{ B._fit(key,tf); m=(B.M[key]&&B.M[key][tf])||null; }catch(e){} } if(!m||!m.w)return null;
+      const sig=z=>1/(1+Math.exp(-z)); const out=new Array(cl.length).fill(null);
+      for(let i=13;i<cl.length;i++){ const f=B._feat(cl,i); if(!f)continue; out[i]=sig(m.w.reduce((a,wj,j)=>a+wj*f[j],m.b)); }
+      return {prob:out, cal:{hitRate:m.hitRate,proven:m.proven,n:m.n}}; }catch(e){ return null; } }
+  // TAM-nodes crypto-stijl: per-grondstof swing-periode als node-afstand, 8-cyclus type (RESET/VOLA/CORE/OSC)
+  function _nodeSeries(key,tf,n){ try{ const a=window.TrinityCommodityBrain&&window.TrinityCommodityBrain.analyze(key,tf); const per=(a&&a.node&&a.node.period)||0; if(per<2)return null;
+      const nodes=[]; let cnt=0; for(let i=n-1;i>=0;i-=per){ const rel=cnt%8; let type='osc'; if(rel===0)type='reset'; else if(rel===1)type='vola'; else if(rel===3)type='core3'; else if(rel===6)type='core6'; nodes.push({i,type,num:cnt}); cnt++; } return {nodes:nodes.reverse(),period:per}; }catch(e){ return null; } }
+  // fib-schalen: micro/meso/macro = lookback-venster → swing high/low → standaard fib-niveaus + extensies
+  function _fibLevels(cl,scale){ const n=cl.length; const win=scale==='micro'?Math.min(n,Math.max(12,Math.round(n*0.12))):scale==='macro'?n:Math.min(n,Math.max(30,Math.round(n*0.45)));
+    const seg=cl.slice(n-win); let hi=-Infinity,lo=Infinity,hiI=0,loI=0; for(let i=0;i<seg.length;i++){ if(seg[i]>hi){hi=seg[i];hiI=i;} if(seg[i]<lo){lo=seg[i];loI=i;} }
+    if(!(hi>lo))return null; const up=hiI>loI; const rng=hi-lo;   // up-swing: 0=hi,1=lo (retrace omlaag); anders omgekeerd
+    const ratios=[['1.618',1.618],['1.272',1.272],['1.0',1.0],['0.782',0.782],['0.618',0.618],['0.5',0.5],['0.382',0.382],['0.236',0.236],['0.0',0.0],['-0.272',-0.272],['-0.618',-0.618]];
+    const levels=ratios.map(([lab,r])=>({lab, r, price: up ? hi - r*rng : lo + r*rng }));
+    return { levels, hi, lo, up, win }; }
   function _buildControls(){ if(_built)return; _built=true;
     try{ const sel=document.getElementById('commo-chart-sel'); if(sel&&!sel.options.length){ sel.innerHTML=Object.keys(NAMES).map(k=>`<option value="${k}">${NAMES[k]}</option>`).join(''); sel.value=SEL; }
+      const btn=(attr,val,lab,on)=>`<button ${attr}="${val}" onclick="${on}" style="background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.56rem;cursor:pointer;">${lab}</button>`;
       const tfw=document.getElementById('commo-chart-tfs'); if(tfw&&!tfw.children.length){
-        const btn=(attr,val,lab,on)=>`<button ${attr}="${val}" onclick="${on}" style="background:${'#0c1a24'};color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.56rem;cursor:pointer;">${lab}</button>`;
         const tfBtns=TFS.map(t=>btn('data-tf',t,t,`window.__commoTF&&window.__commoTF('${t}')`)).join('');
         const modeBtns=[['line','Lijn'],['candle','Candles']].map(([m,l])=>btn('data-mode',m,l,`window.__commoMode&&window.__commoMode('${m}')`)).join('');
         tfw.innerHTML=tfBtns+'<span style="display:inline-block;width:10px;"></span><span style="display:inline-block;width:1px;height:16px;background:var(--line);vertical-align:middle;margin:0 4px;"></span>'+modeBtns;
+      }
+      const tw=document.getElementById('commo-chart-tools'); if(tw&&!tw.children.length){
+        const tgl=[['nodes','Nodes'],['nn','NN'],['ma','MA'],['rsi','RSI'],['fib','Fibs'],['energy','Energie']].map(([k,l])=>btn('data-tgl',k,l,`window.__commoTgl&&window.__commoTgl('${k}')`)).join('');
+        const fibBtns=[['micro','µ'],['meso','M'],['macro','XL']].map(([s,l])=>btn('data-fib',s,l,`window.__commoFibScale&&window.__commoFibScale('${s}')`)).join('');
+        tw.innerHTML='<span style="font-size:0.5rem;color:var(--dimmer);align-self:center;">overlays:</span>'+tgl+'<span style="display:inline-block;width:1px;height:16px;background:var(--line);vertical-align:middle;margin:0 4px;"></span><span style="font-size:0.5rem;color:var(--dimmer);align-self:center;">fib-schaal:</span>'+fibBtns;
       } }catch(e){}
   }
-  function _syncTF(){ try{ const tfw=document.getElementById('commo-chart-tfs'); if(tfw)[...tfw.children].forEach(b=>{ if(b.hasAttribute&&b.hasAttribute('data-tf'))b.style.background=(b.getAttribute('data-tf')===TF)?'#134e4a':'#0c1a24'; else if(b.hasAttribute&&b.hasAttribute('data-mode'))b.style.background=(b.getAttribute('data-mode')===MODE)?'#134e4a':'#0c1a24'; }); }catch(e){} }
+  function _syncTF(){ try{ const tfw=document.getElementById('commo-chart-tfs'); if(tfw)[...tfw.children].forEach(b=>{ if(b.hasAttribute&&b.hasAttribute('data-tf'))b.style.background=(b.getAttribute('data-tf')===TF)?'#134e4a':'#0c1a24'; else if(b.hasAttribute&&b.hasAttribute('data-mode'))b.style.background=(b.getAttribute('data-mode')===MODE)?'#134e4a':'#0c1a24'; });
+    const tw=document.getElementById('commo-chart-tools'); if(tw)[...tw.children].forEach(b=>{ if(b.hasAttribute&&b.hasAttribute('data-tgl'))b.style.background=VIS[b.getAttribute('data-tgl')]?'#134e4a':'#0c1a24'; else if(b.hasAttribute&&b.hasAttribute('data-fib'))b.style.background=(VIS.fib&&b.getAttribute('data-fib')===FIBSCALE)?'#134e4a':'#0c1a24'; }); }catch(e){} }
   // NETTE tijdschaal: ronde tijdgrenzen (bv. 15:00, 15:15, …) i.p.v. willekeurige punten
   function _timeTicks(cands){ const n=cands.length; if(n<2)return {ticks:[],intraday:true};
     const t0=cands[0].t, t1=cands[n-1].t, span=t1-t0; if(!(span>0))return {ticks:[],intraday:true};
@@ -24882,11 +24920,17 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       if(TK.intraday&&(tk.newDay||ti===0)){ ctx.fillStyle='#4d6377'; ctx.font="7px 'JetBrains Mono',monospace"; ctx.fillText(p2(dt.getDate())+'/'+p2(dt.getMonth()+1),clamped,H-1); ctx.fillStyle='#7d93a6'; ctx.font="8px 'JetBrains Mono',monospace"; }
     });
     // ================= PRIJS (bovenste zone) =================
-    // FSO-schaduw (mountain) achter de prijs, versterkt door live ShockWave
-    let liveFso=0.4; try{ const s=TrinityCommodities._last&&TrinityCommodities._last[SEL]; if(s&&s.fso!=null)liveFso=s.fso; }catch(e){}
-    const fsh=_fsoSeries(cl); const tint=0.5+0.8*liveFso;
-    ctx.beginPath(); ctx.moveTo(padL,priceBot); for(let i=0;i<n;i++){ ctx.lineTo(x(i), priceBot - clamp(fsh[i]*tint,0,1)*priceH*0.80); } ctx.lineTo(x(n-1),priceBot); ctx.closePath();
-    const grad=ctx.createLinearGradient(0,plotT,0,priceBot); grad.addColorStop(0,'rgba(255,138,60,0.20)'); grad.addColorStop(1,'rgba(255,138,60,0.02)'); ctx.fillStyle=grad; ctx.fill();
+    // FSO-SCHADUW = OPGESPANNEN ENERGIE (compressie/VFM), bodem-verankerd, gekleurd naar regime.
+    // Interpretatie voor de trader: HOE HOGER de schaduw, hoe meer opgebouwde energie → grotere kans
+    // op een uitbraak (richting volgt uit NN/predicted). Laag/vlak = ontladen/rustig. Toggle: Energie.
+    const regCol=F? (F.regime==='CRISIS'?[255,95,126]:F.regime==='SPANNING'?[255,182,39]:[38,208,124]) : [255,138,60];
+    if(VIS.energy){ const en = AV ? AV.vfm : _fsoSeries(cl);
+      ctx.beginPath(); ctx.moveTo(padL,priceBot); for(let i=0;i<n;i++){ ctx.lineTo(x(i), priceBot - clamp(en[i],0,1)*priceH*0.78); } ctx.lineTo(x(n-1),priceBot); ctx.closePath();
+      const grad=ctx.createLinearGradient(0,plotT,0,priceBot); grad.addColorStop(0,`rgba(${regCol[0]},${regCol[1]},${regCol[2]},0.22)`); grad.addColorStop(1,`rgba(${regCol[0]},${regCol[1]},${regCol[2]},0.02)`); ctx.fillStyle=grad; ctx.fill();
+      // live energie-% badge + regime, linksonder in de prijs-zone
+      const enNow=Math.round((AV?AV.vfm[n-1]:0)*100); ctx.fillStyle=`rgb(${regCol[0]},${regCol[1]},${regCol[2]})`; ctx.textAlign='left'; ctx.font="8px 'JetBrains Mono',monospace";
+      ctx.fillText('⚡ energie '+enNow+'% · '+(F?F.regime:'—'),padL+3,priceBot-4);
+    }
     // ---- VOLUME-PROFIEL (volume-op-prijs) rechts, realtime uit de candles ----
     (function(){ const BINS=46; const bins=new Array(BINS).fill(0); const lo=mn, hi=mx, rng=(hi-lo)||1;
       for(let i=0;i<n;i++){ const c=cands[i]; const v=vv[i]; if(!(v>0))continue; let a=(c.l!=null?c.l:cl[i]), b=(c.h!=null?c.h:cl[i]); if(b<a){const t=a;a=b;b=t;}
@@ -24900,9 +24944,17 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const yPoc=plotT+priceH*(1-(poc+0.5)/BINS); ctx.strokeStyle='rgba(255,183,60,0.55)'; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(padL,yPoc); ctx.lineTo(padL+gw,yPoc); ctx.stroke(); ctx.setLineDash([]);
       ctx.fillStyle='rgba(255,183,60,0.9)'; ctx.textAlign='right'; ctx.font="7px 'JetBrains Mono',monospace"; ctx.fillText('POC',padL+gw-2,yPoc-2);
     })();
-    // TAM-nodes (paars, verticaal, onderaan de prijs-zone een stip)
-    let per=0; try{ const a=TrinityCommodityBrain.analyze(SEL,TF); per=(a&&a.node&&a.node.period)||0; }catch(e){}
-    if(per>1){ for(let i=n-1;i>=0;i-=per){ ctx.strokeStyle='rgba(199,146,234,0.12)'; ctx.beginPath(); ctx.moveTo(x(i),plotT); ctx.lineTo(x(i),priceBot); ctx.stroke(); ctx.fillStyle='rgba(199,146,234,0.85)'; ctx.beginPath(); ctx.arc(x(i),priceBot-3,2,0,6.283); ctx.fill(); } }
+    // ---- FIBONACCI-NIVEAUS (micro/meso/macro) op de prijs + rechter prijs-ladder ----
+    if(VIS.fib){ const fib=_fibLevels(cl,FIBSCALE); if(fib){ const fcol={'1.618':'#ff3b5c','1.272':'#ff5fa0','1.0':'#e8eef4','0.782':'#7fd8ff','0.618':'#26d07c','0.5':'#7fd8ff','0.382':'#ffb627','0.236':'#ffd76a','0.0':'#e8eef4','-0.272':'#ff8a3c','-0.618':'#ff3b5c'};
+      ctx.textAlign='right'; ctx.font="7px 'JetBrains Mono',monospace"; const dec2=mx>=100?1:(mx>=10?2:3);
+      fib.levels.forEach(L=>{ if(L.price<mn||L.price>mx)return; const yy=yP(L.price); const c=fcol[L.lab]||'#8aa'; ctx.strokeStyle=c; ctx.globalAlpha=(L.lab==='0.618'||L.lab==='0.5'||L.lab==='0.382')?0.5:0.28; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(padL+gw,yy); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
+        ctx.fillStyle=c; ctx.fillText(L.lab+' '+L.price.toFixed(dec2),padL+gw-2,yy-1); });
+      ctx.fillStyle='#6d8296'; ctx.textAlign='left'; ctx.font="7px 'JetBrains Mono',monospace"; ctx.fillText('FIB '+FIBSCALE+' · '+fib.win+'c '+(fib.up?'↑swing':'↓swing'),padL+3,plotT+20);
+    } }
+    // ---- MA (per-grondstof gekalibreerde periode) ----
+    let _cal=null; try{ _cal=_calib(SEL,TF,cl); }catch(e){}
+    if(VIS.ma && _cal){ const ma=_sma(cl,_cal.maP); ctx.beginPath(); let st=false; for(let i=0;i<n;i++){ if(ma[i]==null)continue; const px=x(i),py=yP(ma[i]); st?ctx.lineTo(px,py):(ctx.moveTo(px,py),st=true); } ctx.strokeStyle='#ffd76a'; ctx.lineWidth=1.2; ctx.stroke();
+      ctx.fillStyle='#ffd76a'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('MA'+_cal.maP+' ('+Math.round(_cal.maHit*100)+'%)',padL+3,plotT+30); }
     if(MODE==='candle'){
       // ECHTE candlesticks (o/h/l/c) — groen omhoog, roze omlaag
       const bw=Math.max(1.4, Math.min(9, gw/n*0.66));
@@ -24920,6 +24972,23 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // prijs-as (links): max / mid / min
     ctx.fillStyle='#5c7488'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; const dec=mx>=100?1:(mx>=10?2:3);
     ctx.fillText(mx.toFixed(dec),padL-5,plotT+8); ctx.fillText(((mx+mn)/2).toFixed(dec),padL-5,plotT+priceH/2+3); ctx.fillText(mn.toFixed(dec),padL-5,priceBot);
+    // ---- TAM-NODES bij de candles (crypto-stijl): RESET/VOLA/CORE/OSC, per-grondstof periode ----
+    if(VIS.nodes){ const ns=_nodeSeries(SEL,TF,n); if(ns){ const NC={reset:'#e8eef4',vola:'#ffd500',core3:'#26d0cc',core6:'#26d0cc',osc:'#7d8a99'};
+      ns.nodes.forEach(nd=>{ const xc=x(nd.i); const c=cands[nd.i]; const hi=(c&&c.h!=null)?c.h:cl[nd.i]; const yy=yP(hi)-6; const col=NC[nd.type]||'#7d8a99';
+        ctx.strokeStyle=col; ctx.globalAlpha=0.14; ctx.beginPath(); ctx.moveTo(xc,plotT); ctx.lineTo(xc,priceBot); ctx.stroke(); ctx.globalAlpha=1;
+        ctx.fillStyle=col; if(nd.type==='reset'){ ctx.beginPath(); ctx.arc(xc,yy,2.6,0,6.283); ctx.fill(); } else if(nd.type==='vola'){ ctx.beginPath(); ctx.arc(xc,yy,2.4,0,6.283); ctx.fill(); } else if(nd.type==='core3'||nd.type==='core6'){ ctx.beginPath(); ctx.moveTo(xc-3,yy-4); ctx.lineTo(xc+3,yy-4); ctx.lineTo(xc,yy+1); ctx.closePath(); ctx.fill(); } else { ctx.fillRect(xc-1.5,yy-1.5,3,3); }
+      });
+      // label alleen bij de meest recente node van elk hoofdtype (geen clutter)
+      const seen={}; for(let j=ns.nodes.length-1;j>=0;j--){ const nd=ns.nodes[j]; if(nd.type==='osc'||seen[nd.type])continue; seen[nd.type]=1; const xc=x(nd.i); const c=cands[nd.i]; const hi=(c&&c.h!=null)?c.h:cl[nd.i]; const lbl=nd.type==='reset'?'RESET':nd.type==='vola'?'VOLA':'CORE'; ctx.fillStyle=NC[nd.type]; ctx.font="7px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText(lbl+' '+nd.num,Math.max(padL+16,Math.min(padL+gw-16,xc)),yP(hi)-10); }
+      ctx.fillStyle='#6d8296'; ctx.textAlign='left'; ctx.font="7px 'JetBrains Mono',monospace"; ctx.fillText('nodes ×'+ns.period+'c',padL+3,plotT+40);
+    } }
+    // ---- NEO'S NODE (NN) cap-pijlen bij de candles: waar de per-grondstof NN omslaat ----
+    if(VIS.nn){ const nn=_nnSeries(SEL,TF,cl); if(nn&&nn.prob){ let prev=null;
+      for(let i=13;i<n;i++){ const p=nn.prob[i]; if(p==null)continue; if(prev!=null){ const up=(p>=0.5), was=(prev>=0.5);
+        if(up!==was && Math.abs(p-0.5)>0.06){ const c=cands[i]; const xc=x(i); if(up){ const yy=yP((c&&c.l!=null)?c.l:cl[i])+9; ctx.fillStyle='#26d07c'; ctx.beginPath(); ctx.moveTo(xc,yy-5); ctx.lineTo(xc-3,yy); ctx.lineTo(xc+3,yy); ctx.closePath(); ctx.fill(); } else { const yy=yP((c&&c.h!=null)?c.h:cl[i])-9; ctx.fillStyle='#ff5f7e'; ctx.beginPath(); ctx.moveTo(xc,yy+5); ctx.lineTo(xc-3,yy); ctx.lineTo(xc+3,yy); ctx.closePath(); ctx.fill(); } } }
+        prev=p; }
+      const pl=nn.prob[n-1]; if(pl!=null){ ctx.fillStyle=pl>=0.5?'#26d07c':'#ff5f7e'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('NN '+Math.round(pl*100)+'%'+(pl>=0.5?'↑':'↓')+(nn.cal&&nn.cal.proven?'✓':''),padL+3,plotT+50); }
+    } }
     // PREDICTED 4h doellijn
     try{ const pr=TrinityCommodities.predict4h(SEL); if(pr&&pr.target!=null&&pr.target>=mn&&pr.target<=mx){ const yt=yP(pr.target),col=pr.dir==='LONG'?'#14f195':'#ff5f7e';
       ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.55; ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
@@ -24957,6 +25026,11 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.fillStyle='#ffd76a'; ctx.fillText('▧ HIGH '+Math.round(F.highPct*100)+'%',bx+5,by+9);
       ctx.fillStyle='#ff8a94'; ctx.fillText('▧ LOW '+Math.round(F.lowPct*100)+'%',bx+62,by+9);
     } else { ctx.fillStyle='#5c7488'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText('FSO leert… (meer candles nodig)',padL+4,oscTop+oscH/2); }
+    // ---- RSI (per-grondstof gekalibreerde periode) in de oscillator-zone, schaal 0..1 (=RSI/100) ----
+    if(VIS.rsi && _cal){ const r=_rsi(cl,_cal.rsiP);
+      [0.3,0.7].forEach(g=>{ const yy=yO(g); ctx.strokeStyle='rgba(255,214,106,0.30)'; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(padL+gw,yy); ctx.stroke(); ctx.setLineDash([]); });
+      ctx.beginPath(); let st=false; for(let i=0;i<n;i++){ if(r[i]==null)continue; const px=x(i),py=yO(r[i]/100); st?ctx.lineTo(px,py):(ctx.moveTo(px,py),st=true); } ctx.strokeStyle='#ffd76a'; ctx.lineWidth=1.2; ctx.stroke();
+      const rl=r[n-1]; ctx.fillStyle='#ffd76a'; ctx.textAlign='right'; ctx.font="7.5px 'JetBrains Mono',monospace"; if(rl!=null)ctx.fillText('RSI'+_cal.rsiP+' '+Math.round(rl),padL+gw-2,oscBot-3); }
     // ---- meta-regel (alle scalars, DOM — geen canvas-clutter) ----
     if(meta){ let m=''; try{ const a=TrinityCommodityBrain.analyze(SEL,TF);
       if(F){ const rc=F.regime==='CRISIS'?'#ff5f7e':F.regime==='SPANNING'?'#ffb627':'#14f195'; m='FSO '+F.regime+' · stress '+F.last.stress+' · σ² '+F.last.varr+' · VFM '+Math.round(F.last.vfm*100)+'% · ΔV '+(F.last.dV>=0?'+':'')+F.last.dV.toFixed(3)+' · node '+F.nodeTh.toFixed(2)+' · vol '+Math.round(F.volScore*100)+'% · LOW '+Math.round(F.lowPct*100)+'%/HIGH '+Math.round(F.highPct*100)+'%'; if(F.verify)m+=' · verif '+Math.round(F.verify.hitRate*100)+'%'+(F.verify.proven?'✓':''); }
