@@ -24831,11 +24831,29 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     brainAnalyze:(k,tf)=>TrinityCommodityBrain.analyze('CX:'+k,tf,CryptoSysCandles.candles(SEL,tf)),
     nsKey:(k)=>'CX:'+k, brainCands:(k,tf)=>CryptoSysCandles.candles(k,tf),
     onRender:()=>{ CryptoSysCandles.load(SEL,TF); }, emptyMsg:(k,tf)=>'Candles laden voor '+(CRYPTO_NAMES[k]||k)+' · '+tf+' … (Binance klines)' };
+  // ---- FX chart-bron (Capital-candles per pair, zelfde unified paneel) ----
+  const FX_NAMES2={}; try{ (typeof PAIRS!=='undefined'?PAIRS:['EUR/USD']).forEach(p=>FX_NAMES2[p]=p); }catch(e){}
+  const FX_PEER2=(p)=>({'EUR/USD':'GBP/USD','GBP/USD':'EUR/USD','USD/JPY':'USD/CHF','USD/CHF':'USD/JPY','AUD/USD':'NZD/USD','NZD/USD':'AUD/USD','USD/CAD':'USD/CHF','EUR/JPY':'GBP/JPY','GBP/JPY':'EUR/JPY','EUR/GBP':'EUR/USD'}[p])||'EUR/USD';
+  function _fxPredict(k){ try{ const tf=FXSRC.st.TF; const cs=window.FxCandles?window.FxCandles.candles(k,tf):[]; if(!cs||cs.length<14)return null; const cl=cs.map(c=>c.c);
+    const rets=[]; for(let i=Math.max(1,cl.length-24);i<cl.length;i++)rets.push(cl[i]/cl[i-1]-1); const m=rets.reduce((a,b)=>a+b,0)/rets.length; const vol=Math.sqrt(rets.reduce((a,b)=>a+(b-m)*(b-m),0)/rets.length)||0.001;
+    const a=TrinityCommodityBrain.analyze('FX:'+k,tf,cs); const probUp=(a&&a.probUp!=null)?a.probUp:0.5; const dir=probUp>=0.5?'LONG':'SHORT'; const score=Math.abs(probUp-0.5)*2;
+    const expMovePct=+(score*vol*4*100).toFixed(3); const px=cl[cl.length-1]; const target=+(px*(1+(dir==='LONG'?1:-1)*expMovePct/100)).toFixed(px>=100?2:5);
+    return {dir,expMovePct,target,conf:+Math.min(0.95,0.5+score*0.3).toFixed(2),horizon:'4h'}; }catch(e){ return null; } }
+  const FXSRC={ name:'fx', names:FX_NAMES2, st:_mkSt('EUR/USD'), fns:'__fx', _built:false,
+    dom:{canvas:'fx-sys-chart',meta:'fx-sys-meta',sel:'fx-sys-sel',tfs:'fx-sys-tfs',tools:'fx-sys-tools'},
+    candles:(k,tf)=>window.FxCandles?window.FxCandles.candles(k,tf):[],
+    fso:(k,tf)=>(typeof TrinityCommodityFSO!=='undefined'&&window.FxCandles)?TrinityCommodityFSO.compute('FX:'+k,tf,window.FxCandles.candles(k,tf),window.FxCandles.candles(FX_PEER2(k),tf)):null,
+    predict:(k)=>_fxPredict(k),
+    market:(k)=>{ try{ const mk=(typeof fxMarketOpen==='function')?fxMarketOpen():{open:true}; return {open:mk.open,status:mk.open?'open':'weekend',session:mk.session?mk.session.name:(mk.open?'FX 24/5':'weekend'),volFactor:mk.session&&/overlap/i.test(mk.session.name||'')?1.4:1,overlap:!!(mk.session&&/overlap/i.test(mk.session.name||'')),exchange:'Capital FX'}; }catch(e){ return {open:true,session:'FX 24/5',volFactor:1,overlap:false,exchange:'Capital FX'}; } },
+    brainAnalyze:(k,tf)=>TrinityCommodityBrain.analyze('FX:'+k,tf,window.FxCandles?window.FxCandles.candles(SEL,tf):[]),
+    nsKey:(k)=>'FX:'+k, brainCands:(k,tf)=>window.FxCandles?window.FxCandles.candles(k,tf):[],
+    onRender:()=>{ if(window.FxCandles)window.FxCandles.load(SEL,TF); }, emptyMsg:(k,tf)=>'Candles laden voor '+k+' · '+tf+' … (Capital FX /history)' };
   function _activate(src){ SRC=src; SEL=src.st.SEL; TF=src.st.TF; MODE=src.st.MODE; FIBSCALE=src.st.FIBSCALE; VIS=src.st.VIS; NAMES=src.names; }
   function _ctl(src){ return { sel:v=>{src.st.SEL=v;_activate(src);_render();}, tf:v=>{src.st.TF=v;_activate(src);_render();}, mode:v=>{src.st.MODE=v;_activate(src);_render();},
     tgl:k=>{ if(k in src.st.VIS){src.st.VIS[k]=!src.st.VIS[k];_activate(src);_render();} }, fib:v=>{src.st.FIBSCALE=v;src.st.VIS.fib=true;_activate(src);_render();} }; }
   try{ const cC=_ctl(COMMO); window.__commoChartSel=cC.sel; window.__commoSel=cC.sel; window.__commoTF=cC.tf; window.__commoMode=cC.mode; window.__commoTgl=cC.tgl; window.__commoFib=cC.fib; window.__commoFibScale=cC.fib;
-    const cX=_ctl(CRYPTO); window.__cxSel=cX.sel; window.__cxTF=cX.tf; window.__cxMode=cX.mode; window.__cxTgl=cX.tgl; window.__cxFib=cX.fib; }catch(e){}
+    const cX=_ctl(CRYPTO); window.__cxSel=cX.sel; window.__cxTF=cX.tf; window.__cxMode=cX.mode; window.__cxTgl=cX.tgl; window.__cxFib=cX.fib;
+    const cF=_ctl(FXSRC); window.__fxSel=cF.sel; window.__fxChartSel=cF.sel; window.__fxTF=cF.tf; window.__fxMode=cF.mode; window.__fxTgl=cF.tgl; window.__fxFib=cF.fib; }catch(e){}
   function _fsoSeries(cl){ const out=[]; for(let i=0;i<cl.length;i++){ const w=cl.slice(Math.max(0,i-10),i+1); if(w.length<3){out.push(0);continue;}
       const rets=[]; for(let k=1;k<w.length;k++)rets.push(w[k]/w[k-1]-1); const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
       const vol=Math.sqrt(rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/rets.length); const hi=Math.max.apply(null,w),lo=Math.min.apply(null,w);
@@ -25087,9 +25105,10 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   }
   function renderCommodityChart(){ _activate(COMMO); _render(); }
   function renderCryptoSysChart(){ _activate(CRYPTO); _render(); }
-  try{ window.renderCommodityChart=renderCommodityChart; window.renderCryptoSysChart=renderCryptoSysChart; }catch(e){}
-  // auto-render + candle-refresh van de crypto-systeemchart zolang die in beeld is
-  try{ setInterval(function(){ try{ const cv=document.getElementById('cx-sys-chart'); if(cv&&cv.offsetParent!==null){ renderCryptoSysChart(); } }catch(e){} }, 4000); }catch(e){}
+  function renderFxSysChart(){ _activate(FXSRC); _render(); }
+  try{ window.renderCommodityChart=renderCommodityChart; window.renderCryptoSysChart=renderCryptoSysChart; window.renderFxSysChart=renderFxSysChart; }catch(e){}
+  // auto-render + candle-refresh van de crypto- én FX-systeemchart zolang die in beeld zijn
+  try{ setInterval(function(){ try{ const cv=document.getElementById('cx-sys-chart'); if(cv&&cv.offsetParent!==null){ renderCryptoSysChart(); } const fv=document.getElementById('fx-sys-chart'); if(fv&&fv.offsetParent!==null){ renderFxSysChart(); } }catch(e){} }, 4000); }catch(e){}
 })();
 
 /* ==================================================================================
@@ -25138,15 +25157,32 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function swingTurns(cl,thr){ const t=[]; let lastEx=cl[0],dir=0; for(let i=1;i<cl.length;i++){ const ch=(cl[i]-lastEx)/(Math.abs(lastEx)||1);
     if(dir>=0&&ch<=-thr){t.push(i);dir=-1;lastEx=cl[i];} else if(dir<=0&&ch>=thr){t.push(i);dir=1;lastEx=cl[i];} else if((dir>0&&cl[i]>lastEx)||(dir<0&&cl[i]<lastEx))lastEx=cl[i]; } return t; }
 
+  // ============ PROVIDERS: commodity (Capital) + FX (Capital) — zelfde engine, per markt ============
+  const PEER_C={WTI:'BRENT',BRENT:'WTI',NGAS:'WTI',GOLD:'SILVER',SILVER:'GOLD',PLAT:'PALL',PALL:'PLAT',COPPER:'GOLD'};
+  const FX=(typeof PAIRS!=='undefined')?PAIRS.slice():['EUR/USD','GBP/USD','USD/JPY'];
+  const FX_NAMES={}; FX.forEach(p=>FX_NAMES[p]=p);
+  const FX_PEER=(p)=>({'EUR/USD':'GBP/USD','GBP/USD':'EUR/USD','USD/JPY':'USD/CHF','USD/CHF':'USD/JPY','AUD/USD':'NZD/USD','NZD/USD':'AUD/USD','USD/CAD':'USD/CHF','EUR/JPY':'GBP/JPY','GBP/JPY':'EUR/JPY','EUR/GBP':'EUR/USD'}[p])||'EUR/USD';
+  // FX Capital-candle-store (zelfde /history-proxy als commodity; epic = pair zonder '/')
+  const FxCandles={ hist:{}, _at:{}, _res:{'5m':'MINUTE_5','15m':'MINUTE_15','1h':'HOUR','4h':'HOUR_4','all':'DAY'},
+    candles(pair,tf){ try{ return (this.hist[pair]&&this.hist[pair][tf])||[]; }catch(e){ return []; } },
+    epic(pair){ return pair.replace('/',''); },
+    load(pair,tf){ try{ const px=(typeof capProxy!=='undefined'&&capProxy)?capProxy:null; if(!px)return; const res=this._res[tf]||'HOUR'; const k=pair+'|'+tf; const now=Date.now(); const gap=(tf==='all'?30*60000:tf==='4h'?10*60000:tf==='1h'?4*60000:2*60000); if(now-(this._at[k]||0)<gap)return; this._at[k]=now;
+      fetch(px+'/history?epic='+encodeURIComponent(this.epic(pair))+'&resolution='+res+'&max=300').then(r=>r&&r.ok?r.json():null).then(d=>{ if(d&&Array.isArray(d.candles)&&d.candles.length){ (this.hist[pair]||(this.hist[pair]={}))[tf]=d.candles; } }).catch(()=>{}); }catch(e){} },
+    refresh(tf){ try{ FX.forEach(p=>this.load(p,tf||'1h')); }catch(e){} } };
+  try{ window.FxCandles=FxCandles; }catch(e){}
+  const PROV_COMMO={ key:'commo', ns:'', names:NAMES, markets:MK, candles:(k,tf)=>{ const C=window.TrinityCommodities; return C?C.candles(k,tf):[]; }, peer:(k)=>PEER_C[k]||'WTI' };
+  const PROV_FX={ key:'fx', ns:'FX:', names:FX_NAMES, markets:FX, candles:(k,tf)=>FxCandles.candles(k,tf), peer:FX_PEER };
+
   const ENG={
-    MK, NAMES, TPI, NODE_MS, ANCHOR, NODE_TYPE,
+    MK, NAMES, TPI, NODE_MS, ANCHOR, NODE_TYPE, FX, FX_NAMES, PROV_COMMO, PROV_FX, FxCandles,
     _cache:{}, _at:{},
     // hoofd-analyse per (markt,tf), gecachet ~20s
-    analyze(key,tf){ tf=tf||'1h'; const ck=key+'|'+tf; const now=Date.now(); if(this._cache[ck]&&now-(this._at[ck]||0)<20000)return this._cache[ck];
-      try{ const C=window.TrinityCommodities; const cs=C?C.candles(key,tf):[]; if(!cs||cs.length<40){ const o={key,tf,ready:false}; this._cache[ck]=o; this._at[ck]=now; return o; }
+    analyze(key,tf,prov){ prov=prov||PROV_COMMO; tf=tf||'1h'; const ck=prov.ns+key+'|'+tf; const now=Date.now(); if(this._cache[ck]&&now-(this._at[ck]||0)<20000)return this._cache[ck];
+      try{ const cs=prov.candles(key,tf)||[]; if(!cs||cs.length<40){ const o={key,tf,mkt:prov.key,ready:false}; this._cache[ck]=o; this._at[ck]=now; return o; }
         const n=cs.length, cl=cs.map(c=>c.c), vol=cs.map(c=>c.v||0), px=cl[n-1];
-        // FSO (native) + brain
-        let F=null,B=null; try{ F=window.TrinityCommodityFSO&&window.TrinityCommodityFSO.compute(key,tf); }catch(e){} try{ B=window.TrinityCommodityBrain&&window.TrinityCommodityBrain.analyze(key,tf); }catch(e){}
+        // FSO (native) + brain — via de provider (candle-override + namespaced key, per markt gekalibreerd)
+        const pcs=prov.peer?prov.candles(prov.peer(key),tf):null;
+        let F=null,B=null; try{ F=window.TrinityCommodityFSO&&window.TrinityCommodityFSO.compute(prov.ns+key,tf,cs,pcs); }catch(e){} try{ B=window.TrinityCommodityBrain&&window.TrinityCommodityBrain.analyze(prov.ns+key,tf,cs); }catch(e){}
         // ER / DB nu
         const v20=sma(vol,20,n-1), er=(v20>0)?vol[n-1]/v20:0; const cc=cs[n-1]; const rng=(cc.h-cc.l)||1e-9; const db=(2*cc.c-(cc.h+cc.l))/rng;
         // VFM-varianten + kalibratie
@@ -25181,7 +25217,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
           const slope=(w[w.length-1]-w[0])/(Math.abs(w[0])||1); return hh?'higher-high (bullish break)':ll?'lower-low (bearish break)':slope>0.01?'higher-highs/-lows':slope<-0.01?'lower-highs/-lows':'range/consolidatie'; })();
         // ---- FRACTAL ENERGY SCALE: zone/scenario per markt (compressie/ontlading) ----
         const energy=this._energy(F,cl,vfmNow,chaos,px,pin.type);
-        const out={ key, tf, ready:true, px, n, at:now,
+        const out={ key, tf, mkt:prov.key, name:prov.names[key]||key, ready:true, px, n, at:now,
           er:+er.toFixed(3), db:+db.toFixed(3), vfm:vfmNow, vfmSrc:bestSrc, vfmHit, vfmVariants:{theory:+(cand.theory[n-1]||0).toFixed(3),ngas:+(cand.ngas[n-1]||0).toFixed(3),blend:+(blend[n-1]||0).toFixed(3)}, vfmScores:{theory:+scores.theory.hit.toFixed(2),ngas:+scores.ngas.hit.toFixed(2),blend:+scBlend.hit.toFixed(2)},
           chaos:+chaos.toFixed(2), chaosLim, chaosOk:chaos<=chaosLim,
           regime:F?F.regime:'—', stress:F?F.last.stress:null, sigma:F?F.last.varr:null, sysVfm:F?F.last.vfm:null,
@@ -25210,7 +25246,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       else { zone='NEUTRAL'; scn='Geen duidelijke compressie of ontlading'; col='#7d8a99'; act='Geduld — geen edge'; }
       return { zone, scenario:scn, col, action:act, compression:+comp.toFixed(2), charge:+(en||0).toFixed(2), move5:+move5.toFixed(2) };
     }catch(e){ return {zone:'—',scenario:'',col:'#7d8a99',action:'',compression:0,charge:0,move5:0}; } },
-    all(tf){ return MK.map(k=>this.analyze(k,tf||'1h')); }
+    all(tf,prov){ prov=prov||PROV_COMMO; return prov.markets.map(k=>this.analyze(k,tf||'1h',prov)); }
   };
   try{ window.TrinityCommoUOTAM=ENG; }catch(e){}
 })();
@@ -25226,48 +25262,45 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function fmtT(ms){ if(ms==null||!isFinite(ms))return '—'; const s=Math.max(0,Math.floor(ms/1000)); const h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h>0?(h+'u '+m+'m'):(m+'m'); }
   const regCol={CRISIS:'#ff5f7e',SPANNING:'#ffb627',RUST:'#26d07c','—':'#7d8a99'};
   function card(inner,bd){ return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+(bd||'var(--line)')+';border-radius:7px;padding:8px 9px;">'+inner+'</div>'; }
-  function head(a){ return '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:0.66rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b><span style="font-size:0.5rem;color:'+regCol[a.regime]+';">'+esc(a.regime)+'</span></div>'; }
+  function head(a){ return '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:0.66rem;color:#cfe6f5;">'+esc(a.name||a.key)+'</b><span style="font-size:0.5rem;color:'+regCol[a.regime]+';">'+esc(a.regime)+'</span></div>'; }
   function ENGN(){ return window.TrinityCommoUOTAM; }
-  function grid(html){ return html; }
-  function _rows(){ const E=ENGN(); if(!E)return null; return E.all('1h'); }
-  function renderCommoSystemData(){ try{ const host=document.getElementById('cd-overview'); if(!host)return; const rows=_rows(); if(!rows)return;
-    const ready=rows.filter(a=>a.ready); if(!ready.length){ host.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Commodity-data laadt… verbind de Capital /history-route.</span>'; return; }
-    // 1) MARKET STATUS
+  function nm(a){ return esc(a.name||a.key); }
+  // GENERIEK: rendert de System Data voor een provider (commodity of FX) in de <idp>-* containers
+  function renderSD(prov, idp, emptyMsg){ try{ const E=ENGN(); if(!E)return; const host=document.getElementById(idp+'-overview'); if(!host)return;
+    const rows=E.all('1h',prov); const ready=rows.filter(a=>a.ready);
+    if(!ready.length){ host.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">'+emptyMsg+'</span>'; return; }
     host.innerHTML=ready.map(a=>{ const d=a.dir==='LONG'?'#26d07c':'#ff5f7e'; const vc={TRADE:'#26d07c',WAIT:'#ffb627',SKIP:'#ff5f7e'}[a.verdict]||'#7d8a99';
-      return card(head(a)+
-        '<div style="display:flex;justify-content:space-between;font-size:0.54rem;color:#9fb2c4;"><span>prijs '+(a.px>=100?a.px.toFixed(1):a.px.toFixed(3))+'</span><span style="color:'+a.energy.col+';">'+esc(a.energy.zone)+'</span></div>'+
+      return card('<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:0.66rem;color:#cfe6f5;">'+nm(a)+'</b><span style="font-size:0.5rem;color:'+regCol[a.regime]+';">'+esc(a.regime)+'</span></div>'+
+        '<div style="display:flex;justify-content:space-between;font-size:0.54rem;color:#9fb2c4;"><span>prijs '+(a.px>=100?a.px.toFixed(1):a.px.toFixed(4))+'</span><span style="color:'+a.energy.col+';">'+esc(a.energy.zone)+'</span></div>'+
         '<div style="display:flex;justify-content:space-between;font-size:0.54rem;margin-top:2px;"><span style="color:'+vc+';font-weight:700;">'+a.verdict+'</span><span style="color:'+d+';">'+a.dir+' '+a.lev+'</span><span style="color:'+a.node.col+';">node '+a.node.type+' '+fmtT(a.node.msTo)+'</span></div>',a.energy.col+'55'); }).join('');
-    // 2) MICRO/MESO/MACRO bull&bear
-    const lv=document.getElementById('cd-levels'); if(lv)lv.innerHTML=ready.map(a=>{ const bar=s=>{ const L=a.levels[s]; return '<div style="font-size:0.5rem;color:#8aa;display:flex;justify-content:space-between;"><span style="text-transform:uppercase;color:#6d8296;">'+s+'</span><span style="color:#ff5f7e;">'+L.bear+'</span><span style="color:#7fd8ff;">'+L.lo+'–'+L.hi+'</span><span style="color:#26d07c;">'+L.bull+'</span></div>'; };
-      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b><div style="margin-top:3px;display:flex;flex-direction:column;gap:2px;">'+bar('micro')+bar('meso')+bar('macro')+'</div>'); }).join('');
-    // 3) VFM·ER·DB·Chaos
-    const mt=document.getElementById('cd-meters'); if(mt)mt.innerHTML=ready.map(a=>{ const vc=Math.abs(a.vfm)>=1.2?'#26d07c':'#ffb627'; const cc=a.chaosOk?'#26d07c':'#ff5f7e';
-      const cell=(l,v,c)=>'<div style="display:flex;flex-direction:column;"><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.8rem;font-weight:800;color:'+c+';line-height:1;">'+v+'</span><span style="font-size:0.44rem;letter-spacing:0.06em;color:#6d8296;text-transform:uppercase;">'+l+'</span></div>';
-      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b>'+
+    const lv=document.getElementById(idp+'-levels'); if(lv)lv.innerHTML=ready.map(a=>{ const bar=s=>{ const L=a.levels[s]; return '<div style="font-size:0.5rem;color:#8aa;display:flex;justify-content:space-between;gap:4px;"><span style="text-transform:uppercase;color:#6d8296;">'+s+'</span><span style="color:#ff5f7e;">'+L.bear+'</span><span style="color:#7fd8ff;">'+L.lo+'–'+L.hi+'</span><span style="color:#26d07c;">'+L.bull+'</span></div>'; };
+      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b><div style="margin-top:3px;display:flex;flex-direction:column;gap:2px;">'+bar('micro')+bar('meso')+bar('macro')+'</div>'); }).join('');
+    const mt=document.getElementById(idp+'-meters'); if(mt)mt.innerHTML=ready.map(a=>{ const vc=Math.abs(a.vfm)>=1.2?'#26d07c':'#ffb627'; const cc=a.chaosOk?'#26d07c':'#ff5f7e';
+      const cell=(l,v,c)=>'<div style="display:flex;flex-direction:column;"><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.78rem;font-weight:800;color:'+c+';line-height:1;">'+v+'</span><span style="font-size:0.44rem;letter-spacing:0.06em;color:#6d8296;text-transform:uppercase;">'+l+'</span></div>';
+      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b>'+
         '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px;">'+cell('VFM',a.vfm,vc)+cell('ER',a.er,'#9fb2c4')+cell('DB',a.db,'#9fb2c4')+cell('Chaos%',a.chaos,cc)+'</div>'+
         '<div style="font-size:0.46rem;color:#6d8296;margin-top:3px;">bron '+a.vfmSrc+' ('+Math.round(a.vfmHit*100)+'% hit) · limiet '+a.chaosLim+'% · σ² '+(a.sigma!=null?a.sigma:'—')+'</div>'); }).join('');
-    // 4) PATROON & STRUCTUUR
-    const pt=document.getElementById('cd-pattern'); if(pt)pt.innerHTML=ready.map(a=>{ const cb=a.cnn>0.05?'#26d07c':a.cnn<-0.05?'#ff5f7e':'#7d8a99';
-      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b>'+
+    const pt=document.getElementById(idp+'-pattern'); if(pt)pt.innerHTML=ready.map(a=>{ const cb=a.cnn>0.05?'#26d07c':a.cnn<-0.05?'#ff5f7e':'#7d8a99';
+      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b>'+
         '<div style="font-size:0.52rem;color:#9fb2c4;margin-top:3px;">structuur: '+esc(a.structure)+'</div>'+
         '<div style="font-size:0.52rem;margin-top:2px;">CNN <span style="color:'+cb+';font-weight:700;">'+a.cnn+'</span>'+(a.pattern?' · '+esc(a.pattern):'')+(a.nn!=null?' · NN '+a.nn+'%'+(a.nnProven?'✓':''):'')+'</div>'); }).join('');
-    // 5) NODE COUNTDOWN (UOTAM-tijdraster)
-    const nd=document.getElementById('cd-nodes'); if(nd)nd.innerHTML=ready.map(a=>{ const fit=a.nodeFit;
-      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b>'+
+    const nd=document.getElementById(idp+'-nodes'); if(nd)nd.innerHTML=ready.map(a=>{ const fit=a.nodeFit;
+      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b>'+
         '<div style="font-size:0.54rem;margin-top:3px;">Node '+a.node.num+' · <span style="color:'+a.node.col+';font-weight:700;">Type '+a.node.type+' '+esc(a.node.typeLab)+'</span></div>'+
         '<div style="font-size:0.5rem;color:#9fb2c4;">volgende in '+fmtT(a.node.msTo)+' · '+esc(a.node.session)+'</div>'+
         (fit?'<div style="font-size:0.46rem;color:#6d8296;margin-top:2px;">timing-fit: π-klok '+Math.round(fit.piPct*100)+'% vs adaptief '+(fit.adPct!=null?Math.round(fit.adPct*100)+'%':'—')+' → <span style="color:#7fd8ff;">'+fit.better+'</span></div>':'')); }).join('');
-    // 6) ENERGIE/COMPRESSIE (live per markt)
-    const en=document.getElementById('cd-energy'); if(en)en.innerHTML=ready.map(a=>{ const E=a.energy;
+    const en=document.getElementById(idp+'-energy'); if(en)en.innerHTML=ready.map(a=>{ const Z=a.energy;
       const bar=(v,c)=>'<div style="height:4px;border-radius:2px;background:rgba(255,255,255,0.08);overflow:hidden;"><div style="height:100%;width:'+Math.round(v*100)+'%;background:'+c+';"></div></div>';
-      return card('<div style="display:flex;justify-content:space-between;align-items:baseline;"><b style="font-size:0.62rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b><span style="font-size:0.52rem;color:'+E.col+';font-weight:700;">'+esc(E.zone)+'</span></div>'+
-        '<div style="font-size:0.5rem;color:#9fb2c4;margin:2px 0 3px;">'+esc(E.scenario)+'</div>'+
-        '<div style="font-size:0.44rem;color:#6d8296;">compressie '+Math.round(E.compression*100)+'%</div>'+bar(E.compression,'#ffd500')+
-        '<div style="font-size:0.44rem;color:#6d8296;margin-top:2px;">energie '+Math.round(E.charge*100)+'% · 5-bar '+(E.move5>=0?'+':'')+E.move5+'%</div>'+bar(E.charge,E.col)+
-        '<div style="font-size:0.46rem;color:'+E.col+';margin-top:3px;">▸ '+esc(E.action)+'</div>',E.col+'55'); }).join('');
+      return card('<div style="display:flex;justify-content:space-between;align-items:baseline;"><b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b><span style="font-size:0.52rem;color:'+Z.col+';font-weight:700;">'+esc(Z.zone)+'</span></div>'+
+        '<div style="font-size:0.5rem;color:#9fb2c4;margin:2px 0 3px;">'+esc(Z.scenario)+'</div>'+
+        '<div style="font-size:0.44rem;color:#6d8296;">compressie '+Math.round(Z.compression*100)+'%</div>'+bar(Z.compression,'#ffd500')+
+        '<div style="font-size:0.44rem;color:#6d8296;margin-top:2px;">energie '+Math.round(Z.charge*100)+'% · 5-bar '+(Z.move5>=0?'+':'')+Z.move5+'%</div>'+bar(Z.charge,Z.col)+
+        '<div style="font-size:0.46rem;color:'+Z.col+';margin-top:3px;">▸ '+esc(Z.action)+'</div>',Z.col+'55'); }).join('');
   }catch(e){} }
-  try{ window.renderCommoSystemData=renderCommoSystemData; }catch(e){}
-  try{ setInterval(function(){ try{ const h=document.getElementById('cd-overview'); if(h&&h.offsetParent!==null)renderCommoSystemData(); }catch(e){} }, 5000); }catch(e){}
+  function renderCommoSystemData(){ const E=ENGN(); if(E)renderSD(E.PROV_COMMO,'cd','Commodity-data laadt… verbind de Capital /history-route.'); }
+  function renderFxSystemData(){ const E=ENGN(); if(E){ try{ E.FxCandles.refresh('1h'); }catch(e){} renderSD(E.PROV_FX,'fd','FX-data laadt… verbind de Capital /history-route.'); } }
+  try{ window.renderCommoSystemData=renderCommoSystemData; window.renderFxSystemData=renderFxSystemData; }catch(e){}
+  try{ setInterval(function(){ try{ const h=document.getElementById('cd-overview'); if(h&&h.offsetParent!==null)renderCommoSystemData(); const f=document.getElementById('fd-overview'); if(f&&f.offsetParent!==null)renderFxSystemData(); }catch(e){} }, 5000); }catch(e){}
 })();
 
 /* ==================================================================================
@@ -25278,51 +25311,109 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
    ================================================================================== */
 (function(){
   'use strict';
-  let SEL='WTI', _built=false;
+  let SEL_C='WTI', SEL_F='EUR/USD'; const _built={};
   function E(){ return window.TrinityCommoUOTAM; }
   function esc(s){ return (''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
   function p2(x){ return String(x).padStart(2,'0'); }
   function cet(ts){ const d=new Date(ts+3600000); return p2(d.getUTCHours())+':'+p2(d.getUTCMinutes()); }  // ~CET
   function dow(ts){ return ['zo','ma','di','wo','do','vr','za'][new Date(ts+3600000).getUTCDay()]; }
-  try{ window.__ciSel=v=>{ SEL=v; renderCommoInfoPanels(); }; }catch(e){}
-  function _buildSel(){ if(_built)return; const sel=document.getElementById('ci-sel'); if(!sel||!E())return; _built=true;
-    sel.innerHTML=E().MK.map(k=>`<option value="${k}">${E().NAMES[k]}</option>`).join(''); sel.value=SEL; }
-  // π-klok node-schema: komende N nodes vanaf nu
+  function sessTxt(ts){ const h=new Date(ts+3600000).getUTCHours(); return h>=1&&h<7?'nacht-reset Azië':h>=7&&h<9?'vroege EU-liquiditeit':h>=9&&h<13?'EU-ochtend':h>=13&&h<16?'EU↔VS overlap':h>=16&&h<19?'VS core · max volume':h>=19&&h<22?'late VS-sessie':'Azië/EU-transitie'; }
+  try{ window.__ciSel=v=>{ SEL_C=v; renderCommoInfoPanels(); }; window.__fiSel=v=>{ SEL_F=v; renderFxInfoPanels(); }; }catch(e){}
+  function _buildSel(prov,selId,cur){ if(_built[selId])return; const sel=document.getElementById(selId); if(!sel||!E())return; _built[selId]=true;
+    sel.innerHTML=prov.markets.map(k=>`<option value="${k}">${prov.names[k]}</option>`).join(''); sel.value=cur; }
   function schedule(n){ const En=E(); if(!En)return []; const now=Date.now(); const NODE_MS=En.NODE_MS, ANCHOR=En.ANCHOR;
     let idx=Math.floor((now-ANCHOR)/NODE_MS)+1; const out=[]; for(let k=0;k<n;k++){ const ts=ANCHOR+(idx+k)*NODE_MS; const num=1000+idx+k; const m=((num%3)+3)%3; const type=m===1?3:m===2?6:9;
       out.push({ts,num,type}); } return out; }
-  function renderCommoInfoPanels(){ try{ const En=E(); if(!En)return; _buildSel(); const a=En.analyze(SEL,'1h'); if(!a||!a.ready){ const h=document.getElementById('ci-arch'); if(h)h.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Data laadt voor '+esc(En.NAMES[SEL]||SEL)+'…</span>'; return; }
-    const NT=En.NODE_TYPE;
-    // ---- (1) FRACTALE ARCHITECTUUR (4 lagen, live) ----
-    const arch=document.getElementById('ci-arch'); if(arch){ const gateVfm=Math.abs(a.vfm)>=1.2, gateChaos=a.chaosOk;
+  // GENERIEK: 4 info-panels voor een provider (commodity of FX), in de <idp>-* containers
+  function renderInfoPanels(prov, idp, cur, selId){ try{ const En=E(); if(!En)return; _buildSel(prov,selId,cur); const a=En.analyze(cur,'1h',prov); const NT=En.NODE_TYPE;
+    if(!a||!a.ready){ const h=document.getElementById(idp+'-arch'); if(h)h.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Data laadt voor '+esc(prov.names[cur]||cur)+'…</span>'; return; }
+    const arch=document.getElementById(idp+'-arch'); if(arch){ const gateVfm=Math.abs(a.vfm)>=1.2, gateChaos=a.chaosOk;
       const layer=(n,title,val,ok,note)=>'<div style="border-left:3px solid '+(ok==null?'#5c7488':ok?'#26d07c':'#ff5f7e')+';padding:5px 8px;margin-bottom:5px;background:rgba(255,255,255,0.02);border-radius:0 5px 5px 0;"><div style="font-size:0.56rem;color:#7fd8ff;font-weight:600;">LAAG '+n+' · '+title+'</div><div style="font-size:0.6rem;color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;margin-top:1px;">'+val+'</div>'+(note?'<div style="font-size:0.46rem;color:#6d8296;margin-top:1px;">'+note+'</div>':'')+'</div>';
       arch.innerHTML=
         layer(1,'Kosmische Klok (Tesla 3-6-9)','Node '+a.node.num+' · <span style="color:'+a.node.col+'">Type '+a.node.type+' '+a.node.typeLab+'</span> · volgende in '+Math.max(0,Math.round(a.node.msTo/60000))+'m',null,'T_π 188,66min · micro-node 9,43u · '+esc(a.node.session))+
         layer(2,'Energie-ingestie (VFM)','ER '+a.er+' × DB '+a.db+' → VFM '+a.vfm,gateVfm,'|VFM|≥1.2 = institutionele massa · bron '+a.vfmSrc+' ('+Math.round(a.vfmHit*100)+'% hit) · '+(gateVfm?'DOOR':'WAIT (vacuüm)'))+
         layer(3,'Capital Guard (chaos-filter)','Chaos '+a.chaos+'% / limiet '+a.chaosLim+'%',gateChaos,(gateChaos?'binnen limiet → DOOR':'boven limiet → SKIP')+' · dynamisch 8%→15% bij |VFM|>1.8')+
         layer(4,'Executie-matrix',(a.verdict==='TRADE'?('<span style="color:'+(a.dir==='LONG'?'#26d07c':'#ff5f7e')+'">'+a.dir+' · '+a.lev+'</span> · stop −1,5% · target volgende node'):('<span style="color:#ffb627">'+a.verdict+'</span> — geen trade')),a.verdict==='TRADE','advies (verandert de live werking niet)'); }
-    // ---- (2) DAG/WEEK NODE-SCHEMA (π-klok) ----
-    const sch=document.getElementById('ci-sched'); if(sch){ const rows=schedule(16); let lastDay='';
+    const sch=document.getElementById(idp+'-sched'); if(sch){ const rows=schedule(16); let lastDay=''; const nm=(prov.names[cur]||cur).split(' · ')[0];
       sch.innerHTML=rows.map(r=>{ const d=dow(r.ts); const dayHdr=(d!==lastDay); lastDay=d; const t=NT[r.type];
         return (dayHdr?'<div style="font-size:0.5rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.1em;margin:5px 0 2px;">'+d+'</div>':'')+
-          '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.54rem;padding:1px 0;"><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;min-width:34px;">'+cet(r.ts)+'</span><span style="color:'+t.col+';min-width:96px;">Type '+r.type+' '+t.lab+'</span><span style="color:#9fb2c4;">Node '+r.num+' · '+esc(En.NAMES[SEL].split(' · ')[0])+' — '+esc((window.TrinityCommoUOTAM,(function(ts){const dd=new Date(ts+3600000);const h=(dd.getUTCHours());return h>=1&&h<7?'nacht-reset Azië':h>=7&&h<9?'vroege EU-liquiditeit':h>=9&&h<13?'EU-ochtend':h>=13&&h<16?'EU↔VS overlap':h>=16&&h<19?'VS core · max volume':h>=19&&h<22?'late VS-sessie':'Azië/EU-transitie';})(r.ts)))+'</span></div>'; }).join(''); }
-    // ---- (3) HISTORISCH OVERZICHT (init/versnelling/ontlading) ----
-    const hist=document.getElementById('ci-hist'); if(hist){ const C=window.TrinityCommodities; const cs=C?C.candles(SEL,'1h'):[];
-      if(cs&&cs.length>30){ const cl=cs.map(c=>c.c); const turns=[]; let lastEx=cl[0],dir=0,exi=0; for(let i=1;i<cl.length;i++){ const ch=(cl[i]-lastEx)/(Math.abs(lastEx)||1); if(dir>=0&&ch<=-0.006){turns.push({i:exi,dir:1});dir=-1;lastEx=cl[i];exi=i;} else if(dir<=0&&ch>=0.006){turns.push({i:exi,dir:-1});dir=1;lastEx=cl[i];exi=i;} else if((dir>0&&cl[i]>lastEx)||(dir<0&&cl[i]<lastEx)){lastEx=cl[i];exi=i;} }
-        const evs=turns.slice(-12).reverse().map(tt=>{ const i=tt.i; const c=cs[i]; const mv=i>6?(cl[i]/cl[i-6]-1)*100:0; const w=cl.slice(Math.max(0,i-8),i+1); const rets=[];for(let k=1;k<w.length;k++)rets.push(w[k]/w[k-1]-1); const m=rets.reduce((x,y)=>x+y,0)/rets.length; const vol=Math.sqrt(rets.reduce((x,y)=>x+(y-m)*(y-m),0)/rets.length);
+          '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.54rem;padding:1px 0;"><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;min-width:34px;">'+cet(r.ts)+'</span><span style="color:'+t.col+';min-width:96px;">Type '+r.type+' '+t.lab+'</span><span style="color:#9fb2c4;">Node '+r.num+' · '+esc(nm)+' — '+esc(sessTxt(r.ts))+'</span></div>'; }).join(''); }
+    const hist=document.getElementById(idp+'-hist'); if(hist){ const cs=prov.candles(cur,'1h');
+      if(cs&&cs.length>30){ const cl=cs.map(c=>c.c); const turns=[]; let lastEx=cl[0],dir=0,exi=0; for(let i=1;i<cl.length;i++){ const ch=(cl[i]-lastEx)/(Math.abs(lastEx)||1); if(dir>=0&&ch<=-0.006){turns.push({i:exi});dir=-1;lastEx=cl[i];exi=i;} else if(dir<=0&&ch>=0.006){turns.push({i:exi});dir=1;lastEx=cl[i];exi=i;} else if((dir>0&&cl[i]>lastEx)||(dir<0&&cl[i]<lastEx)){lastEx=cl[i];exi=i;} }
+        const evs=turns.slice(-12).reverse().map(tt=>{ const i=tt.i; const c=cs[i]; const mv=i>6?(cl[i]/cl[i-6]-1)*100:0;
           const nx=cl.slice(i,Math.min(cl.length,i+6)); const fwd=nx.length>1?(nx[nx.length-1]/nx[0]-1)*100:0; const phase=Math.abs(fwd)>Math.abs(mv)*1.2?'Versnelling':Math.abs(fwd)<Math.abs(mv)*0.5?'Ontlading':'Initiatie'; const pc={Initiatie:'#26d0cc',Versnelling:'#ffd500',Ontlading:'#ff5f7e'}[phase];
-          const d=new Date(c.t); return {t:c.t,txt:p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+cet(c.t),phase,pc,px:c.c,mv:mv,fwd:fwd}; });
-        hist.innerHTML=evs.map(e=>'<div style="display:flex;gap:6px;align-items:baseline;font-size:0.52rem;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);"><span style="color:#8aa;min-width:64px;font-family:\'JetBrains Mono\',monospace;">'+e.txt+'</span><span style="color:'+e.pc+';min-width:74px;">'+e.phase+'</span><span style="color:#9fb2c4;">@'+(e.px>=100?e.px.toFixed(1):e.px.toFixed(3))+' · aanloop '+(e.mv>=0?'+':'')+e.mv.toFixed(1)+'% → vervolg '+(e.fwd>=0?'+':'')+e.fwd.toFixed(1)+'%</span></div>').join('');
+          const d=new Date(c.t); return {txt:p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+cet(c.t),phase,pc,px:c.c,mv,fwd}; });
+        hist.innerHTML=evs.map(e=>'<div style="display:flex;gap:6px;align-items:baseline;font-size:0.52rem;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);"><span style="color:#8aa;min-width:64px;font-family:\'JetBrains Mono\',monospace;">'+e.txt+'</span><span style="color:'+e.pc+';min-width:74px;">'+e.phase+'</span><span style="color:#9fb2c4;">@'+(e.px>=100?e.px.toFixed(1):e.px.toFixed(4))+' · aanloop '+(e.mv>=0?'+':'')+e.mv.toFixed(1)+'% → vervolg '+(e.fwd>=0?'+':'')+e.fwd.toFixed(1)+'%</span></div>').join('');
       } else hist.innerHTML='<span style="font-size:0.52rem;color:var(--dimmer);">Onvoldoende historie.</span>'; }
-    // ---- (4) CHAOS-STATUSSEN / FRACTAL ENERGY SCALE (live) ----
-    const chz=document.getElementById('ci-chaos'); if(chz){ const scale=[['DEEP COMPRESSION','#ffd500','Veer maximaal geladen — uitbraak ophanden'],['LOADING','#26d0cc','Energie bouwt op, compressie neemt toe'],['NEUTRAL','#7d8a99','Geen duidelijke compressie/ontlading'],['EXPANSION','#26d07c','Uitbraak bezig — trend loopt'],['CLIMAX','#ff5f7e','Grote move + stress-piek → fade/uitputting'],['DISCHARGE','#ff8a3c','Ontlading na opbouw — energie loopt eruit']];
-      const cur=a.energy.zone;
-      chz.innerHTML='<div style="font-size:0.56rem;color:#cfe6f5;margin-bottom:4px;">Huidig: <span style="color:'+a.energy.col+';font-weight:700;">'+esc(cur)+'</span> · compressie '+Math.round(a.energy.compression*100)+'% · energie '+Math.round(a.energy.charge*100)+'% · 5-bar '+(a.energy.move5>=0?'+':'')+a.energy.move5+'%</div>'+
+    const chz=document.getElementById(idp+'-chaos'); if(chz){ const scale=[['DEEP COMPRESSION','#ffd500','Veer maximaal geladen — uitbraak ophanden'],['LOADING','#26d0cc','Energie bouwt op, compressie neemt toe'],['NEUTRAL','#7d8a99','Geen duidelijke compressie/ontlading'],['EXPANSION','#26d07c','Uitbraak bezig — trend loopt'],['CLIMAX','#ff5f7e','Grote move + stress-piek → fade/uitputting'],['DISCHARGE','#ff8a3c','Ontlading na opbouw — energie loopt eruit']];
+      const curz=a.energy.zone;
+      chz.innerHTML='<div style="font-size:0.56rem;color:#cfe6f5;margin-bottom:4px;">Huidig: <span style="color:'+a.energy.col+';font-weight:700;">'+esc(curz)+'</span> · compressie '+Math.round(a.energy.compression*100)+'% · energie '+Math.round(a.energy.charge*100)+'% · 5-bar '+(a.energy.move5>=0?'+':'')+a.energy.move5+'%</div>'+
         '<div style="font-size:0.5rem;color:'+a.energy.col+';margin-bottom:6px;">▸ '+esc(a.energy.action)+'</div>'+
-        scale.map(s=>{ const on=s[0]===cur; return '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.5rem;padding:2px 4px;border-radius:4px;'+(on?'background:'+s[1]+'22;border:1px solid '+s[1]+'66;':'')+'margin-bottom:2px;"><span style="color:'+s[1]+';min-width:120px;font-weight:'+(on?'700':'400')+';">'+(on?'▸ ':'')+s[0]+'</span><span style="color:#9fb2c4;">'+s[2]+'</span></div>'; }).join(''); }
+        scale.map(s=>{ const on=s[0]===curz; return '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.5rem;padding:2px 4px;border-radius:4px;'+(on?'background:'+s[1]+'22;border:1px solid '+s[1]+'66;':'')+'margin-bottom:2px;"><span style="color:'+s[1]+';min-width:120px;font-weight:'+(on?'700':'400')+';">'+(on?'▸ ':'')+s[0]+'</span><span style="color:#9fb2c4;">'+s[2]+'</span></div>'; }).join(''); }
   }catch(e){} }
-  try{ window.renderCommoInfoPanels=renderCommoInfoPanels; }catch(e){}
-  try{ setInterval(function(){ try{ const h=document.getElementById('ci-arch'); if(h&&h.offsetParent!==null)renderCommoInfoPanels(); }catch(e){} }, 5000); }catch(e){}
+  function renderCommoInfoPanels(){ const En=E(); if(En)renderInfoPanels(En.PROV_COMMO,'ci',SEL_C,'ci-sel'); }
+  function renderFxInfoPanels(){ const En=E(); if(En){ try{ En.FxCandles.load(SEL_F,'1h'); }catch(e){} renderInfoPanels(En.PROV_FX,'fi',SEL_F,'fi-sel'); } }
+  try{ window.renderCommoInfoPanels=renderCommoInfoPanels; window.renderFxInfoPanels=renderFxInfoPanels; }catch(e){}
+  try{ setInterval(function(){ try{ const h=document.getElementById('ci-arch'); if(h&&h.offsetParent!==null)renderCommoInfoPanels(); const f=document.getElementById('fi-arch'); if(f&&f.offsetParent!==null)renderFxInfoPanels(); }catch(e){} }, 5000); }catch(e){}
+})();
+
+/* ==================================================================================
+   TRINITY · INKLAPBARE SECTIES + DATA-DOWNLOAD (UOTAM commodity + FX, extern analyseerbaar)
+   ================================================================================== */
+(function(){
+  'use strict';
+  // ---- inklapbaar: elke .trn .secdiv wordt een toggle voor de panelen erna (tot de volgende secdiv) ----
+  function wire(){ try{ document.querySelectorAll('.trn .secdiv').forEach(sd=>{ if(sd._collWired)return; sd._collWired=true;
+    const h=sd.querySelector('h3'); const key='oseccol_'+((h?h.textContent:'').trim().slice(0,40)); sd.style.cursor='pointer'; sd.style.userSelect='none';
+    const car=document.createElement('span'); car.textContent='▾'; car.style.cssText='margin-left:auto;color:var(--dimmer);font-size:0.72rem;padding-left:8px;'; sd.appendChild(car);
+    const sibs=[]; let n=sd.nextElementSibling; while(n&&!n.classList.contains('secdiv')){ sibs.push(n); n=n.nextElementSibling; }
+    const set=(c)=>{ sibs.forEach(s=>{ s.style.display=c?'none':''; }); car.textContent=c?'▸':'▾'; try{ localStorage.setItem(key,c?'1':'0'); }catch(e){} };
+    let init=false; try{ init=localStorage.getItem(key)==='1'; }catch(e){} if(init)set(true);
+    sd.addEventListener('click',e=>{ const tg=e.target.tagName; if(tg==='BUTTON'||tg==='SELECT'||tg==='INPUT'||tg==='A')return; set(car.textContent==='▾'); });
+  }); }catch(e){} }
+  try{ if(document.readyState!=='loading')wire(); else document.addEventListener('DOMContentLoaded',wire); setInterval(wire,3000); }catch(e){}
+
+  // ---- data-download (JSON + CSV) van de volledige UOTAM-snapshot (commodity + FX) ----
+  function snapshot(){ const E=window.TrinityCommoUOTAM; if(!E)return {commodity:[],fx:[]};
+    const clean=a=>({ markt:a.mkt,key:a.key,name:a.name,tf:a.tf,ready:a.ready,px:a.px,regime:a.regime,verdict:a.verdict,dir:a.dir,lev:a.lev,
+      vfm:a.vfm,vfmSrc:a.vfmSrc,vfmHit:a.vfmHit,er:a.er,db:a.db,chaos:a.chaos,chaosLim:a.chaosLim,sigma:a.sigma,
+      nodeNum:a.node&&a.node.num,nodeType:a.node&&a.node.type,nodeTypeLab:a.node&&a.node.typeLab,nodeMsTo:a.node&&a.node.msTo,
+      nodeFitPi:a.nodeFit&&a.nodeFit.piPct,nodeFitAd:a.nodeFit&&a.nodeFit.adPct,nodeFitBetter:a.nodeFit&&a.nodeFit.better,
+      cnn:a.cnn,pattern:a.pattern,structure:a.structure,nn:a.nn,
+      microLo:a.levels&&a.levels.micro.lo,microHi:a.levels&&a.levels.micro.hi,microBull:a.levels&&a.levels.micro.bull,microBear:a.levels&&a.levels.micro.bear,
+      mesoLo:a.levels&&a.levels.meso.lo,mesoHi:a.levels&&a.levels.meso.hi,macroLo:a.levels&&a.levels.macro.lo,macroHi:a.levels&&a.levels.macro.hi,
+      energyZone:a.energy&&a.energy.zone,energyScenario:a.energy&&a.energy.scenario,compression:a.energy&&a.energy.compression,charge:a.energy&&a.energy.charge,move5:a.energy&&a.energy.move5 });
+    return { generatedAt:new Date().toISOString(), commodity:E.all('1h',E.PROV_COMMO).filter(a=>a.ready).map(clean), fx:E.all('1h',E.PROV_FX).filter(a=>a.ready).map(clean) }; }
+  function dl(name,txt,mime){ try{ if(typeof window.downloadFile==='function'){ window.downloadFile(name,txt,mime); return; } }catch(e){}
+    try{ const b=new Blob([txt],{type:mime||'application/octet-stream'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},100); }catch(e){} }
+  function toCSV(rows){ if(!rows.length)return ''; const cols=Object.keys(rows[0]); const esc=v=>{ v=(v==null?'':''+v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+    return cols.join(',')+'\n'+rows.map(r=>cols.map(c=>esc(r[c])).join(',')).join('\n'); }
+  window.__uotamDL=function(kind){ const s=snapshot(); const stamp=new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+    if(kind==='commodity-csv') dl('osiris_uotam_commodity_'+stamp+'.csv',toCSV(s.commodity),'text/csv');
+    else if(kind==='fx-csv') dl('osiris_uotam_fx_'+stamp+'.csv',toCSV(s.fx),'text/csv');
+    else if(kind==='commodity-json') dl('osiris_uotam_commodity_'+stamp+'.json',JSON.stringify({generatedAt:s.generatedAt,commodity:s.commodity},null,2),'application/json');
+    else if(kind==='fx-json') dl('osiris_uotam_fx_'+stamp+'.json',JSON.stringify({generatedAt:s.generatedAt,fx:s.fx},null,2),'application/json');
+    else dl('osiris_uotam_snapshot_'+stamp+'.json',JSON.stringify(s,null,2),'application/json'); };
+  // injecteer download-knoppen bovenin de system-data wraps
+  function injectDL(){ try{ [['cd-wrap','commodity'],['fd-wrap','fx']].forEach(([id,kind])=>{ const w=document.getElementById(id); if(!w||w._dlInj)return; w._dlInj=true;
+    const bar=document.createElement('div'); bar.style.cssText='display:flex;gap:6px;justify-content:flex-end;margin-bottom:6px;';
+    const btn=(lab,k)=>{ const b=document.createElement('button'); b.textContent=lab; b.style.cssText='background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:\'JetBrains Mono\',monospace;font-size:0.52rem;cursor:pointer;'; b.onclick=(e)=>{ e.stopPropagation(); window.__uotamDL(k); }; return b; };
+    bar.appendChild(btn('⭳ JSON',kind+'-json')); bar.appendChild(btn('⭳ CSV',kind+'-csv')); w.insertBefore(bar,w.firstChild); }); }catch(e){} }
+  try{ setInterval(injectDL,3000); if(document.readyState!=='loading')injectDL(); }catch(e){}
+})();
+
+/* ==================================================================================
+   TRINITY · SECTIE-VOLGORDE — Global flow / neural net / Learnings tussen
+   "Live data & feeds" en "Commodities" (indeling zoals gevraagd). Eén keer, runtime.
+   ================================================================================== */
+(function(){
+  'use strict';
+  function section(txt){ const sds=[...document.querySelectorAll('.trn .secdiv')]; const sd=sds.find(s=>{ const h=s.querySelector('h3'); return h && h.textContent.trim().indexOf(txt)===0; }); if(!sd)return null; const nodes=[sd]; let n=sd.nextElementSibling; while(n&&n.classList&&n.classList.contains('panel')){ nodes.push(n); n=n.nextElementSibling; } return nodes; }
+  function anchor(txt){ const sds=[...document.querySelectorAll('.trn .secdiv')]; return sds.find(s=>{ const h=s.querySelector('h3'); return h && h.textContent.trim().indexOf(txt)===0; }); }
+  function reorder(){ try{ if(window._trnReordered)return; const anc=anchor('Commodities'); if(!anc)return; let moved=false;
+    ['Global flow','Trinity','Learnings'].forEach(t=>{ const sec=section(t); if(sec&&sec.length){ sec.forEach(node=>anc.parentNode.insertBefore(node,anc)); moved=true; } });
+    if(moved)window._trnReordered=true; }catch(e){} }
+  try{ if(document.readyState!=='loading')setTimeout(reorder,800); else document.addEventListener('DOMContentLoaded',()=>setTimeout(reorder,800)); }catch(e){}
 })();
 
 
