@@ -2246,6 +2246,55 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Eén doorlopend paneel, <b>Lijn</b> of <b>Candles</b>. Overlays aan/uit: <b>Nodes</b> (TAM RESET/VOLA/CORE bij de candles, per-grondstof periode), <b>NN</b> (Neo's Node cap-pijlen — <span style="color:#26d07c;">▲</span>/<span style="color:#ff5f7e;">▼</span> waar het per-grondstof neuraal net omslaat), <b>MA</b> + <b>RSI</b> (periode per grondstof gekalibreerd op hit-rate), <b>Fibs</b> (µ/M/XL = micro/meso/macro swing) en <b>Energie</b>. De <span style="color:#ff8a3c;">FSO-schaduw</span> = opgespannen energie (compressie) gekleurd naar regime: hoe hoger, hoe meer geladen → grotere kans op uitbraak. <span style="color:#ffb73c;">Volume-profiel</span> rechts met POC. Onder (gedeelde 0–1-as): <span style="color:#e8f4ff;">stress</span> · <span style="color:#7fd8ff;">σ²</span> · <span style="color:#c792ea;">VFM</span> · <span style="color:#ff8a3c;">corr-breuk</span> + <span style="color:#ff5f7e;">CRISIS</span>/<span style="color:#ffb627;">SPANNING</span> + ⚡ΔV. Verticale balken (volle hoogte): <span style="color:#ffd76a;">HIGH</span> = σ²-piek (grote candles/uitbraak/climax) · <span style="color:#ff8a94;">LOW</span> = samengedrukt (rust/opbouw, uitbraak in de maak). Vult zich via de Capital /history-route.</div>
     </div>
 
+    <!-- COMMODITY UOTAM INFO-PANELS (per markt selecteerbaar + scrollbaar) -->
+    <div class="secdiv"><h3>UOTAM info-panels</h3><span class="sub">— per markt · Fractale Architectuur · dag/week node-schema · historisch overzicht · chaos-statussen</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <span class="mono" style="font-size:0.56rem;color:var(--dimmer);">markt:</span>
+        <select id="ci-sel" onchange="window.__ciSel&&window.__ciSel(this.value)" style="background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;"></select>
+      </div>
+      <style>
+        #ci-panels{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+        @media(max-width:900px){#ci-panels{grid-template-columns:1fr;}}
+        #ci-panels .ci-box{background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;display:flex;flex-direction:column;}
+        #ci-panels .ci-t{font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;}
+        #ci-panels .ci-scroll{max-height:230px;overflow-y:auto;}
+      </style>
+      <div id="ci-panels">
+        <div class="ci-box"><div class="ci-t">Deel 2.1 · Fractale Architectuur <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(live, 4 lagen)</span></div><div id="ci-arch" class="ci-scroll"></div></div>
+        <div class="ci-box"><div class="ci-t">Deel 5.1 · Fractaal dag/week node-schema <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(π-klok 3-6-9)</span></div><div id="ci-sched" class="ci-scroll"></div></div>
+        <div class="ci-box"><div class="ci-t">Historisch overzicht <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(initiatie / versnelling / ontlading)</span></div><div id="ci-hist" class="ci-scroll"></div></div>
+        <div class="ci-box"><div class="ci-t">Chaos-statussen · Fractal Energy Scale <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(live)</span></div><div id="ci-chaos" class="ci-scroll"></div></div>
+      </div>
+    </div>
+
+    <!-- COMMODITY SYSTEM DATA — spiegelt de crypto System Data, per grondstof (UOTAM v7.7, zelf-gekalibreerd) -->
+    <div class="secdiv"><h3>Commodity system data</h3><span class="sub">— per markt · UOTAM v7.7 (native ⇄ theorie, zelf-gekalibreerd) · live achtergrond</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <style>
+        #cd-wrap .cd-sub{font-family:'JetBrains Mono',monospace;font-size:0.56rem;letter-spacing:0.1em;text-transform:uppercase;color:#7fd8ff;margin:12px 0 5px;font-weight:600;}
+        #cd-wrap .cd-sub:first-child{margin-top:2px;}
+        #cd-wrap .cd-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+        @media(max-width:900px){#cd-wrap .cd-grid{grid-template-columns:repeat(2,1fr);}}
+      </style>
+      <div id="cd-wrap">
+        <div class="cd-sub">Osiris Market Status · alle markten <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(UOTAM-nodes · verdict · energie · live)</span></div>
+        <div class="cd-grid" id="cd-overview"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">Commodity-data laadt…</span></div>
+        <div class="cd-sub">Micro / Meso / Macro · bull &amp; bear per markt</div>
+        <div class="cd-grid" id="cd-levels"></div>
+        <div class="cd-sub">VFM · ER · DB · Chaos Index · alle markten</div>
+        <div class="cd-grid" id="cd-meters"></div>
+        <div class="cd-sub">Patroon &amp; Structuur · alle markten <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(CNN + markt-structuur)</span></div>
+        <div class="cd-grid" id="cd-pattern"></div>
+        <div class="cd-sub">Node Countdown · UOTAM-tijdraster <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(π-klok Tesla 3-6-9 · per markt geijkt vs adaptief)</span></div>
+        <div class="cd-grid" id="cd-nodes"></div>
+        <div class="cd-sub">Energie &amp; compressie · Fractal Energy Scale <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(uitbraak vs climax-fade · per markt live)</span></div>
+        <div class="cd-grid" id="cd-energy"></div>
+      </div>
+    </div>
+
     <div class="secdiv"><h3>Global flow</h3><span class="sub">— capital &amp; commodity</span></div>
     <div class="panel">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
@@ -2716,7 +2765,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260912-build113-crypto-syschart-ma-cross"></script>
+<script src="app.js?v=20260912-build115-commodity-uotam-infopanels"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
