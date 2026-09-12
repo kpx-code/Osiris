@@ -20071,6 +20071,18 @@ function manageTrinity(){
   wallet.equity=wallet.balance+unreal;
   const best=ranked[0]; if(best){ predictive.p=best.p; predictive.side=best.side; predictive.score=Math.round(Math.min(99,best.pred*trinity.mult)); }
 }
+// UOTAM T1/T2 in de live trade (shadow-gated, terugdraaibaar). on=false → volledig terug naar de oude logica.
+const OSIRIS_UOTAM_TRADE={on:true,log:[]}; try{ window.OSIRIS_UOTAM_TRADE=OSIRIS_UOTAM_TRADE; }catch(e){}
+// past de bewezen Support&Target-matrix (T1 als target + frame-stop) toe op een trade, indien shadow-proven.
+function _uotamFrame(mktKey, provKey, long, entry, curTarget, curStop){
+  try{ if(!OSIRIS_UOTAM_TRADE.on || !window.TrinityCommoUOTAM || !window.TrinityUOTAMShadow) return null;
+    const tr=TrinityUOTAMShadow.trust(provKey, mktKey); if(!tr.proven) return null;
+    const prov = provKey==='fx'?TrinityCommoUOTAM.PROV_FX:TrinityCommoUOTAM.PROV_COMMO; const mx=TrinityCommoUOTAM.matrix(mktKey,'1h',prov); if(!mx) return null;
+    if(mx.dir!==(long?'LONG':'SHORT')) return null; const nt=mx.frame.t1, ns=mx.frame.stop;
+    if(!((long&&nt>entry&&ns<entry)||(!long&&nt<entry&&ns>entry))) return null;
+    OSIRIS_UOTAM_TRADE.log.unshift({ts:Date.now(),market:mktKey,side:long?'LONG':'SHORT',orig:{target:+curTarget.toFixed(6),stop:+curStop.toFixed(6)},applied:{t1:nt,t2:mx.frame.t2,stop:ns},wilson:tr.wilson,n:tr.n}); if(OSIRIS_UOTAM_TRADE.log.length>200)OSIRIS_UOTAM_TRADE.log.pop();
+    return {target:nt, stop:ns, t2:mx.frame.t2};
+  }catch(e){ return null; } }
 function openTrade(c,S,pr){
   pr=pr||activePreset(); const tune=SESSION_TUNE[S.key]||{volMult:1}, st=pair[c.p], long=st.sig>=0, entry=st.rate;
   const rawConf=Math.min(99,Math.max(5,st.pred*trinity.mult));
@@ -20092,7 +20104,9 @@ function openTrade(c,S,pr){
   } else {
     stopPctUsed=pr.stopPct*tune.volMult; tgtPctUsed=pr.tgtPct*tune.volMult*(scalp?0.6:1);   // mock: kleiner scalp-target
   }
-  const stop=long?entry*(1-stopPctUsed/100):entry*(1+stopPctUsed/100), target=long?entry*(1+tgtPctUsed/100):entry*(1-tgtPctUsed/100);
+  let stop=long?entry*(1-stopPctUsed/100):entry*(1+stopPctUsed/100), target=long?entry*(1+tgtPctUsed/100):entry*(1-tgtPctUsed/100);
+  // UOTAM: gebruik de bewezen T1 als target + frame-stop (shadow-gated) — de T1/T2 sturen nu de echte trade
+  try{ const uf=_uotamFrame(c.p,'fx',long,entry,target,stop); if(uf){ target=uf.target; stop=uf.stop; } }catch(e){}
   // HORIZON: on live, give trades enough real time to actually reach stop/target (not TIME-close near zero).
   // Longer horizon + asymmetric target:stop is what moves results away from break-even — winners get room to run.
   const horizonH = live ? (scalp?0.9:1.5) : (scalp?Math.min(3,Math.max(1.2,(()=>{let hUTC=new Date().getUTCHours()+new Date().getUTCMinutes()/60,toEnd=S.end-hUTC;if(toEnd<0)toEnd+=24;return toEnd;})())) : Math.min(6,Math.max(2.5,(()=>{let hUTC=new Date().getUTCHours()+new Date().getUTCMinutes()/60,toEnd=S.end-hUTC;if(toEnd<0)toEnd+=24;return toEnd;})())));
@@ -20211,7 +20225,9 @@ const TrinityCommodityTrader = {
       const long=r.side==='LONG', entry=st.rate; const volPct=Math.max(0.05,(st._vol||0.002)*100);
       // Commodities mogen veel langer aangehouden worden → ruimere stop + duidelijk grotere target (laat de trend lopen)
       const stopPctUsed=Math.max(st._minStopPct||0.1, volPct*5), tgtPctUsed=stopPctUsed*2.4;
-      const stop=long?entry*(1-stopPctUsed/100):entry*(1+stopPctUsed/100), target=long?entry*(1+tgtPctUsed/100):entry*(1-tgtPctUsed/100);
+      let stop=long?entry*(1-stopPctUsed/100):entry*(1+stopPctUsed/100), target=long?entry*(1+tgtPctUsed/100):entry*(1-tgtPctUsed/100);
+      // UOTAM T1/T2 (shadow-gated): bewezen matrix-target/stop sturen de commodity-trade
+      try{ const uf=(typeof _uotamFrame==='function')&&_uotamFrame(r.key||r.epic,'commo',long,entry,target,stop); if(uf){ target=uf.target; stop=uf.stop; } }catch(e){}
       let alloc=wallet.balance*(this.perPosPct/100)*Math.min(1.3,0.6+conv); const openA=positions.filter(p=>p.status==='open').reduce((a,p)=>a+(p.alloc||0),0); alloc=Math.max(0,Math.min(alloc,wallet.balance*this.maxExpo-openA)); if(alloc<wallet.balance*0.01)break;   // equity op → stop (best-first, rest is minder)
       const localId='c'+Date.now()+Math.floor(Math.random()*1000);
       positions.push({localId,pair:r.epic,isCommodity:true,side:r.side,entry,current:entry,stop,target,ageH:0,openClock:mockClock,openedAt:new Date(),status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,session:'commo',conf:Math.round(50+conv*49),stopPctUsed,alloc,factors:{},horizonH:this.holdH});
@@ -25101,7 +25117,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // ---- meta-regel (alle scalars, DOM — geen canvas-clutter) ----
     if(meta){ let m=''; try{ const a=SRC.brainAnalyze(SEL,TF);
       if(F){ const rc=F.regime==='CRISIS'?'#ff5f7e':F.regime==='SPANNING'?'#ffb627':'#14f195'; m='FSO '+F.regime+' · stress '+F.last.stress+' · σ² '+F.last.varr+' · VFM '+Math.round(F.last.vfm*100)+'% · ΔV '+(F.last.dV>=0?'+':'')+F.last.dV.toFixed(3)+' · node '+F.nodeTh.toFixed(2)+' · vol '+Math.round(F.volScore*100)+'% · LOW '+Math.round(F.lowPct*100)+'%/HIGH '+Math.round(F.highPct*100)+'%'; if(F.verify)m+=' · verif '+Math.round(F.verify.hitRate*100)+'%'+(F.verify.proven?'✓':''); }
-      if(a)m+=' · NN '+(a.probUp!=null?Math.round(a.probUp*100)+'%↑':'—')+(a.cal&&a.cal.proven?'✓':'')+' '+(a.regime||''); const pr=SRC.predict(SEL); if(pr)m+=' · 4h '+pr.dir+' '+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%'; }catch(e){} meta.textContent=m; }
+      if(a)m+=' · NN '+(a.probUp!=null?Math.round(a.probUp*100)+'%↑':'—')+(a.cal&&a.cal.proven?'✓':'')+' '+(a.regime||''); const pr=SRC.predict(SEL); if(pr)m+=' · 4h '+pr.dir+' '+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%';
+      try{ const H=window.TrinityCommoUOTAM&&window.TrinityCommoUOTAM.hmm(cands); if(H)m+=' · HMM '+H.regime+' '+Math.round(H.confidence*100)+'%'; }catch(e){} }catch(e){} meta.textContent=m; }
   }
   function renderCommodityChart(){ _activate(COMMO); _render(); }
   function renderCryptoSysChart(){ _activate(CRYPTO); _render(); }
@@ -25157,6 +25174,23 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function swingTurns(cl,thr){ const t=[]; let lastEx=cl[0],dir=0; for(let i=1;i<cl.length;i++){ const ch=(cl[i]-lastEx)/(Math.abs(lastEx)||1);
     if(dir>=0&&ch<=-thr){t.push(i);dir=-1;lastEx=cl[i];} else if(dir<=0&&ch>=thr){t.push(i);dir=1;lastEx=cl[i];} else if((dir>0&&cl[i]>lastEx)||(dir<0&&cl[i]<lastEx))lastEx=cl[i]; } return t; }
 
+  // ---- REGIME-HMM (3 verborgen toestanden: down/range/up · Gaussische emissies · forward-inferentie) ----
+  // Robuuste init via trend/vol-labeling (geen instabiele Baum-Welch), dan echte forward-pass op de returns.
+  function _hmm(cl){ try{ const n=cl.length; if(n<40)return null; const rets=[]; for(let i=1;i<n;i++)rets.push(cl[i]/cl[i-1]-1); const m=rets.length;
+    // per-bar label via rollend trend-z (20) → 0=down,1=range,2=up
+    const lab=new Array(m); for(let i=0;i<m;i++){ const a=Math.max(0,i-19); const w=rets.slice(a,i+1); const mu=w.reduce((x,y)=>x+y,0)/w.length; const sd=Math.sqrt(w.reduce((x,y)=>x+(y-mu)*(y-mu),0)/w.length)||1e-9; const z=mu/sd*Math.sqrt(w.length); lab[i]=z>0.4?2:z<-0.4?0:1; }
+    // transitiematrix A (Laplace) + emissie-Gaussianen per toestand
+    const A=[[1,1,1],[1,1,1],[1,1,1]]; for(let i=1;i<m;i++)A[lab[i-1]][lab[i]]++; for(let r=0;r<3;r++){ const s=A[r][0]+A[r][1]+A[r][2]; for(let c=0;c<3;c++)A[r][c]/=s; }
+    const mu=[0,0,0],v=[0,0,0],cnt=[0,0,0]; for(let i=0;i<m;i++){ mu[lab[i]]+=rets[i]; cnt[lab[i]]++; } for(let r=0;r<3;r++)mu[r]=cnt[r]?mu[r]/cnt[r]:0;
+    for(let i=0;i<m;i++){ const d=rets[i]-mu[lab[i]]; v[lab[i]]+=d*d; } const gv=rets.reduce((x,y)=>x+y*y,0)/m; for(let r=0;r<3;r++)v[r]=cnt[r]>2?Math.max(v[r]/cnt[r],gv*0.05):gv||1e-8;
+    const N=(x,r)=>Math.exp(-(x-mu[r])*(x-mu[r])/(2*v[r]))/Math.sqrt(2*Math.PI*v[r])+1e-12;
+    // forward (geschaald) over de laatste ~60 bars
+    let al=[1/3,1/3,1/3]; const start=Math.max(0,m-60); for(let i=start;i<m;i++){ const nx=[0,0,0]; for(let c=0;c<3;c++){ let s=0; for(let r=0;r<3;r++)s+=al[r]*A[r][c]; nx[c]=s*N(rets[i],c); } const z=nx[0]+nx[1]+nx[2]||1; al=[nx[0]/z,nx[1]/z,nx[2]/z]; }
+    const reg=al[0]>al[1]&&al[0]>al[2]?0:(al[2]>al[1]?2:1); const lbl=['bear-trend','range','bull-trend'][reg]; const col=['#ff5f7e','#7d8a99','#26d07c'][reg];
+    const persist=+(1/Math.max(1e-3,1-A[reg][reg])).toFixed(1);
+    return { regime:lbl, state:reg, col, probs:{down:+al[0].toFixed(2),range:+al[1].toFixed(2),up:+al[2].toFixed(2)}, confidence:+Math.max(al[0],al[1],al[2]).toFixed(2), persistence:persist, stay:+A[reg][reg].toFixed(2) };
+  }catch(e){ return null; } }
+
   // ============ PROVIDERS: commodity (Capital) + FX (Capital) — zelfde engine, per markt ============
   const PEER_C={WTI:'BRENT',BRENT:'WTI',NGAS:'WTI',GOLD:'SILVER',SILVER:'GOLD',PLAT:'PALL',PALL:'PLAT',COPPER:'GOLD'};
   const FX=(typeof PAIRS!=='undefined')?PAIRS.slice():['EUR/USD','GBP/USD','USD/JPY'];
@@ -25172,9 +25206,16 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   try{ window.FxCandles=FxCandles; }catch(e){}
   const PROV_COMMO={ key:'commo', ns:'', names:NAMES, markets:MK, candles:(k,tf)=>{ const C=window.TrinityCommodities; return C?C.candles(k,tf):[]; }, peer:(k)=>PEER_C[k]||'WTI' };
   const PROV_FX={ key:'fx', ns:'FX:', names:FX_NAMES, markets:FX, candles:(k,tf)=>FxCandles.candles(k,tf), peer:FX_PEER };
+  // ---- CRYPTO provider (BTC/ETH/SOL via Binance klines · CryptoSysCandles) — zelfde engine, per markt ----
+  const CX_MK=['BTC','ETH','SOL'];
+  const CX_NAMES={BTC:'Bitcoin · BTC',ETH:'Ethereum · ETH',SOL:'Solana · SOL'};
+  const CX_PEER={BTC:'ETH',ETH:'BTC',SOL:'BTC'};
+  const PROV_CRYPTO={ key:'crypto', ns:'CX:', names:CX_NAMES, markets:CX_MK, candles:(k,tf)=>{ const C=window.CryptoSysCandles; return C?C.candles(k,tf):[]; }, peer:(k)=>CX_PEER[k]||'BTC' };
+  // provider opzoeken op key (voor open-posities die alleen een markt-string kennen)
+  function provFor(pk){ return pk==='fx'?PROV_FX:pk==='crypto'?PROV_CRYPTO:PROV_COMMO; }
 
   const ENG={
-    MK, NAMES, TPI, NODE_MS, ANCHOR, NODE_TYPE, FX, FX_NAMES, PROV_COMMO, PROV_FX, FxCandles,
+    MK, NAMES, TPI, NODE_MS, ANCHOR, NODE_TYPE, FX, FX_NAMES, PROV_COMMO, PROV_FX, PROV_CRYPTO, CX_MK, CX_NAMES, provFor, FxCandles,
     _cache:{}, _at:{},
     // hoofd-analyse per (markt,tf), gecachet ~20s
     analyze(key,tf,prov){ prov=prov||PROV_COMMO; tf=tf||'1h'; const ck=prov.ns+key+'|'+tf; const now=Date.now(); if(this._cache[ck]&&now-(this._at[ck]||0)<20000)return this._cache[ck];
@@ -25212,19 +25253,31 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
           return { hi:+hi.toFixed(px>=100?1:3), lo:+lo.toFixed(px>=100?1:3), bull:+(px+rng2*0.382).toFixed(px>=100?1:3), bear:+(px-rng2*0.382).toFixed(px>=100?1:3), posPct:rng2>0?+((px-lo)/rng2).toFixed(2):0.5 }; };
         const levels={ micro:lvl('micro'), meso:lvl('meso'), macro:lvl('macro') };
         // patroon & structuur (CNN hergebruikt van de crypto-engine indien aanwezig)
-        let cnn=0,patt=null; try{ if(typeof window.neoScanPatterns==='function'){ const sc=window.neoScanPatterns(cs.map(c=>[c.t,c.o,c.h,c.l,c.c,c.v]),40); cnn=sc.netBias||0; patt=sc.last&&sc.last.type||null; } }catch(e){}
+        // ---- CNN (uitgebreid): multi-schaal candlestick-scan (20/40/80) + structurele detectoren ----
+        let cnn=0,patt=null,cnnMulti=null; try{ if(typeof window.neoScanPatterns==='function'){ const arr=cs.map(c=>[c.t,c.o,c.h,c.l,c.c,c.v]);
+          const b20=window.neoScanPatterns(arr,20).netBias||0; const s40=window.neoScanPatterns(arr,40); const b40=s40.netBias||0; const b80=window.neoScanPatterns(arr,80).netBias||0; cnn=b40; patt=(s40.last&&s40.last.type)||null;
+          // structurele detectoren (breakout/inside-bar/3-bar-momentum) — extra convolutie-lagen
+          const H=cs.map(c=>c.h),Lo=cs.map(c=>c.l),Cl=cl; let strc=0; const nn2=cs.length;
+          if(nn2>22){ const rhi=Math.max.apply(null,H.slice(nn2-21,nn2-1)), rlo=Math.min.apply(null,Lo.slice(nn2-21,nn2-1)); if(Cl[nn2-1]>rhi)strc+=0.6; else if(Cl[nn2-1]<rlo)strc-=0.6;
+            const ib=(H[nn2-1]<H[nn2-2]&&Lo[nn2-1]>Lo[nn2-2]); if(ib)strc*=0.5;
+            const mom3=(Cl[nn2-1]-Cl[nn2-4])/(Math.abs(Cl[nn2-4])||1); strc+=clamp(mom3*20,-0.5,0.5); }
+          const agg=clamp(b20*0.45+b40*0.3+b80*0.15+strc*0.4,-1,1); const align=(Math.sign(b20)===Math.sign(b40)&&Math.sign(b40)===Math.sign(b80));
+          cnnMulti={bias:+agg.toFixed(2),w20:+b20.toFixed(2),w40:+b40.toFixed(2),w80:+b80.toFixed(2),struct:+strc.toFixed(2),aligned:align,conf:+Math.min(1,Math.abs(agg)+ (align?0.2:0)).toFixed(2)};
+        } }catch(e){}
         const struct=(()=>{ const w=cl.slice(-20); if(w.length<6)return '—'; const hh=w[w.length-1]>Math.max.apply(null,w.slice(0,-1)), ll=w[w.length-1]<Math.min.apply(null,w.slice(0,-1));
           const slope=(w[w.length-1]-w[0])/(Math.abs(w[0])||1); return hh?'higher-high (bullish break)':ll?'lower-low (bearish break)':slope>0.01?'higher-highs/-lows':slope<-0.01?'lower-highs/-lows':'range/consolidatie'; })();
         // ---- FRACTAL ENERGY SCALE: zone/scenario per markt (compressie/ontlading) ----
         const energy=this._energy(F,cl,vfmNow,chaos,px,pin.type);
+        // ---- REGIME-HMM (verborgen markt-toestand) ----
+        const hmm=_hmm(cl);
         const out={ key, tf, mkt:prov.key, name:prov.names[key]||key, ready:true, px, n, at:now,
           er:+er.toFixed(3), db:+db.toFixed(3), vfm:vfmNow, vfmSrc:bestSrc, vfmHit, vfmVariants:{theory:+(cand.theory[n-1]||0).toFixed(3),ngas:+(cand.ngas[n-1]||0).toFixed(3),blend:+(blend[n-1]||0).toFixed(3)}, vfmScores:{theory:+scores.theory.hit.toFixed(2),ngas:+scores.ngas.hit.toFixed(2),blend:+scBlend.hit.toFixed(2)},
           chaos:+chaos.toFixed(2), chaosLim, chaosOk:chaos<=chaosLim,
           regime:F?F.regime:'—', stress:F?F.last.stress:null, sigma:F?F.last.varr:null, sysVfm:F?F.last.vfm:null,
           node:{num:pin.num,type:pin.type,typeLab:NODE_TYPE[pin.type].lab,col:NODE_TYPE[pin.type].col,msTo:pin.msTo,nextTs:pin.nextTs,session:nodeSess}, nodeFit,
-          levels, cnn:+cnn.toFixed(2), pattern:patt, structure:struct,
+          levels, cnn:+cnn.toFixed(2), cnnMulti, pattern:patt, structure:struct,
           nn:B&&B.probUp!=null?Math.round(B.probUp*100):null, nnProven:!!(B&&B.cal&&B.cal.proven),
-          energy,
+          energy, hmm,
           // executie-oordeel (v7.7 gate, alleen ADVIES — verandert de werking niet)
           verdict:(Math.abs(vfmNow)<1.2)?'WAIT':(chaos>chaosLim)?'SKIP':'TRADE', dir:vfmNow>0?'LONG':'SHORT', lev:(Math.abs(vfmNow)>1.6)?'10x':'5x' };
         this._cache[ck]=out; this._at[ck]=now; return out;
@@ -25268,7 +25321,36 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         return { key:a.key, name:a.name, mkt:a.mkt, px, dec, dir:a.dir, verdict:a.verdict, energyZone:a.energy.zone, energyCol:a.energy.col, node:a.node,
           rows, frame:{ entry:+px.toFixed(dec), stop:+stop.toFixed(dec), t1:+t1.toFixed(dec), t2:+t2.toFixed(dec), rr } };
       }catch(e){ return null; } },
-    matrixAll(tf,prov){ prov=prov||PROV_COMMO; return prov.markets.map(k=>this.matrix(k,tf||'1h',prov)).filter(Boolean); }
+    matrixAll(tf,prov){ prov=prov||PROV_COMMO; return prov.markets.map(k=>this.matrix(k,tf||'1h',prov)).filter(Boolean); },
+    // ---- OPEN-POSITIE MATRIX: neemt de OPENINGSPRIJS als pivot (i.p.v. de algemene pivot).
+    //  De algemene standaard-matrix (matrix()) blijft de pivot voor toekomstige trades (shadow-gated).
+    //  Retourneert het opening-frame + het standaard-frame zodat de UI een VS-tabel kan tonen. ----
+    matrixFromEntry(key,tf,prov,entry,side){ prov=prov||PROV_COMMO; tf=tf||'1h';
+      try{ const std=this.matrix(key,tf,prov); const cs=prov.candles(key,tf); if(!cs||!cs.length||!(entry>0))return std?{std,open:null}:null;
+        const n=cs.length; const w=cs.slice(-12); let H=-Infinity,L=Infinity; w.forEach(c=>{ if(c.h>H)H=c.h; if(c.l<L)L=c.l; }); const px=cs[n-1].c;
+        const long=(side==='LONG'||side==='BUY'); const P=entry;                                  // openingsprijs = pivot
+        const rng=(H-L)||Math.abs(px*0.01)||1e-6; const R1=2*P-L, S1=2*P-H, R2=P+rng, S2=P-rng;
+        const dec=px>=100?1:(px>=10?2:(px>=1?4:5));
+        const rows=[
+          {lvl:'Target 2 (Major)', price:long?R2:S2, kind:'target'},
+          {lvl:'Target 1 (Minor)', price:long?R1:S1, kind:'target'},
+          {lvl:'Openingsprijs (pivot)', price:P, kind:'pivot'},
+          {lvl:'Huidige prijs', price:px, kind:'now'},
+          {lvl:'Support 1', price:long?S1:R1, kind:'support'},
+          {lvl:'Support 2 (Hard)', price:long?S2:R2, kind:'support'}
+        ];
+        rows.forEach(r=>{ r.price=+r.price.toFixed(dec); r.distPts=+(r.price-px).toFixed(dec); r.distPct=+((r.price-px)/(px||1)*100).toFixed(2);
+          r.fromEntryPct=+((r.price-P)/(P||1)*100).toFixed(2); });
+        const stop = long ? Math.min(S1, P*(1-0.015)) : Math.max(R1, P*(1+0.015));
+        const t1 = long?R1:S1, t2 = long?R2:S2;
+        const rr = +(Math.abs(t1-P)/Math.max(1e-9,Math.abs(P-stop))).toFixed(2);
+        const pnlPct = +(((px-P)/(P||1))*100*(long?1:-1)).toFixed(2);
+        const open={ key:(std&&std.key)||key, name:(std&&std.name)||prov.names[key]||key, mkt:prov.key, px, entry:+P.toFixed(dec), dec, dir:long?'LONG':'SHORT', pnlPct,
+          energyZone:std?std.energyZone:'—', energyCol:std?std.energyCol:'#7d8a99', node:std?std.node:null, rows,
+          frame:{ entry:+P.toFixed(dec), stop:+stop.toFixed(dec), t1:+t1.toFixed(dec), t2:+t2.toFixed(dec), rr } };
+        return { std, open };
+      }catch(e){ return null; } },
+    hmm(cs){ try{ return _hmm((cs||[]).map(c=>c.c)); }catch(e){ return null; } }
   };
   try{ window.TrinityCommoUOTAM=ENG; }catch(e){}
 })();
@@ -25302,10 +25384,11 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b>'+
         '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px;">'+cell('VFM',a.vfm,vc)+cell('ER',a.er,'#9fb2c4')+cell('DB',a.db,'#9fb2c4')+cell('Chaos%',a.chaos,cc)+'</div>'+
         '<div style="font-size:0.46rem;color:#6d8296;margin-top:3px;">bron '+a.vfmSrc+' ('+Math.round(a.vfmHit*100)+'% hit) · limiet '+a.chaosLim+'% · σ² '+(a.sigma!=null?a.sigma:'—')+'</div>'); }).join('');
-    const pt=document.getElementById(idp+'-pattern'); if(pt)pt.innerHTML=ready.map(a=>{ const cb=a.cnn>0.05?'#26d07c':a.cnn<-0.05?'#ff5f7e':'#7d8a99';
+    const pt=document.getElementById(idp+'-pattern'); if(pt)pt.innerHTML=ready.map(a=>{ const cb=a.cnn>0.05?'#26d07c':a.cnn<-0.05?'#ff5f7e':'#7d8a99'; const H=a.hmm;
       return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b>'+
         '<div style="font-size:0.52rem;color:#9fb2c4;margin-top:3px;">structuur: '+esc(a.structure)+'</div>'+
-        '<div style="font-size:0.52rem;margin-top:2px;">CNN <span style="color:'+cb+';font-weight:700;">'+a.cnn+'</span>'+(a.pattern?' · '+esc(a.pattern):'')+(a.nn!=null?' · NN '+a.nn+'%'+(a.nnProven?'✓':''):'')+'</div>'); }).join('');
+        '<div style="font-size:0.52rem;margin-top:2px;">CNN <span style="color:'+cb+';font-weight:700;">'+a.cnn+'</span>'+(a.cnnMulti?' <span style="color:#6d8296;">(multi '+a.cnnMulti.bias+(a.cnnMulti.aligned?' ⇈':'')+')</span>':'')+(a.pattern?' · '+esc(a.pattern):'')+(a.nn!=null?' · NN '+a.nn+'%'+(a.nnProven?'✓':''):'')+'</div>'+
+        (H?'<div style="font-size:0.5rem;margin-top:2px;">HMM <span style="color:'+H.col+';font-weight:700;">'+esc(H.regime)+'</span> '+Math.round(H.confidence*100)+'% · duur ~'+H.persistence+'b</div>':'')); }).join('');
     const nd=document.getElementById(idp+'-nodes'); if(nd)nd.innerHTML=ready.map(a=>{ const fit=a.nodeFit;
       return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b>'+
         '<div style="font-size:0.54rem;margin-top:3px;">Node '+a.node.num+' · <span style="color:'+a.node.col+';font-weight:700;">Type '+a.node.type+' '+esc(a.node.typeLab)+'</span></div>'+
@@ -25321,8 +25404,9 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   }catch(e){} }
   function renderCommoSystemData(){ const E=ENGN(); if(E)renderSD(E.PROV_COMMO,'cd','Commodity-data laadt… verbind de Capital /history-route.'); }
   function renderFxSystemData(){ const E=ENGN(); if(E){ try{ E.FxCandles.refresh('1h'); }catch(e){} renderSD(E.PROV_FX,'fd','FX-data laadt… verbind de Capital /history-route.'); } }
-  try{ window.renderCommoSystemData=renderCommoSystemData; window.renderFxSystemData=renderFxSystemData; }catch(e){}
-  try{ setInterval(function(){ try{ const h=document.getElementById('cd-overview'); if(h&&h.offsetParent!==null)renderCommoSystemData(); const f=document.getElementById('fd-overview'); if(f&&f.offsetParent!==null)renderFxSystemData(); }catch(e){} }, 5000); }catch(e){}
+  function renderCryptoSystemData(){ const E=ENGN(); if(E){ try{ ['BTC','ETH','SOL'].forEach(k=>window.CryptoSysCandles&&window.CryptoSysCandles.load(k,'1h')); }catch(e){} renderSD(E.PROV_CRYPTO,'ncd','Crypto-data laadt… (Binance klines).'); } }
+  try{ window.renderCommoSystemData=renderCommoSystemData; window.renderFxSystemData=renderFxSystemData; window.renderCryptoSystemData=renderCryptoSystemData; }catch(e){}
+  try{ setInterval(function(){ try{ const h=document.getElementById('cd-overview'); if(h&&h.offsetParent!==null)renderCommoSystemData(); const f=document.getElementById('fd-overview'); if(f&&f.offsetParent!==null)renderFxSystemData(); const k=document.getElementById('ncd-overview'); if(k&&k.offsetParent!==null)renderCryptoSystemData(); const ke=document.getElementById('ncd-energy'); if(ke&&ke.offsetParent!==null&&!document.getElementById('ncd-overview'))renderCryptoSystemData(); }catch(e){} }, 5000); }catch(e){}
 })();
 
 /* ==================================================================================
@@ -25333,14 +25417,14 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
    ================================================================================== */
 (function(){
   'use strict';
-  let SEL_C='WTI', SEL_F='EUR/USD'; const _built={};
+  let SEL_C='WTI', SEL_F='EUR/USD', SEL_X='BTC'; const _built={};
   function E(){ return window.TrinityCommoUOTAM; }
   function esc(s){ return (''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
   function p2(x){ return String(x).padStart(2,'0'); }
   function cet(ts){ const d=new Date(ts+3600000); return p2(d.getUTCHours())+':'+p2(d.getUTCMinutes()); }  // ~CET
   function dow(ts){ return ['zo','ma','di','wo','do','vr','za'][new Date(ts+3600000).getUTCDay()]; }
   function sessTxt(ts){ const h=new Date(ts+3600000).getUTCHours(); return h>=1&&h<7?'nacht-reset Azië':h>=7&&h<9?'vroege EU-liquiditeit':h>=9&&h<13?'EU-ochtend':h>=13&&h<16?'EU↔VS overlap':h>=16&&h<19?'VS core · max volume':h>=19&&h<22?'late VS-sessie':'Azië/EU-transitie'; }
-  try{ window.__ciSel=v=>{ SEL_C=v; renderCommoInfoPanels(); }; window.__fiSel=v=>{ SEL_F=v; renderFxInfoPanels(); }; }catch(e){}
+  try{ window.__ciSel=v=>{ SEL_C=v; renderCommoInfoPanels(); }; window.__fiSel=v=>{ SEL_F=v; renderFxInfoPanels(); }; window.__kcSel=v=>{ SEL_X=v; renderCryptoInfoPanels(); }; }catch(e){}
   function _buildSel(prov,selId,cur){ if(_built[selId])return; const sel=document.getElementById(selId); if(!sel||!E())return; _built[selId]=true;
     sel.innerHTML=prov.markets.map(k=>`<option value="${k}">${prov.names[k]}</option>`).join(''); sel.value=cur; }
   function schedule(n){ const En=E(); if(!En)return []; const now=Date.now(); const NODE_MS=En.NODE_MS, ANCHOR=En.ANCHOR;
@@ -25350,7 +25434,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function renderInfoPanels(prov, idp, cur, selId){ try{ const En=E(); if(!En)return; _buildSel(prov,selId,cur); const a=En.analyze(cur,'1h',prov); const NT=En.NODE_TYPE;
     if(!a||!a.ready){ const h=document.getElementById(idp+'-arch'); if(h)h.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Data laadt voor '+esc(prov.names[cur]||cur)+'…</span>'; return; }
     const arch=document.getElementById(idp+'-arch'); if(arch){ const gateVfm=Math.abs(a.vfm)>=1.2, gateChaos=a.chaosOk;
-      const layer=(n,title,val,ok,note)=>'<div style="border-left:3px solid '+(ok==null?'#5c7488':ok?'#26d07c':'#ff5f7e')+';padding:5px 8px;margin-bottom:5px;background:rgba(255,255,255,0.02);border-radius:0 5px 5px 0;"><div style="font-size:0.56rem;color:#7fd8ff;font-weight:600;">LAAG '+n+' · '+title+'</div><div style="font-size:0.6rem;color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;margin-top:1px;">'+val+'</div>'+(note?'<div style="font-size:0.46rem;color:#6d8296;margin-top:1px;">'+note+'</div>':'')+'</div>';
+      const layer=(n,title,val,ok,note)=>'<div style="border-left:3px solid '+(ok==null?'#5c7488':ok?'#26d07c':'#ff5f7e')+';padding:6px 9px;margin-bottom:6px;background:rgba(255,255,255,0.02);border-radius:0 5px 5px 0;"><div style="font-size:0.64rem;color:#7fd8ff;font-weight:600;">LAAG '+n+' · '+title+'</div><div style="font-size:0.7rem;color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;margin-top:2px;">'+val+'</div>'+(note?'<div style="font-size:0.54rem;color:#6d8296;margin-top:2px;">'+note+'</div>':'')+'</div>';
       arch.innerHTML=
         layer(1,'Kosmische Klok (Tesla 3-6-9)','Node '+a.node.num+' · <span style="color:'+a.node.col+'">Type '+a.node.type+' '+a.node.typeLab+'</span> · volgende in '+Math.max(0,Math.round(a.node.msTo/60000))+'m',null,'T_π 188,66min · micro-node 9,43u · '+esc(a.node.session))+
         layer(2,'Energie-ingestie (VFM)','ER '+a.er+' × DB '+a.db+' → VFM '+a.vfm,gateVfm,'|VFM|≥1.2 = institutionele massa · bron '+a.vfmSrc+' ('+Math.round(a.vfmHit*100)+'% hit) · '+(gateVfm?'DOOR':'WAIT (vacuüm)'))+
@@ -25358,25 +25442,26 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         layer(4,'Executie-matrix',(a.verdict==='TRADE'?('<span style="color:'+(a.dir==='LONG'?'#26d07c':'#ff5f7e')+'">'+a.dir+' · '+a.lev+'</span> · stop −1,5% · target volgende node'):('<span style="color:#ffb627">'+a.verdict+'</span> — geen trade')),a.verdict==='TRADE','advies (verandert de live werking niet)'); }
     const sch=document.getElementById(idp+'-sched'); if(sch){ const rows=schedule(16); let lastDay=''; const nm=(prov.names[cur]||cur).split(' · ')[0];
       sch.innerHTML=rows.map(r=>{ const d=dow(r.ts); const dayHdr=(d!==lastDay); lastDay=d; const t=NT[r.type];
-        return (dayHdr?'<div style="font-size:0.5rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.1em;margin:5px 0 2px;">'+d+'</div>':'')+
-          '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.54rem;padding:1px 0;"><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;min-width:34px;">'+cet(r.ts)+'</span><span style="color:'+t.col+';min-width:96px;">Type '+r.type+' '+t.lab+'</span><span style="color:#9fb2c4;">Node '+r.num+' · '+esc(nm)+' — '+esc(sessTxt(r.ts))+'</span></div>'; }).join(''); }
+        return (dayHdr?'<div style="font-size:0.56rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.1em;margin:5px 0 2px;">'+d+'</div>':'')+
+          '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.6rem;padding:1.5px 0;"><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;min-width:36px;">'+cet(r.ts)+'</span><span style="color:'+t.col+';min-width:100px;">Type '+r.type+' '+t.lab+'</span><span style="color:#9fb2c4;">Node '+r.num+' · '+esc(nm)+' — '+esc(sessTxt(r.ts))+'</span></div>'; }).join(''); }
     const hist=document.getElementById(idp+'-hist'); if(hist){ const cs=prov.candles(cur,'1h');
       if(cs&&cs.length>30){ const cl=cs.map(c=>c.c); const turns=[]; let lastEx=cl[0],dir=0,exi=0; for(let i=1;i<cl.length;i++){ const ch=(cl[i]-lastEx)/(Math.abs(lastEx)||1); if(dir>=0&&ch<=-0.006){turns.push({i:exi});dir=-1;lastEx=cl[i];exi=i;} else if(dir<=0&&ch>=0.006){turns.push({i:exi});dir=1;lastEx=cl[i];exi=i;} else if((dir>0&&cl[i]>lastEx)||(dir<0&&cl[i]<lastEx)){lastEx=cl[i];exi=i;} }
         const evs=turns.slice(-12).reverse().map(tt=>{ const i=tt.i; const c=cs[i]; const mv=i>6?(cl[i]/cl[i-6]-1)*100:0;
           const nx=cl.slice(i,Math.min(cl.length,i+6)); const fwd=nx.length>1?(nx[nx.length-1]/nx[0]-1)*100:0; const phase=Math.abs(fwd)>Math.abs(mv)*1.2?'Versnelling':Math.abs(fwd)<Math.abs(mv)*0.5?'Ontlading':'Initiatie'; const pc={Initiatie:'#26d0cc',Versnelling:'#ffd500',Ontlading:'#ff5f7e'}[phase];
           const d=new Date(c.t); return {txt:p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+cet(c.t),phase,pc,px:c.c,mv,fwd}; });
-        hist.innerHTML=evs.map(e=>'<div style="display:flex;gap:6px;align-items:baseline;font-size:0.52rem;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);"><span style="color:#8aa;min-width:64px;font-family:\'JetBrains Mono\',monospace;">'+e.txt+'</span><span style="color:'+e.pc+';min-width:74px;">'+e.phase+'</span><span style="color:#9fb2c4;">@'+(e.px>=100?e.px.toFixed(1):e.px.toFixed(4))+' · aanloop '+(e.mv>=0?'+':'')+e.mv.toFixed(1)+'% → vervolg '+(e.fwd>=0?'+':'')+e.fwd.toFixed(1)+'%</span></div>').join('');
+        hist.innerHTML=evs.map(e=>'<div style="display:flex;gap:6px;align-items:baseline;font-size:0.58rem;padding:2.5px 0;border-bottom:1px solid rgba(255,255,255,0.04);"><span style="color:#8aa;min-width:68px;font-family:\'JetBrains Mono\',monospace;">'+e.txt+'</span><span style="color:'+e.pc+';min-width:78px;">'+e.phase+'</span><span style="color:#9fb2c4;">@'+(e.px>=100?e.px.toFixed(1):e.px.toFixed(4))+' · aanloop '+(e.mv>=0?'+':'')+e.mv.toFixed(1)+'% → vervolg '+(e.fwd>=0?'+':'')+e.fwd.toFixed(1)+'%</span></div>').join('');
       } else hist.innerHTML='<span style="font-size:0.52rem;color:var(--dimmer);">Onvoldoende historie.</span>'; }
     const chz=document.getElementById(idp+'-chaos'); if(chz){ const scale=[['DEEP COMPRESSION','#ffd500','Veer maximaal geladen — uitbraak ophanden'],['LOADING','#26d0cc','Energie bouwt op, compressie neemt toe'],['NEUTRAL','#7d8a99','Geen duidelijke compressie/ontlading'],['EXPANSION','#26d07c','Uitbraak bezig — trend loopt'],['CLIMAX','#ff5f7e','Grote move + stress-piek → fade/uitputting'],['DISCHARGE','#ff8a3c','Ontlading na opbouw — energie loopt eruit']];
       const curz=a.energy.zone;
-      chz.innerHTML='<div style="font-size:0.56rem;color:#cfe6f5;margin-bottom:4px;">Huidig: <span style="color:'+a.energy.col+';font-weight:700;">'+esc(curz)+'</span> · compressie '+Math.round(a.energy.compression*100)+'% · energie '+Math.round(a.energy.charge*100)+'% · 5-bar '+(a.energy.move5>=0?'+':'')+a.energy.move5+'%</div>'+
-        '<div style="font-size:0.5rem;color:'+a.energy.col+';margin-bottom:6px;">▸ '+esc(a.energy.action)+'</div>'+
-        scale.map(s=>{ const on=s[0]===curz; return '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.5rem;padding:2px 4px;border-radius:4px;'+(on?'background:'+s[1]+'22;border:1px solid '+s[1]+'66;':'')+'margin-bottom:2px;"><span style="color:'+s[1]+';min-width:120px;font-weight:'+(on?'700':'400')+';">'+(on?'▸ ':'')+s[0]+'</span><span style="color:#9fb2c4;">'+s[2]+'</span></div>'; }).join(''); }
+      chz.innerHTML='<div style="font-size:0.62rem;color:#cfe6f5;margin-bottom:4px;">Huidig: <span style="color:'+a.energy.col+';font-weight:700;">'+esc(curz)+'</span> · compressie '+Math.round(a.energy.compression*100)+'% · energie '+Math.round(a.energy.charge*100)+'% · 5-bar '+(a.energy.move5>=0?'+':'')+a.energy.move5+'%</div>'+
+        '<div style="font-size:0.56rem;color:'+a.energy.col+';margin-bottom:6px;">▸ '+esc(a.energy.action)+'</div>'+
+        scale.map(s=>{ const on=s[0]===curz; return '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.56rem;padding:2.5px 5px;border-radius:4px;'+(on?'background:'+s[1]+'22;border:1px solid '+s[1]+'66;':'')+'margin-bottom:2px;"><span style="color:'+s[1]+';min-width:128px;font-weight:'+(on?'700':'400')+';">'+(on?'▸ ':'')+s[0]+'</span><span style="color:#9fb2c4;">'+s[2]+'</span></div>'; }).join(''); }
   }catch(e){} }
   function renderCommoInfoPanels(){ const En=E(); if(En)renderInfoPanels(En.PROV_COMMO,'ci',SEL_C,'ci-sel'); }
   function renderFxInfoPanels(){ const En=E(); if(En){ try{ En.FxCandles.load(SEL_F,'1h'); }catch(e){} renderInfoPanels(En.PROV_FX,'fi',SEL_F,'fi-sel'); } }
-  try{ window.renderCommoInfoPanels=renderCommoInfoPanels; window.renderFxInfoPanels=renderFxInfoPanels; }catch(e){}
-  try{ setInterval(function(){ try{ const h=document.getElementById('ci-arch'); if(h&&h.offsetParent!==null)renderCommoInfoPanels(); const f=document.getElementById('fi-arch'); if(f&&f.offsetParent!==null)renderFxInfoPanels(); }catch(e){} }, 5000); }catch(e){}
+  function renderCryptoInfoPanels(){ const En=E(); if(En){ try{ window.CryptoSysCandles&&window.CryptoSysCandles.load(SEL_X,'1h'); }catch(e){} renderInfoPanels(En.PROV_CRYPTO,'kc',SEL_X,'kc-sel'); } }
+  try{ window.renderCommoInfoPanels=renderCommoInfoPanels; window.renderFxInfoPanels=renderFxInfoPanels; window.renderCryptoInfoPanels=renderCryptoInfoPanels; }catch(e){}
+  try{ setInterval(function(){ try{ const h=document.getElementById('ci-arch'); if(h&&h.offsetParent!==null)renderCommoInfoPanels(); const f=document.getElementById('fi-arch'); if(f&&f.offsetParent!==null)renderFxInfoPanels(); const k=document.getElementById('kc-arch'); if(k&&k.offsetParent!==null)renderCryptoInfoPanels(); }catch(e){} }, 5000); }catch(e){}
 })();
 
 /* ==================================================================================
@@ -25405,7 +25490,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       microLo:a.levels&&a.levels.micro.lo,microHi:a.levels&&a.levels.micro.hi,microBull:a.levels&&a.levels.micro.bull,microBear:a.levels&&a.levels.micro.bear,
       mesoLo:a.levels&&a.levels.meso.lo,mesoHi:a.levels&&a.levels.meso.hi,macroLo:a.levels&&a.levels.macro.lo,macroHi:a.levels&&a.levels.macro.hi,
       energyZone:a.energy&&a.energy.zone,energyScenario:a.energy&&a.energy.scenario,compression:a.energy&&a.energy.compression,charge:a.energy&&a.energy.charge,move5:a.energy&&a.energy.move5 });
-    return { generatedAt:new Date().toISOString(), commodity:E.all('1h',E.PROV_COMMO).filter(a=>a.ready).map(clean), fx:E.all('1h',E.PROV_FX).filter(a=>a.ready).map(clean) }; }
+    return { generatedAt:new Date().toISOString(), commodity:E.all('1h',E.PROV_COMMO).filter(a=>a.ready).map(clean), fx:E.all('1h',E.PROV_FX).filter(a=>a.ready).map(clean), crypto:(E.PROV_CRYPTO?E.all('1h',E.PROV_CRYPTO).filter(a=>a.ready).map(clean):[]) }; }
   function dl(name,txt,mime){ try{ if(typeof window.downloadFile==='function'){ window.downloadFile(name,txt,mime); return; } }catch(e){}
     try{ const b=new Blob([txt],{type:mime||'application/octet-stream'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},100); }catch(e){} }
   function toCSV(rows){ if(!rows.length)return ''; const cols=Object.keys(rows[0]); const esc=v=>{ v=(v==null?'':''+v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
@@ -25413,11 +25498,13 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   window.__uotamDL=function(kind){ const s=snapshot(); const stamp=new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
     if(kind==='commodity-csv') dl('osiris_uotam_commodity_'+stamp+'.csv',toCSV(s.commodity),'text/csv');
     else if(kind==='fx-csv') dl('osiris_uotam_fx_'+stamp+'.csv',toCSV(s.fx),'text/csv');
+    else if(kind==='crypto-csv') dl('osiris_uotam_crypto_'+stamp+'.csv',toCSV(s.crypto||[]),'text/csv');
     else if(kind==='commodity-json') dl('osiris_uotam_commodity_'+stamp+'.json',JSON.stringify({generatedAt:s.generatedAt,commodity:s.commodity},null,2),'application/json');
     else if(kind==='fx-json') dl('osiris_uotam_fx_'+stamp+'.json',JSON.stringify({generatedAt:s.generatedAt,fx:s.fx},null,2),'application/json');
+    else if(kind==='crypto-json') dl('osiris_uotam_crypto_'+stamp+'.json',JSON.stringify({generatedAt:s.generatedAt,crypto:s.crypto||[]},null,2),'application/json');
     else dl('osiris_uotam_snapshot_'+stamp+'.json',JSON.stringify(s,null,2),'application/json'); };
   // injecteer download-knoppen bovenin de system-data wraps
-  function injectDL(){ try{ [['cd-wrap','commodity'],['fd-wrap','fx']].forEach(([id,kind])=>{ const w=document.getElementById(id); if(!w||w._dlInj)return; w._dlInj=true;
+  function injectDL(){ try{ [['cd-wrap','commodity'],['fd-wrap','fx'],['ncd-wrap','crypto']].forEach(([id,kind])=>{ const w=document.getElementById(id); if(!w||w._dlInj)return; w._dlInj=true;
     const bar=document.createElement('div'); bar.style.cssText='display:flex;gap:6px;justify-content:flex-end;margin-bottom:6px;';
     const btn=(lab,k)=>{ const b=document.createElement('button'); b.textContent=lab; b.style.cssText='background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:\'JetBrains Mono\',monospace;font-size:0.52rem;cursor:pointer;'; b.onclick=(e)=>{ e.stopPropagation(); window.__uotamDL(k); }; return b; };
     bar.appendChild(btn('⭳ JSON',kind+'-json')); bar.appendChild(btn('⭳ CSV',kind+'-csv')); w.insertBefore(bar,w.firstChild); }); }catch(e){} }
@@ -25463,34 +25550,165 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function renderCommoMatrix(){ const En=E(); if(En)renderMatrixGrid(En.PROV_COMMO,'mx-commo'); }
   function renderFxMatrix(){ const En=E(); if(En)renderMatrixGrid(En.PROV_FX,'mx-fx'); }
 
-  // ---- open posities verzamelen (Osiris + Trinity), defensief ----
+  // ---- open posities verzamelen (Osiris crypto + Trinity FX/commodity), defensief ----
+  //  Belangrijk: positions/openPositions/marginState/livePositions zijn top-level `let`-variabelen in
+  //  hetzelfde gebundelde script (osiris_fix/app.js) — dus lexicaal bereikbaar zonder window-prefix.
+  //  We lezen ze rechtstreeks (typeof-guard) met window-fallback, anders vindt collect() niets.
+  function _mktCryptoKey(sym){ try{ if(!sym)return 'BTC'; const s=(''+sym).toUpperCase(); if(s.indexOf('BTC')>=0)return 'BTC'; if(s.indexOf('ETH')>=0)return 'ETH'; if(s.indexOf('SOL')>=0)return 'SOL'; return s; }catch(e){ return 'BTC'; } }
+  function _commoKeyOf(pair){ try{ const C=window.TrinityCommodities, En=E(); const mk=(En&&En.MK)||[]; if(!C)return pair; for(const k of mk){ if(k===pair||C.epicOf(k)===pair)return k; } return pair; }catch(e){ return pair; } }
+  function _liveCryptoPrice(){ try{ if(typeof livePrice==='number'&&livePrice)return livePrice; }catch(e){} try{ if(typeof window.livePrice==='number'&&window.livePrice)return window.livePrice; }catch(e){} return null; }
   function collect(){ const out=[];
-    try{ (window.positions||[]).forEach(p=>{ if(p.status&&p.status!=='open')return; out.push({src:'Trinity',market:p.pair,side:p.side,entry:p.entry,current:p.current,stop:p.stop,target:p.target,pnlPct:p.pnlPct,size:p.alloc,kind:p.isCommodity?'commodity':'fx'}); }); }catch(e){}
-    try{ (window.openPositions||[]).forEach(p=>{ const cur=(typeof window.livePrice==='number'&&window.livePrice)||p.entryPrice; const long=(p.side==='LONG'||p.side==='BUY'); const pnl=p.entryPrice?((cur/p.entryPrice-1)*100*(long?1:-1)):null; out.push({src:'Osiris spot',market:'BTC',side:long?'LONG':'SHORT',entry:p.entryPrice,current:cur,stop:null,target:p.targetPrice,pnlPct:pnl,size:p.notional,kind:'crypto'}); }); }catch(e){}
-    try{ const m=window.marginState; if(m&&m.positions)m.positions.forEach(p=>{ out.push({src:'Osiris margin',market:p.sym||'crypto',side:p.side,entry:p.entryPrice||p.price,current:p.markPrice||p.price,stop:p.stopLoss||p.sl,target:p.takeProfit||p.tp,pnlPct:(p.pnlPct!=null?p.pnlPct:null),lev:p.leverage,kind:'crypto'}); }); }catch(e){}
+    // Trinity sim-portfolio (FX + commodity)
+    try{ const P=(typeof positions!=='undefined'&&positions)?positions:(window.positions||[]); (P||[]).forEach(p=>{ if(p.status&&p.status!=='open')return;
+      out.push({src:'Trinity',market:p.pair,side:p.side,entry:p.entry,current:p.current,stop:p.stop,target:p.target,pnlPct:p.pnlPct,size:p.alloc,kind:p.isCommodity?'commodity':'fx',openedAt:p.openedAt}); }); }catch(e){}
+    // Trinity live broker-posities (Capital.com) — indien aanwezig
+    try{ const LP=(typeof livePositions!=='undefined'&&livePositions)?livePositions:[]; (LP||[]).forEach(p=>{ if(!p||p.entry==null)return;
+      const long=(p.side==='LONG'||p.side==='BUY'); out.push({src:'Trinity live',market:p.pair,side:long?'LONG':'SHORT',entry:p.entry,current:p.current,stop:p.stop,target:p.target,pnlPct:p.pnlPct,kind:/\//.test(p.pair||'')?'fx':'commodity',live:true}); }); }catch(e){}
+    // Osiris NEO spot (crypto)
+    try{ const OP=(typeof openPositions!=='undefined'&&openPositions)?openPositions:(window.openPositions||[]); (OP||[]).forEach(p=>{ const mkt=_mktCryptoKey(p.symbol||p.market||'BTC');
+      const cur=_liveCryptoPrice()||p.entryPrice; const long=(p.side==='LONG'||p.side==='BUY'); const pnl=p.entryPrice?((cur/p.entryPrice-1)*100*(long?1:-1)):null;
+      out.push({src:'Osiris spot',market:mkt,side:long?'LONG':'SHORT',entry:p.entryPrice,current:cur,stop:p.stopPrice||null,target:p.targetPrice,pnlPct:(p.pnlPct!=null?p.pnlPct:pnl),size:p.notional,kind:'crypto'}); }); }catch(e){}
+    // Osiris NEO margin (crypto futures)
+    try{ const m=(typeof marginState!=='undefined'&&marginState)?marginState:window.marginState; if(m&&m.positions)m.positions.forEach(p=>{ const mkt=_mktCryptoKey(p.sym||p.symbol||'crypto');
+      out.push({src:'Osiris margin',market:mkt,side:(p.side==='LONG'||p.side==='BUY')?'LONG':'SHORT',entry:p.entryPrice||p.price,current:p.markPrice||p.price,stop:p.stopLoss||p.sl,target:p.takeProfit||p.tp,pnlPct:(p.pnlPct!=null?p.pnlPct:(p.uPnlPct!=null?p.uPnlPct:null)),lev:p.leverage,kind:'crypto'}); }); }catch(e){}
     return out; }
+  // provider + engine-key voor een positie
+  function posProv(p){ const En=E(); if(!En)return null; if(p.kind==='crypto')return {prov:En.PROV_CRYPTO,key:_mktCryptoKey(p.market)};
+    if(p.kind==='commodity')return {prov:En.PROV_COMMO,key:_commoKeyOf(p.market)};
+    let k=p.market||''; if(!/\//.test(k)&&k.length>=6)k=k.slice(0,3)+'/'+k.slice(3); return {prov:En.PROV_FX,key:k}; }
   function suggest(p){ const pnl=p.pnlPct; if(pnl==null)return {t:'—',c:'#7d8a99'};
     if(pnl<=-1.2)return {t:'onder druk — respecteer stop / evalueer exit',c:'#ff5f7e'};
     if(p.target&&p.current&&p.entry){ const long=p.side==='LONG'; const toT=Math.abs(p.target-p.current), span=Math.abs(p.target-p.entry)||1; if(span>0&&toT/span<0.2)return {t:'target nabij — deel afbouwen / trail aantrekken',c:'#26d07c'}; }
     if(pnl>=0.5)return {t:'in winst — stop naar break-even, laat lopen',c:'#26d07c'};
     if(pnl>0)return {t:'licht groen — geef ruimte tot volgende node',c:'#9fb2c4'};
     return {t:'vlak — wacht op node/energie-signaal',c:'#9fb2c4'}; }
-  function renderOpenMatrix(){ try{ const host=document.getElementById('mx-open'); if(!host)return; const ps=collect();
-    if(!ps.length){ host.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Geen open posities — Osiris/Trinity hebben nu niets open.</span>'; return; }
-    host.innerHTML='<div style="display:grid;grid-template-columns:0.8fr 0.7fr 0.6fr 0.6fr 0.6fr 0.6fr 0.6fr 1.4fr;gap:6px;font-size:0.46rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;padding:2px 4px;border-bottom:1px solid rgba(255,255,255,0.08);"><span>markt</span><span>bron</span><span>zijde</span><span>entry</span><span>nu</span><span>stop</span><span>target</span><span>P&L · advies</span></div>'+
-      ps.map(p=>{ const long=p.side==='LONG'; const pc=(p.pnlPct==null)?'#9fb2c4':(p.pnlPct>=0?'#26d07c':'#ff5f7e'); const sg=suggest(p); const dec=(p.entry>=100)?1:(p.entry>=1?4:5); const f=v=>(v==null||!isFinite(v))?'—':(+v).toFixed(dec);
-        return '<div style="display:grid;grid-template-columns:0.8fr 0.7fr 0.6fr 0.6fr 0.6fr 0.6fr 0.6fr 1.4fr;gap:6px;font-size:0.5rem;padding:3px 4px;border-bottom:1px solid rgba(255,255,255,0.04);align-items:baseline;">'+
-          '<span style="color:#cfe6f5;font-weight:600;">'+esc(p.market||'—')+'</span>'+
-          '<span style="color:#7fd8ff;">'+esc(p.src)+'</span>'+
-          '<span style="color:'+(long?'#26d07c':'#ff5f7e')+';">'+esc(p.side||'—')+(p.lev?' '+p.lev+'x':'')+'</span>'+
-          '<span style="font-family:\'JetBrains Mono\',monospace;color:#9fb2c4;">'+f(p.entry)+'</span>'+
-          '<span style="font-family:\'JetBrains Mono\',monospace;color:#cfe6f5;">'+f(p.current)+'</span>'+
-          '<span style="font-family:\'JetBrains Mono\',monospace;color:#ff8a94;">'+f(p.stop)+'</span>'+
-          '<span style="font-family:\'JetBrains Mono\',monospace;color:#26d07c;">'+f(p.target)+'</span>'+
-          '<span><b style="color:'+pc+';">'+(p.pnlPct==null?'—':((p.pnlPct>=0?'+':'')+p.pnlPct.toFixed(2)+'%'))+'</b> · <span style="color:'+sg.c+';">'+esc(sg.t)+'</span></span>'+
-        '</div>'; }).join(''); }catch(e){} }
-  try{ window.renderCommoMatrix=renderCommoMatrix; window.renderFxMatrix=renderFxMatrix; window.renderOpenMatrix=renderOpenMatrix; }catch(e){}
-  try{ setInterval(function(){ try{ const a=document.getElementById('mx-commo'); if(a&&a.offsetParent!==null)renderCommoMatrix(); const b=document.getElementById('mx-fx'); if(b&&b.offsetParent!==null){ try{ E().FxCandles.refresh('1h'); }catch(e){} renderFxMatrix(); } const c=document.getElementById('mx-open'); if(c&&c.offsetParent!==null)renderOpenMatrix(); }catch(e){} }, 5000); }catch(e){}
+  // ---- open-positie kaart: Support & Target vanaf OPENINGSPRIJS (pivot) + VS-tabel t.o.v. de standaard-matrix ----
+  function frameCmp(open,std){ if(!open||!std)return '';
+    const cell=(a,b,fmt)=>{ const A=fmt(a),B=fmt(b); const diff=(a!=null&&b!=null&&isFinite(a)&&isFinite(b))?(a-b):null; return {A,B,diff}; };
+    const dec=open.dec; const f=v=>(v==null||!isFinite(v))?'—':(+v).toFixed(dec);
+    const rows=[['stop',open.frame.stop,std.frame.stop],['T1',open.frame.t1,std.frame.t1],['T2',open.frame.t2,std.frame.t2],['RR',open.frame.rr,std.frame.rr]];
+    return '<div style="margin-top:5px;border-top:1px solid rgba(255,255,255,0.08);padding-top:4px;">'+
+      '<div style="display:grid;grid-template-columns:0.7fr 1fr 1fr;gap:4px;font-size:0.44rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;padding-bottom:2px;"><span>frame</span><span style="text-align:right;color:#ffd76a;">vanaf opening</span><span style="text-align:right;color:#7fd8ff;">standaard (pivot)</span></div>'+
+      rows.map(([lab,a,b])=>{ const isRR=lab==='RR'; const fmt=isRR?(v=>v==null?'—':(+v).toFixed(2)):f;
+        return '<div style="display:grid;grid-template-columns:0.7fr 1fr 1fr;gap:4px;font-size:0.5rem;padding:1px 0;"><span style="color:#9fb2c4;">'+lab+'</span><span style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#ffd76a;">'+fmt(a)+'</span><span style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#7fd8ff;">'+fmt(b)+'</span></div>'; }).join('')+
+      '<div style="font-size:0.44rem;color:#5c7488;margin-top:3px;">De <b style="color:#ffd76a;">opening</b>-matrix meet je lopende positie vanaf de instapprijs. De <b style="color:#7fd8ff;">standaard</b>-pivot voedt (na shadow-validatie) de T1/T2 van toekomstige trades.</div>'+
+    '</div>'; }
+  function openCard(p){ const En=E(); const pv=posProv(p); let m=null; try{ if(pv&&En)m=En.matrixFromEntry(pv.key,'1h',pv.prov,p.entry,p.side); }catch(e){}
+    const long=p.side==='LONG'; const dirCol=long?'#26d07c':'#ff5f7e'; const pc=(p.pnlPct==null)?'#9fb2c4':(p.pnlPct>=0?'#26d07c':'#ff5f7e'); const sg=suggest(p);
+    const nm=(m&&m.open&&m.open.name)||(pv&&pv.prov&&pv.prov.names&&pv.prov.names[pv.key])||p.market||'—';
+    const eCol=(m&&m.open&&m.open.energyCol)||'var(--line)'; const eZone=(m&&m.open&&m.open.energyZone)||'';
+    const dec=(m&&m.open)?m.open.dec:((p.entry>=100)?1:(p.entry>=1?4:5)); const f=v=>(v==null||!isFinite(v))?'—':(+v).toFixed(dec);
+    let rowsH=''; if(m&&m.open){ rowsH=m.open.rows.map(r=>{ const c=kindCol[r.kind]||'#9fb2c4'; const dp=r.kind==='now'?'':((r.distPct>=0?'+':'')+r.distPct+'%');
+        return '<div style="display:grid;grid-template-columns:1.25fr 0.9fr 0.7fr;gap:4px;font-size:0.5rem;padding:1.5px 0;'+(r.kind==='now'?'background:rgba(127,216,255,0.08);':(r.kind==='pivot'?'background:rgba(255,215,106,0.08);':''))+'"><span style="color:'+c+';">'+esc(r.lvl)+'</span><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;text-align:right;">'+r.price+'</span><span style="color:#6d8296;text-align:right;">'+dp+'</span></div>'; }).join(''); }
+    return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+eCol+'44;border-radius:7px;padding:8px 9px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;"><b style="font-size:0.62rem;color:#cfe6f5;">'+esc(nm)+'</b><span style="font-size:0.48rem;color:'+dirCol+';">'+esc(p.side||'—')+(p.lev?' '+p.lev+'x':'')+' · '+esc(p.src)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;font-size:0.5rem;margin-bottom:3px;"><span style="color:#9fb2c4;">entry '+f(p.entry)+' → nu '+f(p.current)+'</span><span style="color:'+pc+';font-weight:700;">'+(p.pnlPct==null?'—':((p.pnlPct>=0?'+':'')+(+p.pnlPct).toFixed(2)+'%'))+'</span></div>'+
+      (eZone?'<div style="font-size:0.46rem;color:'+eCol+';margin-bottom:3px;">energie: '+esc(eZone)+'</div>':'')+
+      (rowsH||'<div style="font-size:0.48rem;color:var(--dimmer);">Matrix laadt… (candles nodig voor '+esc(nm)+')</div>')+
+      (m?frameCmp(m.open,m.std):'')+
+      '<div style="font-size:0.46rem;color:'+sg.c+';margin-top:4px;">▸ '+esc(sg.t)+'</div>'+
+    '</div>'; }
+  function renderOpenGrid(hostId, kinds){ try{ const host=document.getElementById(hostId); if(!host)return; const ps=collect().filter(p=>kinds.indexOf(p.kind)>=0);
+    if(!ps.length){ host.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Geen open posities in deze categorie.</span>'; return; }
+    host.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;">'+ps.map(openCard).join('')+'</div>'; }catch(e){} }
+  function renderOpenTr(){ renderOpenGrid('mx-open-tr',['fx','commodity']); }
+  function renderOpenCx(){ renderOpenGrid('mx-open-cx',['crypto']); }
+  function renderOpenMatrix(){ renderOpenGrid('mx-open',['fx','commodity','crypto']); }   // back-compat (indien #mx-open nog bestaat)
+  try{ window.renderCommoMatrix=renderCommoMatrix; window.renderFxMatrix=renderFxMatrix; window.renderOpenMatrix=renderOpenMatrix; window.renderOpenTr=renderOpenTr; window.renderOpenCx=renderOpenCx;
+    window.__TRUOTAM_MTX={renderMatrixGrid:renderMatrixGrid}; }catch(e){}
+  try{ setInterval(function(){ try{ const En=E();
+    const a=document.getElementById('mx-commo'); if(a&&a.offsetParent!==null)renderCommoMatrix();
+    const b=document.getElementById('mx-fx'); if(b&&b.offsetParent!==null){ try{ En.FxCandles.refresh('1h'); }catch(e){} renderFxMatrix(); }
+    const cx=document.getElementById('mx-crypto'); if(cx&&cx.offsetParent!==null){ try{ ['BTC','ETH','SOL'].forEach(k=>window.CryptoSysCandles&&window.CryptoSysCandles.load(k,'1h')); }catch(e){} if(En)renderMatrixGrid(En.PROV_CRYPTO,'mx-crypto'); }
+    const c=document.getElementById('mx-open'); if(c&&c.offsetParent!==null)renderOpenMatrix();
+    const t=document.getElementById('mx-open-tr'); if(t&&t.offsetParent!==null){ try{ En.FxCandles.refresh('1h'); }catch(e){} renderOpenTr(); }
+    const x=document.getElementById('mx-open-cx'); if(x&&x.offsetParent!==null){ try{ ['BTC','ETH','SOL'].forEach(k=>window.CryptoSysCandles&&window.CryptoSysCandles.load(k,'1h')); }catch(e){} renderOpenCx(); }
+  }catch(e){} }, 5000); }catch(e){}
+})();
+
+/* ==================================================================================
+   TRINITY · UOTAM SHADOW-BACKTEST WORKER (overfitting-rem)
+   Legt actionable matrix-signalen vast (T1/stop/dir) met de entry-prijs, en meet
+   OUT-OF-SAMPLE of T1 vóór de stop wordt geraakt. Overfitting-rem: walk-forward
+   (alleen toekomstige bars), min-N (≥25), Wilson-ondergrens > 0.52, en één enkele
+   trade-dimensie (T1-hit) — geen multi-signaal-curve-fit. Alleen "bewezen" markten
+   krijgen trust>0 → pas dán mag de live trade de T1/T2 gebruiken. Persist in localStorage.
+   ================================================================================== */
+(function(){
+  'use strict';
+  const SH={ led:{}, _rt:0,
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('osirisUotamShadow')||'null'); if(d&&d.led)this.led=d.led; }catch(e){} },
+    _save(){ try{ localStorage.setItem('osirisUotamShadow',JSON.stringify({led:this.led})); }catch(e){} },
+    record(){ const E=window.TrinityCommoUOTAM; if(!E)return; const now=Date.now(); [E.PROV_COMMO,E.PROV_FX,E.PROV_CRYPTO].filter(Boolean).forEach(prov=>{ prov.markets.forEach(k=>{ try{
+      const m=E.matrix(k,'1h',prov); if(!m||m.verdict==='WAIT')return;               // alleen actionable snapshots
+      const lk=prov.key+':'+k; const L=this.led[lk]||(this.led[lk]={open:[],n:0,win:0});
+      if(now-(L._at||0)<60*60000)return; L._at=now;                                    // max 1 snapshot/markt/uur
+      L.open.push({px:m.px,dir:m.dir,t1:m.frame.t1,stop:m.frame.stop,made:now,zone:m.energyZone,done:false});
+      if(L.open.length>300)L.open.shift();
+    }catch(e){} }); }); },
+    resolve(){ const E=window.TrinityCommoUOTAM; if(!E)return; let ch=false; const now=Date.now(); for(const lk in this.led){ const ix=lk.indexOf(':'); const pk=lk.slice(0,ix), k=lk.slice(ix+1); const prov=(E.provFor?E.provFor(pk):(pk==='fx'?E.PROV_FX:E.PROV_COMMO)); const cs=prov.candles(k,'1h'); if(!cs||!cs.length)continue; const cur=cs[cs.length-1].c; const L=this.led[lk];
+      L.open.forEach(o=>{ if(o.done)return; const long=o.dir==='LONG'; const hitT1=long?cur>=o.t1:cur<=o.t1; const hitStop=long?cur<=o.stop:cur>=o.stop; const expired=(now-o.made)>48*3600000;
+        if(hitT1||hitStop||expired){ o.done=true; const win=hitT1&&!hitStop; L.n++; if(win)L.win++; ch=true; } });
+      L.open=L.open.filter(o=>!o.done||(now-o.made)<72*3600000);
+    } if(ch)this._save(); },
+    trust(mkt,key){ const L=this.led[mkt+':'+key]; if(!L||L.n<25)return {proven:false,n:L?L.n:0,hitRate:null,wilson:null};
+      const p=L.win/L.n, z=1.28, nn=L.n; const wl=(p+z*z/(2*nn)-z*Math.sqrt((p*(1-p)+z*z/(4*nn))/nn))/(1+z*z/nn);
+      return {proven:wl>0.52, n:nn, hitRate:+p.toFixed(2), wilson:+wl.toFixed(2)}; },
+    summary(){ const out=[]; for(const lk in this.led){ const ix=lk.indexOf(':'); const t=this.trust(lk.slice(0,ix),lk.slice(ix+1)); out.push({market:lk,n:t.n,hitRate:t.hitRate,wilson:t.wilson,proven:t.proven}); } return out.sort((a,b)=>(b.wilson||0)-(a.wilson||0)); },
+    tick(){ try{ this.record(); this.resolve(); }catch(e){} } };
+  SH._restore(); try{ window.TrinityUOTAMShadow=SH; }catch(e){}
+  try{ setInterval(()=>SH.tick(), 30000); }catch(e){}
+})();
+
+/* ==================================================================================
+   TRINITY · UOTAM AUTONOMIE & SHADOW-VALIDATIE (terugdraai-log)
+   Toont de shadow-trust per markt (overfitting-rem), de aan/uit-schakelaar voor het
+   gebruik van T1/T2 in de live trades, en de terugdraai-log van toegepaste overrides.
+   ================================================================================== */
+(function(){
+  'use strict';
+  function esc(s){ return (''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  try{ window.__uotamTradeToggle=function(){ try{ const C=window.OSIRIS_UOTAM_TRADE; if(C){ C.on=!C.on; renderUotamAutonomy(); } }catch(e){} }; }catch(e){}
+  function renderUotamAutonomy(){ try{ const host=document.getElementById('ua-body'); if(!host)return; const C=window.OSIRIS_UOTAM_TRADE||{on:false,log:[]}; const SH=window.TrinityUOTAMShadow;
+    const sum=SH?SH.summary():[]; const proven=sum.filter(s=>s.proven);
+    const toggle='<button onclick="window.__uotamTradeToggle&&window.__uotamTradeToggle()" style="background:'+(C.on?'#134e4a':'#3a1420')+';color:'+(C.on?'#26d07c':'#ff5f7e')+';border:1px solid var(--line);border-radius:5px;padding:4px 10px;font-family:\'JetBrains Mono\',monospace;font-size:0.56rem;cursor:pointer;font-weight:700;">T1/T2 in trades: '+(C.on?'AAN':'UIT (teruggedraaid)')+'</button>';
+    const head='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">'+toggle+'<span style="font-size:0.5rem;color:var(--dimmer);">'+proven.length+'/'+sum.length+' markten bewezen (Wilson-ondergrens > 0.52, n ≥ 25) → alleen die sturen de live target/stop</span></div>';
+    const trust= sum.length? '<div style="font-size:0.5rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Shadow-trust per markt (out-of-sample T1-hit vs stop)</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:5px;margin-bottom:10px;">'+sum.slice(0,40).map(s=>{ const c=s.proven?'#26d07c':(s.wilson!=null?'#ffb627':'#7d8a99');
+        return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+c+'44;border-radius:5px;padding:4px 7px;font-size:0.5rem;"><b style="color:#cfe6f5;">'+esc(s.market)+'</b> <span style="color:'+c+';">'+(s.proven?'✓ bewezen':(s.n>=25?'niet bewezen':'leert'))+'</span><br><span style="color:#9fb2c4;">n '+s.n+' · hit '+(s.hitRate!=null?Math.round(s.hitRate*100)+'%':'—')+' · Wilson '+(s.wilson!=null?s.wilson:'—')+'</span></div>'; }).join('')+'</div>'
+      : '<div style="font-size:0.52rem;color:var(--dimmer);margin-bottom:8px;">Shadow-worker verzamelt out-of-sample uitkomsten… (nog geen bewezen markten — trades gebruiken tot dan de eigen logica)</div>';
+    const log= (C.log&&C.log.length)? '<div style="font-size:0.5rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Terugdraai-log · toegepaste T1/T2-overrides</div>'+
+      C.log.slice(0,12).map(l=>{ const d=new Date(l.ts); const p2=x=>String(x).padStart(2,'0'); return '<div style="font-size:0.5rem;color:#9fb2c4;padding:1.5px 0;border-bottom:1px solid rgba(255,255,255,0.04);">'+p2(d.getHours())+':'+p2(d.getMinutes())+' · <b style="color:#cfe6f5;">'+esc(l.market)+'</b> '+esc(l.side)+' → target '+l.applied.t1+' (was '+l.orig.target+') · stop '+l.applied.stop+' · Wilson '+l.wilson+' (n '+l.n+')</div>'; }).join('')
+      : '<div style="font-size:0.5rem;color:var(--dimmer);">Nog geen overrides toegepast (geen bewezen markt, of uitgeschakeld).</div>';
+    host.innerHTML=head+trust+log;
+  }catch(e){} }
+  try{ window.renderUotamAutonomy=renderUotamAutonomy; }catch(e){}
+  try{ setInterval(function(){ try{ const h=document.getElementById('ua-body'); if(h&&h.offsetParent!==null)renderUotamAutonomy(); }catch(e){} }, 5000); }catch(e){}
+})();
+
+/* ==================================================================================
+   OSIRIS NEO · NEURAL-NET CONSOLIDATIE — crypto UOTAM-secties inklapbaar in de NN-tab,
+   Systeem-tab overbodig (nav verborgen). Puur DOM/weergave.
+   ================================================================================== */
+(function(){
+  'use strict';
+  function mkCollapse(titleEl, bodyEls, key){ if(titleEl._neoC)return; titleEl._neoC=true;
+    titleEl.style.cursor='pointer'; titleEl.style.userSelect='none';
+    const car=document.createElement('span'); car.textContent='▾'; car.style.cssText='margin-left:8px;color:var(--dimmer);font-size:0.72rem;';
+    titleEl.appendChild(car);
+    const set=c=>{ bodyEls.forEach(b=>{ if(b)b.style.display=c?'none':''; }); car.textContent=c?'▸':'▾'; try{localStorage.setItem(key,c?'1':'0');}catch(e){} };
+    let init=false; try{ init=localStorage.getItem(key)==='1'; }catch(e){} if(init)set(true);
+    titleEl.addEventListener('click',e=>{ if(e.target.closest&&e.target.closest('button,select,input,a'))return; set(car.textContent==='▾'); });
+  }
+  function neoWire(){ const tab=document.getElementById('tab-net'); if(!tab)return;
+    const root=document.getElementById('neo-uotam');
+    if(root){ root.querySelectorAll('.secdiv').forEach(sd=>{ if(sd._neoC)return; const h=sd.querySelector('h3'); const key='neocol_'+((h?h.textContent:'').trim().slice(0,40));
+      const sibs=[]; let n=sd.nextElementSibling; while(n&&!(n.classList&&n.classList.contains('secdiv'))){ sibs.push(n); n=n.nextElementSibling; } mkCollapse(sd,sibs,key); }); }
+    tab.querySelectorAll(':scope > .panel').forEach(pan=>{ if(pan._neoC)return; const title=pan.querySelector('.plabel'); if(!title)return;
+      const body=[...pan.children].filter(c=>c!==title); const key='neocol_p_'+(title.textContent||'').trim().slice(0,40); mkCollapse(title,body,key); });
+  }
+  function hideSystemNav(){ try{ document.querySelectorAll('[data-tab="system"]').forEach(b=>{ b.style.display='none'; }); }catch(e){} }
+  try{ if(document.readyState!=='loading'){ neoWire(); hideSystemNav(); } else document.addEventListener('DOMContentLoaded',function(){ neoWire(); hideSystemNav(); }); setInterval(function(){ neoWire(); hideSystemNav(); }, 3000); }catch(e){}
 })();
 
 
