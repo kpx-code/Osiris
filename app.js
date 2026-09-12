@@ -25092,6 +25092,239 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   try{ setInterval(function(){ try{ const cv=document.getElementById('cx-sys-chart'); if(cv&&cv.offsetParent!==null){ renderCryptoSysChart(); } }catch(e){} }, 4000); }catch(e){}
 })();
 
+/* ==================================================================================
+   TRINITY · COMMODITY UOTAM-ENGINE — per-markt, ZELF-KALIBREREND (v7.7 theorie ⇄ data)
+   Vertaalt de UOTAM v7.7 theorie (ER·DB·VFM · Chaos · Tesla 3-6-9 π-klok-nodes · Micro/
+   Meso/Macro · Fractal Energy Scale) naar Osiris' ECHTE Capital-candles. Per grondstof
+   worden native (Osiris-FSO), theorie (ER×DB) én NGAS (MA/ATR) VFM berekend en op hit-rate
+   gekalibreerd → de beste (of blend) wint. Ook π-klok- vs adaptieve-node-timing worden
+   tegen de echte swing-turns gemeten. Alles draait headless op de achtergrond.
+   ================================================================================== */
+(function(){
+  'use strict';
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  const MK=['WTI','BRENT','NGAS','GOLD','SILVER','PLAT','PALL','COPPER'];
+  const NAMES={WTI:'Crude Oil · WTI',BRENT:'Crude Oil · Brent',NGAS:'Natural Gas',GOLD:'Gold',SILVER:'Silver',PLAT:'Platinum',PALL:'Palladium',COPPER:'Copper'};
+  const TPI=188.6634;                       // π-tijdconstante (minuten)
+  const NODE_MS=3*TPI*60000;                // Micro-node = 3 cycli = 9,43 uur
+  const ANCHOR=Date.UTC(2024,11,16,0,0,0);  // anker 16 dec 2024 00:00 UTC (uit de theorie)
+  function sma(a,p,i){ if(i<p-1)return null; let s=0; for(let k=i-p+1;k<=i;k++)s+=a[k]; return s/p; }
+  function atr(cs,p,i){ if(i<p)return null; let s=0; for(let k=i-p+1;k<=i;k++){ const h=cs[k].h,l=cs[k].l,pc=cs[k-1].c; s+=Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)); } return s/p; }
+  function pctl(arr,q){ const s=arr.slice().sort((a,b)=>a-b); return s.length?s[clamp(Math.floor(q*(s.length-1)),0,s.length-1)]:0; }
+  // bars per 3 dagen, afhankelijk van timeframe
+  function barsPer3d(tf){ return tf==='5m'?864:tf==='15m'?288:tf==='1h'?72:tf==='4h'?18:3; }
+  function tfMs(tf){ return tf==='5m'?3e5:tf==='15m'?9e5:tf==='1h'?36e5:tf==='4h'?144e5:864e5; }
+
+  // ---- VFM-varianten + zelfkalibratie op hit-rate (sign vs volgende-bar-richting) ----
+  function vfmVariants(cs){ const n=cs.length; const cl=cs.map(c=>c.c), vol=cs.map(c=>c.v||0);
+    const theory=new Array(n).fill(0), ngas=new Array(n).fill(0);
+    for(let i=0;i<n;i++){ const c=cs[i]; const v20=sma(vol,20,i); const er=(v20>0)?vol[i]/v20:0; const rng=(c.h-c.l)||1e-9; const db=(2*c.c-(c.h+c.l))/rng; theory[i]=er*db;
+      const m5=sma(cl,5,i), m20=sma(cl,20,i), a=atr(cs,14,i); ngas[i]=(m5!=null&&m20!=null&&a>0)?(m5-m20)/a:0; }
+    return {theory,ngas,cl}; }
+  function hitRate(series,cl){ let n=0,h=0; for(let i=20;i<cl.length-1;i++){ const s=series[i]; if(!isFinite(s)||s===0)continue; if((s>0&&cl[i+1]>cl[i])||(s<0&&cl[i+1]<cl[i]))h++; n++; } return n?{n,hit:h/n}:{n:0,hit:0}; }
+
+  // ---- π-klok node-timing ----
+  function piNode(ts){ const idx=Math.floor((ts-ANCHOR)/NODE_MS); const num=1000+idx;   // node-nummer (theorie-stijl)
+    const m=((num%3)+3)%3; const type=(m===1)?3:(m===2)?6:9;                             // Tesla 3-6-9 → Type 3/6/9
+    const nextTs=ANCHOR+(idx+1)*NODE_MS; return {num, type, idx, nextTs, msTo:nextTs-ts}; }
+  const NODE_TYPE={3:{lab:'Initiatie',col:'#26d0cc'},6:{lab:'Versnelling',col:'#ffd500'},9:{lab:'Ontlading',col:'#ff5f7e'}};
+  // sessie-omschrijving op een node-tijd (CET-benadering)
+  function nodeSession(ts){ const d=new Date(ts); const h=d.getUTCHours()+1;  // ~CET
+    const hh=((h%24)+24)%24; if(hh>=1&&hh<7)return 'Aziatische sessie · nacht-reset'; if(hh>=7&&hh<9)return 'Vroege Europese liquiditeit stroomt in';
+    if(hh>=9&&hh<13)return 'Europese ochtend'; if(hh>=13&&hh<16)return 'EU↔VS overlap · hart van de opening'; if(hh>=16&&hh<19)return 'Amerikaanse core-sessie · max volume';
+    if(hh>=19&&hh<22)return 'Late VS-sessie'; return 'Aziatische/Europese transitie · smart money liquideert'; }
+
+  // ---- adaptieve swing-turns (voor node-vergelijking + structuur) ----
+  function swingTurns(cl,thr){ const t=[]; let lastEx=cl[0],dir=0; for(let i=1;i<cl.length;i++){ const ch=(cl[i]-lastEx)/(Math.abs(lastEx)||1);
+    if(dir>=0&&ch<=-thr){t.push(i);dir=-1;lastEx=cl[i];} else if(dir<=0&&ch>=thr){t.push(i);dir=1;lastEx=cl[i];} else if((dir>0&&cl[i]>lastEx)||(dir<0&&cl[i]<lastEx))lastEx=cl[i]; } return t; }
+
+  const ENG={
+    MK, NAMES, TPI, NODE_MS, ANCHOR, NODE_TYPE,
+    _cache:{}, _at:{},
+    // hoofd-analyse per (markt,tf), gecachet ~20s
+    analyze(key,tf){ tf=tf||'1h'; const ck=key+'|'+tf; const now=Date.now(); if(this._cache[ck]&&now-(this._at[ck]||0)<20000)return this._cache[ck];
+      try{ const C=window.TrinityCommodities; const cs=C?C.candles(key,tf):[]; if(!cs||cs.length<40){ const o={key,tf,ready:false}; this._cache[ck]=o; this._at[ck]=now; return o; }
+        const n=cs.length, cl=cs.map(c=>c.c), vol=cs.map(c=>c.v||0), px=cl[n-1];
+        // FSO (native) + brain
+        let F=null,B=null; try{ F=window.TrinityCommodityFSO&&window.TrinityCommodityFSO.compute(key,tf); }catch(e){} try{ B=window.TrinityCommodityBrain&&window.TrinityCommodityBrain.analyze(key,tf); }catch(e){}
+        // ER / DB nu
+        const v20=sma(vol,20,n-1), er=(v20>0)?vol[n-1]/v20:0; const cc=cs[n-1]; const rng=(cc.h-cc.l)||1e-9; const db=(2*cc.c-(cc.h+cc.l))/rng;
+        // VFM-varianten + kalibratie
+        const vv=vfmVariants(cs); const nativeSeries=cl.map((_,i)=>{ const c=cs[i]; const r2=(c.h-c.l)||1e-9; const v=sma(vol,20,i); const e=v>0?(c.v||0)/v:0; return e*((2*c.c-(c.h+c.l))/r2); }); // native≈theory-vorm; echte native-energie zit in F.vfm (0..1, richtingsloos)
+        const cand={ theory:vv.theory, ngas:vv.ngas };
+        const scores={ theory:hitRate(cand.theory,cl), ngas:hitRate(cand.ngas,cl) };
+        // "precisie"-blend: teken-stemming gewogen op hit-rate (nieuwe calc voor betere precisie)
+        const wT=Math.max(0,scores.theory.hit-0.5), wN=Math.max(0,scores.ngas.hit-0.5); const blend=new Array(n);
+        for(let i=0;i<n;i++){ const zt=cand.theory[i], zn=cand.ngas[i]; blend[i]=(wT+wN>0)?(zt*wT+zn*wN)/(wT+wN):(zt+zn)/2; }
+        const scBlend=hitRate(blend,cl);
+        const opts=[['theory',scores.theory.hit],['ngas',scores.ngas.hit],['blend',scBlend.hit]].sort((a,b)=>b[1]-a[1]);
+        const bestSrc=opts[0][0]; const vfmSeries=bestSrc==='blend'?blend:cand[bestSrc]; const vfmNow=+(vfmSeries[n-1]||0).toFixed(3);
+        const vfmHit=+(opts[0][1]||0).toFixed(2);
+        // Chaos = |3d %| + dynamische limiet
+        const b3=barsPer3d(tf); const p3=cl[Math.max(0,n-1-b3)]; const chaos=p3>0?Math.abs((px-p3)/p3)*100:0; const chaosLim=(Math.abs(vfmNow)>1.8)?15:8;
+        // π-klok node + countdown
+        const pin=piNode(now); const nodeSess=nodeSession(pin.nextTs);
+        // node-timing kalibratie: π-klok vs adaptief — welke valt vaker samen met echte swing-turns?
+        let nodeFit=null; try{ const turns=swingTurns(cl,0.004); if(turns.length>4){ const times=turns.map(i=>cs[i].t);
+          // π-klok: hoeveel turns liggen binnen ±0.5 node van een π-node-grens
+          let piHit=0; times.forEach(tt=>{ const ph=((tt-ANCHOR)%NODE_MS)/NODE_MS; if(ph<0.15||ph>0.85)piHit++; });
+          const per=(B&&B.node&&B.node.period)||0; let adHit=0; if(per>1){ times.forEach(tt=>{ const bi=Math.round((tt-cs[0].t)/tfMs(tf)); const ph=((bi%per)+per)%per/per; if(ph<0.15||ph>0.85)adHit++; }); }
+          nodeFit={piPct:+(piHit/times.length).toFixed(2), adPct:per>1?+(adHit/times.length).toFixed(2):null, better:(per>1&&adHit>piHit)?'adaptief':'π-klok', period:per}; } }catch(e){}
+        // Micro/Meso/Macro bull&bear (swing-range per venster)
+        const lvl=s=>{ const win=s==='micro'?Math.min(n,Math.max(12,Math.round(n*0.12))):s==='macro'?n:Math.min(n,Math.max(30,Math.round(n*0.45)));
+          const seg=cl.slice(n-win); const hi=Math.max.apply(null,seg), lo=Math.min.apply(null,seg); const rng2=hi-lo;
+          return { hi:+hi.toFixed(px>=100?1:3), lo:+lo.toFixed(px>=100?1:3), bull:+(px+rng2*0.382).toFixed(px>=100?1:3), bear:+(px-rng2*0.382).toFixed(px>=100?1:3), posPct:rng2>0?+((px-lo)/rng2).toFixed(2):0.5 }; };
+        const levels={ micro:lvl('micro'), meso:lvl('meso'), macro:lvl('macro') };
+        // patroon & structuur (CNN hergebruikt van de crypto-engine indien aanwezig)
+        let cnn=0,patt=null; try{ if(typeof window.neoScanPatterns==='function'){ const sc=window.neoScanPatterns(cs.map(c=>[c.t,c.o,c.h,c.l,c.c,c.v]),40); cnn=sc.netBias||0; patt=sc.last&&sc.last.type||null; } }catch(e){}
+        const struct=(()=>{ const w=cl.slice(-20); if(w.length<6)return '—'; const hh=w[w.length-1]>Math.max.apply(null,w.slice(0,-1)), ll=w[w.length-1]<Math.min.apply(null,w.slice(0,-1));
+          const slope=(w[w.length-1]-w[0])/(Math.abs(w[0])||1); return hh?'higher-high (bullish break)':ll?'lower-low (bearish break)':slope>0.01?'higher-highs/-lows':slope<-0.01?'lower-highs/-lows':'range/consolidatie'; })();
+        // ---- FRACTAL ENERGY SCALE: zone/scenario per markt (compressie/ontlading) ----
+        const energy=this._energy(F,cl,vfmNow,chaos,px,pin.type);
+        const out={ key, tf, ready:true, px, n, at:now,
+          er:+er.toFixed(3), db:+db.toFixed(3), vfm:vfmNow, vfmSrc:bestSrc, vfmHit, vfmVariants:{theory:+(cand.theory[n-1]||0).toFixed(3),ngas:+(cand.ngas[n-1]||0).toFixed(3),blend:+(blend[n-1]||0).toFixed(3)}, vfmScores:{theory:+scores.theory.hit.toFixed(2),ngas:+scores.ngas.hit.toFixed(2),blend:+scBlend.hit.toFixed(2)},
+          chaos:+chaos.toFixed(2), chaosLim, chaosOk:chaos<=chaosLim,
+          regime:F?F.regime:'—', stress:F?F.last.stress:null, sigma:F?F.last.varr:null, sysVfm:F?F.last.vfm:null,
+          node:{num:pin.num,type:pin.type,typeLab:NODE_TYPE[pin.type].lab,col:NODE_TYPE[pin.type].col,msTo:pin.msTo,nextTs:pin.nextTs,session:nodeSess}, nodeFit,
+          levels, cnn:+cnn.toFixed(2), pattern:patt, structure:struct,
+          nn:B&&B.probUp!=null?Math.round(B.probUp*100):null, nnProven:!!(B&&B.cal&&B.cal.proven),
+          energy,
+          // executie-oordeel (v7.7 gate, alleen ADVIES — verandert de werking niet)
+          verdict:(Math.abs(vfmNow)<1.2)?'WAIT':(chaos>chaosLim)?'SKIP':'TRADE', dir:vfmNow>0?'LONG':'SHORT', lev:(Math.abs(vfmNow)>1.6)?'10x':'5x' };
+        this._cache[ck]=out; this._at[ck]=now; return out;
+      }catch(e){ const o={key,tf,ready:false,err:e.message}; this._cache[ck]=o; this._at[ck]=now; return o; }
+    },
+    // Fractal Energy Scale: bepaalt waar de markt in de compressie/ontlading-cyclus zit
+    _energy(F,cl,vfm,chaos,px,nodeType){ try{
+      const n=cl.length; const move5=n>6?(cl[n-1]/cl[n-6]-1)*100:0;   // recente 5-bar move %
+      // compressie-diepte uit σ²-percentiel (laag σ² = veer geladen)
+      let comp=0.5; if(F&&F.varS&&F.varS.length){ const cur=F.varS[F.varS.length-1]; const lo=pctl(F.varS,0.15), hi=pctl(F.varS,0.85); comp=hi>lo?clamp(1-(cur-lo)/(hi-lo),0,1):0.5; }
+      const en=F?F.last.vfm:0;                 // opgeladen energie (0..1)
+      const stress=F?F.last.stress:0;
+      let zone,scn,col,act;
+      if(comp>=0.7 && Math.abs(move5)<1.5){ zone='DEEP COMPRESSION'; scn='Veer maximaal geladen — uitbraak ophanden ('+(vfm>=0?'bias ↑':'bias ↓')+')'; col='#ffd500'; act='WACHT op trigger / positioneer vóór de breakout'; }
+      else if(comp>=0.5 && en>=0.45){ zone='LOADING'; scn='Energie bouwt op, compressie neemt toe'; col='#26d0cc'; act='Voorbereiden — richting uit NN/VFM'; }
+      else if(Math.abs(move5)>=3 && stress>=(F?F.crisT:0.4)){ zone='CLIMAX'; scn='Grote '+(move5>0?'stijging':'daling')+' + stress-piek → climax; kans op fade/uitputting'; col='#ff5f7e'; act='Winst beschermen / fade-setup, geen verse chase'; }
+      else if(Math.abs(move5)>=2 && Math.abs(vfm)>=1.2){ zone='EXPANSION'; scn='Uitbraak bezig ('+(move5>0?'omhoog':'omlaag')+') — trend loopt'; col='#26d07c'; act='Meelopen met trailing stop'; }
+      else if(nodeType===9 || (comp<0.3 && Math.abs(move5)>=1)){ zone='DISCHARGE'; scn='Ontlading na opbouw — energie loopt eruit'; col='#ff8a3c'; act='Trend-einde mogelijk / mean-reversion'; }
+      else { zone='NEUTRAL'; scn='Geen duidelijke compressie of ontlading'; col='#7d8a99'; act='Geduld — geen edge'; }
+      return { zone, scenario:scn, col, action:act, compression:+comp.toFixed(2), charge:+(en||0).toFixed(2), move5:+move5.toFixed(2) };
+    }catch(e){ return {zone:'—',scenario:'',col:'#7d8a99',action:'',compression:0,charge:0,move5:0}; } },
+    all(tf){ return MK.map(k=>this.analyze(k,tf||'1h')); }
+  };
+  try{ window.TrinityCommoUOTAM=ENG; }catch(e){}
+})();
+
+/* ==================================================================================
+   TRINITY · COMMODITY SYSTEM DATA — spiegelt de crypto System Data, per grondstof,
+   gevoed door TrinityCommoUOTAM (native ⇄ theorie, zelf-gekalibreerd). Puur weergave;
+   verandert de werking niet. Rendert in #cd-* containers zolang die zichtbaar zijn.
+   ================================================================================== */
+(function(){
+  'use strict';
+  function esc(s){ return (''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function fmtT(ms){ if(ms==null||!isFinite(ms))return '—'; const s=Math.max(0,Math.floor(ms/1000)); const h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h>0?(h+'u '+m+'m'):(m+'m'); }
+  const regCol={CRISIS:'#ff5f7e',SPANNING:'#ffb627',RUST:'#26d07c','—':'#7d8a99'};
+  function card(inner,bd){ return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+(bd||'var(--line)')+';border-radius:7px;padding:8px 9px;">'+inner+'</div>'; }
+  function head(a){ return '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:0.66rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b><span style="font-size:0.5rem;color:'+regCol[a.regime]+';">'+esc(a.regime)+'</span></div>'; }
+  function ENGN(){ return window.TrinityCommoUOTAM; }
+  function grid(html){ return html; }
+  function _rows(){ const E=ENGN(); if(!E)return null; return E.all('1h'); }
+  function renderCommoSystemData(){ try{ const host=document.getElementById('cd-overview'); if(!host)return; const rows=_rows(); if(!rows)return;
+    const ready=rows.filter(a=>a.ready); if(!ready.length){ host.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Commodity-data laadt… verbind de Capital /history-route.</span>'; return; }
+    // 1) MARKET STATUS
+    host.innerHTML=ready.map(a=>{ const d=a.dir==='LONG'?'#26d07c':'#ff5f7e'; const vc={TRADE:'#26d07c',WAIT:'#ffb627',SKIP:'#ff5f7e'}[a.verdict]||'#7d8a99';
+      return card(head(a)+
+        '<div style="display:flex;justify-content:space-between;font-size:0.54rem;color:#9fb2c4;"><span>prijs '+(a.px>=100?a.px.toFixed(1):a.px.toFixed(3))+'</span><span style="color:'+a.energy.col+';">'+esc(a.energy.zone)+'</span></div>'+
+        '<div style="display:flex;justify-content:space-between;font-size:0.54rem;margin-top:2px;"><span style="color:'+vc+';font-weight:700;">'+a.verdict+'</span><span style="color:'+d+';">'+a.dir+' '+a.lev+'</span><span style="color:'+a.node.col+';">node '+a.node.type+' '+fmtT(a.node.msTo)+'</span></div>',a.energy.col+'55'); }).join('');
+    // 2) MICRO/MESO/MACRO bull&bear
+    const lv=document.getElementById('cd-levels'); if(lv)lv.innerHTML=ready.map(a=>{ const bar=s=>{ const L=a.levels[s]; return '<div style="font-size:0.5rem;color:#8aa;display:flex;justify-content:space-between;"><span style="text-transform:uppercase;color:#6d8296;">'+s+'</span><span style="color:#ff5f7e;">'+L.bear+'</span><span style="color:#7fd8ff;">'+L.lo+'–'+L.hi+'</span><span style="color:#26d07c;">'+L.bull+'</span></div>'; };
+      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b><div style="margin-top:3px;display:flex;flex-direction:column;gap:2px;">'+bar('micro')+bar('meso')+bar('macro')+'</div>'); }).join('');
+    // 3) VFM·ER·DB·Chaos
+    const mt=document.getElementById('cd-meters'); if(mt)mt.innerHTML=ready.map(a=>{ const vc=Math.abs(a.vfm)>=1.2?'#26d07c':'#ffb627'; const cc=a.chaosOk?'#26d07c':'#ff5f7e';
+      const cell=(l,v,c)=>'<div style="display:flex;flex-direction:column;"><span style="font-family:\'JetBrains Mono\',monospace;font-size:0.8rem;font-weight:800;color:'+c+';line-height:1;">'+v+'</span><span style="font-size:0.44rem;letter-spacing:0.06em;color:#6d8296;text-transform:uppercase;">'+l+'</span></div>';
+      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b>'+
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px;">'+cell('VFM',a.vfm,vc)+cell('ER',a.er,'#9fb2c4')+cell('DB',a.db,'#9fb2c4')+cell('Chaos%',a.chaos,cc)+'</div>'+
+        '<div style="font-size:0.46rem;color:#6d8296;margin-top:3px;">bron '+a.vfmSrc+' ('+Math.round(a.vfmHit*100)+'% hit) · limiet '+a.chaosLim+'% · σ² '+(a.sigma!=null?a.sigma:'—')+'</div>'); }).join('');
+    // 4) PATROON & STRUCTUUR
+    const pt=document.getElementById('cd-pattern'); if(pt)pt.innerHTML=ready.map(a=>{ const cb=a.cnn>0.05?'#26d07c':a.cnn<-0.05?'#ff5f7e':'#7d8a99';
+      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b>'+
+        '<div style="font-size:0.52rem;color:#9fb2c4;margin-top:3px;">structuur: '+esc(a.structure)+'</div>'+
+        '<div style="font-size:0.52rem;margin-top:2px;">CNN <span style="color:'+cb+';font-weight:700;">'+a.cnn+'</span>'+(a.pattern?' · '+esc(a.pattern):'')+(a.nn!=null?' · NN '+a.nn+'%'+(a.nnProven?'✓':''):'')+'</div>'); }).join('');
+    // 5) NODE COUNTDOWN (UOTAM-tijdraster)
+    const nd=document.getElementById('cd-nodes'); if(nd)nd.innerHTML=ready.map(a=>{ const fit=a.nodeFit;
+      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b>'+
+        '<div style="font-size:0.54rem;margin-top:3px;">Node '+a.node.num+' · <span style="color:'+a.node.col+';font-weight:700;">Type '+a.node.type+' '+esc(a.node.typeLab)+'</span></div>'+
+        '<div style="font-size:0.5rem;color:#9fb2c4;">volgende in '+fmtT(a.node.msTo)+' · '+esc(a.node.session)+'</div>'+
+        (fit?'<div style="font-size:0.46rem;color:#6d8296;margin-top:2px;">timing-fit: π-klok '+Math.round(fit.piPct*100)+'% vs adaptief '+(fit.adPct!=null?Math.round(fit.adPct*100)+'%':'—')+' → <span style="color:#7fd8ff;">'+fit.better+'</span></div>':'')); }).join('');
+    // 6) ENERGIE/COMPRESSIE (live per markt)
+    const en=document.getElementById('cd-energy'); if(en)en.innerHTML=ready.map(a=>{ const E=a.energy;
+      const bar=(v,c)=>'<div style="height:4px;border-radius:2px;background:rgba(255,255,255,0.08);overflow:hidden;"><div style="height:100%;width:'+Math.round(v*100)+'%;background:'+c+';"></div></div>';
+      return card('<div style="display:flex;justify-content:space-between;align-items:baseline;"><b style="font-size:0.62rem;color:#cfe6f5;">'+esc(ENGN().NAMES[a.key]||a.key)+'</b><span style="font-size:0.52rem;color:'+E.col+';font-weight:700;">'+esc(E.zone)+'</span></div>'+
+        '<div style="font-size:0.5rem;color:#9fb2c4;margin:2px 0 3px;">'+esc(E.scenario)+'</div>'+
+        '<div style="font-size:0.44rem;color:#6d8296;">compressie '+Math.round(E.compression*100)+'%</div>'+bar(E.compression,'#ffd500')+
+        '<div style="font-size:0.44rem;color:#6d8296;margin-top:2px;">energie '+Math.round(E.charge*100)+'% · 5-bar '+(E.move5>=0?'+':'')+E.move5+'%</div>'+bar(E.charge,E.col)+
+        '<div style="font-size:0.46rem;color:'+E.col+';margin-top:3px;">▸ '+esc(E.action)+'</div>',E.col+'55'); }).join('');
+  }catch(e){} }
+  try{ window.renderCommoSystemData=renderCommoSystemData; }catch(e){}
+  try{ setInterval(function(){ try{ const h=document.getElementById('cd-overview'); if(h&&h.offsetParent!==null)renderCommoSystemData(); }catch(e){} }, 5000); }catch(e){}
+})();
+
+/* ==================================================================================
+   TRINITY · COMMODITY UOTAM INFO-PANELS (per markt, selecteerbaar + scrollbaar)
+   (1) Fractale Architectuur (Deel 2.1, 4 lagen, LIVE)  (2) Fractaal dag/week node-schema
+   (Deel 5.1, π-klok Tesla 3-6-9, Type 3/6/9)  (3) Historisch Overzicht (init/versnelling/
+   ontlading)  (4) Chaos-statussen / Fractal Energy Scale (live). Puur weergave.
+   ================================================================================== */
+(function(){
+  'use strict';
+  let SEL='WTI', _built=false;
+  function E(){ return window.TrinityCommoUOTAM; }
+  function esc(s){ return (''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function p2(x){ return String(x).padStart(2,'0'); }
+  function cet(ts){ const d=new Date(ts+3600000); return p2(d.getUTCHours())+':'+p2(d.getUTCMinutes()); }  // ~CET
+  function dow(ts){ return ['zo','ma','di','wo','do','vr','za'][new Date(ts+3600000).getUTCDay()]; }
+  try{ window.__ciSel=v=>{ SEL=v; renderCommoInfoPanels(); }; }catch(e){}
+  function _buildSel(){ if(_built)return; const sel=document.getElementById('ci-sel'); if(!sel||!E())return; _built=true;
+    sel.innerHTML=E().MK.map(k=>`<option value="${k}">${E().NAMES[k]}</option>`).join(''); sel.value=SEL; }
+  // π-klok node-schema: komende N nodes vanaf nu
+  function schedule(n){ const En=E(); if(!En)return []; const now=Date.now(); const NODE_MS=En.NODE_MS, ANCHOR=En.ANCHOR;
+    let idx=Math.floor((now-ANCHOR)/NODE_MS)+1; const out=[]; for(let k=0;k<n;k++){ const ts=ANCHOR+(idx+k)*NODE_MS; const num=1000+idx+k; const m=((num%3)+3)%3; const type=m===1?3:m===2?6:9;
+      out.push({ts,num,type}); } return out; }
+  function renderCommoInfoPanels(){ try{ const En=E(); if(!En)return; _buildSel(); const a=En.analyze(SEL,'1h'); if(!a||!a.ready){ const h=document.getElementById('ci-arch'); if(h)h.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Data laadt voor '+esc(En.NAMES[SEL]||SEL)+'…</span>'; return; }
+    const NT=En.NODE_TYPE;
+    // ---- (1) FRACTALE ARCHITECTUUR (4 lagen, live) ----
+    const arch=document.getElementById('ci-arch'); if(arch){ const gateVfm=Math.abs(a.vfm)>=1.2, gateChaos=a.chaosOk;
+      const layer=(n,title,val,ok,note)=>'<div style="border-left:3px solid '+(ok==null?'#5c7488':ok?'#26d07c':'#ff5f7e')+';padding:5px 8px;margin-bottom:5px;background:rgba(255,255,255,0.02);border-radius:0 5px 5px 0;"><div style="font-size:0.56rem;color:#7fd8ff;font-weight:600;">LAAG '+n+' · '+title+'</div><div style="font-size:0.6rem;color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;margin-top:1px;">'+val+'</div>'+(note?'<div style="font-size:0.46rem;color:#6d8296;margin-top:1px;">'+note+'</div>':'')+'</div>';
+      arch.innerHTML=
+        layer(1,'Kosmische Klok (Tesla 3-6-9)','Node '+a.node.num+' · <span style="color:'+a.node.col+'">Type '+a.node.type+' '+a.node.typeLab+'</span> · volgende in '+Math.max(0,Math.round(a.node.msTo/60000))+'m',null,'T_π 188,66min · micro-node 9,43u · '+esc(a.node.session))+
+        layer(2,'Energie-ingestie (VFM)','ER '+a.er+' × DB '+a.db+' → VFM '+a.vfm,gateVfm,'|VFM|≥1.2 = institutionele massa · bron '+a.vfmSrc+' ('+Math.round(a.vfmHit*100)+'% hit) · '+(gateVfm?'DOOR':'WAIT (vacuüm)'))+
+        layer(3,'Capital Guard (chaos-filter)','Chaos '+a.chaos+'% / limiet '+a.chaosLim+'%',gateChaos,(gateChaos?'binnen limiet → DOOR':'boven limiet → SKIP')+' · dynamisch 8%→15% bij |VFM|>1.8')+
+        layer(4,'Executie-matrix',(a.verdict==='TRADE'?('<span style="color:'+(a.dir==='LONG'?'#26d07c':'#ff5f7e')+'">'+a.dir+' · '+a.lev+'</span> · stop −1,5% · target volgende node'):('<span style="color:#ffb627">'+a.verdict+'</span> — geen trade')),a.verdict==='TRADE','advies (verandert de live werking niet)'); }
+    // ---- (2) DAG/WEEK NODE-SCHEMA (π-klok) ----
+    const sch=document.getElementById('ci-sched'); if(sch){ const rows=schedule(16); let lastDay='';
+      sch.innerHTML=rows.map(r=>{ const d=dow(r.ts); const dayHdr=(d!==lastDay); lastDay=d; const t=NT[r.type];
+        return (dayHdr?'<div style="font-size:0.5rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.1em;margin:5px 0 2px;">'+d+'</div>':'')+
+          '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.54rem;padding:1px 0;"><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;min-width:34px;">'+cet(r.ts)+'</span><span style="color:'+t.col+';min-width:96px;">Type '+r.type+' '+t.lab+'</span><span style="color:#9fb2c4;">Node '+r.num+' · '+esc(En.NAMES[SEL].split(' · ')[0])+' — '+esc((window.TrinityCommoUOTAM,(function(ts){const dd=new Date(ts+3600000);const h=(dd.getUTCHours());return h>=1&&h<7?'nacht-reset Azië':h>=7&&h<9?'vroege EU-liquiditeit':h>=9&&h<13?'EU-ochtend':h>=13&&h<16?'EU↔VS overlap':h>=16&&h<19?'VS core · max volume':h>=19&&h<22?'late VS-sessie':'Azië/EU-transitie';})(r.ts)))+'</span></div>'; }).join(''); }
+    // ---- (3) HISTORISCH OVERZICHT (init/versnelling/ontlading) ----
+    const hist=document.getElementById('ci-hist'); if(hist){ const C=window.TrinityCommodities; const cs=C?C.candles(SEL,'1h'):[];
+      if(cs&&cs.length>30){ const cl=cs.map(c=>c.c); const turns=[]; let lastEx=cl[0],dir=0,exi=0; for(let i=1;i<cl.length;i++){ const ch=(cl[i]-lastEx)/(Math.abs(lastEx)||1); if(dir>=0&&ch<=-0.006){turns.push({i:exi,dir:1});dir=-1;lastEx=cl[i];exi=i;} else if(dir<=0&&ch>=0.006){turns.push({i:exi,dir:-1});dir=1;lastEx=cl[i];exi=i;} else if((dir>0&&cl[i]>lastEx)||(dir<0&&cl[i]<lastEx)){lastEx=cl[i];exi=i;} }
+        const evs=turns.slice(-12).reverse().map(tt=>{ const i=tt.i; const c=cs[i]; const mv=i>6?(cl[i]/cl[i-6]-1)*100:0; const w=cl.slice(Math.max(0,i-8),i+1); const rets=[];for(let k=1;k<w.length;k++)rets.push(w[k]/w[k-1]-1); const m=rets.reduce((x,y)=>x+y,0)/rets.length; const vol=Math.sqrt(rets.reduce((x,y)=>x+(y-m)*(y-m),0)/rets.length);
+          const nx=cl.slice(i,Math.min(cl.length,i+6)); const fwd=nx.length>1?(nx[nx.length-1]/nx[0]-1)*100:0; const phase=Math.abs(fwd)>Math.abs(mv)*1.2?'Versnelling':Math.abs(fwd)<Math.abs(mv)*0.5?'Ontlading':'Initiatie'; const pc={Initiatie:'#26d0cc',Versnelling:'#ffd500',Ontlading:'#ff5f7e'}[phase];
+          const d=new Date(c.t); return {t:c.t,txt:p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+cet(c.t),phase,pc,px:c.c,mv:mv,fwd:fwd}; });
+        hist.innerHTML=evs.map(e=>'<div style="display:flex;gap:6px;align-items:baseline;font-size:0.52rem;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);"><span style="color:#8aa;min-width:64px;font-family:\'JetBrains Mono\',monospace;">'+e.txt+'</span><span style="color:'+e.pc+';min-width:74px;">'+e.phase+'</span><span style="color:#9fb2c4;">@'+(e.px>=100?e.px.toFixed(1):e.px.toFixed(3))+' · aanloop '+(e.mv>=0?'+':'')+e.mv.toFixed(1)+'% → vervolg '+(e.fwd>=0?'+':'')+e.fwd.toFixed(1)+'%</span></div>').join('');
+      } else hist.innerHTML='<span style="font-size:0.52rem;color:var(--dimmer);">Onvoldoende historie.</span>'; }
+    // ---- (4) CHAOS-STATUSSEN / FRACTAL ENERGY SCALE (live) ----
+    const chz=document.getElementById('ci-chaos'); if(chz){ const scale=[['DEEP COMPRESSION','#ffd500','Veer maximaal geladen — uitbraak ophanden'],['LOADING','#26d0cc','Energie bouwt op, compressie neemt toe'],['NEUTRAL','#7d8a99','Geen duidelijke compressie/ontlading'],['EXPANSION','#26d07c','Uitbraak bezig — trend loopt'],['CLIMAX','#ff5f7e','Grote move + stress-piek → fade/uitputting'],['DISCHARGE','#ff8a3c','Ontlading na opbouw — energie loopt eruit']];
+      const cur=a.energy.zone;
+      chz.innerHTML='<div style="font-size:0.56rem;color:#cfe6f5;margin-bottom:4px;">Huidig: <span style="color:'+a.energy.col+';font-weight:700;">'+esc(cur)+'</span> · compressie '+Math.round(a.energy.compression*100)+'% · energie '+Math.round(a.energy.charge*100)+'% · 5-bar '+(a.energy.move5>=0?'+':'')+a.energy.move5+'%</div>'+
+        '<div style="font-size:0.5rem;color:'+a.energy.col+';margin-bottom:6px;">▸ '+esc(a.energy.action)+'</div>'+
+        scale.map(s=>{ const on=s[0]===cur; return '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.5rem;padding:2px 4px;border-radius:4px;'+(on?'background:'+s[1]+'22;border:1px solid '+s[1]+'66;':'')+'margin-bottom:2px;"><span style="color:'+s[1]+';min-width:120px;font-weight:'+(on?'700':'400')+';">'+(on?'▸ ':'')+s[0]+'</span><span style="color:#9fb2c4;">'+s[2]+'</span></div>'; }).join(''); }
+  }catch(e){} }
+  try{ window.renderCommoInfoPanels=renderCommoInfoPanels; }catch(e){}
+  try{ setInterval(function(){ try{ const h=document.getElementById('ci-arch'); if(h&&h.offsetParent!==null)renderCommoInfoPanels(); }catch(e){} }, 5000); }catch(e){}
+})();
+
 
 /* ---- Osiris ShockWave world map (d3 + topojson) ---- */
 /* ==================================================================================
