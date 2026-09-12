@@ -1234,6 +1234,92 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div id="fsocal-panel-nn" style="margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:0.6rem; line-height:1.6;"><span style="color:var(--dim);">FSO-kalibratie initialiseert&hellip;</span></div>
       </div>
       <div style="margin-top:14px; border:1px dashed rgba(20,241,149,0.55); border-radius:10px; padding:10px 14px; background:rgba(20,241,149,0.04); text-align:center; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:#14f195; letter-spacing:0.5px;">&#8635; FEEDBACK-LUS &nbsp;&middot;&nbsp; L1/L2/L3 + auto-tuner + HMM + shadow-backtest &nbsp;&middot;&nbsp; elke trade / elke 5 min<div style="color:var(--dim); font-size:0.54rem; letter-spacing:0; margin-top:4px;">de uitkomst voedt continu de gewichten, kalibratie, drempels, exit-timing en target/stop terug het net in</div></div>
+
+      <!-- ============================================================================
+           OSIRIS NEO · UOTAM v7.7 (crypto) — systeem-chart + info-panels + system data +
+           Support&Target matrix + Fractal Energy Scale. Verplaatst vanuit de Charts- en
+           Systeem-tabs; alle secties inklapbaar (klik op de titel).
+           ============================================================================ -->
+      <div id="neo-uotam" style="margin-top:26px;">
+        <div class="eyebrow" style="color:#14f195;">Osiris NEO &middot; UOTAM v7.7</div>
+        <h2 class="h" style="font-size:1.2rem; margin:2px 0 4px;">CRYPTO SYSTEEM-ANALYSE</h2>
+        <div class="mono" style="font-size:0.56rem; color:var(--dim); margin-bottom:12px;">Per crypto-markt (BTC/ETH/SOL) apart gekalibreerd &middot; theorie ⇄ native, zelf-gekalibreerd &middot; alles rekent op de achtergrond door. Klik een sectietitel om in/uit te klappen.</div>
+
+        <!-- OSIRIS NEO · SYSTEEM-CHART (FSO) -->
+        <div class="secdiv"><h3>Systeem-chart (FSO)</h3><span class="sub">— prijs + FSO-schaduw/oscillator + nodes/NN/MA/RSI/fibs + volume-profiel &middot; per crypto-markt</span></div>
+        <div class="panel">
+          <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+            <select id="cx-sys-sel" onchange="window.__cxSel&&window.__cxSel(this.value)" style="background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;"></select>
+            <div id="cx-sys-tfs" style="display:flex;gap:4px;"></div>
+            <span id="cx-sys-meta" class="mono" style="font-size:0.54rem;color:var(--dim);margin-left:auto;"></span>
+          </div>
+          <div id="cx-sys-tools" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"></div>
+          <canvas id="cx-sys-chart" style="width:100%;height:300px;display:block;"></canvas>
+          <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Eén doorlopend paneel, <b>Lijn</b> of <b>Candles</b>, per crypto-markt (BTC/ETH/SOL) apart gekalibreerd. Overlays aan/uit: <b>Nodes</b> · <b>NN</b> · <b>MA</b> (fast/slow-cross) · <b>RSI</b> · <b>Fibs</b> (µ/M/XL) · <b>Energie</b>. <span style="color:#ff8a3c;">FSO-schaduw</span> = opgespannen energie (compressie). <span style="color:#ffb73c;">Volume-profiel</span> rechts met POC. Onder (0–1): <span style="color:#e8f4ff;">stress</span>·<span style="color:#7fd8ff;">σ²</span>·<span style="color:#c792ea;">VFM</span>·<span style="color:#ff8a3c;">corr</span> + <span style="color:#ff5f7e;">CRISIS</span>/<span style="color:#ffb627;">SPANNING</span> + ⚡ΔV. Balken: <span style="color:#ffd76a;">HIGH</span>/<span style="color:#ff8a94;">LOW</span> (σ²). Candles via Binance klines.</div>
+        </div>
+
+        <!-- CRYPTO UOTAM INFO-PANELS -->
+        <div class="secdiv"><h3>UOTAM info-panels &middot; crypto</h3><span class="sub">— per markt · Fractale Architectuur · dag/week node-schema · historisch overzicht · chaos-statussen</span></div>
+        <div class="panel">
+          <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+            <span class="mono" style="font-size:0.56rem;color:var(--dimmer);">markt:</span>
+            <select id="kc-sel" onchange="window.__kcSel&&window.__kcSel(this.value)" style="background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.62rem;"></select>
+          </div>
+          <style>
+            #kc-panels{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+            @media(max-width:900px){#kc-panels{grid-template-columns:1fr;}}
+            #kc-panels .ci-box{background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;display:flex;flex-direction:column;}
+            #kc-panels .ci-t{font-family:'JetBrains Mono',monospace;font-size:0.62rem;letter-spacing:0.08em;text-transform:uppercase;color:#14f195;font-weight:600;margin-bottom:6px;}
+            #kc-panels .ci-scroll{max-height:250px;overflow-y:auto;}
+          </style>
+          <div id="kc-panels">
+            <div class="ci-box"><div class="ci-t">Deel 2.1 · Fractale Architectuur <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(live, 4 lagen)</span></div><div id="kc-arch" class="ci-scroll"></div></div>
+            <div class="ci-box"><div class="ci-t">Deel 5.1 · Fractaal dag/week node-schema <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">π</span></div><div id="kc-sched" class="ci-scroll"></div></div>
+            <div class="ci-box"><div class="ci-t">Historisch overzicht <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(initiatie / versnelling / ontlading)</span></div><div id="kc-hist" class="ci-scroll"></div></div>
+            <div class="ci-box"><div class="ci-t">Chaos-statussen · Fractal Energy Scale <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(live)</span></div><div id="kc-chaos" class="ci-scroll"></div></div>
+          </div>
+        </div>
+
+        <!-- CRYPTO SYSTEM DATA (UOTAM) + FRACTAL ENERGY SCALE -->
+        <div class="secdiv"><h3>Crypto system data &middot; UOTAM</h3><span class="sub">— per markt · UOTAM v7.7 (native ⇄ theorie, zelf-gekalibreerd) · live achtergrond</span></div>
+        <div class="panel">
+          <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+          <style>
+            #ncd-wrap .cd-sub{font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.1em;text-transform:uppercase;color:#14f195;margin:12px 0 5px;font-weight:600;}
+            #ncd-wrap .cd-sub:first-child{margin-top:2px;}
+            #ncd-wrap .cd-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+            @media(max-width:900px){#ncd-wrap .cd-grid{grid-template-columns:1fr;}}
+          </style>
+          <div id="ncd-wrap">
+            <div class="cd-sub">Osiris Market Status · alle crypto-markten <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(UOTAM-nodes · verdict · energie · live)</span></div>
+            <div class="cd-grid" id="ncd-overview"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">Crypto-data laadt…</span></div>
+            <div class="cd-sub">Micro / Meso / Macro · bull &amp; bear per markt</div>
+            <div class="cd-grid" id="ncd-levels"></div>
+            <div class="cd-sub">VFM · ER · DB · Chaos Index · alle markten</div>
+            <div class="cd-grid" id="ncd-meters"></div>
+            <div class="cd-sub">Patroon &amp; Structuur · alle markten <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(CNN + markt-structuur)</span></div>
+            <div class="cd-grid" id="ncd-pattern"></div>
+            <div class="cd-sub">Node Countdown · UOTAM-tijdraster <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">π · per markt geijkt vs adaptief</span></div>
+            <div class="cd-grid" id="ncd-nodes"></div>
+          </div>
+        </div>
+
+        <!-- FRACTAL ENERGY SCALE (aparte sectie zoals gevraagd) -->
+        <div class="secdiv"><h3>Energie &amp; compressie · Fractal Energy Scale</h3><span class="sub">— uitbraak vs climax-fade · per crypto-markt live</span></div>
+        <div class="panel">
+          <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+          <div class="cd-grid" id="ncd-energy" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">Energie-scan laadt…</span></div>
+        </div>
+
+        <!-- CRYPTO SUPPORT & TARGET MATRIX -->
+        <div class="secdiv"><h3>Support &amp; Target Matrix · crypto</h3><span class="sub">— per markt · pivots + fib-macro + node · dynamisch &amp; autonoom-adaptief (entry/stop/T1/T2/RR)</span></div>
+        <div class="panel">
+          <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+          <div id="mx-crypto" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">Matrix laadt…</span></div>
+        </div>
+      </div>
     </section>
 
     <!-- WALLET -->
@@ -1331,6 +1417,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         </div>
         <div class="plabel" style="margin-top:16px;">Pending orders <span class="muted" style="text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
         <div id="pending-orders-list" style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--tx); margin-top:6px;"><span style="color:var(--dim);">Geen pending orders</span></div>
+      </div>
+
+      <div class="panel mb"><div class="plabel" style="color:#14f195;">Support &amp; Target &middot; open posities <span class="muted" style="text-transform:none; letter-spacing:0;">— matrix vanaf de openingsprijs + VS de standaard-matrix (algemene pivot)</span></div>
+        <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin:6px 0 8px;line-height:1.6;">Elke open crypto-positie (spot + margin) krijgt een eigen Support &amp; Target-matrix met de <b style="color:#ffd76a;">openingsprijs als pivot</b>. De <b style="color:#7fd8ff;">standaard-matrix</b> (algemene pivot, ook zichtbaar bij de Neural Net-tab) voedt — zodra een markt bewezen is via de shadow-backtest worker — de T1/T2 van toekomstige trades.</div>
+        <div id="mx-open-cx"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">Open posities laden…</span></div>
       </div>
 
       <div class="panel mb"><div class="plabel">Closed positions &middot; current session</div>
@@ -1439,20 +1530,6 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <!-- CHARTS -->
     <section class="tab" id="tab-charts">
       <div class="eyebrow">Markt &middot; prijs &amp; volume &middot; view-only (bot rekent altijd op 15m)</div><h1 class="h">MARKET CHART</h1>
-
-      <!-- OSIRIS NEO · SYSTEEM-CHART (FSO) — zelfde unified paneel als de commodity-chart, per BTC/ETH/SOL -->
-      <div class="secdiv"><h3>Systeem-chart (FSO)</h3><span class="sub">— prijs + FSO-schaduw/oscillator + nodes/NN/MA/RSI/fibs + volume-profiel &middot; per crypto-markt</span></div>
-      <div class="panel">
-        <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
-          <select id="cx-sys-sel" onchange="window.__cxSel&&window.__cxSel(this.value)" style="background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;"></select>
-          <div id="cx-sys-tfs" style="display:flex;gap:4px;"></div>
-          <span id="cx-sys-meta" class="mono" style="font-size:0.54rem;color:var(--dim);margin-left:auto;"></span>
-        </div>
-        <div id="cx-sys-tools" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"></div>
-        <canvas id="cx-sys-chart" style="width:100%;height:300px;display:block;"></canvas>
-        <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Eén doorlopend paneel, <b>Lijn</b> of <b>Candles</b>, per crypto-markt (BTC/ETH/SOL) apart gekalibreerd. Overlays aan/uit: <b>Nodes</b> · <b>NN</b> · <b>MA</b> (fast/slow-cross) · <b>RSI</b> · <b>Fibs</b> (µ/M/XL) · <b>Energie</b>. <span style="color:#ff8a3c;">FSO-schaduw</span> = opgespannen energie (compressie). <span style="color:#ffb73c;">Volume-profiel</span> rechts met POC. Onder (0–1): <span style="color:#e8f4ff;">stress</span>·<span style="color:#7fd8ff;">σ²</span>·<span style="color:#c792ea;">VFM</span>·<span style="color:#ff8a3c;">corr</span> + <span style="color:#ff5f7e;">CRISIS</span>/<span style="color:#ffb627;">SPANNING</span> + ⚡ΔV. Balken: <span style="color:#ffd76a;">HIGH</span>/<span style="color:#ff8a94;">LOW</span> (σ²). Candles via Binance klines.</div>
-      </div>
 
   <div class="panel" style="margin-top:16px; padding:16px; overflow:hidden;">
     <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
@@ -2258,12 +2335,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         #ci-panels{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
         @media(max-width:900px){#ci-panels{grid-template-columns:1fr;}}
         #ci-panels .ci-box{background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;display:flex;flex-direction:column;}
-        #ci-panels .ci-t{font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;}
-        #ci-panels .ci-scroll{max-height:230px;overflow-y:auto;}
+        #ci-panels .ci-t{font-family:'JetBrains Mono',monospace;font-size:0.62rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;}
+        #ci-panels .ci-scroll{max-height:250px;overflow-y:auto;}
       </style>
       <div id="ci-panels">
         <div class="ci-box"><div class="ci-t">Deel 2.1 · Fractale Architectuur <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(live, 4 lagen)</span></div><div id="ci-arch" class="ci-scroll"></div></div>
-        <div class="ci-box"><div class="ci-t">Deel 5.1 · Fractaal dag/week node-schema <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(π-klok 3-6-9)</span></div><div id="ci-sched" class="ci-scroll"></div></div>
+        <div class="ci-box"><div class="ci-t">Deel 5.1 · Fractaal dag/week node-schema <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">π</span></div><div id="ci-sched" class="ci-scroll"></div></div>
         <div class="ci-box"><div class="ci-t">Historisch overzicht <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(initiatie / versnelling / ontlading)</span></div><div id="ci-hist" class="ci-scroll"></div></div>
         <div class="ci-box"><div class="ci-t">Chaos-statussen · Fractal Energy Scale <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(live)</span></div><div id="ci-chaos" class="ci-scroll"></div></div>
       </div>
@@ -2288,7 +2365,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="cd-grid" id="cd-meters"></div>
         <div class="cd-sub">Patroon &amp; Structuur · alle markten <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(CNN + markt-structuur)</span></div>
         <div class="cd-grid" id="cd-pattern"></div>
-        <div class="cd-sub">Node Countdown · UOTAM-tijdraster <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(π-klok Tesla 3-6-9 · per markt geijkt vs adaptief)</span></div>
+        <div class="cd-sub">Node Countdown · UOTAM-tijdraster <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">π · per markt geijkt vs adaptief</span></div>
         <div class="cd-grid" id="cd-nodes"></div>
         <div class="cd-sub">Energie &amp; compressie · Fractal Energy Scale <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(uitbraak vs climax-fade · per markt live)</span></div>
         <div class="cd-grid" id="cd-energy"></div>
@@ -2324,7 +2401,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
       <div id="fi-panels" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
         <div class="ci-box" style="background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;"><div class="ci-t" style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;">Deel 2.1 · Fractale Architectuur <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(live, 4 lagen)</span></div><div id="fi-arch" style="max-height:230px;overflow-y:auto;"></div></div>
-        <div class="ci-box" style="background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;"><div class="ci-t" style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;">Deel 5.1 · Fractaal dag/week node-schema <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(π-klok 3-6-9)</span></div><div id="fi-sched" style="max-height:230px;overflow-y:auto;"></div></div>
+        <div class="ci-box" style="background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;"><div class="ci-t" style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;">Deel 5.1 · Fractaal dag/week node-schema <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">π</span></div><div id="fi-sched" style="max-height:230px;overflow-y:auto;"></div></div>
         <div class="ci-box" style="background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;"><div class="ci-t" style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;">Historisch overzicht <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(initiatie / versnelling / ontlading)</span></div><div id="fi-hist" style="max-height:230px;overflow-y:auto;"></div></div>
         <div class="ci-box" style="background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;"><div class="ci-t" style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;">Chaos-statussen · Fractal Energy Scale <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(live)</span></div><div id="fi-chaos" style="max-height:230px;overflow-y:auto;"></div></div>
       </div>
@@ -2442,10 +2519,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div id="mx-fx" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-height:420px;overflow-y:auto;"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">FX-matrix laadt…</span></div>
     </div>
 
-    <div class="secdiv"><h3>Support &amp; Target · open posities</h3><span class="sub">— Osiris (crypto spot/margin) + Trinity (FX/commodity) · live · met autonoom advies per positie</span></div>
+    <div class="secdiv"><h3>UOTAM autonomie &amp; shadow-validatie</h3><span class="sub">— T1/T2 sturen de live trades (shadow-gated, overfitting-rem) · terugdraaibaar · per markt bewezen</span></div>
     <div class="panel">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
-      <div id="mx-open"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">Open posities laden…</span></div>
+      <div id="ua-body"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">Shadow-validatie initialiseert…</span></div>
     </div>
 
     <div class="secdiv"><h3>Tools</h3><span class="sub">— engine internals</span></div>
@@ -2547,6 +2624,13 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="closedwrap"><div id="closed-body"></div></div>
       </div>
 </div>
+
+    <div class="secdiv"><h3>Support &amp; Target · open posities</h3><span class="sub">— Trinity (FX + commodity) · matrix vanaf de OPENINGSPRIJS + VS de standaard-matrix (algemene pivot) · live advies per positie</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-bottom:8px;line-height:1.6;">Elke open positie krijgt een eigen Support &amp; Target-matrix met de <b style="color:#ffd76a;">openingsprijs als pivot</b>. De <b style="color:#7fd8ff;">standaard-matrix</b> (algemene pivot, ook zichtbaar bij de Neural Net-tab) blijft de bron voor de T1/T2 van toekomstige trades — de shadow-backtest worker gebruikt die pivot zodra een markt bewezen is.</div>
+      <div id="mx-open-tr"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">Open posities laden…</span></div>
+    </div>
       </div>
     </section>
     <section class="tab" id="tab-tr-engine">
@@ -2841,7 +2925,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260912-build118-support-target-matrices"></script>
+<script src="app.js?v=20260912-build121-neo-uotam-crypto-openmatrix"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
