@@ -24805,10 +24805,13 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const tfw=document.getElementById('commo-chart-tfs'); if(tfw&&!tfw.children.length){ tfw.innerHTML=TFS.map(t=>`<button data-tf="${t}" onclick="window.__commoTF&&window.__commoTF('${t}')" style="background:${t===TF?'#134e4a':'#0c1a24'};color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.56rem;cursor:pointer;">${t}</button>`).join(''); } }catch(e){}
   }
   function _syncTF(){ try{ const tfw=document.getElementById('commo-chart-tfs'); if(tfw)[...tfw.children].forEach(b=>{ b.style.background=(b.getAttribute('data-tf')===TF)?'#134e4a':'#0c1a24'; }); }catch(e){} }
-  function _sessTint(ts){ try{ const d=new Date(ts); const h=d.getUTCHours()+d.getUTCMinutes()/60; const eu=h>=7&&h<16, us=h>=13&&h<21, asia=(h>=23||h<8);
-    if(eu&&us)return 'rgba(255,183,60,0.10)'; if(us)return 'rgba(255,138,60,0.055)'; if(eu)return 'rgba(20,241,149,0.05)'; if(asia)return 'rgba(127,216,255,0.05)'; return 'rgba(255,95,126,0.05)'; }catch(e){ return 'transparent'; } }
+  // rollende σ² per candle (fallback als de FSO-serie er nog niet is) — voor de HIGH/LOW-balken
+  function _varSeries(cl){ const out=[]; for(let i=0;i<cl.length;i++){ const w=cl.slice(Math.max(0,i-10),i+1); if(w.length<3){out.push(0);continue;}
+      const rets=[]; for(let k=1;k<w.length;k++)rets.push(w[k]/w[k-1]-1); const m=rets.reduce((a,b)=>a+b,0)/rets.length;
+      out.push(Math.sqrt(rets.reduce((a,b)=>a+(b-m)*(b-m),0)/rets.length)); } return out; }
+  function _quant(arr,q){ const s=arr.slice().sort((a,b)=>a-b); return s[Math.min(s.length-1,Math.max(0,Math.floor(s.length*q)))]||0; }
   function renderCommodityChart(){ const cv=document.getElementById('tr-commo-chart'); if(!cv)return; _buildControls(); _syncTF();
-    const ctx=cv.getContext('2d'); const dpr=window.devicePixelRatio||1; const W=cv.clientWidth||760, H=440;
+    const ctx=cv.getContext('2d'); const dpr=window.devicePixelRatio||1; const W=cv.clientWidth||760, H=460;
     cv.style.height=H+'px'; cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
     const meta=document.getElementById('commo-chart-meta');
     const cands=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(SEL,TF):[];
@@ -24816,79 +24819,108 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.fillText('Geen candles voor '+(NAMES[SEL]||SEL)+' · '+TF+' — verbind de Capital-proxy en deploy de /history-route.', W/2, H/2);
       if(meta)meta.textContent=''; return; }
     const cl=cands.map(c=>c.c), vv=cands.map(c=>c.v||0); const n=cl.length;
-    const padL=50,padR=52,padT=16,padB=30; const gw=W-padL-padR;
-    // drie zones: prijs (boven) · FSO-oscillator (midden) · volume (onder)
-    const priceH=Math.round((H-padT-padB)*0.50), fsoH=Math.round((H-padT-padB)*0.30), volH=(H-padT-padB)-priceH-fsoH-16;
-    const pTop=padT, pBot=pTop+priceH; const fTop=pBot+10, fBot=fTop+fsoH; const vTop=fBot+6, vBot=vTop+volH;
+    const padL=52,padR=64,padT=18,padB=26; const gw=W-padL-padR;
+    // ============================ ÉÉN DOORLOPEND PANEEL ============================
+    // Geen aparte sub-charts meer: prijs (boven) en de FSO-oscillator (onder) delen dezelfde
+    // achtergrond, dezelfde HIGH/LOW-balken en dezelfde verticale rasterlijnen → leest als 1 chart.
+    const plotT=padT, plotB=H-padB, plotH=plotB-plotT;
+    const priceBot=plotT+Math.round(plotH*0.60);            // prijs neemt de bovenste 60%
+    const oscTop=priceBot+8, oscBot=plotB;                   // oscillator deelt de onderste ~40%
+    const priceH=priceBot-plotT, oscH=oscBot-oscTop;
     const x=i=>padL+gw*(i/(n-1));
-    let mn=Math.min.apply(null,cl), mx=Math.max.apply(null,cl); if(mn===mx){mn-=1;mx+=1;} const pd=(mx-mn)*0.10; mn-=pd; mx+=pd;
-    const yP=v=>pTop+priceH*(1-(v-mn)/(mx-mn));
+    let mn=Math.min.apply(null,cl), mx=Math.max.apply(null,cl); if(mn===mx){mn-=1;mx+=1;} const pd=(mx-mn)*0.08; mn-=pd; mx+=pd;
+    const yP=v=>plotT+priceH*(1-(v-mn)/(mx-mn));             // prijs-schaal (links)
+    const yO=v=>oscBot-clamp(v,0,1)*oscH;                    // oscillator-schaal 0..1 (rechts)
     const F=(typeof TrinityCommodityFSO!=='undefined')?TrinityCommodityFSO.compute(SEL,TF):null;
-    // --- SESSIE-TINTEN als achtergrond over de hele hoogte (Asia/EU/US/overlap) ---
-    for(let i=0;i<n-1;i++){ ctx.fillStyle=_sessTint(cands[i].t); ctx.fillRect(x(i),pTop,Math.max(1,x(i+1)-x(i)+0.6),vBot-pTop); }
-    // ================= PRIJS-ZONE =================
+    // effen, rustige achtergrond voor het HELE paneel (geen sessie-kleuren meer → geen verwarring)
+    ctx.fillStyle='rgba(255,255,255,0.010)'; ctx.fillRect(padL,plotT,gw,plotH);
+    // subtiele scheidslijn prijs↔oscillator (zacht, geen harde box → blijft 1 chart)
+    ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(padL,priceBot+4); ctx.lineTo(padL+gw,priceBot+4); ctx.stroke();
+    // --- HIGH/LOW-balken over de VOLLE hoogte (net als de FX-charts) ---
+    // HIGH = σ² in de bovenste band (release-piek, "op het punt van inzakken") → GEEL
+    // LOW  = σ² samengedrukt onder de node-drempel (opgespannen/rust) → ROOD
+    (function(){ let vs, loTh, hiTh;
+      if(F&&F.varS&&F.varS.length){ const fN=F.varS.length; vs=cl.map((_,i)=>F.varS[Math.round(i/(n-1)*(fN-1))]||0); loTh=(F.nodeTh!=null?F.nodeTh:_quant(vs,0.30)); hiTh=_quant(vs,0.82); }
+      else { vs=_varSeries(cl); loTh=_quant(vs,0.30); hiTh=_quant(vs,0.82); }
+      const bw=gw/(n-1)+0.8;
+      for(let i=0;i<n;i++){ const px=x(i);
+        if(vs[i]<=loTh){ ctx.fillStyle='rgba(255,138,148,0.06)'; ctx.fillRect(px-bw/2,plotT,bw,plotH); }
+        else if(vs[i]>=hiTh){ ctx.fillStyle='rgba(255,200,60,0.08)'; ctx.fillRect(px-bw/2,plotT,bw,plotH); }
+      }
+    })();
+    // --- verticale raster + tijdschaal (gedeeld over het hele paneel) ---
+    const p2=q=>String(q).padStart(2,'0'); const intraday=(TF==='5m'||TF==='15m'||TF==='1h'); const ticks=6;
+    ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1; ctx.fillStyle='#5c7488'; ctx.font="8px 'JetBrains Mono',monospace";
+    for(let t=0;t<ticks;t++){ const idx=Math.round((n-1)*t/(ticks-1)); const xx=x(idx); const ts=cands[idx]&&cands[idx].t;
+      ctx.beginPath(); ctx.moveTo(xx,plotT); ctx.lineTo(xx,plotB); ctx.stroke();
+      if(ts){ const dt=new Date(ts); const lbl=intraday?(p2(dt.getHours())+':'+p2(dt.getMinutes())):(p2(dt.getDate())+'/'+p2(dt.getMonth()+1));
+        ctx.textAlign=t===0?'left':(t===ticks-1?'right':'center'); ctx.fillText(lbl,xx,H-8); } }
+    // ================= PRIJS (bovenste zone) =================
     // FSO-schaduw (mountain) achter de prijs, versterkt door live ShockWave
     let liveFso=0.4; try{ const s=TrinityCommodities._last&&TrinityCommodities._last[SEL]; if(s&&s.fso!=null)liveFso=s.fso; }catch(e){}
     const fsh=_fsoSeries(cl); const tint=0.5+0.8*liveFso;
-    ctx.beginPath(); ctx.moveTo(padL,pBot); for(let i=0;i<n;i++){ ctx.lineTo(x(i), pBot - clamp(fsh[i]*tint,0,1)*priceH*0.85); } ctx.lineTo(x(n-1),pBot); ctx.closePath();
-    const grad=ctx.createLinearGradient(0,pTop,0,pBot); grad.addColorStop(0,'rgba(255,138,60,0.22)'); grad.addColorStop(1,'rgba(255,138,60,0.03)'); ctx.fillStyle=grad; ctx.fill();
-    // TAM-nodes (paars, in de prijs-zone onderaan)
+    ctx.beginPath(); ctx.moveTo(padL,priceBot); for(let i=0;i<n;i++){ ctx.lineTo(x(i), priceBot - clamp(fsh[i]*tint,0,1)*priceH*0.80); } ctx.lineTo(x(n-1),priceBot); ctx.closePath();
+    const grad=ctx.createLinearGradient(0,plotT,0,priceBot); grad.addColorStop(0,'rgba(255,138,60,0.20)'); grad.addColorStop(1,'rgba(255,138,60,0.02)'); ctx.fillStyle=grad; ctx.fill();
+    // ---- VOLUME-PROFIEL (volume-op-prijs) rechts, realtime uit de candles ----
+    (function(){ const BINS=46; const bins=new Array(BINS).fill(0); const lo=mn, hi=mx, rng=(hi-lo)||1;
+      for(let i=0;i<n;i++){ const c=cands[i]; const v=vv[i]; if(!(v>0))continue; let a=(c.l!=null?c.l:cl[i]), b=(c.h!=null?c.h:cl[i]); if(b<a){const t=a;a=b;b=t;}
+        const b0=clamp(Math.floor((a-lo)/rng*BINS),0,BINS-1), b1=clamp(Math.floor((b-lo)/rng*BINS),0,BINS-1); const span=b1-b0+1;
+        for(let k=b0;k<=b1;k++)bins[k]+=v/span; }
+      let vpMax=0,poc=0; for(let k=0;k<BINS;k++)if(bins[k]>vpMax){vpMax=bins[k];poc=k;} if(vpMax<=0)return;
+      const profW=gw*0.20, x0=padL+gw; const binH=priceH/BINS;
+      for(let k=0;k<BINS;k++){ const bw=(bins[k]/vpMax)*profW; if(bw<0.5)continue; const yy=plotT+priceH*(1-(k+1)/BINS);
+        ctx.fillStyle=(k===poc)?'rgba(255,183,60,0.42)':'rgba(127,200,255,0.20)'; ctx.fillRect(x0-bw,yy,bw,Math.max(1,binH-0.6)); }
+      // POC-lijn (point of control = meeste volume op prijs)
+      const yPoc=plotT+priceH*(1-(poc+0.5)/BINS); ctx.strokeStyle='rgba(255,183,60,0.55)'; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(padL,yPoc); ctx.lineTo(padL+gw,yPoc); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle='rgba(255,183,60,0.9)'; ctx.textAlign='right'; ctx.font="7px 'JetBrains Mono',monospace"; ctx.fillText('POC',padL+gw-2,yPoc-2);
+    })();
+    // TAM-nodes (paars, verticaal, onderaan de prijs-zone een stip)
     let per=0; try{ const a=TrinityCommodityBrain.analyze(SEL,TF); per=(a&&a.node&&a.node.period)||0; }catch(e){}
-    if(per>1){ for(let i=n-1;i>=0;i-=per){ ctx.strokeStyle='rgba(199,146,234,0.14)'; ctx.beginPath(); ctx.moveTo(x(i),pTop); ctx.lineTo(x(i),pBot); ctx.stroke(); ctx.fillStyle='rgba(199,146,234,0.85)'; ctx.beginPath(); ctx.arc(x(i),pBot-3,2,0,6.283); ctx.fill(); } }
+    if(per>1){ for(let i=n-1;i>=0;i-=per){ ctx.strokeStyle='rgba(199,146,234,0.12)'; ctx.beginPath(); ctx.moveTo(x(i),plotT); ctx.lineTo(x(i),priceBot); ctx.stroke(); ctx.fillStyle='rgba(199,146,234,0.85)'; ctx.beginPath(); ctx.arc(x(i),priceBot-3,2,0,6.283); ctx.fill(); } }
     // prijslijn
-    ctx.beginPath(); for(let i=0;i<n;i++){ const px=x(i),py=yP(cl[i]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); } ctx.strokeStyle='#4fc3f7'; ctx.lineWidth=1.4; ctx.stroke();
-    // prijs-as
-    ctx.fillStyle='#5c7488'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right';
-    ctx.fillText(mx.toFixed(mx>=100?0:2),padL-5,pTop+8); ctx.fillText(mn.toFixed(mn>=100?0:2),padL-5,pBot);
+    ctx.beginPath(); for(let i=0;i<n;i++){ const px=x(i),py=yP(cl[i]); i?ctx.lineTo(px,py):ctx.moveTo(px,py); } ctx.strokeStyle='#4fc3f7'; ctx.lineWidth=1.5; ctx.stroke();
+    // laatste-prijs stip
+    ctx.beginPath(); ctx.arc(x(n-1),yP(cl[n-1]),2.4,0,6.283); ctx.fillStyle='#bfe9ff'; ctx.fill();
+    // prijs-as (links): max / mid / min
+    ctx.fillStyle='#5c7488'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; const dec=mx>=100?1:(mx>=10?2:3);
+    ctx.fillText(mx.toFixed(dec),padL-5,plotT+8); ctx.fillText(((mx+mn)/2).toFixed(dec),padL-5,plotT+priceH/2+3); ctx.fillText(mn.toFixed(dec),padL-5,priceBot);
     // PREDICTED 4h doellijn
     try{ const pr=TrinityCommodities.predict4h(SEL); if(pr&&pr.target!=null&&pr.target>=mn&&pr.target<=mx){ const yt=yP(pr.target),col=pr.dir==='LONG'?'#14f195':'#ff5f7e';
-      ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.5; ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
+      ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.55; ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
       ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillText('4h '+(pr.dir==='LONG'?'▲':'▼')+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw+3,yt+3); } }catch(e){}
-    // header (één regel, links) + markt-badge (rechts) — geen overlap
-    ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+'pt',padL+2,pTop-4);
+    // header (links) + markt/sessie-badge (rechts)
+    ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+'pt',padL+2,plotT-5);
     try{ const mh=TrinityCommodities.marketHours(SEL); if(mh){ ctx.textAlign='right'; ctx.fillStyle=mh.open?'#14f195':'#ff5f7e'; ctx.font="8px 'JetBrains Mono',monospace";
       let sfx=''; if(mh.session)sfx=' · '+mh.session+(mh.overlap?' ⚡':'')+(mh.volFactor?' ×'+mh.volFactor.toFixed(2):'');
-      ctx.fillText((mh.open?'● open':'○ dicht')+(mh.exchange?' · '+mh.exchange:'')+sfx,padL+gw,pTop-4); } }catch(e){}
-    // ================= FSO-OSCILLATOR-ZONE =================
-    ctx.fillStyle='rgba(255,255,255,0.015)'; ctx.fillRect(padL,fTop,gw,fsoH);
-    const yF=v=>fBot-clamp(v,0,1)*fsoH;
+      ctx.fillText((mh.open?'● open':'○ dicht')+(mh.exchange?' · '+mh.exchange:'')+sfx,padL+gw,plotT-5); } }catch(e){}
+    // ================= FSO-OSCILLATOR (onderste zone, gedeelde achtergrond) =================
+    // rechter-as 0 / .5 / 1
+    ctx.fillStyle='#4d6377'; ctx.textAlign='left'; ctx.font="8px 'JetBrains Mono',monospace";
+    ctx.fillText('1.0',padL+gw+3,oscTop+3); ctx.fillText('.5',padL+gw+3,(oscTop+oscBot)/2+3); ctx.fillText('0',padL+gw+3,oscBot+2);
     if(F){ const fN=F.stress.length; const xF=j=>padL+gw*(j/Math.max(1,fN-1));
-      // drempellijnen: CRISIS (roze) + SPANNING (geel) + node (dim)
-      const dLine=(val,col,lbl)=>{ const yy=yF(val); ctx.setLineDash([5,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.7; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(padL+gw,yy); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]); ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText(lbl,padL+gw+3,yy+3); };
+      // drempellijnen — labels RECHTS uitgelijnd (geen botsing met de FSO/ΔV-labels linksonder)
+      const dLine=(val,col,lbl)=>{ const yy=yO(val); ctx.setLineDash([5,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.6; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(padL+gw,yy); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]); ctx.fillStyle=col; ctx.textAlign='right'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText(lbl,padL+gw-2,yy-2); };
       dLine(F.crisT,'#ff5f7e','CRISIS '+F.crisT.toFixed(2)); dLine(F.spanT,'#ffb627','SPANNING '+F.spanT.toFixed(2));
       // VFM-energie als gevulde area (paars)
-      ctx.beginPath(); ctx.moveTo(padL,fBot); for(let j=0;j<fN;j++)ctx.lineTo(xF(j),yF(F.vfm[j])); ctx.lineTo(padL+gw,fBot); ctx.closePath(); ctx.fillStyle='rgba(199,146,234,0.16)'; ctx.fill();
-      // σ²-variance (cyaan, genormaliseerd op max)
+      ctx.beginPath(); ctx.moveTo(padL,oscBot); for(let j=0;j<fN;j++)ctx.lineTo(xF(j),yO(F.vfm[j])); ctx.lineTo(padL+gw,oscBot); ctx.closePath(); ctx.fillStyle='rgba(199,146,234,0.14)'; ctx.fill();
       let vmax=0; for(const v of F.varS)if(v>vmax)vmax=v; vmax=vmax||1;
-      const drawLine=(arr,col,w,norm)=>{ ctx.beginPath(); for(let j=0;j<arr.length;j++){ const v=norm?arr[j]/vmax:arr[j]; const px=xF(j),py=yF(v); j?ctx.lineTo(px,py):ctx.moveTo(px,py);} ctx.strokeStyle=col; ctx.lineWidth=w; ctx.stroke(); };
-      drawLine(F.varS,'#7fd8ff',1,true);           // σ²
-      drawLine(F.corrB,'#ff8a3c',1,false);         // corr-breuk
-      drawLine(F.vfm,'rgba(199,146,234,0.9)',1,false); // VFM-lijn
-      drawLine(F.stress,'#e8f4ff',1.5,false);      // stress (wit, dik)
-      // LOW / HIGH badges rechtsboven in de FSO-zone
-      ctx.textAlign='right'; ctx.font="8px 'JetBrains Mono',monospace";
-      // LOW / HIGH als één nette boxed-badge (geen overlap met de lijnen)
-      const bw=118, bx=padL+gw-bw, by=fTop+2; ctx.fillStyle='rgba(8,18,24,0.82)'; ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=1;
+      const drawLine=(arr,col,w,norm,dash)=>{ if(dash)ctx.setLineDash(dash); ctx.beginPath(); for(let j=0;j<arr.length;j++){ const v=norm?arr[j]/vmax:arr[j]; const px=xF(j),py=yO(v); j?ctx.lineTo(px,py):ctx.moveTo(px,py);} ctx.strokeStyle=col; ctx.lineWidth=w; ctx.stroke(); if(dash)ctx.setLineDash([]); };
+      drawLine(F.varS,'rgba(127,216,255,0.5)',1,true,[4,3]);  // σ² (gestippeld/dim — niet te verwarren met de prijs)
+      drawLine(F.corrB,'#ff8a3c',1,false);               // corr-breuk
+      drawLine(F.vfm,'rgba(199,146,234,0.9)',1,false);   // VFM
+      drawLine(F.stress,'#e8f4ff',1.7,false);            // stress (wit, dik = hoofd-signaal)
+      // huidige-stress marker
+      const cy=yO(F.stress[fN-1]); ctx.beginPath(); ctx.arc(padL+gw,cy,2.6,0,6.283); ctx.fillStyle='#ffd0d8'; ctx.fill();
+      // ΔV-breakpoint marker
+      if(F.breakpoint&&F.breakpoint.charged){ ctx.fillStyle='#14f195'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('⚡ΔV ~'+F.breakpoint.inBars+'b',padL+3,oscBot-3); }
+      ctx.fillStyle='#5c7488'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('FSO · stress·σ²·VFM·corr',padL+2,oscTop+9);
+      // LOW / HIGH boxed badge rechtsboven in de prijs-zone
+      const bw=120, bx=padL+gw-bw-2, by=plotT+3; ctx.fillStyle='rgba(8,18,24,0.82)'; ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=1;
       ctx.beginPath(); ctx.rect(bx,by,bw,13); ctx.fill(); ctx.stroke();
       ctx.textAlign='left'; ctx.font="8px 'JetBrains Mono',monospace";
-      ctx.fillStyle='#ffb627'; ctx.fillText('◱ LOW '+Math.round(F.lowPct*100)+'%',bx+5,by+9);
-      ctx.fillStyle='#ff5f7e'; ctx.fillText('◰ HIGH '+Math.round(F.highPct*100)+'%',bx+58,by+9);
-      // ΔV-breakpoint marker (verwachte release)
-      if(F.breakpoint&&F.breakpoint.charged){ ctx.fillStyle='#14f195'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('⚡ΔV-breakpoint ~'+F.breakpoint.inBars+'b',padL+3,fBot-3); }
-      ctx.fillStyle='#5c7488'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('FSO',padL+2,fTop+9);
-    } else { ctx.fillStyle='#5c7488'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText('FSO leert… (meer candles nodig)',padL+4,fTop+fsoH/2); }
-    // ================= VOLUME-STRIP =================
-    let vmaxV=0; for(const v of vv)if(v>vmaxV)vmaxV=v; vmaxV=vmaxV||1;
-    for(let i=0;i<n;i++){ const bh=(vv[i]/vmaxV)*volH; const up=i>0?cl[i]>=cl[i-1]:true; ctx.fillStyle=up?'rgba(20,241,149,0.5)':'rgba(255,95,126,0.5)'; ctx.fillRect(x(i)-1,vBot-bh,2,bh); }
-    ctx.fillStyle='#5c7488'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('VOLUME',padL+2,vTop+8);
-    // ---- TIJDSCHAAL (x-as) onderaan ----
-    try{ const p2=x=>String(x).padStart(2,'0'); const intraday=(TF==='5m'||TF==='15m'||TF==='1h'); const ticks=6;
-      ctx.fillStyle='#5c7488'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.strokeStyle='rgba(255,255,255,0.07)';
-      for(let t=0;t<ticks;t++){ const idx=Math.round((n-1)*t/(ticks-1)); const xx=x(idx); const ts=cands[idx]&&cands[idx].t; if(!ts)continue; const dt=new Date(ts);
-        const lbl=intraday?(p2(dt.getHours())+':'+p2(dt.getMinutes())):(p2(dt.getDate())+'/'+p2(dt.getMonth()+1));
-        ctx.beginPath(); ctx.moveTo(xx,vBot); ctx.lineTo(xx,vBot+3); ctx.stroke();
-        ctx.textAlign=t===0?'left':(t===ticks-1?'right':'center'); ctx.fillText(lbl,xx,H-6); }
-    }catch(e){}
+      ctx.fillStyle='#ffd76a'; ctx.fillText('▧ HIGH '+Math.round(F.highPct*100)+'%',bx+5,by+9);
+      ctx.fillStyle='#ff8a94'; ctx.fillText('▧ LOW '+Math.round(F.lowPct*100)+'%',bx+62,by+9);
+    } else { ctx.fillStyle='#5c7488'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText('FSO leert… (meer candles nodig)',padL+4,oscTop+oscH/2); }
     // ---- meta-regel (alle scalars, DOM — geen canvas-clutter) ----
     if(meta){ let m=''; try{ const a=TrinityCommodityBrain.analyze(SEL,TF);
       if(F){ const rc=F.regime==='CRISIS'?'#ff5f7e':F.regime==='SPANNING'?'#ffb627':'#14f195'; m='FSO '+F.regime+' · stress '+F.last.stress+' · σ² '+F.last.varr+' · VFM '+Math.round(F.last.vfm*100)+'% · ΔV '+(F.last.dV>=0?'+':'')+F.last.dV.toFixed(3)+' · node '+F.nodeTh.toFixed(2)+' · vol '+Math.round(F.volScore*100)+'% · LOW '+Math.round(F.lowPct*100)+'%/HIGH '+Math.round(F.highPct*100)+'%'; if(F.verify)m+=' · verif '+Math.round(F.verify.hitRate*100)+'%'+(F.verify.proven?'✓':''); }
