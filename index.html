@@ -1440,6 +1440,20 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <section class="tab" id="tab-charts">
       <div class="eyebrow">Markt &middot; prijs &amp; volume &middot; view-only (bot rekent altijd op 15m)</div><h1 class="h">MARKET CHART</h1>
 
+      <!-- OSIRIS NEO · SYSTEEM-CHART (FSO) — zelfde unified paneel als de commodity-chart, per BTC/ETH/SOL -->
+      <div class="secdiv"><h3>Systeem-chart (FSO)</h3><span class="sub">— prijs + FSO-schaduw/oscillator + nodes/NN/MA/RSI/fibs + volume-profiel &middot; per crypto-markt</span></div>
+      <div class="panel">
+        <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+          <select id="cx-sys-sel" onchange="window.__cxSel&&window.__cxSel(this.value)" style="background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;"></select>
+          <div id="cx-sys-tfs" style="display:flex;gap:4px;"></div>
+          <span id="cx-sys-meta" class="mono" style="font-size:0.54rem;color:var(--dim);margin-left:auto;"></span>
+        </div>
+        <div id="cx-sys-tools" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"></div>
+        <canvas id="cx-sys-chart" style="width:100%;height:300px;display:block;"></canvas>
+        <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Eén doorlopend paneel, <b>Lijn</b> of <b>Candles</b>, per crypto-markt (BTC/ETH/SOL) apart gekalibreerd. Overlays aan/uit: <b>Nodes</b> · <b>NN</b> · <b>MA</b> (fast/slow-cross) · <b>RSI</b> · <b>Fibs</b> (µ/M/XL) · <b>Energie</b>. <span style="color:#ff8a3c;">FSO-schaduw</span> = opgespannen energie (compressie). <span style="color:#ffb73c;">Volume-profiel</span> rechts met POC. Onder (0–1): <span style="color:#e8f4ff;">stress</span>·<span style="color:#7fd8ff;">σ²</span>·<span style="color:#c792ea;">VFM</span>·<span style="color:#ff8a3c;">corr</span> + <span style="color:#ff5f7e;">CRISIS</span>/<span style="color:#ffb627;">SPANNING</span> + ⚡ΔV. Balken: <span style="color:#ffd76a;">HIGH</span>/<span style="color:#ff8a94;">LOW</span> (σ²). Candles via Binance klines.</div>
+      </div>
+
   <div class="panel" style="margin-top:16px; padding:16px; overflow:hidden;">
     <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
       <span class="dot" style="background:var(--cyan);"></span><span class="mock-title" style="color:var(--cyan);">BTC/USDT &middot; 15m</span><span style="flex:1;"></span><span class="mono" style="font-size:0.8rem; color:var(--tx);" id="mkt-price">&mdash;</span>
@@ -2702,7 +2716,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260912-build111-commodity-nodes-nn-fib-ma-rsi"></script>
+<script src="app.js?v=20260912-build113-crypto-syschart-ma-cross"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
