@@ -4686,6 +4686,16 @@ function commitPositionEntry(position, reasonText) {
     // 31-07: leg het marktregime vast waarin deze positie wordt geopend, zodat de
     // regime-bewuste laag er later per regime van kan leren.
     if (!position.regimeAtEntry) { try { position.regimeAtEntry = classifyRegime(); } catch (e) { position.regimeAtEntry = 'RANGE'; } }
+    // AUTONOME UOTAM-EXECUTIE (crypto): blend het target naar de bewezen matrix-T1 (shadow-gated, autonome weight)
+    try {
+        if (typeof _uotamFrame === 'function' && position.entryPrice > 0 && position.targetPrice > 0) {
+            const _mk = (position.symbol && typeof MULTI_BINANCE !== 'undefined') ? (Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === position.symbol) || 'BTC') : 'BTC';
+            const _long = (position.side === 'LONG' || position.side === 'BUY');
+            const _curStop = _long ? position.entryPrice * (1 - 0.02) : position.entryPrice * (1 + 0.02);
+            const _uf = _uotamFrame(_mk, 'crypto', _long, position.entryPrice, position.targetPrice, _curStop);
+            if (_uf) { position.targetPrice = _uf.target; position._uotam = { provKey: 'crypto', mktKey: _mk, weight: _uf.weight }; position.uotamWeight = _uf.weight; }
+        }
+    } catch (e) {}
     if (botSettings.executionMode !== 'TESTNET') {
         openPositions.push(position);
         const _entMkt = (position.isOsiris && position.symbol && typeof MULTI_BINANCE !== 'undefined') ? (Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === position.symbol) || 'BTC') : 'BTC';
@@ -4863,6 +4873,8 @@ function finalizeClosePosition(pos, pnlPct, reason) {
     walletState.realizedPnL += pnlAmount;
     if (pnlPct >= 0) walletState.wins++; else walletState.losses++;
     pos.closeTime = Date.now();
+    // AUTONOME UOTAM-WEIGHT (crypto): schaal de gerealiseerde factor per markt af/aan na deze trade
+    try { if (pos._uotam && typeof uotamRecordTrade === 'function') uotamRecordTrade(pos._uotam.provKey, pos._uotam.mktKey, pnlPct > 0); } catch (e) {}
     // adaptieve time-stop: leerde het doorrollen? (positie die is doorgerold + winstgevend sloot = venster mag langer)
     try { if ((pos._tsRolls || 0) > 0 && typeof OsirisAdaptive !== 'undefined') OsirisAdaptive.recordRoll(pnlPct > 0); } catch (e) {}
     // adaptieve round-trip: leer per markt hoe groot de winst-range van een LONG doorgaans wordt (piek-gunstige-excursie),
@@ -20072,16 +20084,34 @@ function manageTrinity(){
   const best=ranked[0]; if(best){ predictive.p=best.p; predictive.side=best.side; predictive.score=Math.round(Math.min(99,best.pred*trinity.mult)); }
 }
 // UOTAM T1/T2 in de live trade (shadow-gated, terugdraaibaar). on=false → volledig terug naar de oude logica.
-const OSIRIS_UOTAM_TRADE={on:true,log:[]}; try{ window.OSIRIS_UOTAM_TRADE=OSIRIS_UOTAM_TRADE; }catch(e){}
-// past de bewezen Support&Target-matrix (T1 als target + frame-stop) toe op een trade, indien shadow-proven.
+// AUTONOME UOTAM-EXECUTIE: de bewezen Support&Target-matrix (T1/T2 + frame-stop) stuurt de LIVE trades.
+//  Volledige werking meteen: zodra een markt shadow-proven is (out-of-sample), krijgt het een weight.
+//  Osiris schaalt die weight AUTONOOM af als het minder scoort (na elke trade) — Wilson-ondergrens ×
+//  gerealiseerde-uitkomst-factor. Weight 0 = geen invloed; 1 = volle overname van target/stop.
+const OSIRIS_UOTAM_TRADE={on:true,log:[],rf:{},weights:{}}; try{ window.OSIRIS_UOTAM_TRADE=OSIRIS_UOTAM_TRADE;
+  const d=JSON.parse(localStorage.getItem('osirisUotamTrade')||'null'); if(d){ if(d.rf)OSIRIS_UOTAM_TRADE.rf=d.rf; if(typeof d.on==='boolean')OSIRIS_UOTAM_TRADE.on=d.on; } }catch(e){}
+function _uotamSave(){ try{ localStorage.setItem('osirisUotamTrade',JSON.stringify({rf:OSIRIS_UOTAM_TRADE.rf,on:OSIRIS_UOTAM_TRADE.on})); }catch(e){} }
+// autonome weight per markt: Wilson-edge × gerealiseerde-uitkomst-factor (0.15..1.2, daalt bij verlies)
+function uotamWeight(provKey, mktKey){ try{ if(!OSIRIS_UOTAM_TRADE.on||!window.TrinityUOTAMShadow)return 0;
+  const tr=TrinityUOTAMShadow.trust(provKey,mktKey); if(!tr||!tr.proven||tr.wilson==null)return 0;
+  const base=Math.max(0,Math.min(1,(tr.wilson-0.5)/0.3));                 // 0.52→~0.07 … 0.80→1.0
+  const rf=Math.max(0.15,Math.min(1.2, OSIRIS_UOTAM_TRADE.rf[provKey+':'+mktKey]!=null?OSIRIS_UOTAM_TRADE.rf[provKey+':'+mktKey]:1));
+  return +Math.max(0,Math.min(1,base*rf)).toFixed(3); }catch(e){ return 0; } }
+// na ELKE trade met toegepaste override: schaal de gerealiseerde factor (autonoom afschalen bij verlies)
+function uotamRecordTrade(provKey, mktKey, win){ try{ const k=provKey+':'+mktKey; let rf=OSIRIS_UOTAM_TRADE.rf[k]!=null?OSIRIS_UOTAM_TRADE.rf[k]:1;
+  rf=win? rf*1.06 : rf*0.80; rf=Math.max(0.15,Math.min(1.2,rf)); OSIRIS_UOTAM_TRADE.rf[k]=+rf.toFixed(3); _uotamSave();
+  try{ window.renderUotamAutonomy&&window.renderUotamAutonomy(); }catch(e){} }catch(e){} }
 function _uotamFrame(mktKey, provKey, long, entry, curTarget, curStop){
   try{ if(!OSIRIS_UOTAM_TRADE.on || !window.TrinityCommoUOTAM || !window.TrinityUOTAMShadow) return null;
-    const tr=TrinityUOTAMShadow.trust(provKey, mktKey); if(!tr.proven) return null;
-    const prov = provKey==='fx'?TrinityCommoUOTAM.PROV_FX:TrinityCommoUOTAM.PROV_COMMO; const mx=TrinityCommoUOTAM.matrix(mktKey,'1h',prov); if(!mx) return null;
+    const w=uotamWeight(provKey,mktKey); if(w<0.05) return null;                             // pas alleen bij bewezen markt
+    const tr=TrinityUOTAMShadow.trust(provKey, mktKey);
+    const prov = (TrinityCommoUOTAM.provFor?TrinityCommoUOTAM.provFor(provKey):(provKey==='fx'?TrinityCommoUOTAM.PROV_FX:TrinityCommoUOTAM.PROV_COMMO)); const mx=TrinityCommoUOTAM.matrix(mktKey,'1h',prov); if(!mx) return null;
     if(mx.dir!==(long?'LONG':'SHORT')) return null; const nt=mx.frame.t1, ns=mx.frame.stop;
     if(!((long&&nt>entry&&ns<entry)||(!long&&nt<entry&&ns>entry))) return null;
-    OSIRIS_UOTAM_TRADE.log.unshift({ts:Date.now(),market:mktKey,side:long?'LONG':'SHORT',orig:{target:+curTarget.toFixed(6),stop:+curStop.toFixed(6)},applied:{t1:nt,t2:mx.frame.t2,stop:ns},wilson:tr.wilson,n:tr.n}); if(OSIRIS_UOTAM_TRADE.log.length>200)OSIRIS_UOTAM_TRADE.log.pop();
-    return {target:nt, stop:ns, t2:mx.frame.t2};
+    // weight-blend: schaal van de eigen target/stop richting de UOTAM-T1/frame-stop (volledig bij w=1)
+    const target=+(curTarget+(nt-curTarget)*w).toFixed(6); const stop=+(curStop+(ns-curStop)*w).toFixed(6);
+    OSIRIS_UOTAM_TRADE.log.unshift({ts:Date.now(),market:mktKey,side:long?'LONG':'SHORT',weight:w,orig:{target:+curTarget.toFixed(6),stop:+curStop.toFixed(6)},applied:{t1:+target.toFixed(6),t2:mx.frame.t2,stop:+stop.toFixed(6)},wilson:tr.wilson,n:tr.n}); if(OSIRIS_UOTAM_TRADE.log.length>200)OSIRIS_UOTAM_TRADE.log.pop();
+    return {target, stop, t2:mx.frame.t2, weight:w, provKey, mktKey};
   }catch(e){ return null; } }
 function openTrade(c,S,pr){
   pr=pr||activePreset(); const tune=SESSION_TUNE[S.key]||{volMult:1}, st=pair[c.p], long=st.sig>=0, entry=st.rate;
@@ -20105,8 +20135,8 @@ function openTrade(c,S,pr){
     stopPctUsed=pr.stopPct*tune.volMult; tgtPctUsed=pr.tgtPct*tune.volMult*(scalp?0.6:1);   // mock: kleiner scalp-target
   }
   let stop=long?entry*(1-stopPctUsed/100):entry*(1+stopPctUsed/100), target=long?entry*(1+tgtPctUsed/100):entry*(1-tgtPctUsed/100);
-  // UOTAM: gebruik de bewezen T1 als target + frame-stop (shadow-gated) — de T1/T2 sturen nu de echte trade
-  try{ const uf=_uotamFrame(c.p,'fx',long,entry,target,stop); if(uf){ target=uf.target; stop=uf.stop; } }catch(e){}
+  // UOTAM: gebruik de bewezen T1 als target + frame-stop (autonoom weight-blend) — de T1/T2 sturen de echte trade
+  let _ufApplied=null; try{ const uf=_uotamFrame(c.p,'fx',long,entry,target,stop); if(uf){ target=uf.target; stop=uf.stop; _ufApplied={provKey:'fx',mktKey:c.p,weight:uf.weight}; } }catch(e){}
   // HORIZON: on live, give trades enough real time to actually reach stop/target (not TIME-close near zero).
   // Longer horizon + asymmetric target:stop is what moves results away from break-even — winners get room to run.
   const horizonH = live ? (scalp?0.9:1.5) : (scalp?Math.min(3,Math.max(1.2,(()=>{let hUTC=new Date().getUTCHours()+new Date().getUTCMinutes()/60,toEnd=S.end-hUTC;if(toEnd<0)toEnd+=24;return toEnd;})())) : Math.min(6,Math.max(2.5,(()=>{let hUTC=new Date().getUTCHours()+new Date().getUTCMinutes()/60,toEnd=S.end-hUTC;if(toEnd<0)toEnd+=24;return toEnd;})())));
@@ -20142,7 +20172,7 @@ function openTrade(c,S,pr){
   if(alloc < wallet.balance*0.01){ pushReason(`skip ${c.p} — total-exposure budget full (${(openAllocNow/wallet.balance*100|0)}% of ${pr.maxAllocPct}% used)`); return; }
   const localId='t'+(Date.now())+Math.floor(Math.random()*1000);
   let gsdAtOpen=null; try{ gsdAtOpen={regime:TrinityGSD.regime,tip:TrinityGSD.tippingRisk,tier:TrinityGSD.tippingTier,stress:TrinityGSD.stress,w:gsdW,mod:+gsdMod.toFixed(3)}; }catch(e){}
-  positions.push({localId,pair:c.p,side:long?'LONG':'SHORT',entry,current:entry,stop,target,horizonH,ageH:0,openClock:mockClock,openedAt:new Date(),gsdAtOpen,
+  positions.push({localId,pair:c.p,side:long?'LONG':'SHORT',entry,current:entry,stop,target,horizonH,ageH:0,openClock:mockClock,openedAt:new Date(),gsdAtOpen,_uotam:_ufApplied,
     status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,extended:false,session:S.key,sessionName:S.name,sessionWindow:S.window,sessionDesc:S.desc,conf,stopPctUsed,alloc,
     factors:{liquidity:Math.min(100,60+st.vol*40),strength:Math.min(100,Math.abs(st._gap)*90),carry:Math.min(100,Math.abs(st._carry)*120),news:Math.min(100,Math.max(0,(st._news)*Math.sign(st.mom||1))*90+40),fib:Math.round(st.fib*100)}});
   pushReason(`OPEN ${long?'LONG':'SHORT'} ${c.p} · conf ${conf}% · stop ${stopPctUsed.toFixed(3)}% · target ${tgtPctUsed.toFixed(3)}% · timing ${timePhase} ×${timeFac.toFixed(2)} · session ${S.name} · size $${alloc.toFixed(2)}`);
@@ -20164,6 +20194,8 @@ function closeTrade(p,reason){
   if(feed.mode==='live'&&feed.provider==='capital'&&p.localId&&!p.brokerDealId) closeOrderCapital(p.localId);
   if(reason==='STOP') p.pnlPct-=(STOP_SLIP_PCT[pairCategory(p.pair)]||STOP_SLIP_PCT.cross);       // extra adverse slippage realized on stop fills
   const win = reason==='TARGET' || reason==='AGENT-TP' || (['TIME','AGENT-CUT'].includes(reason)&&p.pnlPct>0), R=p.pnlPct/(p.stopPctUsed||0.4);
+  // AUTONOME UOTAM-WEIGHT: schaal de gerealiseerde factor per markt af/aan na deze trade (indien override toegepast)
+  try{ if(p._uotam&&typeof uotamRecordTrade==='function') uotamRecordTrade(p._uotam.provKey,p._uotam.mktKey, p.pnlPct>0); }catch(e){}
   if(p.isCommodity){ try{ if(typeof TrinityCommodityTrader!=='undefined') TrinityCommodityTrader.recordClose(p,win,reason); }catch(e){} }
   else {   // FX-kalibratie alleen voor FX-trades — commodity-uitkomsten vervuilen de sessie/conf-statistiek niet
     const b=trinity.byS[p.session]; if(b){b.n++; if(win)b.w++;}
@@ -20226,11 +20258,11 @@ const TrinityCommodityTrader = {
       // Commodities mogen veel langer aangehouden worden → ruimere stop + duidelijk grotere target (laat de trend lopen)
       const stopPctUsed=Math.max(st._minStopPct||0.1, volPct*5), tgtPctUsed=stopPctUsed*2.4;
       let stop=long?entry*(1-stopPctUsed/100):entry*(1+stopPctUsed/100), target=long?entry*(1+tgtPctUsed/100):entry*(1-tgtPctUsed/100);
-      // UOTAM T1/T2 (shadow-gated): bewezen matrix-target/stop sturen de commodity-trade
-      try{ const uf=(typeof _uotamFrame==='function')&&_uotamFrame(r.key||r.epic,'commo',long,entry,target,stop); if(uf){ target=uf.target; stop=uf.stop; } }catch(e){}
+      // UOTAM T1/T2 (autonoom weight-blend): bewezen matrix-target/stop sturen de commodity-trade
+      let _ufC=null; try{ const uf=(typeof _uotamFrame==='function')&&_uotamFrame(r.key||r.epic,'commo',long,entry,target,stop); if(uf){ target=uf.target; stop=uf.stop; _ufC={provKey:'commo',mktKey:r.key||r.epic,weight:uf.weight}; } }catch(e){}
       let alloc=wallet.balance*(this.perPosPct/100)*Math.min(1.3,0.6+conv); const openA=positions.filter(p=>p.status==='open').reduce((a,p)=>a+(p.alloc||0),0); alloc=Math.max(0,Math.min(alloc,wallet.balance*this.maxExpo-openA)); if(alloc<wallet.balance*0.01)break;   // equity op → stop (best-first, rest is minder)
       const localId='c'+Date.now()+Math.floor(Math.random()*1000);
-      positions.push({localId,pair:r.epic,isCommodity:true,side:r.side,entry,current:entry,stop,target,ageH:0,openClock:mockClock,openedAt:new Date(),status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,session:'commo',conf:Math.round(50+conv*49),stopPctUsed,alloc,factors:{},horizonH:this.holdH});
+      positions.push({localId,pair:r.epic,isCommodity:true,side:r.side,entry,current:entry,stop,target,ageH:0,openClock:mockClock,openedAt:new Date(),status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,session:'commo',conf:Math.round(50+conv*49),stopPctUsed,alloc,factors:{},horizonH:this.holdH,_uotam:_ufC});
       pushReason(`OPEN ${r.side} ${r.name} (commodity) · conv ${(conv*100|0)}% · stop ${stopPctUsed.toFixed(2)}% · size $${alloc.toFixed(2)}`);
       const minSz=st._minSize||1, step=st._sizeStep||1; let steps=Math.max(1,Math.round((alloc/entry)/step)); let sz=steps*step; if(sz<minSz)sz=Math.ceil(minSz/step)*step; sz=Math.round(sz*1e6)/1e6;
       placeOrderCapital({instrument:r.epic,side:long?'BUY':'SELL',size:sz,entry,stopDistancePct:stopPctUsed,tgtDistancePct:tgtPctUsed,localId});
@@ -25242,11 +25274,23 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         // π-klok node + countdown
         const pin=piNode(now); const nodeSess=nodeSession(pin.nextTs);
         // node-timing kalibratie: π-klok vs adaptief — welke valt vaker samen met echte swing-turns?
-        let nodeFit=null; try{ const turns=swingTurns(cl,0.004); if(turns.length>4){ const times=turns.map(i=>cs[i].t);
+        let nodeFit=null, turnsG=[]; try{ turnsG=swingTurns(cl,0.004); if(turnsG.length>4){ const times=turnsG.map(i=>cs[i].t);
           // π-klok: hoeveel turns liggen binnen ±0.5 node van een π-node-grens
           let piHit=0; times.forEach(tt=>{ const ph=((tt-ANCHOR)%NODE_MS)/NODE_MS; if(ph<0.15||ph>0.85)piHit++; });
           const per=(B&&B.node&&B.node.period)||0; let adHit=0; if(per>1){ times.forEach(tt=>{ const bi=Math.round((tt-cs[0].t)/tfMs(tf)); const ph=((bi%per)+per)%per/per; if(ph<0.15||ph>0.85)adHit++; }); }
           nodeFit={piPct:+(piHit/times.length).toFixed(2), adPct:per>1?+(adHit/times.length).toFixed(2):null, better:(per>1&&adHit>piHit)?'adaptief':'π-klok', period:per}; } }catch(e){}
+        // ---- PER-MARKT TAM NODE (uniek per markt): geankerd op de EIGEN laatste swing-turn × de EIGEN
+        //   adaptieve node-periode → elke markt heeft een andere countdown. Type via 8-cyclus (NEO-node).
+        let tam=null; try{ const per=(B&&B.node&&B.node.period)||0; const iv0=(per>1?per:8)*tfMs(tf);
+          const lastTurnI=turnsG.length?turnsG[turnsG.length-1]:Math.max(0,n-Math.round(iv0/tfMs(tf)));
+          const anchorTs=cs[lastTurnI]?cs[lastTurnI].t:cs[n-1].t; let elapsed=now-anchorTs; if(!(elapsed>0))elapsed=0;
+          const kAbs=Math.floor(elapsed/iv0); const kNext=kAbs+1; const nextTs=anchorTs+kNext*iv0; const msTo=nextTs-now;
+          // 8-cyclus NEO-node type
+          const rel=((kNext%8)+8)%8; const neo = rel===0?{t:'RESET',c:'#ff5f7e'}:rel===1?{t:'VOLA',c:'#ffb627'}:rel===3?{t:'CORE-3',c:'#26d0cc'}:rel===6?{t:'CORE-6',c:'#7fd8ff'}:{t:'OSC',c:'#9fb2c4'};
+          // Tesla 3-6-9 op het node-nummer (per markt genummerd vanaf de swing-anchor)
+          const tnum=1000+kNext; const m3=((tnum%3)+3)%3; const tType=m3===1?3:m3===2?6:9;
+          tam={ periodBars:per>1?per:null, ivMin:Math.round(iv0/60000), num:kNext, neoType:neo.t, neoCol:neo.c, teslaType:tType, teslaLab:NODE_TYPE[tType].lab, teslaCol:NODE_TYPE[tType].col, nextTs, msTo, session:nodeSession(nextTs) };
+        }catch(e){}
         // Micro/Meso/Macro bull&bear (swing-range per venster)
         const lvl=s=>{ const win=s==='micro'?Math.min(n,Math.max(12,Math.round(n*0.12))):s==='macro'?n:Math.min(n,Math.max(30,Math.round(n*0.45)));
           const seg=cl.slice(n-win); const hi=Math.max.apply(null,seg), lo=Math.min.apply(null,seg); const rng2=hi-lo;
@@ -25266,15 +25310,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         } }catch(e){}
         const struct=(()=>{ const w=cl.slice(-20); if(w.length<6)return '—'; const hh=w[w.length-1]>Math.max.apply(null,w.slice(0,-1)), ll=w[w.length-1]<Math.min.apply(null,w.slice(0,-1));
           const slope=(w[w.length-1]-w[0])/(Math.abs(w[0])||1); return hh?'higher-high (bullish break)':ll?'lower-low (bearish break)':slope>0.01?'higher-highs/-lows':slope<-0.01?'lower-highs/-lows':'range/consolidatie'; })();
-        // ---- FRACTAL ENERGY SCALE: zone/scenario per markt (compressie/ontlading) ----
-        const energy=this._energy(F,cl,vfmNow,chaos,px,pin.type);
+        // ---- FRACTAL ENERGY SCALE: zone/scenario per markt (compressie/ontlading + richting) ----
+        const energy=this._energy(F,cl,vfmNow,chaos,px,pin.type,(cnnMulti?cnnMulti.bias:0),(B&&B.probUp!=null?B.probUp:0.5));
         // ---- REGIME-HMM (verborgen markt-toestand) ----
         const hmm=_hmm(cl);
         const out={ key, tf, mkt:prov.key, name:prov.names[key]||key, ready:true, px, n, at:now,
           er:+er.toFixed(3), db:+db.toFixed(3), vfm:vfmNow, vfmSrc:bestSrc, vfmHit, vfmVariants:{theory:+(cand.theory[n-1]||0).toFixed(3),ngas:+(cand.ngas[n-1]||0).toFixed(3),blend:+(blend[n-1]||0).toFixed(3)}, vfmScores:{theory:+scores.theory.hit.toFixed(2),ngas:+scores.ngas.hit.toFixed(2),blend:+scBlend.hit.toFixed(2)},
           chaos:+chaos.toFixed(2), chaosLim, chaosOk:chaos<=chaosLim,
           regime:F?F.regime:'—', stress:F?F.last.stress:null, sigma:F?F.last.varr:null, sysVfm:F?F.last.vfm:null,
-          node:{num:pin.num,type:pin.type,typeLab:NODE_TYPE[pin.type].lab,col:NODE_TYPE[pin.type].col,msTo:pin.msTo,nextTs:pin.nextTs,session:nodeSess}, nodeFit,
+          node:{num:pin.num,type:pin.type,typeLab:NODE_TYPE[pin.type].lab,col:NODE_TYPE[pin.type].col,msTo:pin.msTo,nextTs:pin.nextTs,session:nodeSess}, nodeFit, tam,
           levels, cnn:+cnn.toFixed(2), cnnMulti, pattern:patt, structure:struct,
           nn:B&&B.probUp!=null?Math.round(B.probUp*100):null, nnProven:!!(B&&B.cal&&B.cal.proven),
           energy, hmm,
@@ -25283,22 +25327,32 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         this._cache[ck]=out; this._at[ck]=now; return out;
       }catch(e){ const o={key,tf,ready:false,err:e.message}; this._cache[ck]=o; this._at[ck]=now; return o; }
     },
-    // Fractal Energy Scale: bepaalt waar de markt in de compressie/ontlading-cyclus zit
-    _energy(F,cl,vfm,chaos,px,nodeType){ try{
+    // Fractal Energy Scale: bepaalt waar de markt in de compressie/ontlading-cyclus zit + de RICHTING
+    //  (long/short) met een dynamische, adaptieve duiding. cnnBias/probUp verfijnen de richting.
+    _energy(F,cl,vfm,chaos,px,nodeType,cnnBias,probUp){ try{
+      cnnBias=cnnBias||0; probUp=(probUp==null?0.5:probUp);
       const n=cl.length; const move5=n>6?(cl[n-1]/cl[n-6]-1)*100:0;   // recente 5-bar move %
       // compressie-diepte uit σ²-percentiel (laag σ² = veer geladen)
       let comp=0.5; if(F&&F.varS&&F.varS.length){ const cur=F.varS[F.varS.length-1]; const lo=pctl(F.varS,0.15), hi=pctl(F.varS,0.85); comp=hi>lo?clamp(1-(cur-lo)/(hi-lo),0,1):0.5; }
       const en=F?F.last.vfm:0;                 // opgeladen energie (0..1)
       const stress=F?F.last.stress:0;
-      let zone,scn,col,act;
-      if(comp>=0.7 && Math.abs(move5)<1.5){ zone='DEEP COMPRESSION'; scn='Veer maximaal geladen — uitbraak ophanden ('+(vfm>=0?'bias ↑':'bias ↓')+')'; col='#ffd500'; act='WACHT op trigger / positioneer vóór de breakout'; }
-      else if(comp>=0.5 && en>=0.45){ zone='LOADING'; scn='Energie bouwt op, compressie neemt toe'; col='#26d0cc'; act='Voorbereiden — richting uit NN/VFM'; }
-      else if(Math.abs(move5)>=3 && stress>=(F?F.crisT:0.4)){ zone='CLIMAX'; scn='Grote '+(move5>0?'stijging':'daling')+' + stress-piek → climax; kans op fade/uitputting'; col='#ff5f7e'; act='Winst beschermen / fade-setup, geen verse chase'; }
-      else if(Math.abs(move5)>=2 && Math.abs(vfm)>=1.2){ zone='EXPANSION'; scn='Uitbraak bezig ('+(move5>0?'omhoog':'omlaag')+') — trend loopt'; col='#26d07c'; act='Meelopen met trailing stop'; }
-      else if(nodeType===9 || (comp<0.3 && Math.abs(move5)>=1)){ zone='DISCHARGE'; scn='Ontlading na opbouw — energie loopt eruit'; col='#ff8a3c'; act='Trend-einde mogelijk / mean-reversion'; }
-      else { zone='NEUTRAL'; scn='Geen duidelijke compressie of ontlading'; col='#7d8a99'; act='Geduld — geen edge'; }
-      return { zone, scenario:scn, col, action:act, compression:+comp.toFixed(2), charge:+(en||0).toFixed(2), move5:+move5.toFixed(2) };
-    }catch(e){ return {zone:'—',scenario:'',col:'#7d8a99',action:'',compression:0,charge:0,move5:0}; } },
+      // consensus-richtingsscore uit VFM-teken, NN-kans en CNN-bias (−1..+1)
+      const dirScore = clamp((vfm>0?1:-1)*Math.min(1,Math.abs(vfm)/1.6)*0.45 + (probUp-0.5)*2*0.35 + clamp(cnnBias,-1,1)*0.20, -1, 1);
+      let zone,scn,col,act,dir='—',dirScoreZone=dirScore;
+      const dl=(d)=>d>=0?'LONG':'SHORT'; const arr=(d)=>d>=0?'↑':'↓';
+      if(comp>=0.7 && Math.abs(move5)<1.5){ zone='DEEP COMPRESSION'; dir=dl(dirScore); dirScoreZone=dirScore;
+        scn='Veer maximaal geladen — uitbraak ophanden richting '+dir+' '+arr(dirScore); col='#ffd500'; act='WACHT op trigger / positioneer '+dir+' vóór de breakout'; }
+      else if(comp>=0.5 && en>=0.45){ zone='LOADING'; dir=dl(dirScore); dirScoreZone=dirScore;
+        scn='Energie bouwt op, compressie neemt toe — voorkeur '+dir+' '+arr(dirScore); col='#26d0cc'; act='Voorbereiden '+dir+' (richting uit NN/VFM/CNN)'; }
+      else if(Math.abs(move5)>=3 && stress>=(F?F.crisT:0.4)){ zone='CLIMAX'; dirScoreZone=-Math.sign(move5); dir=dl(dirScoreZone);   // fade = tegen de move in
+        scn='Grote '+(move5>0?'stijging':'daling')+' + stress-piek → climax; fade-kans richting '+dir+' '+arr(dirScoreZone); col='#ff5f7e'; act='Winst beschermen / fade-setup '+dir+', geen verse chase'; }
+      else if(Math.abs(move5)>=2 && Math.abs(vfm)>=1.2){ zone='EXPANSION'; dirScoreZone=Math.sign(move5); dir=dl(dirScoreZone);   // trend meelopen
+        scn='Uitbraak bezig ('+(move5>0?'omhoog':'omlaag')+') — trend loopt '+dir+' '+arr(dirScoreZone); col='#26d07c'; act='Meelopen '+dir+' met trailing stop'; }
+      else if(nodeType===9 || (comp<0.3 && Math.abs(move5)>=1)){ zone='DISCHARGE'; dirScoreZone=-Math.sign(move5); dir=dl(dirScoreZone);   // mean-reversion
+        scn='Ontlading na opbouw — energie loopt eruit; mean-reversion richting '+dir+' '+arr(dirScoreZone); col='#ff8a3c'; act='Trend-einde mogelijk / mean-reversion '+dir; }
+      else { zone='NEUTRAL'; dir='—'; dirScoreZone=0; scn='Geen duidelijke compressie of ontlading — geen richting-edge'; col='#7d8a99'; act='Geduld — geen edge'; }
+      return { zone, scenario:scn, col, action:act, dir, dirScore:+dirScoreZone.toFixed(2), compression:+comp.toFixed(2), charge:+(en||0).toFixed(2), move5:+move5.toFixed(2) };
+    }catch(e){ return {zone:'—',scenario:'',col:'#7d8a99',action:'',dir:'—',dirScore:0,compression:0,charge:0,move5:0}; } },
     all(tf,prov){ prov=prov||PROV_COMMO; return prov.markets.map(k=>this.analyze(k,tf||'1h',prov)); },
     // ---- SUPPORT & TARGET MATRIX (dynamisch, autonoom-adaptief) per markt ----
     // Klassieke pivots (recente 12 bars) + fib-macro extremen → 6 niveaus + een trade-frame (entry/stop/T1/T2/RR)
@@ -25389,18 +25443,26 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         '<div style="font-size:0.52rem;color:#9fb2c4;margin-top:3px;">structuur: '+esc(a.structure)+'</div>'+
         '<div style="font-size:0.52rem;margin-top:2px;">CNN <span style="color:'+cb+';font-weight:700;">'+a.cnn+'</span>'+(a.cnnMulti?' <span style="color:#6d8296;">(multi '+a.cnnMulti.bias+(a.cnnMulti.aligned?' ⇈':'')+')</span>':'')+(a.pattern?' · '+esc(a.pattern):'')+(a.nn!=null?' · NN '+a.nn+'%'+(a.nnProven?'✓':''):'')+'</div>'+
         (H?'<div style="font-size:0.5rem;margin-top:2px;">HMM <span style="color:'+H.col+';font-weight:700;">'+esc(H.regime)+'</span> '+Math.round(H.confidence*100)+'% · duur ~'+H.persistence+'b</div>':'')); }).join('');
-    const nd=document.getElementById(idp+'-nodes'); if(nd)nd.innerHTML=ready.map(a=>{ const fit=a.nodeFit;
-      return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b>'+
-        '<div style="font-size:0.54rem;margin-top:3px;">Node '+a.node.num+' · <span style="color:'+a.node.col+';font-weight:700;">Type '+a.node.type+' '+esc(a.node.typeLab)+'</span></div>'+
-        '<div style="font-size:0.5rem;color:#9fb2c4;">volgende in '+fmtT(a.node.msTo)+' · '+esc(a.node.session)+'</div>'+
-        (fit?'<div style="font-size:0.46rem;color:#6d8296;margin-top:2px;">timing-fit: π-klok '+Math.round(fit.piPct*100)+'% vs adaptief '+(fit.adPct!=null?Math.round(fit.adPct*100)+'%':'—')+' → <span style="color:#7fd8ff;">'+fit.better+'</span></div>':'')); }).join('');
+    const nd=document.getElementById(idp+'-nodes'); if(nd)nd.innerHTML=ready.map(a=>{ const fit=a.nodeFit; const T=a.tam;
+      return card('<b style="font-size:0.68rem;color:#cfe6f5;">'+nm(a)+'</b>'+
+        (T? '<div style="font-size:0.6rem;margin-top:3px;">TAM-node <b style="color:'+T.neoCol+';">'+esc(T.neoType)+'</b> · <span style="color:'+T.teslaCol+';font-weight:700;">Type '+T.teslaType+' '+esc(T.teslaLab)+'</span></div>'+
+             '<div style="font-size:0.66rem;color:#26d07c;font-weight:800;margin-top:1px;">volgende in '+fmtT(T.msTo)+'</div>'+
+             '<div style="font-size:0.54rem;color:#9fb2c4;">'+esc(T.session)+(T.periodBars?' · periode '+T.periodBars+'b':'')+'</div>'
+           : '<div style="font-size:0.58rem;color:#9fb2c4;margin-top:3px;">node-data laadt…</div>')+
+        '<div style="font-size:0.52rem;color:#6d8296;margin-top:2px;">π-klok (kosmisch): Type '+a.node.type+' in '+fmtT(a.node.msTo)+'</div>'+
+        (fit?'<div style="font-size:0.52rem;color:#6d8296;margin-top:1px;">timing-fit: π-klok '+Math.round(fit.piPct*100)+'% vs adaptief '+(fit.adPct!=null?Math.round(fit.adPct*100)+'%':'—')+' → <span style="color:#7fd8ff;">'+esc(fit.better)+'</span></div>':'')); }).join('');
     const en=document.getElementById(idp+'-energy'); if(en)en.innerHTML=ready.map(a=>{ const Z=a.energy;
-      const bar=(v,c)=>'<div style="height:4px;border-radius:2px;background:rgba(255,255,255,0.08);overflow:hidden;"><div style="height:100%;width:'+Math.round(v*100)+'%;background:'+c+';"></div></div>';
-      return card('<div style="display:flex;justify-content:space-between;align-items:baseline;"><b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b><span style="font-size:0.52rem;color:'+Z.col+';font-weight:700;">'+esc(Z.zone)+'</span></div>'+
-        '<div style="font-size:0.5rem;color:#9fb2c4;margin:2px 0 3px;">'+esc(Z.scenario)+'</div>'+
-        '<div style="font-size:0.44rem;color:#6d8296;">compressie '+Math.round(Z.compression*100)+'%</div>'+bar(Z.compression,'#ffd500')+
-        '<div style="font-size:0.44rem;color:#6d8296;margin-top:2px;">energie '+Math.round(Z.charge*100)+'% · 5-bar '+(Z.move5>=0?'+':'')+Z.move5+'%</div>'+bar(Z.charge,Z.col)+
-        '<div style="font-size:0.46rem;color:'+Z.col+';margin-top:3px;">▸ '+esc(Z.action)+'</div>',Z.col+'55'); }).join('');
+      const bar=(v,c)=>'<div style="height:5px;border-radius:2px;background:rgba(255,255,255,0.08);overflow:hidden;"><div style="height:100%;width:'+Math.round(v*100)+'%;background:'+c+';"></div></div>';
+      let et=null; try{ et=window.TrinityUOTAMShadow&&window.TrinityUOTAMShadow.energyTrust(prov.key,a.key); }catch(e){}
+      const dirCol=Z.dir==='LONG'?'#26d07c':Z.dir==='SHORT'?'#ff5f7e':'#7d8a99';
+      const dirBadge=(Z.dir&&Z.dir!=='—')?'<span style="font-size:0.56rem;color:'+dirCol+';font-weight:800;border:1px solid '+dirCol+'66;border-radius:4px;padding:0 5px;">'+Z.dir+' '+(Z.dirScore>=0?'↑':'↓')+'</span>':'';
+      const hr=(et&&et.hitRate!=null&&et.n>=8)?'<span style="font-size:0.5rem;color:'+(et.hitRate>=0.5?'#26d07c':'#ffb627')+';"> · richting-hit '+Math.round(et.hitRate*100)+'% (n'+et.n+')</span>':(et&&et.n>0?'<span style="font-size:0.5rem;color:#6d8296;"> · shadow leert ('+et.n+')</span>':'');
+      return card('<div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;"><b style="font-size:0.68rem;color:#cfe6f5;">'+nm(a)+'</b><span style="font-size:0.58rem;color:'+Z.col+';font-weight:700;">'+esc(Z.zone)+'</span></div>'+
+        '<div style="margin:3px 0;">'+dirBadge+hr+'</div>'+
+        '<div style="font-size:0.56rem;color:#9fb2c4;margin:2px 0 3px;">'+esc(Z.scenario)+'</div>'+
+        '<div style="font-size:0.5rem;color:#6d8296;">compressie '+Math.round(Z.compression*100)+'%</div>'+bar(Z.compression,'#ffd500')+
+        '<div style="font-size:0.5rem;color:#6d8296;margin-top:2px;">energie '+Math.round(Z.charge*100)+'% · 5-bar '+(Z.move5>=0?'+':'')+Z.move5+'%</div>'+bar(Z.charge,Z.col)+
+        '<div style="font-size:0.54rem;color:'+Z.col+';margin-top:3px;">▸ '+esc(Z.action)+'</div>',Z.col+'55'); }).join('');
   }catch(e){} }
   function renderCommoSystemData(){ const E=ENGN(); if(E)renderSD(E.PROV_COMMO,'cd','Commodity-data laadt… verbind de Capital /history-route.'); }
   function renderFxSystemData(){ const E=ENGN(); if(E){ try{ E.FxCandles.refresh('1h'); }catch(e){} renderSD(E.PROV_FX,'fd','FX-data laadt… verbind de Capital /history-route.'); } }
@@ -25429,7 +25491,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     sel.innerHTML=prov.markets.map(k=>`<option value="${k}">${prov.names[k]}</option>`).join(''); sel.value=cur; }
   function schedule(n){ const En=E(); if(!En)return []; const now=Date.now(); const NODE_MS=En.NODE_MS, ANCHOR=En.ANCHOR;
     let idx=Math.floor((now-ANCHOR)/NODE_MS)+1; const out=[]; for(let k=0;k<n;k++){ const ts=ANCHOR+(idx+k)*NODE_MS; const num=1000+idx+k; const m=((num%3)+3)%3; const type=m===1?3:m===2?6:9;
-      out.push({ts,num,type}); } return out; }
+      out.push({ts,num,type}); out.push({ts:ts+NODE_MS/2,num,type:'mid',minor:true}); }   // + mid-pulse (minder belangrijke tussen-node)
+    return out.sort((a,b)=>a.ts-b.ts); }
   // GENERIEK: 4 info-panels voor een provider (commodity of FX), in de <idp>-* containers
   function renderInfoPanels(prov, idp, cur, selId){ try{ const En=E(); if(!En)return; _buildSel(prov,selId,cur); const a=En.analyze(cur,'1h',prov); const NT=En.NODE_TYPE;
     if(!a||!a.ready){ const h=document.getElementById(idp+'-arch'); if(h)h.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Data laadt voor '+esc(prov.names[cur]||cur)+'…</span>'; return; }
@@ -25439,11 +25502,18 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         layer(1,'Kosmische Klok (Tesla 3-6-9)','Node '+a.node.num+' · <span style="color:'+a.node.col+'">Type '+a.node.type+' '+a.node.typeLab+'</span> · volgende in '+Math.max(0,Math.round(a.node.msTo/60000))+'m',null,'T_π 188,66min · micro-node 9,43u · '+esc(a.node.session))+
         layer(2,'Energie-ingestie (VFM)','ER '+a.er+' × DB '+a.db+' → VFM '+a.vfm,gateVfm,'|VFM|≥1.2 = institutionele massa · bron '+a.vfmSrc+' ('+Math.round(a.vfmHit*100)+'% hit) · '+(gateVfm?'DOOR':'WAIT (vacuüm)'))+
         layer(3,'Capital Guard (chaos-filter)','Chaos '+a.chaos+'% / limiet '+a.chaosLim+'%',gateChaos,(gateChaos?'binnen limiet → DOOR':'boven limiet → SKIP')+' · dynamisch 8%→15% bij |VFM|>1.8')+
-        layer(4,'Executie-matrix',(a.verdict==='TRADE'?('<span style="color:'+(a.dir==='LONG'?'#26d07c':'#ff5f7e')+'">'+a.dir+' · '+a.lev+'</span> · stop −1,5% · target volgende node'):('<span style="color:#ffb627">'+a.verdict+'</span> — geen trade')),a.verdict==='TRADE','advies (verandert de live werking niet)'); }
-    const sch=document.getElementById(idp+'-sched'); if(sch){ const rows=schedule(16); let lastDay=''; const nm=(prov.names[cur]||cur).split(' · ')[0];
-      sch.innerHTML=rows.map(r=>{ const d=dow(r.ts); const dayHdr=(d!==lastDay); lastDay=d; const t=NT[r.type];
-        return (dayHdr?'<div style="font-size:0.56rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.1em;margin:5px 0 2px;">'+d+'</div>':'')+
-          '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.6rem;padding:1.5px 0;"><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;min-width:36px;">'+cet(r.ts)+'</span><span style="color:'+t.col+';min-width:100px;">Type '+r.type+' '+t.lab+'</span><span style="color:#9fb2c4;">Node '+r.num+' · '+esc(nm)+' — '+esc(sessTxt(r.ts))+'</span></div>'; }).join(''); }
+        layer(4,'Executie-matrix (LIVE · autonoom)',(function(){ let w=0,tr=null; try{ w=(typeof window.uotamWeight==='function')?window.uotamWeight(prov.key,cur):0; tr=window.TrinityUOTAMShadow&&window.TrinityUOTAMShadow.trust(prov.key,cur); }catch(e){}
+          const base=(a.verdict==='TRADE'?('<span style="color:'+(a.dir==='LONG'?'#26d07c':'#ff5f7e')+'">'+a.dir+' · '+a.lev+'</span> · stop/target uit matrix'):('<span style="color:#ffb627">'+a.verdict+'</span> — geen verse entry'));
+          const wtxt = w>0.05 ? ' · <span style="color:#26d07c;font-weight:700;">STUURT LIVE '+Math.round(w*100)+'%</span>' : ((tr&&tr.proven)?' · <span style="color:#ffb627;">weight afgeschaald</span>':' · <span style="color:#6d8296;">nog niet bewezen (shadow leert)</span>');
+          return base+wtxt; })(),(function(){ let w=0; try{ w=(typeof window.uotamWeight==='function')?window.uotamWeight(prov.key,cur):0; }catch(e){} return w>0.05; })(),'T1/T2 sturen de live trade zodra bewezen (out-of-sample); Osiris schaalt de weight autonoom af na elke trade bij slechtere score'); }
+    const sch=document.getElementById(idp+'-sched'); if(sch){ const rows=schedule(40); let lastDay=''; const nm=(prov.names[cur]||cur).split(' · ')[0];
+      const dmy=ts=>{ const dd=new Date(ts+3600000); return p2(dd.getUTCDate())+'/'+p2(dd.getUTCMonth()+1); };
+      sch.innerHTML=rows.map(r=>{ const dkey=dmy(r.ts)+dow(r.ts); const dayHdr=(dkey!==lastDay); lastDay=dkey;
+        if(r.minor){ return (dayHdr?'<div style="font-size:0.6rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.1em;margin:6px 0 2px;">'+dow(r.ts)+' '+dmy(r.ts)+'</div>':'')+
+          '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.56rem;padding:1px 0;opacity:0.72;"><span style="color:#8aa;font-family:\'JetBrains Mono\',monospace;min-width:40px;">'+cet(r.ts)+'</span><span style="color:#6d8296;min-width:104px;">· mid-pulse</span><span style="color:#7d8a99;">tussen-node — kleine puls</span></div>'; }
+        const t=NT[r.type];
+        return (dayHdr?'<div style="font-size:0.6rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.1em;margin:6px 0 2px;">'+dow(r.ts)+' '+dmy(r.ts)+'</div>':'')+
+          '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.62rem;padding:1.5px 0;"><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;min-width:40px;">'+cet(r.ts)+'</span><span style="color:'+t.col+';min-width:104px;">Type '+r.type+' '+t.lab+'</span><span style="color:#9fb2c4;">Node '+r.num+' · '+esc(nm)+' — '+esc(sessTxt(r.ts))+'</span></div>'; }).join(''); }
     const hist=document.getElementById(idp+'-hist'); if(hist){ const cs=prov.candles(cur,'1h');
       if(cs&&cs.length>30){ const cl=cs.map(c=>c.c); const turns=[]; let lastEx=cl[0],dir=0,exi=0; for(let i=1;i<cl.length;i++){ const ch=(cl[i]-lastEx)/(Math.abs(lastEx)||1); if(dir>=0&&ch<=-0.006){turns.push({i:exi});dir=-1;lastEx=cl[i];exi=i;} else if(dir<=0&&ch>=0.006){turns.push({i:exi});dir=1;lastEx=cl[i];exi=i;} else if((dir>0&&cl[i]>lastEx)||(dir<0&&cl[i]<lastEx)){lastEx=cl[i];exi=i;} }
         const evs=turns.slice(-12).reverse().map(tt=>{ const i=tt.i; const c=cs[i]; const mv=i>6?(cl[i]/cl[i-6]-1)*100:0;
@@ -25452,10 +25522,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         hist.innerHTML=evs.map(e=>'<div style="display:flex;gap:6px;align-items:baseline;font-size:0.58rem;padding:2.5px 0;border-bottom:1px solid rgba(255,255,255,0.04);"><span style="color:#8aa;min-width:68px;font-family:\'JetBrains Mono\',monospace;">'+e.txt+'</span><span style="color:'+e.pc+';min-width:78px;">'+e.phase+'</span><span style="color:#9fb2c4;">@'+(e.px>=100?e.px.toFixed(1):e.px.toFixed(4))+' · aanloop '+(e.mv>=0?'+':'')+e.mv.toFixed(1)+'% → vervolg '+(e.fwd>=0?'+':'')+e.fwd.toFixed(1)+'%</span></div>').join('');
       } else hist.innerHTML='<span style="font-size:0.52rem;color:var(--dimmer);">Onvoldoende historie.</span>'; }
     const chz=document.getElementById(idp+'-chaos'); if(chz){ const scale=[['DEEP COMPRESSION','#ffd500','Veer maximaal geladen — uitbraak ophanden'],['LOADING','#26d0cc','Energie bouwt op, compressie neemt toe'],['NEUTRAL','#7d8a99','Geen duidelijke compressie/ontlading'],['EXPANSION','#26d07c','Uitbraak bezig — trend loopt'],['CLIMAX','#ff5f7e','Grote move + stress-piek → fade/uitputting'],['DISCHARGE','#ff8a3c','Ontlading na opbouw — energie loopt eruit']];
-      const curz=a.energy.zone;
-      chz.innerHTML='<div style="font-size:0.62rem;color:#cfe6f5;margin-bottom:4px;">Huidig: <span style="color:'+a.energy.col+';font-weight:700;">'+esc(curz)+'</span> · compressie '+Math.round(a.energy.compression*100)+'% · energie '+Math.round(a.energy.charge*100)+'% · 5-bar '+(a.energy.move5>=0?'+':'')+a.energy.move5+'%</div>'+
-        '<div style="font-size:0.56rem;color:'+a.energy.col+';margin-bottom:6px;">▸ '+esc(a.energy.action)+'</div>'+
-        scale.map(s=>{ const on=s[0]===curz; return '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.56rem;padding:2.5px 5px;border-radius:4px;'+(on?'background:'+s[1]+'22;border:1px solid '+s[1]+'66;':'')+'margin-bottom:2px;"><span style="color:'+s[1]+';min-width:128px;font-weight:'+(on?'700':'400')+';">'+(on?'▸ ':'')+s[0]+'</span><span style="color:#9fb2c4;">'+s[2]+'</span></div>'; }).join(''); }
+      const curz=a.energy.zone; const Zd=a.energy.dir; const dCol=Zd==='LONG'?'#26d07c':Zd==='SHORT'?'#ff5f7e':'#7d8a99';
+      let et=null; try{ et=window.TrinityUOTAMShadow&&window.TrinityUOTAMShadow.energyTrust(prov.key,cur); }catch(e){}
+      const dirLine=(Zd&&Zd!=='—')?'<div style="font-size:0.62rem;margin-bottom:5px;">Richting-signaal: <span style="color:'+dCol+';font-weight:800;border:1px solid '+dCol+'66;border-radius:4px;padding:1px 6px;">'+Zd+' '+(a.energy.dirScore>=0?'↑':'↓')+'</span>'+
+          (et&&et.hitRate!=null&&et.n>=8?' <span style="color:'+(et.hitRate>=0.5?'#26d07c':'#ffb627')+';">shadow-hit '+Math.round(et.hitRate*100)+'% (n'+et.n+')</span>':(et&&et.n>0?' <span style="color:#6d8296;">shadow leert ('+et.n+')</span>':' <span style="color:#6d8296;">shadow verzamelt…</span>'))+'</div>':'<div style="font-size:0.6rem;color:#6d8296;margin-bottom:5px;">Richting: neutraal — geen edge, wacht op zone-shift.</div>';
+      chz.innerHTML='<div style="font-size:0.66rem;color:#cfe6f5;margin-bottom:4px;">Huidig: <span style="color:'+a.energy.col+';font-weight:700;">'+esc(curz)+'</span> · compressie '+Math.round(a.energy.compression*100)+'% · energie '+Math.round(a.energy.charge*100)+'% · 5-bar '+(a.energy.move5>=0?'+':'')+a.energy.move5+'%</div>'+
+        dirLine+
+        '<div style="font-size:0.6rem;color:'+a.energy.col+';margin-bottom:6px;">▸ '+esc(a.energy.scenario)+'</div>'+
+        '<div style="font-size:0.58rem;color:'+a.energy.col+';margin-bottom:6px;">Actie: '+esc(a.energy.action)+'</div>'+
+        scale.map(s=>{ const on=s[0]===curz; const zt=et&&et.zones&&et.zones[s[0]]; const zh=(zt&&zt.hit!=null&&zt.n>=4)?' <span style="color:'+(zt.hit>=0.5?'#26d07c':'#ffb627')+';">'+Math.round(zt.hit*100)+'%</span>':''; return '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.58rem;padding:2.5px 5px;border-radius:4px;'+(on?'background:'+s[1]+'22;border:1px solid '+s[1]+'66;':'')+'margin-bottom:2px;"><span style="color:'+s[1]+';min-width:132px;font-weight:'+(on?'700':'400')+';">'+(on?'▸ ':'')+s[0]+zh+'</span><span style="color:#9fb2c4;">'+s[2]+'</span></div>'; }).join(''); }
   }catch(e){} }
   function renderCommoInfoPanels(){ const En=E(); if(En)renderInfoPanels(En.PROV_COMMO,'ci',SEL_C,'ci-sel'); }
   function renderFxInfoPanels(){ const En=E(); if(En){ try{ En.FxCandles.load(SEL_F,'1h'); }catch(e){} renderInfoPanels(En.PROV_FX,'fi',SEL_F,'fi-sel'); } }
@@ -25537,12 +25612,21 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const kindCol={target:'#26d07c',now:'#e8f4ff',pivot:'#7fd8ff',support:'#ff8a94'};
   function matrixCard(m){ if(!m)return '';
     const rowsH=m.rows.map(r=>{ const c=kindCol[r.kind]||'#9fb2c4'; const dp=r.kind==='now'?'':( (r.distPct>=0?'+':'')+r.distPct+'%' );
-      return '<div style="display:grid;grid-template-columns:1.15fr 0.9fr 0.7fr;gap:4px;font-size:0.5rem;padding:1.5px 0;'+(r.kind==='now'?'background:rgba(127,216,255,0.08);':'')+'"><span style="color:'+c+';">'+esc(r.lvl)+'</span><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;text-align:right;">'+r.price+'</span><span style="color:#6d8296;text-align:right;">'+dp+'</span></div>'; }).join('');
+      return '<div style="display:grid;grid-template-columns:1.15fr 0.9fr 0.7fr;gap:4px;font-size:0.56rem;padding:2px 0;'+(r.kind==='now'?'background:rgba(127,216,255,0.08);':'')+'"><span style="color:'+c+';">'+esc(r.lvl)+'</span><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;text-align:right;">'+r.price+'</span><span style="color:#6d8296;text-align:right;">'+dp+'</span></div>'; }).join('');
     const fr=m.frame; const rc=fr.rr>=1.5?'#26d07c':fr.rr>=1?'#ffb627':'#ff5f7e';
+    // shadow: per-level hitrate + gerealiseerde historie (previous pivots & levels)
+    let ls=null,hist=[]; try{ const SH=window.TrinityUOTAMShadow; if(SH){ ls=SH.levelStats(m.mkt,m.key); hist=SH.history(m.mkt,m.key)||[]; } }catch(e){}
+    const hrCell=(lab,st,col)=>{ const t=(st&&st.hit!=null&&st.n>=4)?('<span style="color:'+(st.hit>=0.5?'#26d07c':'#ffb627')+';">'+Math.round(st.hit*100)+'%</span>'):'<span style="color:#6d8296;">'+((st&&st.n)?('n'+st.n):'—')+'</span>'; return '<span style="color:'+col+';">'+lab+' '+t+'</span>'; };
+    const lvlHR = ls? '<div style="margin-top:3px;font-size:0.5rem;color:#6d8296;display:flex;gap:8px;flex-wrap:wrap;"><span style="color:#8296a8;">hitrate (shadow):</span>'+hrCell('T1',ls.t1,'#26d07c')+hrCell('T2',ls.t2,'#26d07c')+hrCell('S1',ls.s1,'#ff8a94')+hrCell('S2',ls.s2,'#ff8a94')+'</div>' : '';
+    const p2=x=>String(x).padStart(2,'0');
+    const histRows = hist.length? '<div style="margin-top:3px;border-top:1px dashed rgba(255,255,255,0.08);padding-top:3px;"><div style="font-size:0.48rem;color:#8296a8;letter-spacing:0.05em;margin-bottom:2px;">VORIGE PIVOTS &amp; LEVELS <span style="color:#6d8296;">(scenario-shadow · geresolved)</span></div>'+
+      '<div style="max-height:104px;overflow-y:auto;padding-right:3px;">'+hist.slice(0,16).map(h=>{ const d=new Date(h.made); const ok=h.outcome&&h.outcome.win; const oc=ok?'#26d07c':(h.outcome&&h.outcome.hitStop?'#ff5f7e':'#7d8a99');
+        return '<div style="font-size:0.5rem;color:#9fb2c4;padding:1.5px 0;border-bottom:1px solid rgba(255,255,255,0.03);"><span style="font-family:\'JetBrains Mono\',monospace;color:#8aa;">'+p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+p2(d.getHours())+':'+p2(d.getMinutes())+'</span> <span style="color:'+(h.dir==='LONG'?'#26d07c':'#ff5f7e')+';">'+h.dir+'</span> piv '+h.pivot+' · T1 '+h.t1+' · T2 '+h.t2+' · S1 '+h.s1+' · S2 '+h.s2+' · RR '+h.rr+' → <b style="color:'+oc+';">'+(ok?'T1 ✓':(h.outcome&&h.outcome.hitStop?'stop ✗':'—'))+'</b></div>'; }).join('')+'</div></div>' : '<div style="margin-top:3px;font-size:0.48rem;color:#6d8296;">Scenario-shadow verzamelt uitkomsten… (geen geresolvede pivots)</div>';
     return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+(m.energyCol||'var(--line)')+'44;border-radius:7px;padding:8px 9px;">'+
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;"><b style="font-size:0.62rem;color:#cfe6f5;">'+esc(m.name)+'</b><span style="font-size:0.48rem;color:'+(m.dir==='LONG'?'#26d07c':'#ff5f7e')+';">'+m.dir+' · '+esc(m.verdict)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;"><b style="font-size:0.66rem;color:#cfe6f5;">'+esc(m.name)+'</b><span style="font-size:0.52rem;color:'+(m.dir==='LONG'?'#26d07c':'#ff5f7e')+';">'+m.dir+' · '+esc(m.verdict)+'</span></div>'+
       rowsH+
-      '<div style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.06);padding-top:3px;font-size:0.46rem;color:#6d8296;">frame: entry '+fr.entry+' · stop <span style="color:#ff8a94;">'+fr.stop+'</span> · T1 <span style="color:#26d07c;">'+fr.t1+'</span> · T2 <span style="color:#26d07c;">'+fr.t2+'</span> · RR <span style="color:'+rc+';font-weight:700;">'+fr.rr+'</span></div>'+
+      '<div style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.06);padding-top:3px;font-size:0.5rem;color:#6d8296;">frame: entry '+fr.entry+' · stop <span style="color:#ff8a94;">'+fr.stop+'</span> · T1 <span style="color:#26d07c;">'+fr.t1+'</span> · T2 <span style="color:#26d07c;">'+fr.t2+'</span> · RR <span style="color:'+rc+';font-weight:700;">'+fr.rr+'</span></div>'+
+      lvlHR+histRows+
     '</div>'; }
   function renderMatrixGrid(prov, id){ try{ const En=E(); if(!En)return; const host=document.getElementById(id); if(!host)return; const ms=En.matrixAll('1h',prov);
     if(!ms.length){ host.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Matrix laadt… (Capital /history vereist)</span>'; return; }
@@ -25587,11 +25671,11 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const cell=(a,b,fmt)=>{ const A=fmt(a),B=fmt(b); const diff=(a!=null&&b!=null&&isFinite(a)&&isFinite(b))?(a-b):null; return {A,B,diff}; };
     const dec=open.dec; const f=v=>(v==null||!isFinite(v))?'—':(+v).toFixed(dec);
     const rows=[['stop',open.frame.stop,std.frame.stop],['T1',open.frame.t1,std.frame.t1],['T2',open.frame.t2,std.frame.t2],['RR',open.frame.rr,std.frame.rr]];
-    return '<div style="margin-top:5px;border-top:1px solid rgba(255,255,255,0.08);padding-top:4px;">'+
-      '<div style="display:grid;grid-template-columns:0.7fr 1fr 1fr;gap:4px;font-size:0.44rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;padding-bottom:2px;"><span>frame</span><span style="text-align:right;color:#ffd76a;">vanaf opening</span><span style="text-align:right;color:#7fd8ff;">standaard (pivot)</span></div>'+
+    return '<div style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.08);padding-top:5px;">'+
+      '<div style="display:grid;grid-template-columns:0.7fr 1fr 1fr;gap:4px;font-size:0.52rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;padding-bottom:2px;"><span>frame</span><span style="text-align:right;color:#ffd76a;">vanaf opening</span><span style="text-align:right;color:#7fd8ff;">standaard (pivot)</span></div>'+
       rows.map(([lab,a,b])=>{ const isRR=lab==='RR'; const fmt=isRR?(v=>v==null?'—':(+v).toFixed(2)):f;
-        return '<div style="display:grid;grid-template-columns:0.7fr 1fr 1fr;gap:4px;font-size:0.5rem;padding:1px 0;"><span style="color:#9fb2c4;">'+lab+'</span><span style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#ffd76a;">'+fmt(a)+'</span><span style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#7fd8ff;">'+fmt(b)+'</span></div>'; }).join('')+
-      '<div style="font-size:0.44rem;color:#5c7488;margin-top:3px;">De <b style="color:#ffd76a;">opening</b>-matrix meet je lopende positie vanaf de instapprijs. De <b style="color:#7fd8ff;">standaard</b>-pivot voedt (na shadow-validatie) de T1/T2 van toekomstige trades.</div>'+
+        return '<div style="display:grid;grid-template-columns:0.7fr 1fr 1fr;gap:4px;font-size:0.58rem;padding:1.5px 0;"><span style="color:#9fb2c4;">'+lab+'</span><span style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#ffd76a;">'+fmt(a)+'</span><span style="text-align:right;font-family:\'JetBrains Mono\',monospace;color:#7fd8ff;">'+fmt(b)+'</span></div>'; }).join('')+
+      '<div style="font-size:0.52rem;color:#7d90a4;margin-top:4px;line-height:1.5;">De <b style="color:#ffd76a;">opening</b>-matrix meet je lopende positie vanaf de instapprijs. De <b style="color:#7fd8ff;">standaard</b>-pivot voedt (na shadow-validatie) de T1/T2 van toekomstige trades.</div>'+
     '</div>'; }
   function openCard(p){ const En=E(); const pv=posProv(p); let m=null; try{ if(pv&&En)m=En.matrixFromEntry(pv.key,'1h',pv.prov,p.entry,p.side); }catch(e){}
     const long=p.side==='LONG'; const dirCol=long?'#26d07c':'#ff5f7e'; const pc=(p.pnlPct==null)?'#9fb2c4':(p.pnlPct>=0?'#26d07c':'#ff5f7e'); const sg=suggest(p);
@@ -25599,18 +25683,18 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const eCol=(m&&m.open&&m.open.energyCol)||'var(--line)'; const eZone=(m&&m.open&&m.open.energyZone)||'';
     const dec=(m&&m.open)?m.open.dec:((p.entry>=100)?1:(p.entry>=1?4:5)); const f=v=>(v==null||!isFinite(v))?'—':(+v).toFixed(dec);
     let rowsH=''; if(m&&m.open){ rowsH=m.open.rows.map(r=>{ const c=kindCol[r.kind]||'#9fb2c4'; const dp=r.kind==='now'?'':((r.distPct>=0?'+':'')+r.distPct+'%');
-        return '<div style="display:grid;grid-template-columns:1.25fr 0.9fr 0.7fr;gap:4px;font-size:0.5rem;padding:1.5px 0;'+(r.kind==='now'?'background:rgba(127,216,255,0.08);':(r.kind==='pivot'?'background:rgba(255,215,106,0.08);':''))+'"><span style="color:'+c+';">'+esc(r.lvl)+'</span><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;text-align:right;">'+r.price+'</span><span style="color:#6d8296;text-align:right;">'+dp+'</span></div>'; }).join(''); }
-    return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+eCol+'44;border-radius:7px;padding:8px 9px;">'+
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;"><b style="font-size:0.62rem;color:#cfe6f5;">'+esc(nm)+'</b><span style="font-size:0.48rem;color:'+dirCol+';">'+esc(p.side||'—')+(p.lev?' '+p.lev+'x':'')+' · '+esc(p.src)+'</span></div>'+
-      '<div style="display:flex;justify-content:space-between;font-size:0.5rem;margin-bottom:3px;"><span style="color:#9fb2c4;">entry '+f(p.entry)+' → nu '+f(p.current)+'</span><span style="color:'+pc+';font-weight:700;">'+(p.pnlPct==null?'—':((p.pnlPct>=0?'+':'')+(+p.pnlPct).toFixed(2)+'%'))+'</span></div>'+
-      (eZone?'<div style="font-size:0.46rem;color:'+eCol+';margin-bottom:3px;">energie: '+esc(eZone)+'</div>':'')+
-      (rowsH||'<div style="font-size:0.48rem;color:var(--dimmer);">Matrix laadt… (candles nodig voor '+esc(nm)+')</div>')+
+        return '<div style="display:grid;grid-template-columns:1.25fr 0.9fr 0.7fr;gap:4px;font-size:0.58rem;padding:2px 0;'+(r.kind==='now'?'background:rgba(127,216,255,0.08);':(r.kind==='pivot'?'background:rgba(255,215,106,0.08);':''))+'"><span style="color:'+c+';">'+esc(r.lvl)+'</span><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;text-align:right;">'+r.price+'</span><span style="color:#6d8296;text-align:right;">'+dp+'</span></div>'; }).join(''); }
+    return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+eCol+'44;border-radius:7px;padding:9px 10px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;gap:6px;"><b style="font-size:0.72rem;color:#cfe6f5;">'+esc(nm)+'</b><span style="font-size:0.56rem;color:'+dirCol+';font-weight:700;">'+esc(p.side||'—')+(p.lev?' '+p.lev+'x':'')+' · '+esc(p.src)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;font-size:0.6rem;margin-bottom:4px;"><span style="color:#9fb2c4;">entry '+f(p.entry)+' → nu '+f(p.current)+'</span><span style="color:'+pc+';font-weight:800;">'+(p.pnlPct==null?'—':((p.pnlPct>=0?'+':'')+(+p.pnlPct).toFixed(2)+'%'))+'</span></div>'+
+      (eZone?'<div style="font-size:0.54rem;color:'+eCol+';margin-bottom:3px;">energie: '+esc(eZone)+'</div>':'')+
+      (rowsH||'<div style="font-size:0.56rem;color:var(--dimmer);">Matrix laadt… (candles nodig voor '+esc(nm)+')</div>')+
       (m?frameCmp(m.open,m.std):'')+
-      '<div style="font-size:0.46rem;color:'+sg.c+';margin-top:4px;">▸ '+esc(sg.t)+'</div>'+
+      '<div style="font-size:0.56rem;color:'+sg.c+';margin-top:5px;line-height:1.5;">▸ '+esc(sg.t)+'</div>'+
     '</div>'; }
   function renderOpenGrid(hostId, kinds){ try{ const host=document.getElementById(hostId); if(!host)return; const ps=collect().filter(p=>kinds.indexOf(p.kind)>=0);
     if(!ps.length){ host.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Geen open posities in deze categorie.</span>'; return; }
-    host.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;">'+ps.map(openCard).join('')+'</div>'; }catch(e){} }
+    host.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">'+ps.map(openCard).join('')+'</div>'; }catch(e){} }
   function renderOpenTr(){ renderOpenGrid('mx-open-tr',['fx','commodity']); }
   function renderOpenCx(){ renderOpenGrid('mx-open-cx',['crypto']); }
   function renderOpenMatrix(){ renderOpenGrid('mx-open',['fx','commodity','crypto']); }   // back-compat (indien #mx-open nog bestaat)
@@ -25640,20 +25724,49 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     _restore(){ try{ const d=JSON.parse(localStorage.getItem('osirisUotamShadow')||'null'); if(d&&d.led)this.led=d.led; }catch(e){} },
     _save(){ try{ localStorage.setItem('osirisUotamShadow',JSON.stringify({led:this.led})); }catch(e){} },
     record(){ const E=window.TrinityCommoUOTAM; if(!E)return; const now=Date.now(); [E.PROV_COMMO,E.PROV_FX,E.PROV_CRYPTO].filter(Boolean).forEach(prov=>{ prov.markets.forEach(k=>{ try{
-      const m=E.matrix(k,'1h',prov); if(!m||m.verdict==='WAIT')return;               // alleen actionable snapshots
-      const lk=prov.key+':'+k; const L=this.led[lk]||(this.led[lk]={open:[],n:0,win:0});
+      const m=E.matrix(k,'1h',prov); if(!m)return;
+      const a=E.analyze(k,'1h',prov); const en=a&&a.energy?a.energy:null;
+      const lk=prov.key+':'+k; const L=this.led[lk]||(this.led[lk]={open:[],hist:[],n:0,win:0,lvl:{t1:[0,0],t2:[0,0],s1:[0,0],s2:[0,0]},en:{},enHist:[]});
+      if(!L.lvl)L.lvl={t1:[0,0],t2:[0,0],s1:[0,0],s2:[0,0]}; if(!L.hist)L.hist=[]; if(!L.en)L.en={}; if(!L.enHist)L.enHist=[];
       if(now-(L._at||0)<60*60000)return; L._at=now;                                    // max 1 snapshot/markt/uur
-      L.open.push({px:m.px,dir:m.dir,t1:m.frame.t1,stop:m.frame.stop,made:now,zone:m.energyZone,done:false});
+      // volledige matrix-snapshot (previous pivots & levels)
+      const r=m.rows; const findK=kind=>{ const rr=r.filter(x=>x.kind===kind); return rr; };
+      const tgt=findK('target'), sup=findK('support'), piv=(findK('pivot')[0]||{}).price;
+      const snap={ made:now, px:m.px, dir:m.dir, verdict:m.verdict, zone:m.energyZone,
+        t1:m.frame.t1, t2:m.frame.t2, s1:(sup[0]||{}).price, s2:(sup[1]||{}).price, pivot:piv, stop:m.frame.stop, rr:m.frame.rr, done:false,
+        edir:(en&&en.dir&&en.dir!=='—')?en.dir:null, ezone:en?en.zone:null };
+      if(m.verdict!=='WAIT')L.open.push(snap); else if(snap.edir)L.open.push(snap);   // energie-richting ook zonder trade-verdict volgen
       if(L.open.length>300)L.open.shift();
     }catch(e){} }); }); },
-    resolve(){ const E=window.TrinityCommoUOTAM; if(!E)return; let ch=false; const now=Date.now(); for(const lk in this.led){ const ix=lk.indexOf(':'); const pk=lk.slice(0,ix), k=lk.slice(ix+1); const prov=(E.provFor?E.provFor(pk):(pk==='fx'?E.PROV_FX:E.PROV_COMMO)); const cs=prov.candles(k,'1h'); if(!cs||!cs.length)continue; const cur=cs[cs.length-1].c; const L=this.led[lk];
-      L.open.forEach(o=>{ if(o.done)return; const long=o.dir==='LONG'; const hitT1=long?cur>=o.t1:cur<=o.t1; const hitStop=long?cur<=o.stop:cur>=o.stop; const expired=(now-o.made)>48*3600000;
-        if(hitT1||hitStop||expired){ o.done=true; const win=hitT1&&!hitStop; L.n++; if(win)L.win++; ch=true; } });
-      L.open=L.open.filter(o=>!o.done||(now-o.made)<72*3600000);
+    resolve(){ const E=window.TrinityCommoUOTAM; if(!E)return; let ch=false; const now=Date.now(); for(const lk in this.led){ const ix=lk.indexOf(':'); const pk=lk.slice(0,ix), k=lk.slice(ix+1); const prov=(E.provFor?E.provFor(pk):(pk==='fx'?E.PROV_FX:E.PROV_COMMO)); const cs=prov.candles(k,'1h'); if(!cs||!cs.length)continue; const L=this.led[lk]; if(!L)continue; if(!L.lvl)L.lvl={t1:[0,0],t2:[0,0],s1:[0,0],s2:[0,0]}; if(!L.hist)L.hist=[]; if(!L.en)L.en={}; if(!L.enHist)L.enHist=[];
+      const cur=cs[cs.length-1].c;
+      L.open.forEach(o=>{ if(o.done)return; const long=o.dir==='LONG'; const expired=(now-o.made)>48*3600000;
+        // hoogste/laagste sinds de snapshot (voor level-hit toetsing)
+        let hi=-Infinity,lo=Infinity; for(let i=cs.length-1;i>=0;i--){ if(cs[i].t<o.made)break; if(cs[i].h>hi)hi=cs[i].h; if(cs[i].l<lo)lo=cs[i].l; } if(hi===-Infinity){hi=cur;lo=cur;}
+        const hitT1=long?cur>=o.t1:cur<=o.t1; const hitStop=long?cur<=o.stop:cur>=o.stop;
+        if(hitT1||hitStop||expired){ o.done=true; const win=hitT1&&!hitStop; if(o.verdict!=='WAIT'&&o.t1!=null){ L.n++; if(win)L.win++; }
+          // per-level hit (binnen het venster geraakt?)
+          const lvlHit=(price,dir)=> price==null?null:(dir==='up'? hi>=price : lo<=price);
+          const upd=(key,hit)=>{ if(hit==null)return; L.lvl[key][1]++; if(hit)L.lvl[key][0]++; };
+          upd('t1', lvlHit(o.t1, long?'up':'down')); upd('t2', lvlHit(o.t2, long?'up':'down'));
+          upd('s1', lvlHit(o.s1, long?'down':'up')); upd('s2', lvlHit(o.s2, long?'down':'up'));
+          // energie-richting: klopte de voorspelde richting over het venster?
+          if(o.edir){ const moved=(cur-o.px); const ok=(o.edir==='LONG'&&moved>0)||(o.edir==='SHORT'&&moved<0); const z=o.ezone||'?'; const e=L.en[z]||(L.en[z]=[0,0]); e[1]++; if(ok)e[0]++; L.enHist.unshift({made:o.made,zone:z,dir:o.edir,ok,ret:+((moved/(o.px||1))*100).toFixed(2)}); if(L.enHist.length>40)L.enHist.pop(); }
+          o.outcome={win,hitT1,hitStop,expired,exit:+cur.toFixed(6)}; L.hist.unshift(o); if(L.hist.length>30)L.hist.pop();
+          ch=true; }
+      });
+      L.open=L.open.filter(o=>!o.done);
     } if(ch)this._save(); },
     trust(mkt,key){ const L=this.led[mkt+':'+key]; if(!L||L.n<25)return {proven:false,n:L?L.n:0,hitRate:null,wilson:null};
       const p=L.win/L.n, z=1.28, nn=L.n; const wl=(p+z*z/(2*nn)-z*Math.sqrt((p*(1-p)+z*z/(4*nn))/nn))/(1+z*z/nn);
       return {proven:wl>0.52, n:nn, hitRate:+p.toFixed(2), wilson:+wl.toFixed(2)}; },
+    // per-level hitrate (T1/T2/S1/S2) — scenario/shadow-toets voor de huidige matrix
+    levelStats(mkt,key){ const L=this.led[mkt+':'+key]; const o={}; if(!L||!L.lvl)return o; ['t1','t2','s1','s2'].forEach(kk=>{ const a=L.lvl[kk]||[0,0]; o[kk]={n:a[1],hit:a[1]?+(a[0]/a[1]).toFixed(2):null}; }); return o; },
+    // gerealiseerde matrix-historie (previous pivots & levels + uitkomst)
+    history(mkt,key){ const L=this.led[mkt+':'+key]; return (L&&L.hist)?L.hist:[]; },
+    // energie-richting-betrouwbaarheid per zone + totaal (shadow + historical shadow)
+    energyTrust(mkt,key){ const L=this.led[mkt+':'+key]; const out={zones:{},n:0,hit:0,hitRate:null,hist:(L&&L.enHist)?L.enHist:[]}; if(!L||!L.en)return out;
+      let n=0,h=0; for(const z in L.en){ const a=L.en[z]; out.zones[z]={n:a[1],hit:a[1]?+(a[0]/a[1]).toFixed(2):null}; n+=a[1]; h+=a[0]; } out.n=n; out.hit=h; out.hitRate=n?+(h/n).toFixed(2):null; return out; },
     summary(){ const out=[]; for(const lk in this.led){ const ix=lk.indexOf(':'); const t=this.trust(lk.slice(0,ix),lk.slice(ix+1)); out.push({market:lk,n:t.n,hitRate:t.hitRate,wilson:t.wilson,proven:t.proven}); } return out.sort((a,b)=>(b.wilson||0)-(a.wilson||0)); },
     tick(){ try{ this.record(); this.resolve(); }catch(e){} } };
   SH._restore(); try{ window.TrinityUOTAMShadow=SH; }catch(e){}
@@ -25673,12 +25786,14 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const sum=SH?SH.summary():[]; const proven=sum.filter(s=>s.proven);
     const toggle='<button onclick="window.__uotamTradeToggle&&window.__uotamTradeToggle()" style="background:'+(C.on?'#134e4a':'#3a1420')+';color:'+(C.on?'#26d07c':'#ff5f7e')+';border:1px solid var(--line);border-radius:5px;padding:4px 10px;font-family:\'JetBrains Mono\',monospace;font-size:0.56rem;cursor:pointer;font-weight:700;">T1/T2 in trades: '+(C.on?'AAN':'UIT (teruggedraaid)')+'</button>';
     const head='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">'+toggle+'<span style="font-size:0.5rem;color:var(--dimmer);">'+proven.length+'/'+sum.length+' markten bewezen (Wilson-ondergrens > 0.52, n ≥ 25) → alleen die sturen de live target/stop</span></div>';
-    const trust= sum.length? '<div style="font-size:0.5rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Shadow-trust per markt (out-of-sample T1-hit vs stop)</div>'+
-      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:5px;margin-bottom:10px;">'+sum.slice(0,40).map(s=>{ const c=s.proven?'#26d07c':(s.wilson!=null?'#ffb627':'#7d8a99');
-        return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+c+'44;border-radius:5px;padding:4px 7px;font-size:0.5rem;"><b style="color:#cfe6f5;">'+esc(s.market)+'</b> <span style="color:'+c+';">'+(s.proven?'✓ bewezen':(s.n>=25?'niet bewezen':'leert'))+'</span><br><span style="color:#9fb2c4;">n '+s.n+' · hit '+(s.hitRate!=null?Math.round(s.hitRate*100)+'%':'—')+' · Wilson '+(s.wilson!=null?s.wilson:'—')+'</span></div>'; }).join('')+'</div>'
-      : '<div style="font-size:0.52rem;color:var(--dimmer);margin-bottom:8px;">Shadow-worker verzamelt out-of-sample uitkomsten… (nog geen bewezen markten — trades gebruiken tot dan de eigen logica)</div>';
-    const log= (C.log&&C.log.length)? '<div style="font-size:0.5rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Terugdraai-log · toegepaste T1/T2-overrides</div>'+
-      C.log.slice(0,12).map(l=>{ const d=new Date(l.ts); const p2=x=>String(x).padStart(2,'0'); return '<div style="font-size:0.5rem;color:#9fb2c4;padding:1.5px 0;border-bottom:1px solid rgba(255,255,255,0.04);">'+p2(d.getHours())+':'+p2(d.getMinutes())+' · <b style="color:#cfe6f5;">'+esc(l.market)+'</b> '+esc(l.side)+' → target '+l.applied.t1+' (was '+l.orig.target+') · stop '+l.applied.stop+' · Wilson '+l.wilson+' (n '+l.n+')</div>'; }).join('')
+    const trust= sum.length? '<div style="font-size:0.52rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Autonome weight per markt (out-of-sample T1-hit vs stop → live weight, autonoom afgeschaald na elke trade)</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:5px;margin-bottom:10px;">'+sum.slice(0,48).map(s=>{ const c=s.proven?'#26d07c':(s.wilson!=null?'#ffb627':'#7d8a99');
+        const ix=s.market.indexOf(':'); let w=0,rf=null; try{ w=(typeof window.uotamWeight==='function')?window.uotamWeight(s.market.slice(0,ix),s.market.slice(ix+1)):0; rf=(window.OSIRIS_UOTAM_TRADE&&window.OSIRIS_UOTAM_TRADE.rf)?window.OSIRIS_UOTAM_TRADE.rf[s.market]:null; }catch(e){}
+        const wcol=w>0.05?'#26d07c':'#6d8296';
+        return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+c+'44;border-radius:5px;padding:5px 7px;font-size:0.52rem;"><b style="color:#cfe6f5;">'+esc(s.market)+'</b> <span style="color:'+c+';">'+(s.proven?'✓ bewezen':(s.n>=25?'niet bewezen':'leert'))+'</span><br><span style="color:#9fb2c4;">n '+s.n+' · hit '+(s.hitRate!=null?Math.round(s.hitRate*100)+'%':'—')+' · Wilson '+(s.wilson!=null?s.wilson:'—')+'</span><br><span style="color:'+wcol+';font-weight:700;">live weight '+Math.round(w*100)+'%</span>'+(rf!=null&&rf!==1?' <span style="color:#6d8296;">rf '+rf+'</span>':'')+'</div>'; }).join('')+'</div>'
+      : '<div style="font-size:0.54rem;color:var(--dimmer);margin-bottom:8px;">Shadow-worker verzamelt out-of-sample uitkomsten… (nog geen bewezen markten — trades gebruiken tot dan de eigen logica)</div>';
+    const log= (C.log&&C.log.length)? '<div style="font-size:0.52rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px;">Terugdraai-log · toegepaste T1/T2-overrides (met weight)</div>'+
+      C.log.slice(0,12).map(l=>{ const d=new Date(l.ts); const p2=x=>String(x).padStart(2,'0'); return '<div style="font-size:0.52rem;color:#9fb2c4;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);">'+p2(d.getHours())+':'+p2(d.getMinutes())+' · <b style="color:#cfe6f5;">'+esc(l.market)+'</b> '+esc(l.side)+(l.weight!=null?' <span style="color:#26d07c;">@'+Math.round(l.weight*100)+'%</span>':'')+' → target '+l.applied.t1+' (was '+l.orig.target+') · stop '+l.applied.stop+' · Wilson '+l.wilson+' (n '+l.n+')</div>'; }).join('')
       : '<div style="font-size:0.5rem;color:var(--dimmer);">Nog geen overrides toegepast (geen bewezen markt, of uitgeschakeld).</div>';
     host.innerHTML=head+trust+log;
   }catch(e){} }
