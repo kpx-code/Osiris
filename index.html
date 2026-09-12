@@ -2295,6 +2295,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
     </div>
 
+    <div class="secdiv"><h3>Support &amp; Target Matrix · commodity</h3><span class="sub">— per markt · pivots + fib-macro + node · dynamisch &amp; autonoom-adaptief (entry/stop/T1/T2/RR)</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div id="mx-commo" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">Matrix laadt…</span></div>
+    </div>
+
     <!-- ================= FX (alle handelbare pairs) — zelfde UOTAM-stack als commodity ================= -->
     <div class="secdiv"><h3>FX chart</h3><span class="sub">— Capital-prijs + FSO-schaduw (alle ShockWave-data) + TAM-nodes · per timeframe · per pair</span></div>
     <div class="panel">
@@ -2428,6 +2434,18 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="mono" id="tr-tools" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.6;">engine intelligence initialiseert…</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Trinity self-tuning <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— autonomous adjustments as it learns</span></div>
       <div class="feedwrap" id="adj-feed"></div>
+    </div>
+
+    <div class="secdiv"><h3>Support &amp; Target Matrix · FX</h3><span class="sub">— per pair · pivots + fib-macro + node · dynamisch &amp; autonoom-adaptief (entry/stop/T1/T2/RR)</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div id="mx-fx" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-height:420px;overflow-y:auto;"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">FX-matrix laadt…</span></div>
+    </div>
+
+    <div class="secdiv"><h3>Support &amp; Target · open posities</h3><span class="sub">— Osiris (crypto spot/margin) + Trinity (FX/commodity) · live · met autonoom advies per positie</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div id="mx-open"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">Open posities laden…</span></div>
     </div>
 
     <div class="secdiv"><h3>Tools</h3><span class="sub">— engine internals</span></div>
@@ -2823,7 +2841,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260912-build117-fx-full-reorg-collapse-dl"></script>
+<script src="app.js?v=20260912-build118-support-target-matrices"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
