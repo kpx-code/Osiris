@@ -24692,7 +24692,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const slope=(cl[i]-cl[i-10])/(Math.abs(cl[i-10])||1)*8;
       return [clamp(ms,-3,3),clamp(ml,-3,3),clamp(vol,0,3),clamp(rp,-1,1),clamp(slope,-3,3)]; }catch(e){ return null; } },
     // train + walk-forward-evalueer een logistisch model op de candles van deze grondstof
-    _fit(key,tf){ try{ const cs=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[]; if(!cs||cs.length<40)return null;
+    _fit(key,tf,candsOverride){ try{ const cs=candsOverride||((typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[]); if(!cs||cs.length<40)return null;
       const cl=cs.map(k=>k.c); const X=[],Y=[]; for(let i=12;i<cl.length-1;i++){ const f=this._feat(cl,i); if(!f)continue; X.push(f); Y.push(cl[i+1]>cl[i]?1:0); }
       if(X.length<24)return null; const nF=5; let w=new Array(nF).fill(0), b=0; const lr=0.08; const split=Math.floor(X.length*0.7);
       for(let ep=0;ep<120;ep++){ for(let i=0;i<split;i++){ const p=sig(w.reduce((a,wj,j)=>a+wj*X[i][j],b)); const g=p-Y[i]; for(let j=0;j<nF;j++)w[j]-=lr*g*X[i][j]; b-=lr*g; } }
@@ -24701,7 +24701,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const m=this.M[key]||(this.M[key]={}); m[tf]={ w, b, n, hitRate:n?+(hit/n).toFixed(3):null, brier:n?+(br/n).toFixed(3):null, proven:n>=30, at:Date.now(), bars:cl.length };
       return m[tf]; }catch(e){ return null; } },
     // TAM/UOTAM node-timing: schat de swing-periode van DEZE grondstof en geef node-countdown + invloed
-    _tam(key,tf){ try{ const cs=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[]; if(!cs||cs.length<30)return null;
+    _tam(key,tf,candsOverride){ try{ const cs=candsOverride||((typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[]); if(!cs||cs.length<30)return null;
       const cl=cs.map(k=>k.c); const turns=[]; const thr=0.004; let lastEx=cl[0],lastIdx=0,dir=0;
       for(let i=1;i<cl.length;i++){ const ch=(cl[i]-lastEx)/(Math.abs(lastEx)||1);
         if(dir>=0 && ch<=-thr){ turns.push(i); dir=-1; lastEx=cl[i]; lastIdx=i; }
@@ -24711,16 +24711,16 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const period=Math.max(2,Math.round(gaps.reduce((a,b)=>a+b,0)/gaps.length)); const sinceLast=(cl.length-1)-turns[turns.length-1];
       const inBars=Math.max(0,period-(sinceLast%period)); const phase=(sinceLast%period)/period; const influence=+(1-Math.abs(phase-1)).toFixed(2);
       return { period, inBars, phase:+phase.toFixed(2), influence:clamp(1-phase,0,1), tf }; }catch(e){ return null; } },
-    _regime(key,tf){ try{ const cs=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[]; if(!cs||cs.length<20)return null;
+    _regime(key,tf,candsOverride){ try{ const cs=candsOverride||((typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[]); if(!cs||cs.length<20)return null;
       const cl=cs.map(k=>k.c).slice(-30); const rets=[]; for(let i=1;i<cl.length;i++)rets.push(cl[i]/cl[i-1]-1);
       const mean=rets.reduce((a,b)=>a+b,0)/rets.length; const vol=Math.sqrt(rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/rets.length);
       const slope=(cl[cl.length-1]-cl[0])/(Math.abs(cl[0])||1); const av=Math.abs(vol);
       if(av>0.02)return 'volatiel'; if(Math.abs(slope)>0.03)return 'trending'; return 'kalm'; }catch(e){ return null; } },
-    analyze(key,tf){ tf=tf||'1h'; try{ const now=Date.now(); const k=key+'|'+tf;
-      if(now-(this._at[k]||0)>60000){ this._at[k]=now; this._fit(key,tf); this._save(); }   // herkalibreer ~1×/min
-      const m=(this.M[key]&&this.M[key][tf])||null; const cs=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[];
+    analyze(key,tf,candsOverride){ tf=tf||'1h'; try{ const now=Date.now(); const k=key+'|'+tf;
+      if(now-(this._at[k]||0)>60000){ this._at[k]=now; this._fit(key,tf,candsOverride); this._save(); }   // herkalibreer ~1×/min
+      const m=(this.M[key]&&this.M[key][tf])||null; const cs=candsOverride||((typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(key,tf):[]);
       let probUp=null; if(m&&cs&&cs.length>13){ const cl=cs.map(c=>c.c); const f=this._feat(cl,cl.length-1); if(f)probUp=+sig(m.w.reduce((a,wj,j)=>a+wj*f[j],m.b)).toFixed(3); }
-      const tam=this._tam(key,tf); const reg=this._regime(key,tf);
+      const tam=this._tam(key,tf,candsOverride); const reg=this._regime(key,tf,candsOverride);
       return { key, tf, ready:!!m, probUp, node:tam, regime:reg, cal:m?{hitRate:m.hitRate,brier:m.brier,n:m.n,proven:m.proven,bars:m.bars}:null }; }catch(e){ return {key,tf,ready:false}; } },
     bundle(){ try{ const out={}; ['WTI','BRENT','NGAS','GOLD','COPPER','SILVER','PLAT','PALL'].forEach(k=>{ out[k]=this.analyze(k,'1h'); }); return { perCommodity:out, note:'Per-grondstof NN (logistisch, walk-forward gekalibreerd) + TAM node-timing (eigen periode) + regime, op de Capital-candles.' }; }catch(e){ return {}; } }
   };
@@ -24746,11 +24746,11 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const F = {
     _ver:{},
     _rets(cl){ const r=[]; for(let i=1;i<cl.length;i++)r.push(cl[i-1]>0?cl[i]/cl[i-1]-1:0); return r; },
-    compute(key,tf){ try{ const C=(typeof TrinityCommodities!=='undefined')?TrinityCommodities:null; if(!C)return null;
-      const cs=C.candles(key,tf||'1h'); if(!cs||cs.length<24)return null;
+    compute(key,tf,candsOverride,peerOverride){ try{ const C=(typeof TrinityCommodities!=='undefined')?TrinityCommodities:null;
+      const cs=candsOverride||(C?C.candles(key,tf||'1h'):null); if(!cs||cs.length<24)return null;
       const cl=cs.map(c=>c.c), vol=cs.map(c=>c.v||0), r=this._rets(cl); const N=cl.length;
       // referentie (peer) returns voor corr-breuk
-      let pr=[]; try{ const pcs=C.candles(PEER[key]||'WTI',tf||'1h'); if(pcs&&pcs.length>10)pr=this._rets(pcs.map(c=>c.c)); }catch(e){}
+      let pr=[]; try{ const pcs=peerOverride||(C?C.candles(PEER[key]||'WTI',tf||'1h'):null); if(pcs&&pcs.length>10)pr=this._rets(pcs.map(c=>c.c)); }catch(e){}
       const stress=[],varS=[],vfmA=[],dVA=[],corrB=[],volSc=[]; let vfm=0;
       const volMean=vol.reduce((a,b)=>a+b,0)/Math.max(1,vol.length)||1;
       // node-drempel eerst grof uit de variance-verdeling (twee-pass): eerst varS opbouwen
@@ -24792,13 +24792,55 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   'use strict';
   const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
   const TFS=['5m','15m','1h','4h','all'];
-  let SEL='WTI', TF='1h', MODE='line', _built=false;   // MODE: 'line' | 'candle'
-  // overlay-toggles (net als de crypto-chart): standaard uit, per-grondstof gekalibreerd wanneer aan
-  const VIS={ nodes:true, nn:true, fib:false, ma:false, rsi:false, energy:true };
-  let FIBSCALE='meso';   // micro | meso | macro
-  const NAMES={WTI:'Crude Oil · WTI',BRENT:'Crude Oil · Brent',NGAS:'Natural Gas',GOLD:'Gold',SILVER:'Silver',PLAT:'Platinum',PALL:'Palladium',COPPER:'Copper'};
-  try{ window.__commoChartSel=v=>{ SEL=v; renderCommodityChart(); }; window.__commoTF=v=>{ TF=v; renderCommodityChart(); }; window.__commoMode=v=>{ MODE=v; renderCommodityChart(); };
-    window.__commoTgl=k=>{ if(k in VIS){ VIS[k]=!VIS[k]; renderCommodityChart(); } }; window.__commoFibScale=v=>{ FIBSCALE=v; VIS.fib=true; renderCommodityChart(); }; }catch(e){}
+  // ===== ACTIEVE tekentoestand (spiegelt de actieve bron) — zo hoeft de grote render-functie niet aangepast =====
+  let SEL, TF, MODE, FIBSCALE, VIS, NAMES, SRC;   // per-bron opgeslagen in SRC.st, hierheen gekopieerd bij activate()
+  const _mkSt=sel=>({SEL:sel,TF:'1h',MODE:'line',FIBSCALE:'meso',VIS:{nodes:true,nn:true,fib:false,ma:false,rsi:false,energy:true}});
+  const COMMO_NAMES={WTI:'Crude Oil · WTI',BRENT:'Crude Oil · Brent',NGAS:'Natural Gas',GOLD:'Gold',SILVER:'Silver',PLAT:'Platinum',PALL:'Palladium',COPPER:'Copper'};
+  const CRYPTO_NAMES={BTC:'Bitcoin · BTC',ETH:'Ethereum · ETH',SOL:'Solana · SOL'};
+  const CRYPTO_PEER={BTC:'ETH',ETH:'BTC',SOL:'BTC'};
+  // ---- CRYPTO candle-store: Binance klines per BTC/ETH/SOL × timeframe (5m/15m/1h/4h + all=1d) ----
+  const CryptoSysCandles={ hist:{}, _at:{}, _iv:{'5m':'5m','15m':'15m','1h':'1h','4h':'4h','all':'1d'}, _pair:{BTC:'BTCUSDT',ETH:'ETHUSDT',SOL:'SOLUSDT'},
+    candles(key,tf){ try{ return (this.hist[key]&&this.hist[key][tf])||[]; }catch(e){ return []; } },
+    load(key,tf){ try{ const iv=this._iv[tf]||'1h'; const k=key+'|'+tf; const now=Date.now(); const gap=(tf==='all'?30*60000:tf==='4h'?10*60000:tf==='1h'?4*60000:2*60000); if(now-(this._at[k]||0)<gap)return; this._at[k]=now;
+      const pair=this._pair[key]||(key+'USDT'); const f=(typeof window!=='undefined'&&window.bFetch)?window.bFetch:((typeof fetch!=='undefined')?fetch:null); if(!f)return;
+      f('https://api.binance.com/api/v3/klines?symbol='+pair+'&interval='+iv+'&limit=300').then(r=>r&&r.ok?r.json():null).then(j=>{ if(Array.isArray(j)&&j.length){ (this.hist[key]||(this.hist[key]={}))[tf]=j.map(a=>({t:a[0],o:+a[1],h:+a[2],l:+a[3],c:+a[4],v:+a[5]})); try{ if(SRC&&SRC.name==='crypto')renderCryptoSysChart(); }catch(e){} } }).catch(()=>{}); }catch(e){} },
+    tick(){ try{ if(SRC&&SRC.name==='crypto'){ this.load(SEL,TF); } }catch(e){} } };
+  try{ window.CryptoSysCandles=CryptoSysCandles; }catch(e){}
+  // crypto-predicted (~4h vooruit): brain-probUp × recente volatiliteit
+  function _cryptoPredict(k){ try{ const tf=CRYPTO.st.TF; const cs=CryptoSysCandles.candles(k,tf); if(!cs||cs.length<14)return null; const cl=cs.map(c=>c.c);
+    const rets=[]; for(let i=Math.max(1,cl.length-24);i<cl.length;i++)rets.push(cl[i]/cl[i-1]-1); const m=rets.reduce((a,b)=>a+b,0)/rets.length; const vol=Math.sqrt(rets.reduce((a,b)=>a+(b-m)*(b-m),0)/rets.length)||0.01;
+    const a=TrinityCommodityBrain.analyze('CX:'+k,tf,cs); const probUp=(a&&a.probUp!=null)?a.probUp:0.5; const dir=probUp>=0.5?'LONG':'SHORT'; const score=Math.abs(probUp-0.5)*2;
+    const expMovePct=+(score*vol*4*100).toFixed(2); const px=cl[cl.length-1]; const target=+(px*(1+(dir==='LONG'?1:-1)*expMovePct/100)).toFixed(px>=100?2:4);
+    return {dir,expMovePct,target,conf:+Math.min(0.95,0.5+score*0.3).toFixed(2),horizon:'4h'}; }catch(e){ return null; } }
+  // ===== twee bronnen: commodities (Capital) en crypto (Binance) =====
+  const COMMO={ name:'commo', names:COMMO_NAMES, st:_mkSt('WTI'), fns:'__commo', _built:false,
+    dom:{canvas:'tr-commo-chart',meta:'commo-chart-meta',sel:'commo-chart-sel',tfs:'commo-chart-tfs',tools:'commo-chart-tools'},
+    candles:(k,tf)=>(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(k,tf):[],
+    fso:(k,tf)=>(typeof TrinityCommodityFSO!=='undefined')?TrinityCommodityFSO.compute(k,tf):null,
+    predict:(k)=>(typeof TrinityCommodities!=='undefined')?TrinityCommodities.predict4h(k):null,
+    market:(k)=>(typeof TrinityCommodities!=='undefined')?TrinityCommodities.marketHours(k):null,
+    brainAnalyze:(k,tf)=>TrinityCommodityBrain.analyze(k,tf),
+    nsKey:(k)=>k, brainCands:(k,tf)=>undefined,
+    onRender:()=>{}, emptyMsg:(k,tf)=>'Geen candles voor '+(COMMO_NAMES[k]||k)+' · '+tf+' — verbind de Capital-proxy en deploy de /history-route.' };
+  const CRYPTO={ name:'crypto', names:CRYPTO_NAMES, st:_mkSt('BTC'), fns:'__cx', _built:false,
+    dom:{canvas:'cx-sys-chart',meta:'cx-sys-meta',sel:'cx-sys-sel',tfs:'cx-sys-tfs',tools:'cx-sys-tools'},
+    candles:(k,tf)=>CryptoSysCandles.candles(k,tf),
+    fso:(k,tf)=>(typeof TrinityCommodityFSO!=='undefined')?TrinityCommodityFSO.compute('CX:'+k,tf,CryptoSysCandles.candles(k,tf),CryptoSysCandles.candles(CRYPTO_PEER[k]||'BTC',tf)):null,
+    predict:(k)=>_cryptoPredict(k),
+    market:(k)=>({open:true,status:'24/7',session:'24/7 · crypto',volFactor:1,overlap:false,exchange:'Binance'}),
+    brainAnalyze:(k,tf)=>TrinityCommodityBrain.analyze('CX:'+k,tf,CryptoSysCandles.candles(SEL,tf)),
+    nsKey:(k)=>'CX:'+k, brainCands:(k,tf)=>CryptoSysCandles.candles(k,tf),
+    onRender:()=>{ CryptoSysCandles.load(SEL,TF); }, emptyMsg:(k,tf)=>'Candles laden voor '+(CRYPTO_NAMES[k]||k)+' · '+tf+' … (Binance klines)' };
+  function _activate(src){ SRC=src; SEL=src.st.SEL; TF=src.st.TF; MODE=src.st.MODE; FIBSCALE=src.st.FIBSCALE; VIS=src.st.VIS; NAMES=src.names; }
+  function _ctl(src){ return { sel:v=>{src.st.SEL=v;_activate(src);_render();}, tf:v=>{src.st.TF=v;_activate(src);_render();}, mode:v=>{src.st.MODE=v;_activate(src);_render();},
+    tgl:k=>{ if(k in src.st.VIS){src.st.VIS[k]=!src.st.VIS[k];_activate(src);_render();} }, fib:v=>{src.st.FIBSCALE=v;src.st.VIS.fib=true;_activate(src);_render();} }; }
+  try{ const cC=_ctl(COMMO); window.__commoChartSel=cC.sel; window.__commoSel=cC.sel; window.__commoTF=cC.tf; window.__commoMode=cC.mode; window.__commoTgl=cC.tgl; window.__commoFib=cC.fib; window.__commoFibScale=cC.fib;
+    const cX=_ctl(CRYPTO); window.__cxSel=cX.sel; window.__cxTF=cX.tf; window.__cxMode=cX.mode; window.__cxTgl=cX.tgl; window.__cxFib=cX.fib; }catch(e){}
+  function _fsoSeries(cl){ const out=[]; for(let i=0;i<cl.length;i++){ const w=cl.slice(Math.max(0,i-10),i+1); if(w.length<3){out.push(0);continue;}
+      const rets=[]; for(let k=1;k<w.length;k++)rets.push(w[k]/w[k-1]-1); const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
+      const vol=Math.sqrt(rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/rets.length); const hi=Math.max.apply(null,w),lo=Math.min.apply(null,w);
+      const rp=hi>lo?Math.abs((cl[i]-lo)/(hi-lo)-0.5)*2:0; const mom=Math.abs(cl[i]/w[0]-1);
+      out.push(clamp(vol*40 + rp*0.35 + mom*6, 0, 1)); } return out; }
   function _fsoSeries(cl){ const out=[]; for(let i=0;i<cl.length;i++){ const w=cl.slice(Math.max(0,i-10),i+1); if(w.length<3){out.push(0);continue;}
       const rets=[]; for(let k=1;k<w.length;k++)rets.push(w[k]/w[k-1]-1); const mean=rets.reduce((a,b)=>a+b,0)/rets.length;
       const vol=Math.sqrt(rets.reduce((a,b)=>a+(b-mean)*(b-mean),0)/rets.length); const hi=Math.max.apply(null,w),lo=Math.min.apply(null,w);
@@ -24815,15 +24857,17 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const _calCache={};
   function _calib(key,tf,cl){ const ck=key+'|'+tf+'|'+cl.length; if(_calCache[ck])return _calCache[ck];
     let maP=20,maBest=-1; for(const p of [10,20,50]){ const m=_sma(cl,p); let n=0,h=0; for(let i=p;i<cl.length-1;i++){ if(m[i]==null)continue; const long=cl[i]>m[i]; if((long&&cl[i+1]>cl[i])||(!long&&cl[i+1]<cl[i]))h++; n++; } const hr=n?h/n:0; if(hr>maBest){maBest=hr;maP=p;} }
+    // TRAAG MA: kies de langere periode waarvan de fast/slow-CROSS de trend het best voorspelt (golden/death cross)
+    let maSlowP=Math.max(maP*3,50), csBest=-1; for(const p of [50,100,200]){ if(p<=maP)continue; const fastA=_sma(cl,maP), slowA=_sma(cl,p); let n=0,h=0; for(let i=p;i<cl.length-1;i++){ if(fastA[i]==null||slowA[i]==null)continue; const bull=fastA[i]>slowA[i]; if((bull&&cl[i+1]>cl[i])||(!bull&&cl[i+1]<cl[i]))h++; n++; } const hr=n?h/n:0; if(hr>csBest){csBest=hr;maSlowP=p;} }
     let rsiP=14,rsiBest=-1; for(const p of [7,14,21]){ const r=_rsi(cl,p); let n=0,h=0; for(let i=p;i<cl.length-1;i++){ if(r[i]==null)continue; if(r[i]<=30){n++;if(cl[i+1]>cl[i])h++;} else if(r[i]>=70){n++;if(cl[i+1]<cl[i])h++;} } const hr=n?h/n:0; if(hr>rsiBest){rsiBest=hr;rsiP=p;} }
-    const out={maP,maHit:+Math.max(0,maBest).toFixed(2),rsiP,rsiHit:+Math.max(0,rsiBest).toFixed(2)}; _calCache[ck]=out; return out; }
+    const out={maP,maHit:+Math.max(0,maBest).toFixed(2),maSlowP,csHit:+Math.max(0,csBest).toFixed(2),rsiP,rsiHit:+Math.max(0,rsiBest).toFixed(2)}; _calCache[ck]=out; return out; }
   // per-candle NN probUp uit het per-grondstof logistische model (voor de NN-cap-pijlen op de candles)
-  function _nnSeries(key,tf,cl){ try{ const B=window.TrinityCommodityBrain; if(!B)return null; B.analyze(key,tf); let m=(B.M[key]&&B.M[key][tf])||null; if(!m||!m.w){ try{ B._fit(key,tf); m=(B.M[key]&&B.M[key][tf])||null; }catch(e){} } if(!m||!m.w)return null;
+  function _nnSeries(key,tf,cl,cands){ try{ const B=window.TrinityCommodityBrain; if(!B)return null; B.analyze(key,tf,cands); let m=(B.M[key]&&B.M[key][tf])||null; if(!m||!m.w){ try{ B._fit(key,tf,cands); m=(B.M[key]&&B.M[key][tf])||null; }catch(e){} } if(!m||!m.w)return null;
       const sig=z=>1/(1+Math.exp(-z)); const out=new Array(cl.length).fill(null);
       for(let i=13;i<cl.length;i++){ const f=B._feat(cl,i); if(!f)continue; out[i]=sig(m.w.reduce((a,wj,j)=>a+wj*f[j],m.b)); }
       return {prob:out, cal:{hitRate:m.hitRate,proven:m.proven,n:m.n}}; }catch(e){ return null; } }
   // TAM-nodes crypto-stijl: per-grondstof swing-periode als node-afstand, 8-cyclus type (RESET/VOLA/CORE/OSC)
-  function _nodeSeries(key,tf,n){ try{ const a=window.TrinityCommodityBrain&&window.TrinityCommodityBrain.analyze(key,tf); const per=(a&&a.node&&a.node.period)||0; if(per<2)return null;
+  function _nodeSeries(key,tf,n,cands){ try{ const a=window.TrinityCommodityBrain&&window.TrinityCommodityBrain.analyze(key,tf,cands); const per=(a&&a.node&&a.node.period)||0; if(per<2)return null;
       const nodes=[]; let cnt=0; for(let i=n-1;i>=0;i-=per){ const rel=cnt%8; let type='osc'; if(rel===0)type='reset'; else if(rel===1)type='vola'; else if(rel===3)type='core3'; else if(rel===6)type='core6'; nodes.push({i,type,num:cnt}); cnt++; } return {nodes:nodes.reverse(),period:per}; }catch(e){ return null; } }
   // fib-schalen: micro/meso/macro = lookback-venster → swing high/low → standaard fib-niveaus + extensies
   function _fibLevels(cl,scale){ const n=cl.length; const win=scale==='micro'?Math.min(n,Math.max(12,Math.round(n*0.12))):scale==='macro'?n:Math.min(n,Math.max(30,Math.round(n*0.45)));
@@ -24832,22 +24876,22 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const ratios=[['1.618',1.618],['1.272',1.272],['1.0',1.0],['0.782',0.782],['0.618',0.618],['0.5',0.5],['0.382',0.382],['0.236',0.236],['0.0',0.0],['-0.272',-0.272],['-0.618',-0.618]];
     const levels=ratios.map(([lab,r])=>({lab, r, price: up ? hi - r*rng : lo + r*rng }));
     return { levels, hi, lo, up, win }; }
-  function _buildControls(){ if(_built)return; _built=true;
-    try{ const sel=document.getElementById('commo-chart-sel'); if(sel&&!sel.options.length){ sel.innerHTML=Object.keys(NAMES).map(k=>`<option value="${k}">${NAMES[k]}</option>`).join(''); sel.value=SEL; }
+  function _buildControls(){ if(SRC._built)return; SRC._built=true; const P=SRC.fns;
+    try{ const sel=document.getElementById(SRC.dom.sel); if(sel&&!sel.options.length){ sel.innerHTML=Object.keys(NAMES).map(k=>`<option value="${k}">${NAMES[k]}</option>`).join(''); sel.value=SEL; }
       const btn=(attr,val,lab,on)=>`<button ${attr}="${val}" onclick="${on}" style="background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.56rem;cursor:pointer;">${lab}</button>`;
-      const tfw=document.getElementById('commo-chart-tfs'); if(tfw&&!tfw.children.length){
-        const tfBtns=TFS.map(t=>btn('data-tf',t,t,`window.__commoTF&&window.__commoTF('${t}')`)).join('');
-        const modeBtns=[['line','Lijn'],['candle','Candles']].map(([m,l])=>btn('data-mode',m,l,`window.__commoMode&&window.__commoMode('${m}')`)).join('');
+      const tfw=document.getElementById(SRC.dom.tfs); if(tfw&&!tfw.children.length){
+        const tfBtns=TFS.map(t=>btn('data-tf',t,t,`window.${P}TF&&window.${P}TF('${t}')`)).join('');
+        const modeBtns=[['line','Lijn'],['candle','Candles']].map(([m,l])=>btn('data-mode',m,l,`window.${P}Mode&&window.${P}Mode('${m}')`)).join('');
         tfw.innerHTML=tfBtns+'<span style="display:inline-block;width:10px;"></span><span style="display:inline-block;width:1px;height:16px;background:var(--line);vertical-align:middle;margin:0 4px;"></span>'+modeBtns;
       }
-      const tw=document.getElementById('commo-chart-tools'); if(tw&&!tw.children.length){
-        const tgl=[['nodes','Nodes'],['nn','NN'],['ma','MA'],['rsi','RSI'],['fib','Fibs'],['energy','Energie']].map(([k,l])=>btn('data-tgl',k,l,`window.__commoTgl&&window.__commoTgl('${k}')`)).join('');
-        const fibBtns=[['micro','µ'],['meso','M'],['macro','XL']].map(([s,l])=>btn('data-fib',s,l,`window.__commoFibScale&&window.__commoFibScale('${s}')`)).join('');
+      const tw=document.getElementById(SRC.dom.tools); if(tw&&!tw.children.length){
+        const tgl=[['nodes','Nodes'],['nn','NN'],['ma','MA'],['rsi','RSI'],['fib','Fibs'],['energy','Energie']].map(([k,l])=>btn('data-tgl',k,l,`window.${P}Tgl&&window.${P}Tgl('${k}')`)).join('');
+        const fibBtns=[['micro','µ'],['meso','M'],['macro','XL']].map(([s,l])=>btn('data-fib',s,l,`window.${P}Fib&&window.${P}Fib('${s}')`)).join('');
         tw.innerHTML='<span style="font-size:0.5rem;color:var(--dimmer);align-self:center;">overlays:</span>'+tgl+'<span style="display:inline-block;width:1px;height:16px;background:var(--line);vertical-align:middle;margin:0 4px;"></span><span style="font-size:0.5rem;color:var(--dimmer);align-self:center;">fib-schaal:</span>'+fibBtns;
       } }catch(e){}
   }
-  function _syncTF(){ try{ const tfw=document.getElementById('commo-chart-tfs'); if(tfw)[...tfw.children].forEach(b=>{ if(b.hasAttribute&&b.hasAttribute('data-tf'))b.style.background=(b.getAttribute('data-tf')===TF)?'#134e4a':'#0c1a24'; else if(b.hasAttribute&&b.hasAttribute('data-mode'))b.style.background=(b.getAttribute('data-mode')===MODE)?'#134e4a':'#0c1a24'; });
-    const tw=document.getElementById('commo-chart-tools'); if(tw)[...tw.children].forEach(b=>{ if(b.hasAttribute&&b.hasAttribute('data-tgl'))b.style.background=VIS[b.getAttribute('data-tgl')]?'#134e4a':'#0c1a24'; else if(b.hasAttribute&&b.hasAttribute('data-fib'))b.style.background=(VIS.fib&&b.getAttribute('data-fib')===FIBSCALE)?'#134e4a':'#0c1a24'; }); }catch(e){} }
+  function _syncTF(){ try{ const tfw=document.getElementById(SRC.dom.tfs); if(tfw)[...tfw.children].forEach(b=>{ if(b.hasAttribute&&b.hasAttribute('data-tf'))b.style.background=(b.getAttribute('data-tf')===TF)?'#134e4a':'#0c1a24'; else if(b.hasAttribute&&b.hasAttribute('data-mode'))b.style.background=(b.getAttribute('data-mode')===MODE)?'#134e4a':'#0c1a24'; });
+    const tw=document.getElementById(SRC.dom.tools); if(tw)[...tw.children].forEach(b=>{ if(b.hasAttribute&&b.hasAttribute('data-tgl'))b.style.background=VIS[b.getAttribute('data-tgl')]?'#134e4a':'#0c1a24'; else if(b.hasAttribute&&b.hasAttribute('data-fib'))b.style.background=(VIS.fib&&b.getAttribute('data-fib')===FIBSCALE)?'#134e4a':'#0c1a24'; }); }catch(e){} }
   // NETTE tijdschaal: ronde tijdgrenzen (bv. 15:00, 15:15, …) i.p.v. willekeurige punten
   function _timeTicks(cands){ const n=cands.length; if(n<2)return {ticks:[],intraday:true};
     const t0=cands[0].t, t1=cands[n-1].t, span=t1-t0; if(!(span>0))return {ticks:[],intraday:true};
@@ -24865,13 +24909,13 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const rets=[]; for(let k=1;k<w.length;k++)rets.push(w[k]/w[k-1]-1); const m=rets.reduce((a,b)=>a+b,0)/rets.length;
       out.push(Math.sqrt(rets.reduce((a,b)=>a+(b-m)*(b-m),0)/rets.length)); } return out; }
   function _quant(arr,q){ const s=arr.slice().sort((a,b)=>a-b); return s[Math.min(s.length-1,Math.max(0,Math.floor(s.length*q)))]||0; }
-  function renderCommodityChart(){ const cv=document.getElementById('tr-commo-chart'); if(!cv)return; _buildControls(); _syncTF();
+  function _render(){ if(!SRC)_activate(COMMO); try{SRC.onRender();}catch(e){} const cv=document.getElementById(SRC.dom.canvas); if(!cv)return; _buildControls(); _syncTF();
     const ctx=cv.getContext('2d'); const dpr=window.devicePixelRatio||1; const W=cv.clientWidth||760, H=460;
     cv.style.height=H+'px'; cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
-    const meta=document.getElementById('commo-chart-meta');
-    const cands=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(SEL,TF):[];
+    const meta=document.getElementById(SRC.dom.meta);
+    const cands=SRC.candles(SEL,TF);
     if(!cands||cands.length<3){ ctx.fillStyle='#5c7488'; ctx.font="12px 'JetBrains Mono',monospace"; ctx.textAlign='center';
-      ctx.fillText('Geen candles voor '+(NAMES[SEL]||SEL)+' · '+TF+' — verbind de Capital-proxy en deploy de /history-route.', W/2, H/2);
+      ctx.fillText(SRC.emptyMsg(SEL,TF), W/2, H/2);
       if(meta)meta.textContent=''; return; }
     const cl=cands.map(c=>c.c), vv=cands.map(c=>c.v||0); const n=cl.length;
     const padL=52,padR=64,padT=18,padB=26; const gw=W-padL-padR;
@@ -24888,7 +24932,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     if(!(mx>mn)){ mn=Math.min.apply(null,cl); mx=Math.max.apply(null,cl); } if(mn===mx){mn-=1;mx+=1;} const pd=(mx-mn)*0.08; mn-=pd; mx+=pd;
     const yP=v=>plotT+priceH*(1-(v-mn)/(mx-mn));             // prijs-schaal (links)
     const yO=v=>oscBot-clamp(v,0,1)*oscH;                    // oscillator-schaal 0..1 (rechts)
-    const F=(typeof TrinityCommodityFSO!=='undefined')?TrinityCommodityFSO.compute(SEL,TF):null;
+    const F=SRC.fso(SEL,TF);
     // FSO-series (lengte n-1, uit de returns) uitgelijnd op de n candles: kandel j ↔ varS[j-1].
     // Zo vallen de HIGH/LOW-balken, de oscillator-lijnen ÉN de prijslijn op exact dezelfde x-kolommen.
     const _alignF=arr=>{ const o=new Array(n); const m=arr?arr.length:0; for(let i=0;i<n;i++)o[i]=arr?(arr[Math.max(0,Math.min(m-1,i-1))]||0):0; return o; };
@@ -24952,9 +24996,14 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.fillStyle='#6d8296'; ctx.textAlign='left'; ctx.font="7px 'JetBrains Mono',monospace"; ctx.fillText('FIB '+FIBSCALE+' · '+fib.win+'c '+(fib.up?'↑swing':'↓swing'),padL+3,plotT+20);
     } }
     // ---- MA (per-grondstof gekalibreerde periode) ----
-    let _cal=null; try{ _cal=_calib(SEL,TF,cl); }catch(e){}
-    if(VIS.ma && _cal){ const ma=_sma(cl,_cal.maP); ctx.beginPath(); let st=false; for(let i=0;i<n;i++){ if(ma[i]==null)continue; const px=x(i),py=yP(ma[i]); st?ctx.lineTo(px,py):(ctx.moveTo(px,py),st=true); } ctx.strokeStyle='#ffd76a'; ctx.lineWidth=1.2; ctx.stroke();
-      ctx.fillStyle='#ffd76a'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('MA'+_cal.maP+' ('+Math.round(_cal.maHit*100)+'%)',padL+3,plotT+30); }
+    let _cal=null; try{ _cal=_calib(SRC.nsKey(SEL),TF,cl); }catch(e){}
+    if(VIS.ma && _cal){ const maF=_sma(cl,_cal.maP), maS=_sma(cl,_cal.maSlowP);
+      const drawMA=(arr,col,w)=>{ ctx.beginPath(); let st=false; for(let i=0;i<n;i++){ if(arr[i]==null)continue; const px=x(i),py=yP(arr[i]); st?ctx.lineTo(px,py):(ctx.moveTo(px,py),st=true); } ctx.strokeStyle=col; ctx.lineWidth=w; ctx.stroke(); };
+      drawMA(maS,'#4a7bd0',1.4);   // TRAGE MA (blauw)
+      drawMA(maF,'#ffd76a',1.2);   // SNELLE MA (goud)
+      // golden/death cross-markers waar fast de slow kruist
+      for(let i=1;i<n;i++){ if(maF[i]==null||maS[i]==null||maF[i-1]==null||maS[i-1]==null)continue; const now=maF[i]>maS[i], was=maF[i-1]>maS[i-1]; if(now!==was){ const xc=x(i), yc=yP(maF[i]); if(now){ ctx.fillStyle='#26d07c'; ctx.beginPath(); ctx.arc(xc,yc,3.2,0,6.283); ctx.fill(); ctx.fillStyle='#0a0e14'; ctx.font="6px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('G',xc,yc+2); } else { ctx.fillStyle='#ff5f7e'; ctx.beginPath(); ctx.arc(xc,yc,3.2,0,6.283); ctx.fill(); ctx.fillStyle='#0a0e14'; ctx.font="6px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('D',xc,yc+2); } } }
+      ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillStyle='#ffd76a'; ctx.fillText('MA'+_cal.maP,padL+3,plotT+30); ctx.fillStyle='#4a7bd0'; ctx.fillText('/MA'+_cal.maSlowP+' cross ('+Math.round(_cal.csHit*100)+'%)',padL+3+22,plotT+30); }
     if(MODE==='candle'){
       // ECHTE candlesticks (o/h/l/c) — groen omhoog, roze omlaag
       const bw=Math.max(1.4, Math.min(9, gw/n*0.66));
@@ -24973,7 +25022,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     ctx.fillStyle='#5c7488'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; const dec=mx>=100?1:(mx>=10?2:3);
     ctx.fillText(mx.toFixed(dec),padL-5,plotT+8); ctx.fillText(((mx+mn)/2).toFixed(dec),padL-5,plotT+priceH/2+3); ctx.fillText(mn.toFixed(dec),padL-5,priceBot);
     // ---- TAM-NODES bij de candles (crypto-stijl): RESET/VOLA/CORE/OSC, per-grondstof periode ----
-    if(VIS.nodes){ const ns=_nodeSeries(SEL,TF,n); if(ns){ const NC={reset:'#e8eef4',vola:'#ffd500',core3:'#26d0cc',core6:'#26d0cc',osc:'#7d8a99'};
+    if(VIS.nodes){ const ns=_nodeSeries(SRC.nsKey(SEL),TF,n,SRC.brainCands(SEL,TF)); if(ns){ const NC={reset:'#e8eef4',vola:'#ffd500',core3:'#26d0cc',core6:'#26d0cc',osc:'#7d8a99'};
       ns.nodes.forEach(nd=>{ const xc=x(nd.i); const c=cands[nd.i]; const hi=(c&&c.h!=null)?c.h:cl[nd.i]; const yy=yP(hi)-6; const col=NC[nd.type]||'#7d8a99';
         ctx.strokeStyle=col; ctx.globalAlpha=0.14; ctx.beginPath(); ctx.moveTo(xc,plotT); ctx.lineTo(xc,priceBot); ctx.stroke(); ctx.globalAlpha=1;
         ctx.fillStyle=col; if(nd.type==='reset'){ ctx.beginPath(); ctx.arc(xc,yy,2.6,0,6.283); ctx.fill(); } else if(nd.type==='vola'){ ctx.beginPath(); ctx.arc(xc,yy,2.4,0,6.283); ctx.fill(); } else if(nd.type==='core3'||nd.type==='core6'){ ctx.beginPath(); ctx.moveTo(xc-3,yy-4); ctx.lineTo(xc+3,yy-4); ctx.lineTo(xc,yy+1); ctx.closePath(); ctx.fill(); } else { ctx.fillRect(xc-1.5,yy-1.5,3,3); }
@@ -24983,19 +25032,19 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.fillStyle='#6d8296'; ctx.textAlign='left'; ctx.font="7px 'JetBrains Mono',monospace"; ctx.fillText('nodes ×'+ns.period+'c',padL+3,plotT+40);
     } }
     // ---- NEO'S NODE (NN) cap-pijlen bij de candles: waar de per-grondstof NN omslaat ----
-    if(VIS.nn){ const nn=_nnSeries(SEL,TF,cl); if(nn&&nn.prob){ let prev=null;
+    if(VIS.nn){ const nn=_nnSeries(SRC.nsKey(SEL),TF,cl,SRC.brainCands(SEL,TF)); if(nn&&nn.prob){ let prev=null;
       for(let i=13;i<n;i++){ const p=nn.prob[i]; if(p==null)continue; if(prev!=null){ const up=(p>=0.5), was=(prev>=0.5);
         if(up!==was && Math.abs(p-0.5)>0.06){ const c=cands[i]; const xc=x(i); if(up){ const yy=yP((c&&c.l!=null)?c.l:cl[i])+9; ctx.fillStyle='#26d07c'; ctx.beginPath(); ctx.moveTo(xc,yy-5); ctx.lineTo(xc-3,yy); ctx.lineTo(xc+3,yy); ctx.closePath(); ctx.fill(); } else { const yy=yP((c&&c.h!=null)?c.h:cl[i])-9; ctx.fillStyle='#ff5f7e'; ctx.beginPath(); ctx.moveTo(xc,yy+5); ctx.lineTo(xc-3,yy); ctx.lineTo(xc+3,yy); ctx.closePath(); ctx.fill(); } } }
         prev=p; }
       const pl=nn.prob[n-1]; if(pl!=null){ ctx.fillStyle=pl>=0.5?'#26d07c':'#ff5f7e'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('NN '+Math.round(pl*100)+'%'+(pl>=0.5?'↑':'↓')+(nn.cal&&nn.cal.proven?'✓':''),padL+3,plotT+50); }
     } }
     // PREDICTED 4h doellijn
-    try{ const pr=TrinityCommodities.predict4h(SEL); if(pr&&pr.target!=null&&pr.target>=mn&&pr.target<=mx){ const yt=yP(pr.target),col=pr.dir==='LONG'?'#14f195':'#ff5f7e';
+    try{ const pr=SRC.predict(SEL); if(pr&&pr.target!=null&&pr.target>=mn&&pr.target<=mx){ const yt=yP(pr.target),col=pr.dir==='LONG'?'#14f195':'#ff5f7e';
       ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.55; ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
       ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillText('4h '+(pr.dir==='LONG'?'▲':'▼')+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw+3,yt+3); } }catch(e){}
     // header (links) + markt/sessie-badge (rechts)
     ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+'pt',padL+2,plotT-5);
-    try{ const mh=TrinityCommodities.marketHours(SEL); if(mh){ ctx.textAlign='right'; ctx.fillStyle=mh.open?'#14f195':'#ff5f7e'; ctx.font="8px 'JetBrains Mono',monospace";
+    try{ const mh=SRC.market(SEL); if(mh){ ctx.textAlign='right'; ctx.fillStyle=mh.open?'#14f195':'#ff5f7e'; ctx.font="8px 'JetBrains Mono',monospace";
       let sfx=''; if(mh.session)sfx=' · '+mh.session+(mh.overlap?' ⚡':'')+(mh.volFactor?' ×'+mh.volFactor.toFixed(2):'');
       ctx.fillText((mh.open?'● open':'○ dicht')+(mh.exchange?' · '+mh.exchange:'')+sfx,padL+gw,plotT-5); } }catch(e){}
     // ================= FSO-OSCILLATOR (onderste zone, gedeelde achtergrond) =================
@@ -25032,11 +25081,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.beginPath(); let st=false; for(let i=0;i<n;i++){ if(r[i]==null)continue; const px=x(i),py=yO(r[i]/100); st?ctx.lineTo(px,py):(ctx.moveTo(px,py),st=true); } ctx.strokeStyle='#ffd76a'; ctx.lineWidth=1.2; ctx.stroke();
       const rl=r[n-1]; ctx.fillStyle='#ffd76a'; ctx.textAlign='right'; ctx.font="7.5px 'JetBrains Mono',monospace"; if(rl!=null)ctx.fillText('RSI'+_cal.rsiP+' '+Math.round(rl),padL+gw-2,oscBot-3); }
     // ---- meta-regel (alle scalars, DOM — geen canvas-clutter) ----
-    if(meta){ let m=''; try{ const a=TrinityCommodityBrain.analyze(SEL,TF);
+    if(meta){ let m=''; try{ const a=SRC.brainAnalyze(SEL,TF);
       if(F){ const rc=F.regime==='CRISIS'?'#ff5f7e':F.regime==='SPANNING'?'#ffb627':'#14f195'; m='FSO '+F.regime+' · stress '+F.last.stress+' · σ² '+F.last.varr+' · VFM '+Math.round(F.last.vfm*100)+'% · ΔV '+(F.last.dV>=0?'+':'')+F.last.dV.toFixed(3)+' · node '+F.nodeTh.toFixed(2)+' · vol '+Math.round(F.volScore*100)+'% · LOW '+Math.round(F.lowPct*100)+'%/HIGH '+Math.round(F.highPct*100)+'%'; if(F.verify)m+=' · verif '+Math.round(F.verify.hitRate*100)+'%'+(F.verify.proven?'✓':''); }
-      if(a)m+=' · NN '+(a.probUp!=null?Math.round(a.probUp*100)+'%↑':'—')+(a.cal&&a.cal.proven?'✓':'')+' '+(a.regime||''); const pr=TrinityCommodities.predict4h(SEL); if(pr)m+=' · 4h '+pr.dir+' '+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%'; }catch(e){} meta.textContent=m; }
+      if(a)m+=' · NN '+(a.probUp!=null?Math.round(a.probUp*100)+'%↑':'—')+(a.cal&&a.cal.proven?'✓':'')+' '+(a.regime||''); const pr=SRC.predict(SEL); if(pr)m+=' · 4h '+pr.dir+' '+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%'; }catch(e){} meta.textContent=m; }
   }
-  try{ window.renderCommodityChart=renderCommodityChart; }catch(e){}
+  function renderCommodityChart(){ _activate(COMMO); _render(); }
+  function renderCryptoSysChart(){ _activate(CRYPTO); _render(); }
+  try{ window.renderCommodityChart=renderCommodityChart; window.renderCryptoSysChart=renderCryptoSysChart; }catch(e){}
+  // auto-render + candle-refresh van de crypto-systeemchart zolang die in beeld is
+  try{ setInterval(function(){ try{ const cv=document.getElementById('cx-sys-chart'); if(cv&&cv.offsetParent!==null){ renderCryptoSysChart(); } }catch(e){} }, 4000); }catch(e){}
 })();
 
 
