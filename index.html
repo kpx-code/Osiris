@@ -2228,7 +2228,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <span id="commo-chart-meta" class="mono" style="font-size:0.54rem;color:var(--dim);margin-left:auto;"></span>
       </div>
       <canvas id="tr-commo-chart" style="width:100%;height:300px;display:block;"></canvas>
-      <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Boven: <span style="color:#4fc3f7;">prijs</span> + <span style="color:#ff8a3c;">FSO-schaduw</span> + <span style="color:#c792ea;">TAM-nodes</span> + gestippelde 4h-predicted. Midden (FSO-oscillator): <span style="color:#e8f4ff;">stress</span> · <span style="color:#7fd8ff;">σ²</span> · <span style="color:#c792ea;">VFM</span> · <span style="color:#ff8a3c;">corr-breuk</span> met <span style="color:#ff5f7e;">CRISIS</span>/<span style="color:#ffb627;">SPANNING</span>-drempels + LOW/HIGH + ⚡ΔV-breakpoint. Onder: volume. Achtergrond-tint = handelssessie (Asia/EU/US). Per grondstof apart gekalibreerd, autonoom geverifieerd. Vult zich via de Capital /history-route.</div>
+      <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Eén doorlopend paneel. Prijs (boven): <span style="color:#4fc3f7;">prijslijn</span> + <span style="color:#ff8a3c;">FSO-schaduw</span> + <span style="color:#c792ea;">TAM-nodes</span> + gestippelde 4h-predicted + <span style="color:#ffb73c;">volume-profiel</span> (volume-op-prijs, rechts, met POC). FSO-oscillator (onder, gedeelde as): <span style="color:#e8f4ff;">stress</span> · <span style="color:#7fd8ff;">σ²</span> · <span style="color:#c792ea;">VFM</span> · <span style="color:#ff8a3c;">corr-breuk</span> met <span style="color:#ff5f7e;">CRISIS</span>/<span style="color:#ffb627;">SPANNING</span>-drempels + ⚡ΔV-breakpoint. Verticale balken over de volle hoogte: <span style="color:#ffd76a;">HIGH</span> (σ²-piek) / <span style="color:#ff8a94;">LOW</span> (samengedrukt). Per grondstof apart gekalibreerd, autonoom geverifieerd. Vult zich via de Capital /history-route.</div>
     </div>
 
     <div class="secdiv"><h3>Global flow</h3><span class="sub">— capital &amp; commodity</span></div>
@@ -2701,7 +2701,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260912-build108-commodity-longhold-overlap"></script>
+<script src="app.js?v=20260912-build109-commodity-unified-volprofile"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
