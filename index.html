@@ -2295,6 +2295,60 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
     </div>
 
+    <!-- ================= FX (alle handelbare pairs) — zelfde UOTAM-stack als commodity ================= -->
+    <div class="secdiv"><h3>FX chart</h3><span class="sub">— Capital-prijs + FSO-schaduw (alle ShockWave-data) + TAM-nodes · per timeframe · per pair</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <select id="fx-sys-sel" onchange="window.__fxSel&&window.__fxSel(this.value)" style="background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;"></select>
+        <div id="fx-sys-tfs" style="display:flex;gap:4px;"></div>
+        <span id="fx-sys-meta" class="mono" style="font-size:0.54rem;color:var(--dim);margin-left:auto;"></span>
+      </div>
+      <div id="fx-sys-tools" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"></div>
+      <canvas id="fx-sys-chart" style="width:100%;height:300px;display:block;"></canvas>
+      <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Zelfde unified paneel als de commodity-chart, per FX-pair (Capital-candles). Lijn/Candles · Nodes · NN · MA (fast/slow-cross) · RSI · Fibs (µ/M/XL) · Energie · volume-profiel + POC · FSO-oscillator + HIGH/LOW σ²-balken. Vult zich via de Capital /history-route.</div>
+    </div>
+
+    <div class="secdiv"><h3>FX · UOTAM info-panels</h3><span class="sub">— per pair · Fractale Architectuur · dag/week node-schema · historisch overzicht · chaos-statussen</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+        <span class="mono" style="font-size:0.56rem;color:var(--dimmer);">pair:</span>
+        <select id="fi-sel" onchange="window.__fiSel&&window.__fiSel(this.value)" style="background:#0c1a24;color:#cfe6f5;border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;"></select>
+      </div>
+      <div id="fi-panels" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
+        <div class="ci-box" style="background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;"><div class="ci-t" style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;">Deel 2.1 · Fractale Architectuur <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(live, 4 lagen)</span></div><div id="fi-arch" style="max-height:230px;overflow-y:auto;"></div></div>
+        <div class="ci-box" style="background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;"><div class="ci-t" style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;">Deel 5.1 · Fractaal dag/week node-schema <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(π-klok 3-6-9)</span></div><div id="fi-sched" style="max-height:230px;overflow-y:auto;"></div></div>
+        <div class="ci-box" style="background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;"><div class="ci-t" style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;">Historisch overzicht <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(initiatie / versnelling / ontlading)</span></div><div id="fi-hist" style="max-height:230px;overflow-y:auto;"></div></div>
+        <div class="ci-box" style="background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;"><div class="ci-t" style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:#7fd8ff;font-weight:600;margin-bottom:6px;">Chaos-statussen · Fractal Energy Scale <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(live)</span></div><div id="fi-chaos" style="max-height:230px;overflow-y:auto;"></div></div>
+      </div>
+    </div>
+
+    <div class="secdiv"><h3>FX system data</h3><span class="sub">— per pair · UOTAM v7.7 (native ⇄ theorie, zelf-gekalibreerd) · live achtergrond</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <style>
+        #fd-wrap .fd-sub{font-family:'JetBrains Mono',monospace;font-size:0.56rem;letter-spacing:0.1em;text-transform:uppercase;color:#7fd8ff;margin:12px 0 5px;font-weight:600;}
+        #fd-wrap .fd-sub:first-child{margin-top:2px;}
+        #fd-wrap .cd-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-height:340px;overflow-y:auto;padding-right:4px;}
+        @media(max-width:900px){#fd-wrap .cd-grid{grid-template-columns:repeat(2,1fr);}}
+      </style>
+      <div id="fd-wrap">
+        <div class="fd-sub">Osiris Market Status · alle FX-pairs <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(UOTAM-nodes · verdict · energie · live)</span></div>
+        <div class="cd-grid" id="fd-overview"><span class="mono" style="font-size:0.55rem;color:var(--dimmer);">FX-data laadt…</span></div>
+        <div class="fd-sub">Micro / Meso / Macro · bull &amp; bear per pair</div>
+        <div class="cd-grid" id="fd-levels"></div>
+        <div class="fd-sub">VFM · ER · DB · Chaos Index · alle pairs</div>
+        <div class="cd-grid" id="fd-meters"></div>
+        <div class="fd-sub">Patroon &amp; Structuur · alle pairs</div>
+        <div class="cd-grid" id="fd-pattern"></div>
+        <div class="fd-sub">Node Countdown · UOTAM-tijdraster <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(π-klok vs adaptief · per pair)</span></div>
+        <div class="cd-grid" id="fd-nodes"></div>
+        <div class="fd-sub">Energie &amp; compressie · Fractal Energy Scale <span style="text-transform:none;letter-spacing:0;color:var(--dimmer);">(uitbraak vs climax-fade · per pair live)</span></div>
+        <div class="cd-grid" id="fd-energy"></div>
+      </div>
+    </div>
+
     <div class="secdiv"><h3>Global flow</h3><span class="sub">— capital &amp; commodity</span></div>
     <div class="panel">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
@@ -2347,7 +2401,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Win rate per session (live learning) <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— brain-trust: ×gewicht · AUC · vlak/inv</span></div>
       <div class="tsessions" id="tr-sessions"></div>
-      <div class="secdiv"><h3>FSO · FX system-stress</h3><span class="sub">— markt-als-systeem over alle 18 valuta's &amp; 28 pairs · micro/meso/macro/volledig · togglebaar</span></div>
+    </div>
+
+    <div class="secdiv"><h3>FSO · FX system-stress</h3><span class="sub">— markt-als-systeem over alle 18 valuta's &amp; 28 pairs · micro/meso/macro/volledig · togglebaar</span></div>
+    <div class="panel trinity">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div class="mono" id="tr-fso" style="font-size:0.6rem;margin-top:4px;color:var(--dim);line-height:1.7;">◉ FSO — kalibreert…</div>
       <div class="fsoctrl">
         <div class="fsoctrl-row"><span class="fsoctrl-lbl">Schaal</span><div id="tr-fso-scaletoggles" class="fsocbwrap"></div></div>
@@ -2765,7 +2823,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260912-build115-commodity-uotam-infopanels"></script>
+<script src="app.js?v=20260912-build117-fx-full-reorg-collapse-dl"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
