@@ -25246,7 +25246,29 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       else { zone='NEUTRAL'; scn='Geen duidelijke compressie of ontlading'; col='#7d8a99'; act='Geduld — geen edge'; }
       return { zone, scenario:scn, col, action:act, compression:+comp.toFixed(2), charge:+(en||0).toFixed(2), move5:+move5.toFixed(2) };
     }catch(e){ return {zone:'—',scenario:'',col:'#7d8a99',action:'',compression:0,charge:0,move5:0}; } },
-    all(tf,prov){ prov=prov||PROV_COMMO; return prov.markets.map(k=>this.analyze(k,tf||'1h',prov)); }
+    all(tf,prov){ prov=prov||PROV_COMMO; return prov.markets.map(k=>this.analyze(k,tf||'1h',prov)); },
+    // ---- SUPPORT & TARGET MATRIX (dynamisch, autonoom-adaptief) per markt ----
+    // Klassieke pivots (recente 12 bars) + fib-macro extremen → 6 niveaus + een trade-frame (entry/stop/T1/T2/RR)
+    matrix(key,tf,prov){ prov=prov||PROV_COMMO; const a=this.analyze(key,tf,prov); if(!a||!a.ready)return null;
+      try{ const cs=prov.candles(key,tf); const n=cs.length; const w=cs.slice(-12); let H=-Infinity,L=Infinity; w.forEach(c=>{ if(c.h>H)H=c.h; if(c.l<L)L=c.l; }); const C=cs[n-1].c; const P=(H+L+C)/3;
+        const R1=2*P-L, S1=2*P-H, R2=P+(H-L), S2=P-(H-L); const px=a.px; const long=a.dir==='LONG'; const dec=px>=100?1:(px>=10?2:(px>=1?4:5));
+        const rows=[
+          {lvl:'Target 2 (Major)', price:Math.max(R2,a.levels.macro.hi), status:'π/geometrische grens', kind:'target'},
+          {lvl:'Target 1 (Minor)', price:R1, status:'eerste weerstand · gap-fill', kind:'target'},
+          {lvl:'Huidige prijs', price:px, status:'Active '+a.dir, kind:'now'},
+          {lvl:'Pivot', price:P, status:'support floor', kind:'pivot'},
+          {lvl:'Support 1', price:S1, status:'eerste steun', kind:'support'},
+          {lvl:'Support 2 (Hard)', price:Math.min(S2,a.levels.macro.lo), status:'structurele bodem', kind:'support'}
+        ];
+        rows.forEach(r=>{ r.price=+r.price.toFixed(dec); r.distPts=+(r.price-px).toFixed(dec); r.distPct=+((r.price-px)/(px||1)*100).toFixed(2); });
+        // autonoom trade-frame: stop = eerste tegengestelde steun/weerstand of −1,5% (adaptief, strakste); targets = volgende niveaus
+        const stop = long ? Math.min(S1, px*(1-0.015)) : Math.max(R1, px*(1+0.015));
+        const t1 = long?R1:S1, t2 = long?rows[0].price:rows[5].price;
+        const rr = +(Math.abs(t1-px)/Math.max(1e-9,Math.abs(px-stop))).toFixed(2);
+        return { key:a.key, name:a.name, mkt:a.mkt, px, dec, dir:a.dir, verdict:a.verdict, energyZone:a.energy.zone, energyCol:a.energy.col, node:a.node,
+          rows, frame:{ entry:+px.toFixed(dec), stop:+stop.toFixed(dec), t1:+t1.toFixed(dec), t2:+t2.toFixed(dec), rr } };
+      }catch(e){ return null; } },
+    matrixAll(tf,prov){ prov=prov||PROV_COMMO; return prov.markets.map(k=>this.matrix(k,tf||'1h',prov)).filter(Boolean); }
   };
   try{ window.TrinityCommoUOTAM=ENG; }catch(e){}
 })();
@@ -25414,6 +25436,61 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     ['Global flow','Trinity','Learnings'].forEach(t=>{ const sec=section(t); if(sec&&sec.length){ sec.forEach(node=>anc.parentNode.insertBefore(node,anc)); moved=true; } });
     if(moved)window._trnReordered=true; }catch(e){} }
   try{ if(document.readyState!=='loading')setTimeout(reorder,800); else document.addEventListener('DOMContentLoaded',()=>setTimeout(reorder,800)); }catch(e){}
+})();
+
+/* ==================================================================================
+   TRINITY · SUPPORT & TARGET MATRIX (dynamisch, autonoom-adaptief)
+   (1) algemene matrix per markt (commodity + FX)  (2) matrix voor open posities
+   (Osiris crypto spot/margin + Trinity FX/commodity). Puur weergave + advies.
+   ================================================================================== */
+(function(){
+  'use strict';
+  function E(){ return window.TrinityCommoUOTAM; }
+  function esc(s){ return (''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  const kindCol={target:'#26d07c',now:'#e8f4ff',pivot:'#7fd8ff',support:'#ff8a94'};
+  function matrixCard(m){ if(!m)return '';
+    const rowsH=m.rows.map(r=>{ const c=kindCol[r.kind]||'#9fb2c4'; const dp=r.kind==='now'?'':( (r.distPct>=0?'+':'')+r.distPct+'%' );
+      return '<div style="display:grid;grid-template-columns:1.15fr 0.9fr 0.7fr;gap:4px;font-size:0.5rem;padding:1.5px 0;'+(r.kind==='now'?'background:rgba(127,216,255,0.08);':'')+'"><span style="color:'+c+';">'+esc(r.lvl)+'</span><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;text-align:right;">'+r.price+'</span><span style="color:#6d8296;text-align:right;">'+dp+'</span></div>'; }).join('');
+    const fr=m.frame; const rc=fr.rr>=1.5?'#26d07c':fr.rr>=1?'#ffb627':'#ff5f7e';
+    return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+(m.energyCol||'var(--line)')+'44;border-radius:7px;padding:8px 9px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;"><b style="font-size:0.62rem;color:#cfe6f5;">'+esc(m.name)+'</b><span style="font-size:0.48rem;color:'+(m.dir==='LONG'?'#26d07c':'#ff5f7e')+';">'+m.dir+' · '+esc(m.verdict)+'</span></div>'+
+      rowsH+
+      '<div style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.06);padding-top:3px;font-size:0.46rem;color:#6d8296;">frame: entry '+fr.entry+' · stop <span style="color:#ff8a94;">'+fr.stop+'</span> · T1 <span style="color:#26d07c;">'+fr.t1+'</span> · T2 <span style="color:#26d07c;">'+fr.t2+'</span> · RR <span style="color:'+rc+';font-weight:700;">'+fr.rr+'</span></div>'+
+    '</div>'; }
+  function renderMatrixGrid(prov, id){ try{ const En=E(); if(!En)return; const host=document.getElementById(id); if(!host)return; const ms=En.matrixAll('1h',prov);
+    if(!ms.length){ host.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Matrix laadt… (Capital /history vereist)</span>'; return; }
+    host.innerHTML=ms.map(matrixCard).join(''); }catch(e){} }
+  function renderCommoMatrix(){ const En=E(); if(En)renderMatrixGrid(En.PROV_COMMO,'mx-commo'); }
+  function renderFxMatrix(){ const En=E(); if(En)renderMatrixGrid(En.PROV_FX,'mx-fx'); }
+
+  // ---- open posities verzamelen (Osiris + Trinity), defensief ----
+  function collect(){ const out=[];
+    try{ (window.positions||[]).forEach(p=>{ if(p.status&&p.status!=='open')return; out.push({src:'Trinity',market:p.pair,side:p.side,entry:p.entry,current:p.current,stop:p.stop,target:p.target,pnlPct:p.pnlPct,size:p.alloc,kind:p.isCommodity?'commodity':'fx'}); }); }catch(e){}
+    try{ (window.openPositions||[]).forEach(p=>{ const cur=(typeof window.livePrice==='number'&&window.livePrice)||p.entryPrice; const long=(p.side==='LONG'||p.side==='BUY'); const pnl=p.entryPrice?((cur/p.entryPrice-1)*100*(long?1:-1)):null; out.push({src:'Osiris spot',market:'BTC',side:long?'LONG':'SHORT',entry:p.entryPrice,current:cur,stop:null,target:p.targetPrice,pnlPct:pnl,size:p.notional,kind:'crypto'}); }); }catch(e){}
+    try{ const m=window.marginState; if(m&&m.positions)m.positions.forEach(p=>{ out.push({src:'Osiris margin',market:p.sym||'crypto',side:p.side,entry:p.entryPrice||p.price,current:p.markPrice||p.price,stop:p.stopLoss||p.sl,target:p.takeProfit||p.tp,pnlPct:(p.pnlPct!=null?p.pnlPct:null),lev:p.leverage,kind:'crypto'}); }); }catch(e){}
+    return out; }
+  function suggest(p){ const pnl=p.pnlPct; if(pnl==null)return {t:'—',c:'#7d8a99'};
+    if(pnl<=-1.2)return {t:'onder druk — respecteer stop / evalueer exit',c:'#ff5f7e'};
+    if(p.target&&p.current&&p.entry){ const long=p.side==='LONG'; const toT=Math.abs(p.target-p.current), span=Math.abs(p.target-p.entry)||1; if(span>0&&toT/span<0.2)return {t:'target nabij — deel afbouwen / trail aantrekken',c:'#26d07c'}; }
+    if(pnl>=0.5)return {t:'in winst — stop naar break-even, laat lopen',c:'#26d07c'};
+    if(pnl>0)return {t:'licht groen — geef ruimte tot volgende node',c:'#9fb2c4'};
+    return {t:'vlak — wacht op node/energie-signaal',c:'#9fb2c4'}; }
+  function renderOpenMatrix(){ try{ const host=document.getElementById('mx-open'); if(!host)return; const ps=collect();
+    if(!ps.length){ host.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Geen open posities — Osiris/Trinity hebben nu niets open.</span>'; return; }
+    host.innerHTML='<div style="display:grid;grid-template-columns:0.8fr 0.7fr 0.6fr 0.6fr 0.6fr 0.6fr 0.6fr 1.4fr;gap:6px;font-size:0.46rem;color:#6d8296;text-transform:uppercase;letter-spacing:0.05em;padding:2px 4px;border-bottom:1px solid rgba(255,255,255,0.08);"><span>markt</span><span>bron</span><span>zijde</span><span>entry</span><span>nu</span><span>stop</span><span>target</span><span>P&L · advies</span></div>'+
+      ps.map(p=>{ const long=p.side==='LONG'; const pc=(p.pnlPct==null)?'#9fb2c4':(p.pnlPct>=0?'#26d07c':'#ff5f7e'); const sg=suggest(p); const dec=(p.entry>=100)?1:(p.entry>=1?4:5); const f=v=>(v==null||!isFinite(v))?'—':(+v).toFixed(dec);
+        return '<div style="display:grid;grid-template-columns:0.8fr 0.7fr 0.6fr 0.6fr 0.6fr 0.6fr 0.6fr 1.4fr;gap:6px;font-size:0.5rem;padding:3px 4px;border-bottom:1px solid rgba(255,255,255,0.04);align-items:baseline;">'+
+          '<span style="color:#cfe6f5;font-weight:600;">'+esc(p.market||'—')+'</span>'+
+          '<span style="color:#7fd8ff;">'+esc(p.src)+'</span>'+
+          '<span style="color:'+(long?'#26d07c':'#ff5f7e')+';">'+esc(p.side||'—')+(p.lev?' '+p.lev+'x':'')+'</span>'+
+          '<span style="font-family:\'JetBrains Mono\',monospace;color:#9fb2c4;">'+f(p.entry)+'</span>'+
+          '<span style="font-family:\'JetBrains Mono\',monospace;color:#cfe6f5;">'+f(p.current)+'</span>'+
+          '<span style="font-family:\'JetBrains Mono\',monospace;color:#ff8a94;">'+f(p.stop)+'</span>'+
+          '<span style="font-family:\'JetBrains Mono\',monospace;color:#26d07c;">'+f(p.target)+'</span>'+
+          '<span><b style="color:'+pc+';">'+(p.pnlPct==null?'—':((p.pnlPct>=0?'+':'')+p.pnlPct.toFixed(2)+'%'))+'</b> · <span style="color:'+sg.c+';">'+esc(sg.t)+'</span></span>'+
+        '</div>'; }).join(''); }catch(e){} }
+  try{ window.renderCommoMatrix=renderCommoMatrix; window.renderFxMatrix=renderFxMatrix; window.renderOpenMatrix=renderOpenMatrix; }catch(e){}
+  try{ setInterval(function(){ try{ const a=document.getElementById('mx-commo'); if(a&&a.offsetParent!==null)renderCommoMatrix(); const b=document.getElementById('mx-fx'); if(b&&b.offsetParent!==null){ try{ E().FxCandles.refresh('1h'); }catch(e){} renderFxMatrix(); } const c=document.getElementById('mx-open'); if(c&&c.offsetParent!==null)renderOpenMatrix(); }catch(e){} }, 5000); }catch(e){}
 })();
 
 
