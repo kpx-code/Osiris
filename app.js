@@ -17350,7 +17350,15 @@ function buildNeoNet() {
         { id: 'fag-mar', label: 'FAG·MAR', mx: 0.80, yoff: -0.21, conn: 'decision', col: '#ffb627' },
         { id: 'risk', label: 'RISK', mx: 0.80, yoff: 0.21, conn: 'decision', col: '#ff8a94' },
         { id: 'guardian', label: 'GUARDIAN', mx: 0.80, yoff: 0.31, conn: 'decision', col: '#ff5f7e' },
-        { id: 'selfrev', label: 'SELF-REV', mx: 0.945, yoff: -0.22, conn: 'rl', col: '#14f195' }        // agressie/winrate → RL
+        { id: 'selfrev', label: 'SELF-REV', mx: 0.945, yoff: -0.22, conn: 'rl', col: '#14f195' },        // agressie/winrate → RL
+        // ---- UOTAM v7.7-cluster (crypto, actieve markt) — nieuwe onderdelen in het web ----
+        { id: 'uo-energy', label: 'UOTAM·ENERGIE', mx: 0.485, yoff: -0.44, conn: 'osiris', col: '#ffd500' },  // Fractal Energy Scale + richting
+        { id: 'uo-node', label: 'UOTAM·TAM', mx: 0.55, yoff: 0.44, conn: 'osiris', col: '#26d0cc' },          // per-markt TAM node-countdown
+        { id: 'uo-vfm', label: 'UOTAM·VFM', mx: 0.415, yoff: -0.44, conn: 'cores', col: '#c792ea' },          // VFM/ER/DB institutionele massa
+        { id: 'uo-matrix', label: 'UOTAM·S/T', mx: 0.88, yoff: 0.44, conn: 'decision', col: '#7fd8ff' },      // Support&Target RR
+        { id: 'uo-shadow', label: 'UOTAM·SHADOW', mx: 0.88, yoff: -0.14, conn: 'decision', col: '#14f195' },  // shadow-hitrate (out-of-sample)
+        { id: 'uo-weight', label: 'UOTAM·WEIGHT', mx: 0.965, yoff: 0.22, conn: 'rl', col: '#26d07c' },        // autonome live weight (T1/T2 sturen trade)
+        { id: 'cnn-multi', label: 'CNN·MULTI', mx: 0.30, yoff: 0.44, conn: 'cores', col: '#38bdf8' }          // multi-schaal CNN (20/40/80) bias
     ];
 }
 
@@ -17550,6 +17558,27 @@ function _neoNetDraw(now, canvasId, outId) {
         try { const sg = (typeof OsirisSpikeGuard !== 'undefined') ? OsirisSpikeGuard.assess('BTC') : null; if (sg) setM('spike', Math.max(0.2, Math.min(1, sg.spikeRisk)), sg.spikeRisk > 0.6 ? -1 : 1, `${(sg.spikeRisk * 100 | 0)}% ×${sg.sizeMult.toFixed(2)}`); else setM('spike', 0.15, 1, '—'); } catch (e) { setM('spike', 0.15, 1, '—'); }
         // CLOUD (Supabase/Oracle cloud-architectuur) als hidden-layer-punt op de mainbrain
         try { let cs = { connected: false, signedIn: false, syncing: false }; try { if (typeof osirisCloudStatus === 'function') cs = osirisCloudStatus(); } catch (e) {} setM('cloud', cs.signedIn ? 0.9 : cs.connected ? 0.55 : 0.2, 1, cs.signedIn ? 'gesynct' : cs.connected ? 'verbonden' : 'offline'); } catch (e) { setM('cloud', 0.2, 1, '—'); }
+        // ---- UOTAM v7.7 (crypto, actieve markt) — voed de nieuwe web-knopen data-true ----
+        try {
+            const _uE = (typeof window.TrinityCommoUOTAM !== 'undefined') ? window.TrinityCommoUOTAM : null;
+            const _uMk = (typeof neoMultiState !== 'undefined' && neoMultiState.active) ? neoMultiState.active : 'BTC';
+            const _uA = _uE ? _uE.analyze(_uMk, '1h', _uE.PROV_CRYPTO) : null;
+            if (_uA && _uA.ready) {
+                const en = _uA.energy || {};
+                setM('uo-energy', Math.max(0.2, en.compression != null ? en.compression : 0.3), en.dir === 'SHORT' ? -1 : 1, (en.zone || '—') + (en.dir && en.dir !== '—' ? ' ' + en.dir : ''));
+                const T = _uA.tam; setM('uo-node', T ? Math.max(0.2, Math.min(1, 1 - (T.msTo / (T.ivMin * 60000 || 1)))) : 0.2, 1, T ? (T.neoType + ' ' + Math.max(0, Math.round(T.msTo / 60000)) + 'm') : '—');
+                setM('uo-vfm', Math.max(0.15, Math.min(1, Math.abs(_uA.vfm) / 1.6)), _uA.vfm >= 0 ? 1 : -1, 'VFM ' + _uA.vfm + (Math.abs(_uA.vfm) >= 1.2 ? ' ✓' : ''));
+                setM('cnn-multi', Math.max(0.15, Math.min(1, Math.abs((_uA.cnnMulti && _uA.cnnMulti.bias) || _uA.cnn || 0))), ((_uA.cnnMulti && _uA.cnnMulti.bias) || _uA.cnn || 0) >= 0 ? 1 : -1, 'CNN ' + ((_uA.cnnMulti && _uA.cnnMulti.bias != null) ? _uA.cnnMulti.bias : _uA.cnn) + ((_uA.cnnMulti && _uA.cnnMulti.aligned) ? ' ⇈' : ''));
+                const mx = _uE.matrix(_uMk, '1h', _uE.PROV_CRYPTO); if (mx) setM('uo-matrix', Math.max(0.2, Math.min(1, mx.frame.rr / 2.5)), mx.dir === 'SHORT' ? -1 : 1, 'RR ' + mx.frame.rr + ' · ' + mx.dir);
+                let tr = null; try { tr = window.TrinityUOTAMShadow ? window.TrinityUOTAMShadow.trust('crypto', _uMk) : null; } catch (e) {}
+                setM('uo-shadow', tr && tr.hitRate != null ? Math.max(0.2, tr.hitRate) : 0.18, (tr && tr.proven) ? 1 : -1, tr && tr.hitRate != null ? (Math.round(tr.hitRate * 100) + '% n' + tr.n + (tr.proven ? ' ✓' : '')) : 'leert');
+                let w = 0; try { w = (typeof uotamWeight === 'function') ? uotamWeight('crypto', _uMk) : 0; } catch (e) {}
+                setM('uo-weight', Math.max(0.15, w || 0.15), w > 0.05 ? 1 : -1, w > 0.05 ? ('LIVE ' + Math.round(w * 100) + '%') : 'shadow');
+            } else {
+                ['uo-energy', 'uo-node', 'uo-vfm', 'uo-matrix', 'uo-shadow', 'uo-weight', 'cnn-multi'].forEach(id => setM(id, 0.18, 1, 'laadt'));
+                try { ['BTC', 'ETH', 'SOL'].forEach(k => window.CryptoSysCandles && window.CryptoSysCandles.load(k, '1h')); } catch (e) {}
+            }
+        } catch (e) {}
     } catch (e) {}
     // ============================================================================
     // ORGANISCH NEURAAL WEB (29-08 v6) — ring-cellen, witte filament-bundels en
@@ -17591,8 +17620,10 @@ function _neoNetDraw(now, canvasId, outId) {
         specs.push({ ref: ['n', 4, 2], bx: 0.77, by: 0.67, imp: 0.5, grp: 'dec' });
         specs.push({ ref: ['n', 5, 0], bx: 0.86, by: 0.47, imp: 0.8, grp: 'out' });
         specs.push({ ref: ['n', 6, 0], bx: 0.94, by: 0.46, imp: 0.74, grp: 'rl' });
-        const metaAnchor = { 'gov-pred': [0.28, 0.15], 'gov-kin': [0.37, 0.10], 'gov-eta': [0.46, 0.14], 'gov-agg': [0.40, 0.92], 'llm': [0.56, 0.22], 'regime': [0.49, 0.71], 'cloud': [0.63, 0.66], 'mtf': [0.645, 0.23], 'nodefade': [0.665, 0.74], 'spike': [0.745, 0.15], 'fag-spot': [0.825, 0.17], 'fag-mar': [0.87, 0.28], 'risk': [0.84, 0.77], 'guardian': [0.785, 0.87], 'selfrev': [0.915, 0.26] };
-        const grpMeta = { 'gov-pred': 'gov', 'gov-kin': 'gov', 'gov-eta': 'gov', 'gov-agg': 'gov', 'llm': 'sys', 'regime': 'sys', 'cloud': 'sys', 'mtf': 'time', 'nodefade': 'time', 'spike': 'safe', 'fag-spot': 'safe', 'fag-mar': 'safe', 'risk': 'safe', 'guardian': 'safe', 'selfrev': 'rl' };
+        const metaAnchor = { 'gov-pred': [0.28, 0.15], 'gov-kin': [0.37, 0.10], 'gov-eta': [0.46, 0.14], 'gov-agg': [0.40, 0.92], 'llm': [0.56, 0.22], 'regime': [0.49, 0.71], 'cloud': [0.63, 0.66], 'mtf': [0.645, 0.23], 'nodefade': [0.665, 0.74], 'spike': [0.745, 0.15], 'fag-spot': [0.825, 0.17], 'fag-mar': [0.87, 0.28], 'risk': [0.84, 0.77], 'guardian': [0.785, 0.87], 'selfrev': [0.915, 0.26],
+          'uo-energy': [0.44, 0.05], 'uo-node': [0.575, 0.83], 'uo-vfm': [0.35, 0.05], 'uo-matrix': [0.90, 0.63], 'uo-shadow': [0.945, 0.11], 'uo-weight': [0.985, 0.60], 'cnn-multi': [0.235, 0.88] };
+        const grpMeta = { 'gov-pred': 'gov', 'gov-kin': 'gov', 'gov-eta': 'gov', 'gov-agg': 'gov', 'llm': 'sys', 'regime': 'sys', 'cloud': 'sys', 'mtf': 'time', 'nodefade': 'time', 'spike': 'safe', 'fag-spot': 'safe', 'fag-mar': 'safe', 'risk': 'safe', 'guardian': 'safe', 'selfrev': 'rl',
+          'uo-energy': 'uotam', 'uo-node': 'uotam', 'uo-vfm': 'uotam', 'uo-matrix': 'uotam', 'uo-shadow': 'uotam', 'uo-weight': 'uotam', 'cnn-multi': 'uotam' };
         (_neonet.meta || []).forEach(mn => { const a = metaAnchor[mn.id]; if (a) specs.push({ ref: ['m', mn.id], bx: a[0], by: a[1], imp: 0.3, grp: grpMeta[mn.id] || 'sys' }); });
         const cells = specs.map((sp, k) => {
             const jx = (SR(k * 2 + 1) - 0.5) * (sp.grp === 'in' ? 0 : 0.02), jy = (SR(k * 2 + 7) - 0.5) * (sp.grp === 'in' ? 0 : 0.028);
@@ -17682,6 +17713,14 @@ function _neoNetDraw(now, canvasId, outId) {
     // ---- 3. TEKENEN ----
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     const pulse = 0.5 + 0.5 * Math.sin(now / 900);
+    // 3a0. FAINT WORDMARK op de achtergrond (referentie-look: grote, doorschijnende netwerk-typografie)
+    if (isBig) { try {
+        ctx.save(); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        const wm = [ ['NEURAL', 0.055, 0.30, 0.150], ['NETWORK', 0.045, 0.62, 0.115], ['OSIRIS', 0.030, 0.88, 0.085] ];
+        for (const [txt, x, y, sz] of wm) { ctx.font = '900 ' + Math.round(h * sz) + "px 'Orbitron','JetBrains Mono',sans-serif"; ctx.fillStyle = 'rgba(150,180,210,0.035)'; ctx.fillText(txt, w * x, h * y); }
+        ctx.font = '700 ' + Math.round(h * 0.03) + "px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(20,241,149,0.05)'; ctx.fillText('DATA', w * 0.70, h * 0.20);
+        ctx.restore();
+    } catch (e) {} }
     // 3a. achtergrond-bogen (biologische diepte)
     ctx.lineWidth = 0.6;
     for (const b of ORG.bg) { ctx.strokeStyle = 'rgba(200,220,240,0.03)'; ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, 6.283); ctx.stroke(); }
@@ -17769,6 +17808,17 @@ function _neoNetDraw(now, canvasId, outId) {
         try { for (const s of _syms) { const nx = (typeof getNodeContext === 'function') ? getNodeContext(Date.now(), s) : null; const eta = nx ? (nx.nextEtaMin != null ? nx.nextEtaMin : (nx.etaMin != null ? nx.etaMin : null)) : null; if (eta != null) pool.push({ t: s + '·node ' + Math.round(eta) + 'm', g: true }); } } catch (e) {}
         try { if (typeof OsirisRL !== 'undefined' && OsirisRL.episodes) pool.push({ t: (OsirisRL.episodes / 1000).toFixed(0) + 'k eps', g: true }); } catch (e) {}
         try { for (const s of _syms) { const m = neoMultiState.markets[s]; if (m && m.rsi != null) pool.push({ t: s + ' RSI ' + Math.round(m.rsi), g: false }); } } catch (e) {}
+        // ---- UOTAM v7.7 readouts (energie-zone/richting, TAM-countdown, VFM, matrix-RR, shadow-hit) ----
+        try { const _uE = (typeof window.TrinityCommoUOTAM !== 'undefined') ? window.TrinityCommoUOTAM : null;
+            if (_uE) { for (const s of _syms) { const a = _uE.analyze(s, '1h', _uE.PROV_CRYPTO); if (!a || !a.ready) continue;
+                if (a.tam) pool.push({ t: s + '·TAM ' + a.tam.neoType + ' ' + Math.max(0, Math.round(a.tam.msTo / 60000)) + 'm', g: true });
+                if (a.energy) pool.push({ t: s + ' ' + a.energy.zone.split(' ')[0] + (a.energy.dir && a.energy.dir !== '—' ? ' ' + a.energy.dir : ''), g: a.energy.dir === 'LONG' });
+                pool.push({ t: s + ' VFM ' + a.vfm, g: a.vfm >= 0 });
+                const mx = _uE.matrix(s, '1h', _uE.PROV_CRYPTO); if (mx) pool.push({ t: s + ' RR ' + mx.frame.rr, g: mx.frame.rr >= 1.5 });
+                let tr = null; try { tr = window.TrinityUOTAMShadow ? window.TrinityUOTAMShadow.trust('crypto', s) : null; } catch (e) {}
+                if (tr && tr.hitRate != null) pool.push({ t: s + ' hit ' + Math.round(tr.hitRate * 100) + '%', g: tr.hitRate >= 0.5 });
+            } }
+        } catch (e) {}
         // dedup zodat verspreide readouts variëren i.p.v. herhalen
         const seen = new Set(), upool = []; for (const rd of pool) { if (seen.has(rd.t)) continue; seen.add(rd.t); upool.push(rd); }
         let _rc = 0;
@@ -21712,6 +21762,13 @@ addEventListener('beforeunload',persistState);
     { id: 'risk',    label: 'RISK-BREAK',  mx: 0.84, yoff: 0.30,  conn: 'dec',   col: '#ff5f7e', ghost: false },
     { id: 'rl',      label: 'RL-EXIT',     mx: 0.915, yoff: -0.30,conn: 'learn', col: '#14f195', ghost: false },
     { id: 'deep',    label: 'DEEPNET·L3',  mx: 0.25, yoff: 0.32,  conn: 'cores', col: '#7fd8ff', ghost: false },
+    // ---- UOTAM v7.7-cluster (commodity + FX) — nieuwe onderdelen in het web ----
+    { id: 'uo_energy', label: 'UOTAM·ENERGIE', mx: 0.485, yoff: -0.52, conn: 'gate',   col: '#ffd500', ghost: false },
+    { id: 'uo_tam',    label: 'UOTAM·TAM',     mx: 0.55,  yoff: 0.52,  conn: 'gate',   col: '#26d0cc', ghost: false },
+    { id: 'uo_vfm',    label: 'UOTAM·VFM',     mx: 0.40,  yoff: -0.52, conn: 'cores',  col: '#c792ea', ghost: false },
+    { id: 'uo_mtx',    label: 'UOTAM·S/T',     mx: 0.80,  yoff: 0.52,  conn: 'dec',    col: '#7fd8ff', ghost: false },
+    { id: 'uo_shadow', label: 'UOTAM·SHADOW',  mx: 0.87,  yoff: -0.44, conn: 'dec',    col: '#14f195', ghost: false },
+    { id: 'uo_weight', label: 'UOTAM·WEIGHT',  mx: 0.965, yoff: 0.44,  conn: 'learn',  col: '#26d07c', ghost: false },
     // ---- nog ghost · planned ----
     { id: 'g_shock', label: 'SHOCKWAVE',   mx: 0.42, yoff: -0.36, conn: 'cores', col: '#5c7488', ghost: true },
     { id: 'g_pred',  label: 'PREDICT·INV', mx: 0.40, yoff: 0.34,  conn: 'cores', col: '#5c7488', ghost: true },
@@ -21849,6 +21906,25 @@ addEventListener('beforeunload',persistState);
     try { const g = TrinityGuardian.gate((typeof ranked !== 'undefined' && ranked[0]) ? ranked[0].p : 'EUR/USD'); setM('guard', g.block ? 0.9 : 0.5, g.block ? -1 : 1, g.block ? 'BLOCK' : '×' + g.size.toFixed(2)); } catch (e) { setM('guard', 0.3, 1, '—'); }
     try { const q = TrinityRLExit.size(); setM('rl', q ? Math.max(0.3, Math.min(1, 0.3 + q * 0.03)) : 0.2, 1, q ? q + ' st' : 'leert'); } catch (e) { setM('rl', 0.22, 1, '—'); }
     try { const best = (typeof ranked !== 'undefined' && ranked[0]) ? ranked[0] : null; let cov = 1, ov = false; if (best) { const a = TrinityDeepNetL3.assess(best.p, best.side || 'LONG', best.pred || 50); cov = a.coverage; ov = a.overlooked; } setM('deep', Math.max(0.2, Math.min(1, cov)), ov ? -1 : 1, 'dekking ' + Math.round(cov * 100) + '%'); } catch (e) { setM('deep', 0.3, 1, '—'); }
+    // ---- UOTAM v7.7 (FX best-ranked pair + commodity WTI) — voed de nieuwe web-knopen data-true ----
+    try {
+      const _uE = (typeof window.TrinityCommoUOTAM !== 'undefined') ? window.TrinityCommoUOTAM : null;
+      const _pair = (typeof ranked !== 'undefined' && ranked[0] && ranked[0].p) ? ranked[0].p : 'EUR/USD';
+      let a = null, prov = null, pk = 'fx', mk = _pair;
+      if (_uE) { try { _uE.FxCandles.load(_pair, '1h'); } catch (e) {} prov = _uE.PROV_FX; a = _uE.analyze(_pair, '1h', prov);
+        if (!a || !a.ready) { prov = _uE.PROV_COMMO; pk = 'commo'; mk = 'WTI'; a = _uE.analyze('WTI', '1h', prov); } }
+      if (a && a.ready) {
+        const en = a.energy || {};
+        setM('uo_energy', Math.max(0.2, en.compression != null ? en.compression : 0.3), en.dir === 'SHORT' ? -1 : 1, (en.zone ? en.zone.split(' ')[0] : '—') + (en.dir && en.dir !== '—' ? ' ' + en.dir : ''));
+        const T = a.tam; setM('uo_tam', T ? Math.max(0.2, Math.min(1, 1 - (T.msTo / (T.ivMin * 60000 || 1)))) : 0.2, 1, T ? (T.neoType + ' ' + Math.max(0, Math.round(T.msTo / 60000)) + 'm') : '—');
+        setM('uo_vfm', Math.max(0.15, Math.min(1, Math.abs(a.vfm) / 1.6)), a.vfm >= 0 ? 1 : -1, 'VFM ' + a.vfm + (Math.abs(a.vfm) >= 1.2 ? ' ✓' : ''));
+        const mx = _uE.matrix(mk, '1h', prov); if (mx) setM('uo_mtx', Math.max(0.2, Math.min(1, mx.frame.rr / 2.5)), mx.dir === 'SHORT' ? -1 : 1, 'RR ' + mx.frame.rr + ' · ' + mx.dir); else setM('uo_mtx', 0.2, 1, 'laadt');
+        let tr = null; try { tr = window.TrinityUOTAMShadow ? window.TrinityUOTAMShadow.trust(pk, mk) : null; } catch (e) {}
+        setM('uo_shadow', tr && tr.hitRate != null ? Math.max(0.2, tr.hitRate) : 0.18, (tr && tr.proven) ? 1 : -1, tr && tr.hitRate != null ? (Math.round(tr.hitRate * 100) + '% n' + tr.n + (tr.proven ? ' ✓' : '')) : 'leert');
+        let w = 0; try { w = (typeof uotamWeight === 'function') ? uotamWeight(pk, mk) : 0; } catch (e) {}
+        setM('uo_weight', Math.max(0.15, w || 0.15), w > 0.05 ? 1 : -1, w > 0.05 ? ('LIVE ' + Math.round(w * 100) + '%') : 'shadow');
+      } else { ['uo_energy','uo_tam','uo_vfm','uo_mtx','uo_shadow','uo_weight'].forEach(id => setM(id, 0.18, 1, 'laadt')); }
+    } catch (e) {}
     // ghost — altijd gedimd + "planned"
     _trnet.meta.forEach(m => { if (m.ghost) { m.act = 0.16; m.sign = 1; m.val = 'planned'; } });
   }
@@ -21959,6 +22035,12 @@ addEventListener('beforeunload',persistState);
 
     // ---- 3. TEKENEN ----
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    // 3a0. FAINT WORDMARK (referentie-look)
+    try { ctx.save(); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      const wm = [['NEURAL', 0.05, 0.30, 0.150], ['NETWORK', 0.04, 0.62, 0.115], ['TRINITY', 0.03, 0.88, 0.085]];
+      for (const q of wm) { ctx.font = '900 ' + Math.round(h * q[3]) + "px 'Orbitron','JetBrains Mono',sans-serif"; ctx.fillStyle = 'rgba(150,180,210,0.035)'; ctx.fillText(q[0], w * q[1], h * q[2]); }
+      ctx.font = '700 ' + Math.round(h * 0.03) + "px 'JetBrains Mono',monospace"; ctx.fillStyle = 'rgba(127,216,255,0.05)'; ctx.fillText('DATA', w * 0.70, h * 0.20);
+      ctx.restore(); } catch (e) {}
     // 3a. achtergrond-bogen
     ctx.lineWidth = 0.6; for (const b of ORG.bg) { ctx.strokeStyle = 'rgba(200,220,240,0.03)'; ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, 6.283); ctx.stroke(); }
     // 3b. filament-web
@@ -25410,6 +25492,20 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 })();
 
 /* ==================================================================================
+   OSIRIS · LIVE COUNTDOWN-TICKER — laat node-countdowns écht per seconde aftellen.
+   __uotamCd(nextTs) geeft een <span> met data-next; een 1s-ticker herberekent alle
+   .uotam-cd spans t.o.v. de live klok (los van de 5s-render en de 20s-analyse-cache).
+   ================================================================================== */
+(function(){
+  'use strict';
+  function fmt(ms){ ms=Math.max(0,ms||0); const s=Math.floor(ms/1000); const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), ss=s%60; const p=n=>String(n).padStart(2,'0');
+    return h>0?(h+'u '+p(m)+'m '+p(ss)+'s'):(m>0?(m+'m '+p(ss)+'s'):(ss+'s')); }
+  try{ window.__uotamFmtCd=fmt; window.__uotamCd=function(nextTs){ nextTs=+nextTs||0; return '<span class="uotam-cd" data-next="'+nextTs+'">'+fmt(nextTs-Date.now())+'</span>'; }; }catch(e){}
+  function tick(){ try{ const now=Date.now(); const els=document.querySelectorAll('.uotam-cd'); for(let i=0;i<els.length;i++){ const el=els[i]; if(el.offsetParent===null)continue; const n=+el.getAttribute('data-next'); if(n)el.textContent=fmt(n-now); } }catch(e){} }
+  try{ setInterval(tick,1000); }catch(e){}
+})();
+
+/* ==================================================================================
    TRINITY · COMMODITY SYSTEM DATA — spiegelt de crypto System Data, per grondstof,
    gevoed door TrinityCommoUOTAM (native ⇄ theorie, zelf-gekalibreerd). Puur weergave;
    verandert de werking niet. Rendert in #cd-* containers zolang die zichtbaar zijn.
@@ -25430,7 +25526,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     host.innerHTML=ready.map(a=>{ const d=a.dir==='LONG'?'#26d07c':'#ff5f7e'; const vc={TRADE:'#26d07c',WAIT:'#ffb627',SKIP:'#ff5f7e'}[a.verdict]||'#7d8a99';
       return card('<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:0.66rem;color:#cfe6f5;">'+nm(a)+'</b><span style="font-size:0.5rem;color:'+regCol[a.regime]+';">'+esc(a.regime)+'</span></div>'+
         '<div style="display:flex;justify-content:space-between;font-size:0.54rem;color:#9fb2c4;"><span>prijs '+(a.px>=100?a.px.toFixed(1):a.px.toFixed(4))+'</span><span style="color:'+a.energy.col+';">'+esc(a.energy.zone)+'</span></div>'+
-        '<div style="display:flex;justify-content:space-between;font-size:0.54rem;margin-top:2px;"><span style="color:'+vc+';font-weight:700;">'+a.verdict+'</span><span style="color:'+d+';">'+a.dir+' '+a.lev+'</span><span style="color:'+a.node.col+';">node '+a.node.type+' '+fmtT(a.node.msTo)+'</span></div>',a.energy.col+'55'); }).join('');
+        '<div style="display:flex;justify-content:space-between;font-size:0.54rem;margin-top:2px;"><span style="color:'+vc+';font-weight:700;">'+a.verdict+'</span><span style="color:'+d+';">'+a.dir+' '+a.lev+'</span><span style="color:'+(a.tam?a.tam.teslaCol:a.node.col)+';">node '+(a.tam?(a.tam.neoType+' '+(window.__uotamCd?window.__uotamCd(a.tam.nextTs):fmtT(a.tam.msTo))):(a.node.type+' '+(window.__uotamCd?window.__uotamCd(a.node.nextTs):fmtT(a.node.msTo))))+'</span></div>',a.energy.col+'55'); }).join('');
     const lv=document.getElementById(idp+'-levels'); if(lv)lv.innerHTML=ready.map(a=>{ const bar=s=>{ const L=a.levels[s]; return '<div style="font-size:0.5rem;color:#8aa;display:flex;justify-content:space-between;gap:4px;"><span style="text-transform:uppercase;color:#6d8296;">'+s+'</span><span style="color:#ff5f7e;">'+L.bear+'</span><span style="color:#7fd8ff;">'+L.lo+'–'+L.hi+'</span><span style="color:#26d07c;">'+L.bull+'</span></div>'; };
       return card('<b style="font-size:0.62rem;color:#cfe6f5;">'+nm(a)+'</b><div style="margin-top:3px;display:flex;flex-direction:column;gap:2px;">'+bar('micro')+bar('meso')+bar('macro')+'</div>'); }).join('');
     const mt=document.getElementById(idp+'-meters'); if(mt)mt.innerHTML=ready.map(a=>{ const vc=Math.abs(a.vfm)>=1.2?'#26d07c':'#ffb627'; const cc=a.chaosOk?'#26d07c':'#ff5f7e';
@@ -25446,10 +25542,10 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const nd=document.getElementById(idp+'-nodes'); if(nd)nd.innerHTML=ready.map(a=>{ const fit=a.nodeFit; const T=a.tam;
       return card('<b style="font-size:0.68rem;color:#cfe6f5;">'+nm(a)+'</b>'+
         (T? '<div style="font-size:0.6rem;margin-top:3px;">TAM-node <b style="color:'+T.neoCol+';">'+esc(T.neoType)+'</b> · <span style="color:'+T.teslaCol+';font-weight:700;">Type '+T.teslaType+' '+esc(T.teslaLab)+'</span></div>'+
-             '<div style="font-size:0.66rem;color:#26d07c;font-weight:800;margin-top:1px;">volgende in '+fmtT(T.msTo)+'</div>'+
+             '<div style="font-size:0.66rem;color:#26d07c;font-weight:800;margin-top:1px;">volgende in '+(window.__uotamCd?window.__uotamCd(T.nextTs):fmtT(T.msTo))+'</div>'+
              '<div style="font-size:0.54rem;color:#9fb2c4;">'+esc(T.session)+(T.periodBars?' · periode '+T.periodBars+'b':'')+'</div>'
            : '<div style="font-size:0.58rem;color:#9fb2c4;margin-top:3px;">node-data laadt…</div>')+
-        '<div style="font-size:0.52rem;color:#6d8296;margin-top:2px;">π-klok (kosmisch): Type '+a.node.type+' in '+fmtT(a.node.msTo)+'</div>'+
+        '<div style="font-size:0.52rem;color:#6d8296;margin-top:2px;">π-klok (kosmisch): Type '+a.node.type+' in '+(window.__uotamCd?window.__uotamCd(a.node.nextTs):fmtT(a.node.msTo))+'</div>'+
         (fit?'<div style="font-size:0.52rem;color:#6d8296;margin-top:1px;">timing-fit: π-klok '+Math.round(fit.piPct*100)+'% vs adaptief '+(fit.adPct!=null?Math.round(fit.adPct*100)+'%':'—')+' → <span style="color:#7fd8ff;">'+esc(fit.better)+'</span></div>':'')); }).join('');
     const en=document.getElementById(idp+'-energy'); if(en)en.innerHTML=ready.map(a=>{ const Z=a.energy;
       const bar=(v,c)=>'<div style="height:5px;border-radius:2px;background:rgba(255,255,255,0.08);overflow:hidden;"><div style="height:100%;width:'+Math.round(v*100)+'%;background:'+c+';"></div></div>';
@@ -25499,7 +25595,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const arch=document.getElementById(idp+'-arch'); if(arch){ const gateVfm=Math.abs(a.vfm)>=1.2, gateChaos=a.chaosOk;
       const layer=(n,title,val,ok,note)=>'<div style="border-left:3px solid '+(ok==null?'#5c7488':ok?'#26d07c':'#ff5f7e')+';padding:6px 9px;margin-bottom:6px;background:rgba(255,255,255,0.02);border-radius:0 5px 5px 0;"><div style="font-size:0.64rem;color:#7fd8ff;font-weight:600;">LAAG '+n+' · '+title+'</div><div style="font-size:0.7rem;color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;margin-top:2px;">'+val+'</div>'+(note?'<div style="font-size:0.54rem;color:#6d8296;margin-top:2px;">'+note+'</div>':'')+'</div>';
       arch.innerHTML=
-        layer(1,'Kosmische Klok (Tesla 3-6-9)','Node '+a.node.num+' · <span style="color:'+a.node.col+'">Type '+a.node.type+' '+a.node.typeLab+'</span> · volgende in '+Math.max(0,Math.round(a.node.msTo/60000))+'m',null,'T_π 188,66min · micro-node 9,43u · '+esc(a.node.session))+
+        layer(1,'Kosmische Klok (Tesla 3-6-9)','Node '+a.node.num+' · <span style="color:'+a.node.col+'">Type '+a.node.type+' '+a.node.typeLab+'</span> · volgende in '+(window.__uotamCd?window.__uotamCd(a.node.nextTs):(Math.max(0,Math.round(a.node.msTo/60000))+'m'))+(a.tam?(' · <span style="color:'+a.tam.teslaCol+'">TAM '+esc(a.tam.neoType)+' '+(window.__uotamCd?window.__uotamCd(a.tam.nextTs):fmtT(a.tam.msTo))+'</span>'):''),null,'T_π 188,66min · micro-node 9,43u · '+esc(a.node.session))+
         layer(2,'Energie-ingestie (VFM)','ER '+a.er+' × DB '+a.db+' → VFM '+a.vfm,gateVfm,'|VFM|≥1.2 = institutionele massa · bron '+a.vfmSrc+' ('+Math.round(a.vfmHit*100)+'% hit) · '+(gateVfm?'DOOR':'WAIT (vacuüm)'))+
         layer(3,'Capital Guard (chaos-filter)','Chaos '+a.chaos+'% / limiet '+a.chaosLim+'%',gateChaos,(gateChaos?'binnen limiet → DOOR':'boven limiet → SKIP')+' · dynamisch 8%→15% bij |VFM|>1.8')+
         layer(4,'Executie-matrix (LIVE · autonoom)',(function(){ let w=0,tr=null; try{ w=(typeof window.uotamWeight==='function')?window.uotamWeight(prov.key,cur):0; tr=window.TrinityUOTAMShadow&&window.TrinityUOTAMShadow.trust(prov.key,cur); }catch(e){}
