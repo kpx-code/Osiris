@@ -4694,6 +4694,10 @@ function commitPositionEntry(position, reasonText) {
             const _curStop = _long ? position.entryPrice * (1 - 0.02) : position.entryPrice * (1 + 0.02);
             const _uf = _uotamFrame(_mk, 'crypto', _long, position.entryPrice, position.targetPrice, _curStop);
             if (_uf) { position.targetPrice = _uf.target; position._uotam = { provKey: 'crypto', mktKey: _mk, weight: _uf.weight }; position.uotamWeight = _uf.weight; }
+            // UOTAM-CONSULT (spot): schaal de positiegrootte op bias-alignment + VFM-piek; reden vastleggen
+            if (typeof neoUotamSizeMult === 'function') { const _um = Math.min(1, neoUotamSizeMult('crypto', _mk, position.side));   // op commit alleen verkleinen (alloc-check is al gedaan)
+                if (_um && _um < 1) { if (position.sizePct) position.sizePct *= _um; if (position.notional) position.notional *= _um; if (position.amount) position.amount = parseFloat((position.amount * _um).toFixed(8)); }
+                try { position.uotamReason = neoUotamReason('crypto', _mk, position.side); } catch (e) {} }
         }
     } catch (e) {}
     if (botSettings.executionMode !== 'TESTNET') {
@@ -12793,7 +12797,9 @@ async function marginTick() {
             if (_mdd.level > 0) entryLev = Math.max(1, Math.round(entryLev * (1 - 0.6 * _mdd.level)));   // drawdown → minder hefboom = kleinere klap
             marginLeverage = entryLev;   // baseline/weergave volgt de laatst gekozen hefboom
             const _crySizeMulM = (typeof OsirisCryptoRisk !== 'undefined') ? OsirisCryptoRisk.sizeMult() : 1;   // ShockWave→Neo: wereld-risk-off verkleint (shadow-gated, ≥0,5×)
-            const sizePct = (perTradeExpo / entryLev) * _crySizeMulM;                               // bijhorende marge-fractie × wereld-risk
+            // UOTAM-CONSULT (margin): grootte schalen op bias-alignment + VFM-piek + energie-zone; reden loggen
+            let _uoMulM = 1; try { if (typeof neoUotamSizeMult === 'function') _uoMulM = neoUotamSizeMult('crypto', sym, m.bestSide); if (_uoMulM !== 1 && typeof _marginLog === 'function') _marginLog('reasoning', `${sym} ${m.bestSide}: ${neoUotamReason('crypto',sym,m.bestSide)} → size ×${_uoMulM.toFixed(2)}`); } catch (e) {}
+            const sizePct = (perTradeExpo / entryLev) * _crySizeMulM * _uoMulM;                      // bijhorende marge-fractie × wereld-risk × UOTAM-consult
             if (sizePct < 0.03) { marginState.lastAction = `exposure-cap bereikt (${(curNotionalPct * 100 | 0)}% / ${(effMaxExpo * 100 | 0)}% notional)`; continue; }
             const marginUSD = sizingBase * sizePct;
             const notional = marginUSD * entryLev;                                                 // leverage!
@@ -12825,6 +12831,7 @@ async function marginTick() {
             const _stopMul = (_chopReg ? 1.6 : 1) * (_spikeTighten ? 0.7 : 1);
             const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, entryFillPrice: entryPrice, entryFilled, qty, notional: notionalReal, marginUSD: marginReal, sizePct, leverage: entryLev, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100 * _stopMul, chop: _chopReg, targetPct: ((typeof OsirisAutoCal !== 'undefined') ? OsirisAutoCal.marginTargetFrac((preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT) : (preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT), entryProb: (m.bestProb * 100), regimeAtEntry: ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null),
                 factorsAtEntry: (() => { try { const bf = m.bestFactors || {}; return { vfm: m.vfm || 0, rsi: (m.rsi != null ? (m.rsi - 50) / 10 : 0), ema: (m.ema != null && m.emaSlow) ? ((m.ema - m.emaSlow) / m.emaSlow * 100) : 0, nn: 0, fundamentals: (m.fund && m.fund.fundingRate != null ? -Math.tanh(m.fund.fundingRate * 2000) * 3 : 0), chaos: m.chaos || 0, mtfDirInfluence: bf.mtfDir || 0, mtfMomInfluence: bf.mtfMom || 0, nodeFadeInfluence: bf.nodeFade || 0 }; } catch (e) { return null; } })() };
+            try { pos._uotam = { provKey: 'crypto', mktKey: sym }; if (typeof _uotamFrame === 'function' && pos.entryPrice > 0) { const _long = m.bestSide !== 'SHORT'; const _cs = _long ? pos.entryPrice * (1 - (pos.stopPct || 0.02)) : pos.entryPrice * (1 + (pos.stopPct || 0.02)); const _ct = _long ? pos.entryPrice * (1 + (pos.targetPct || 0.01)) : pos.entryPrice * (1 - (pos.targetPct || 0.01)); const _uf = _uotamFrame(sym, 'crypto', _long, pos.entryPrice, _ct, _cs); if (_uf) { pos.uotamTarget = _uf.target; pos.uotamWeight = _uf.weight; } } } catch (e) {}
             marginState.positions.push(pos);
             try { if (typeof OsirisAdaptive !== 'undefined') OsirisAdaptive.markEntry('margin'); } catch (e) {}   // activiteits-governor: handel hervat
             marginState.tradeLog.unshift({ action: 'ENTRY', ts: now, sym, side: m.bestSide, price: entryPrice, notional: notionalReal, leverage: entryLev, filled: entryFilled });
@@ -12907,6 +12914,8 @@ async function marginClose(pos, price, lev, reason) {
         const realizedLevPct = (pos.marginUSD > 0) ? (pnlUSD / pos.marginUSD) : lev;      // geleveraged rendement op de margin
         marginState.equity += pnlUSD; marginState.realizedPnL += pnlUSD;
         if (pnlUSD > 0) marginState.wins++; else marginState.losses++;
+        // UOTAM autonoom leren (margin): schaal de gerealiseerde factor per markt af/aan na deze trade
+        try { if (pos._uotam && typeof uotamRecordTrade === 'function') uotamRecordTrade(pos._uotam.provKey, pos._uotam.mktKey, pnlUSD > 0); } catch (e) {}
         marginState.positions = marginState.positions.filter(p => p !== pos);
         lev = realizedLevPct;   // vanaf hier: het ECHTE geleveraged rendement gebruiken voor log/leren
         const rawPnl = lev / (pos.leverage || 1);   // unleveraged rendement (vergelijkbaar met spot)
@@ -20131,12 +20140,30 @@ function manageTrinity(){
 const OSIRIS_UOTAM_TRADE={on:true,log:[],rf:{},weights:{}}; try{ window.OSIRIS_UOTAM_TRADE=OSIRIS_UOTAM_TRADE;
   const d=JSON.parse(localStorage.getItem('osirisUotamTrade')||'null'); if(d){ if(d.rf)OSIRIS_UOTAM_TRADE.rf=d.rf; if(typeof d.on==='boolean')OSIRIS_UOTAM_TRADE.on=d.on; } }catch(e){}
 function _uotamSave(){ try{ localStorage.setItem('osirisUotamTrade',JSON.stringify({rf:OSIRIS_UOTAM_TRADE.rf,on:OSIRIS_UOTAM_TRADE.on})); }catch(e){} }
-// autonome weight per markt: Wilson-edge × gerealiseerde-uitkomst-factor (0.15..1.2, daalt bij verlies)
-function uotamWeight(provKey, mktKey){ try{ if(!OSIRIS_UOTAM_TRADE.on||!window.TrinityUOTAMShadow)return 0;
-  const tr=TrinityUOTAMShadow.trust(provKey,mktKey); if(!tr||!tr.proven||tr.wilson==null)return 0;
-  const base=Math.max(0,Math.min(1,(tr.wilson-0.5)/0.3));                 // 0.52→~0.07 … 0.80→1.0
-  const rf=Math.max(0.15,Math.min(1.2, OSIRIS_UOTAM_TRADE.rf[provKey+':'+mktKey]!=null?OSIRIS_UOTAM_TRADE.rf[provKey+':'+mktKey]:1));
-  return +Math.max(0,Math.min(1,base*rf)).toFixed(3); }catch(e){ return 0; } }
+// autonome weight per markt — START op een STANDAARD waarde (0.6) en bouw alleen AF als het niet klopt.
+//  weight = STANDAARD × gerealiseerde-factor(rf) × shadow-multiplier. rf daalt na elke verliestrade;
+//  een bewezen-goede shadow mag 'm iets optillen, een bewezen-slechte drukt 'm extra omlaag.
+const UOTAM_START_W = 0.6;
+function uotamWeight(provKey, mktKey){ try{ if(!OSIRIS_UOTAM_TRADE.on)return 0;
+  const rf=Math.max(0.1,Math.min(1.3, OSIRIS_UOTAM_TRADE.rf[provKey+':'+mktKey]!=null?OSIRIS_UOTAM_TRADE.rf[provKey+':'+mktKey]:1));
+  let sh=1; try{ const tr=window.TrinityUOTAMShadow&&window.TrinityUOTAMShadow.trust(provKey,mktKey);
+    if(tr&&tr.wilson!=null){ if(tr.proven)sh=1+Math.max(0,(tr.wilson-0.6))*1.2; else if(tr.n>=25&&tr.wilson<0.45)sh=0.6; } }catch(e){}
+  return +Math.max(0,Math.min(1,UOTAM_START_W*rf*sh)).toFixed(3); }catch(e){ return 0; } }
+// ---- NEO/Trinity UOTAM-consult: grootte-multiplier uit bias-alignment + VFM-piek + energie-zone ----
+//  De VFM-piek (top van de "berg") is het scherpste instap-/keerpunt; sterke |VFM| = institutionele massa.
+function neoUotamSizeMult(provKey, mktKey, side){ try{ const E=window.TrinityCommoUOTAM; if(!E||!OSIRIS_UOTAM_TRADE.on)return 1;
+  const prov=E.provFor?E.provFor(provKey):(provKey==='crypto'?E.PROV_CRYPTO:provKey==='fx'?E.PROV_FX:E.PROV_COMMO);
+  const a=E.analyze(mktKey,'1h',prov); if(!a||!a.ready)return 1; const w=uotamWeight(provKey,mktKey); if(w<=0)return 1;
+  const long=(side==='LONG'||side==='BUY'); const align=(a.dir==='LONG')===long?1:-1;
+  const peak=Math.min(1,Math.abs(a.vfm)/1.6);
+  let mult=1+align*w*(0.15+0.30*peak);
+  if(a.vfmPeak&&a.vfmPeak.at){ mult+=align*w*0.15; }                                     // extra bij een VFM-piek
+  if(a.energy){ if(a.energy.zone==='CLIMAX'&&align<0)mult-=0.15; if((a.energy.zone==='DEEP COMPRESSION'||a.energy.zone==='LOADING')&&align>0)mult+=0.05; }
+  return +Math.max(0.5,Math.min(1.25,mult)).toFixed(3); }catch(e){ return 1; } }
+function neoUotamReason(provKey, mktKey, side){ try{ const E=window.TrinityCommoUOTAM; if(!E)return ''; const prov=E.provFor?E.provFor(provKey):E.PROV_CRYPTO;
+  const a=E.analyze(mktKey,'1h',prov); if(!a||!a.ready)return ''; const w=uotamWeight(provKey,mktKey); const long=(side==='LONG'||side==='BUY'); const align=(a.dir==='LONG')===long?'✓ mee':'✗ tegen';
+  return 'UOTAM '+a.dir+' ('+align+' bias, w'+Math.round(w*100)+'%) · '+a.energy.zone+(a.vfmPeak&&a.vfmPeak.at?' · ⚡VFM-piek':'')+' · VFM '+a.vfm; }catch(e){ return ''; } }
+try{ window.uotamWeight=uotamWeight; window.neoUotamSizeMult=neoUotamSizeMult; window.neoUotamReason=neoUotamReason; }catch(e){}
 // na ELKE trade met toegepaste override: schaal de gerealiseerde factor (autonoom afschalen bij verlies)
 function uotamRecordTrade(provKey, mktKey, win){ try{ const k=provKey+':'+mktKey; let rf=OSIRIS_UOTAM_TRADE.rf[k]!=null?OSIRIS_UOTAM_TRADE.rf[k]:1;
   rf=win? rf*1.06 : rf*0.80; rf=Math.max(0.15,Math.min(1.2,rf)); OSIRIS_UOTAM_TRADE.rf[k]=+rf.toFixed(3); _uotamSave();
@@ -24919,7 +24946,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     return {dir,expMovePct,target,conf:+Math.min(0.95,0.5+score*0.3).toFixed(2),horizon:'4h'}; }catch(e){ return null; } }
   // ===== twee bronnen: commodities (Capital) en crypto (Binance) =====
   const COMMO={ name:'commo', names:COMMO_NAMES, st:_mkSt('WTI'), fns:'__commo', _built:false,
-    dom:{canvas:'tr-commo-chart',meta:'commo-chart-meta',sel:'commo-chart-sel',tfs:'commo-chart-tfs',tools:'commo-chart-tools'},
+    dom:{canvas:'tr-commo-chart',meta:'commo-chart-meta',sel:'commo-chart-sel',tfs:'commo-chart-tfs',tools:'commo-chart-tools',hist:'commo-dv-hist'}, fpk:'commo',
     candles:(k,tf)=>(typeof TrinityCommodities!=='undefined')?TrinityCommodities.candles(k,tf):[],
     fso:(k,tf)=>(typeof TrinityCommodityFSO!=='undefined')?TrinityCommodityFSO.compute(k,tf):null,
     predict:(k)=>(typeof TrinityCommodities!=='undefined')?TrinityCommodities.predict4h(k):null,
@@ -24928,7 +24955,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     nsKey:(k)=>k, brainCands:(k,tf)=>undefined,
     onRender:()=>{}, emptyMsg:(k,tf)=>'Geen candles voor '+(COMMO_NAMES[k]||k)+' · '+tf+' — verbind de Capital-proxy en deploy de /history-route.' };
   const CRYPTO={ name:'crypto', names:CRYPTO_NAMES, st:_mkSt('BTC'), fns:'__cx', _built:false,
-    dom:{canvas:'cx-sys-chart',meta:'cx-sys-meta',sel:'cx-sys-sel',tfs:'cx-sys-tfs',tools:'cx-sys-tools'},
+    dom:{canvas:'cx-sys-chart',meta:'cx-sys-meta',sel:'cx-sys-sel',tfs:'cx-sys-tfs',tools:'cx-sys-tools',hist:'cx-dv-hist'}, fpk:'crypto',
     candles:(k,tf)=>CryptoSysCandles.candles(k,tf),
     fso:(k,tf)=>(typeof TrinityCommodityFSO!=='undefined')?TrinityCommodityFSO.compute('CX:'+k,tf,CryptoSysCandles.candles(k,tf),CryptoSysCandles.candles(CRYPTO_PEER[k]||'BTC',tf)):null,
     predict:(k)=>_cryptoPredict(k),
@@ -24945,7 +24972,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const expMovePct=+(score*vol*4*100).toFixed(3); const px=cl[cl.length-1]; const target=+(px*(1+(dir==='LONG'?1:-1)*expMovePct/100)).toFixed(px>=100?2:5);
     return {dir,expMovePct,target,conf:+Math.min(0.95,0.5+score*0.3).toFixed(2),horizon:'4h'}; }catch(e){ return null; } }
   const FXSRC={ name:'fx', names:FX_NAMES2, st:_mkSt('EUR/USD'), fns:'__fx', _built:false,
-    dom:{canvas:'fx-sys-chart',meta:'fx-sys-meta',sel:'fx-sys-sel',tfs:'fx-sys-tfs',tools:'fx-sys-tools'},
+    dom:{canvas:'fx-sys-chart',meta:'fx-sys-meta',sel:'fx-sys-sel',tfs:'fx-sys-tfs',tools:'fx-sys-tools',hist:'fx-dv-hist'}, fpk:'fx',
     candles:(k,tf)=>window.FxCandles?window.FxCandles.candles(k,tf):[],
     fso:(k,tf)=>(typeof TrinityCommodityFSO!=='undefined'&&window.FxCandles)?TrinityCommodityFSO.compute('FX:'+k,tf,window.FxCandles.candles(k,tf),window.FxCandles.candles(FX_PEER2(k),tf)):null,
     predict:(k)=>_fxPredict(k),
@@ -25166,25 +25193,40 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.55; ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
       ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="bold 10px 'JetBrains Mono',monospace"; ctx.fillText('4h '+(pr.dir==='LONG'?'▲':'▼')+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw+3,yt+3); } }catch(e){}
     // ---- ⚡ ΔV KILL-SWITCH PROJECTIE — voorspelde pivot-prijs + voorspelde datum/tijd-range (uit de energie-forecast) ----
+    //  Toont ALTIJD een badge: volledige projectie zodra de forecast er is, anders een "calibreert…"-melding.
     try{ const pk={commo:'commo',crypto:'crypto',fx:'fx'}[SRC.name]||'commo';
-      const En2=window.TrinityCommoUOTAM; const fc=window.TrinityEForecast&&window.TrinityEForecast.predict(pk,SEL); const m2=En2&&En2.matrix(SEL,'1h',En2.provFor?En2.provFor(pk):undefined);
-      if(fc&&m2&&fc.remainMs>0){ const pRow=m2.rows.find(r=>r.kind==='pivot'); const projP=(pRow&&pRow.price!=null)?pRow.price:m2.frame.entry;
-        if(projP>=mn&&projP<=mx){ const yv=yP(projP); const col=fc.dir==='LONG'?'#14f195':fc.dir==='SHORT'?'#ff5f7e':'#ffb627';
-          const maxH=72*3600000, frac=Math.max(0.15,Math.min(1,fc.remainMs/maxH)); const xEnd=padL+gw, xProj=Math.min(W-5, xEnd+6+frac*(padR-12));
+      const En2=window.TrinityCommoUOTAM; const provU=En2&&(En2.provFor?En2.provFor(pk):undefined); const fc=window.TrinityEForecast&&window.TrinityEForecast.predict(pk,SEL); const m2=En2&&En2.matrix(SEL,'1h',provU); const a2=En2&&En2.analyze(SEL,'1h',provU);
+      // ⚡ VFM-PIEK — "top van de berg": scherpste short/long-instap, gemarkeerd op de laatste candle
+      try{ if(a2&&a2.ready&&a2.vfmPeak&&a2.vfmPeak.at){ const yv=yP(cl[n-1]); const xc=x(n-1); const pcol=a2.vfmPeak.dir==='LONG'?'#14f195':'#ff5f7e';
+        ctx.strokeStyle=pcol; ctx.lineWidth=1.6; ctx.beginPath(); ctx.arc(xc,yv,6,0,6.283); ctx.stroke();
+        ctx.fillStyle=pcol; ctx.font="bold 9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText('⚡VFM-piek '+a2.vfmPeak.dir,xc-9,yv-6); } }catch(e){}
+      // ◀ STARTPUNT van de huidige voorspelde periode — bij de candle waar de ΔV kill-switch/periode begon
+      try{ const epc=fc&&fc.since?fc:(window.TrinityEForecast&&window.TrinityEForecast.episode(pk,SEL)); const since=epc&&epc.since; const sPx=epc&&epc.startPx;
+        if(since && cands && cands.length){ let si=-1; for(let i=0;i<n;i++){ if(cands[i].t!=null && cands[i].t>=since){ si=i; break; } } if(si<0 && cands[n-1].t!=null && since<=Date.now()) si=Math.max(0,n-1);
+          if(si>=0){ const xs=x(si); const scol='#7fd8ff';
+            ctx.setLineDash([2,4]); ctx.strokeStyle=scol; ctx.globalAlpha=0.55; ctx.beginPath(); ctx.moveTo(xs,plotT); ctx.lineTo(xs,priceBot); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
+            const ys=(sPx!=null&&sPx>=mn&&sPx<=mx)?yP(sPx):(plotT+10);
+            ctx.fillStyle=scol; ctx.beginPath(); ctx.moveTo(xs,ys); ctx.lineTo(xs-5,ys-8); ctx.lineTo(xs+5,ys-8); ctx.closePath(); ctx.fill();
+            ctx.font="bold 8.5px 'JetBrains Mono',monospace"; ctx.textAlign=(si>n*0.7?'right':'left'); ctx.fillText('◀ ΔV-periode start',(si>n*0.7?xs-6:xs+6),ys-11); } } }catch(e){}
+      const p2f=x=>String(x).padStart(2,'0'); const dS=t=>{const d=new Date(t);return p2f(d.getDate())+'/'+p2f(d.getMonth()+1)+' '+p2f(d.getHours())+':'+p2f(d.getMinutes());};
+      const ready=!!(fc&&m2&&fc.remainMs>0); let line1,line2,col;
+      if(ready){ const pRow=m2.rows.find(r=>r.kind==='pivot'); const projP=(pRow&&pRow.price!=null)?pRow.price:m2.frame.entry;
+        col=fc.dir==='LONG'?'#14f195':fc.dir==='SHORT'?'#ff5f7e':'#ffb627';
+        const rng=(window.__uotamFmtRange?window.__uotamFmtRange(fc.loMs,fc.hiMs):Math.round(fc.remainMs/3600000)+'u');
+        line1='⚡ΔV kill-switch '+(fc.dir&&fc.dir!=='—'?fc.dir:'')+' ~'+(+projP).toFixed(dec)+' @ '+dS(fc.etaTs)+' ['+rng+']';
+        line2='venster '+dS(fc.etaLo)+' → '+dS(fc.etaHi)+' · vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.proven?' ✓':' (leert)');
+        // marker + lijn op het voorspelde prijspunt (indien binnen zicht)
+        if(projP>=mn&&projP<=mx){ const yv=yP(projP); const maxH=72*3600000, frac=Math.max(0.15,Math.min(1,fc.remainMs/maxH)); const xEnd=padL+gw, xProj=Math.min(W-5, xEnd+6+frac*(padR-12));
           ctx.setLineDash([2,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.75; ctx.beginPath(); ctx.moveTo(padL+gw*0.45,yv); ctx.lineTo(xProj,yv); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
-          ctx.fillStyle=col; ctx.beginPath(); ctx.arc(xProj,yv,3,0,6.283); ctx.fill();
-          const p2f=x=>String(x).padStart(2,'0'); const dS=t=>{const d=new Date(t);return p2f(d.getDate())+'/'+p2f(d.getMonth()+1)+' '+p2f(d.getHours())+':'+p2f(d.getMinutes());};
-          const rng=(window.__uotamFmtRange?window.__uotamFmtRange(fc.loMs,fc.hiMs):Math.round(fc.remainMs/3600000)+'u');
-          // GROTE, leesbare ΔV-projectie-badge met donkere achtergrond
-          const line1='⚡ΔV kill-switch '+(fc.dir&&fc.dir!=='—'?fc.dir:'')+' ~'+projP.toFixed(dec)+' @ '+dS(fc.etaTs)+' ['+rng+']';
-          const line2='venster '+dS(fc.etaLo)+' → '+dS(fc.etaHi)+' · vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.proven?' ✓':' (leert)');
-          ctx.textAlign='left'; ctx.font="bold 13px 'JetBrains Mono',monospace"; const w1=ctx.measureText(line1).width; ctx.font="10px 'JetBrains Mono',monospace"; const w2=ctx.measureText(line2).width;
-          const bw=Math.max(w1,w2)+14, bx=padL+4, by=plotT+54, bh=38;
-          ctx.fillStyle='rgba(6,12,20,0.85)'; ctx.strokeStyle=col; ctx.lineWidth=1.2;
-          if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,5); ctx.fill(); ctx.stroke(); } else { ctx.fillRect(bx,by,bw,bh); ctx.strokeRect(bx,by,bw,bh); }
-          ctx.fillStyle=col; ctx.font="bold 13px 'JetBrains Mono',monospace"; ctx.fillText(line1,bx+7,by+16);
-          ctx.fillStyle='#c3d2e0'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText(line2,bx+7,by+31);
-        } } }catch(e){}
+          ctx.fillStyle=col; ctx.beginPath(); ctx.arc(xProj,yv,3,0,6.283); ctx.fill(); }
+      } else { col='#ffb627'; line1='⚡ΔV kill-switch · calibreert…'; line2='forecast verzamelt zone/dwell-historie — even geduld'; }
+      ctx.textAlign='left'; ctx.font="bold 13px 'JetBrains Mono',monospace"; const w1=ctx.measureText(line1).width; ctx.font="10px 'JetBrains Mono',monospace"; const w2=ctx.measureText(line2).width;
+      const bw=Math.max(w1,w2)+14, bx=padL+4, by=plotT+54, bh=38;
+      ctx.fillStyle='rgba(6,12,20,0.85)'; ctx.strokeStyle=col; ctx.lineWidth=1.2;
+      if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,5); ctx.fill(); ctx.stroke(); } else { ctx.fillRect(bx,by,bw,bh); ctx.strokeRect(bx,by,bw,bh); }
+      ctx.fillStyle=col; ctx.font="bold 13px 'JetBrains Mono',monospace"; ctx.fillText(line1,bx+7,by+16);
+      ctx.fillStyle='#c3d2e0'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText(line2,bx+7,by+31);
+    }catch(e){}
     // header (links) + markt/sessie-badge (rechts)
     ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="bold 13px 'JetBrains Mono',monospace"; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+'pt',padL+2,plotT-6);
     try{ const mh=SRC.market(SEL); if(mh){ ctx.textAlign='right'; ctx.fillStyle=mh.open?'#14f195':'#ff5f7e'; ctx.font="10px 'JetBrains Mono',monospace";
@@ -25228,11 +25270,42 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       if(F){ const rc=F.regime==='CRISIS'?'#ff5f7e':F.regime==='SPANNING'?'#ffb627':'#14f195'; m='FSO '+F.regime+' · stress '+F.last.stress+' · σ² '+F.last.varr+' · VFM '+Math.round(F.last.vfm*100)+'% · ΔV '+(F.last.dV>=0?'+':'')+F.last.dV.toFixed(3)+' · node '+F.nodeTh.toFixed(2)+' · vol '+Math.round(F.volScore*100)+'% · LOW '+Math.round(F.lowPct*100)+'%/HIGH '+Math.round(F.highPct*100)+'%'; if(F.verify)m+=' · verif '+Math.round(F.verify.hitRate*100)+'%'+(F.verify.proven?'✓':''); }
       if(a)m+=' · NN '+(a.probUp!=null?Math.round(a.probUp*100)+'%↑':'—')+(a.cal&&a.cal.proven?'✓':'')+' '+(a.regime||''); const pr=SRC.predict(SEL); if(pr)m+=' · 4h '+pr.dir+' '+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%';
       try{ const H=window.TrinityCommoUOTAM&&window.TrinityCommoUOTAM.hmm(cands); if(H)m+=' · HMM '+H.regime+' '+Math.round(H.confidence*100)+'%'; }catch(e){} }catch(e){} meta.textContent=m; }
+    try{ renderForecastHistory(SRC,SEL); }catch(e){}
   }
+  // ---- ΔV kill-switch · historie: lijst-infopanel van voorafgaande voorspelde periodes (met uitkomst) ----
+  function renderForecastHistory(src,sel){ try{ const hid=src&&src.dom&&src.dom.hist; if(!hid)return; const host=document.getElementById(hid); if(!host)return;
+    const esc=s=>(''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    const pk=src.fpk||'commo'; const F=window.TrinityEForecast; if(!F){ host.innerHTML=''; return; }
+    const cur=F.episode(pk,sel); const hist=F.history(pk,sel)||[];
+    const G='#26d07c',R='#ff5f7e',A='#ffb627',DD='#6d8296',TX='#cfe6f5',BL='#7fd8ff';
+    const fmtDur=window.__uotamFmtDur||(ms=>Math.round((ms||0)/3600000)+'u');
+    const p2=x=>String(x).padStart(2,'0'); const dS=ts=>{ const d=new Date(ts); return p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+p2(d.getHours())+':'+p2(d.getMinutes()); };
+    const nm=(src.names&&src.names[sel])||sel;
+    let head='<div style="font-size:0.56rem;color:'+DD+';text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;">⚡ ΔV kill-switch · periode-historie <span style="color:'+DD+';text-transform:none;letter-spacing:0;">— '+esc(nm)+' · voorafgaande voorspelde periodes (out-of-sample uitkomst)</span></div>';
+    let curLine='';
+    if(cur&&cur.since){ const dcol=cur.predDir==='LONG'?G:cur.predDir==='SHORT'?R:DD;
+      curLine='<div style="font-size:0.58rem;padding:4px 7px;background:rgba(127,216,255,0.06);border:1px solid '+BL+'33;border-radius:5px;margin-bottom:5px;color:'+TX+';">◀ <b style="color:'+BL+';">huidige periode</b> · '+esc(cur.zone)+' · <b style="color:'+dcol+';">'+(cur.predDir||'—')+'</b> · gestart '+dS(cur.since)+' · loopt '+fmtDur(Date.now()-cur.since)+' (verwacht '+fmtDur(cur.predMs)+')</div>'; }
+    let rows='';
+    if(hist.length){ rows=hist.slice(0,14).map(h=>{ const dcol=h.predDir==='LONG'?G:h.predDir==='SHORT'?R:DD;
+        const dirBadge=h.dirOk==null?'<span style="color:'+DD+';">—</span>':(h.dirOk?'<span style="color:'+G+';">✓ richting</span>':'<span style="color:'+R+';">✗ richting</span>');
+        const horBadge=h.horOk==null?'':(h.horOk?' <span style="color:'+G+';">✓ timing</span>':' <span style="color:'+A+';">± timing</span>');
+        const retc=h.ret>0?G:h.ret<0?R:DD;
+        return '<div style="display:grid;grid-template-columns:auto auto 1fr auto;gap:6px;align-items:center;font-size:0.55rem;padding:2.5px 0;border-bottom:1px solid rgba(255,255,255,0.05);">'+
+          '<span style="color:'+DD+';font-family:\'JetBrains Mono\',monospace;">'+dS(h.start)+'</span>'+
+          '<span style="color:'+dcol+';font-weight:700;">'+(h.predDir||'—')+'</span>'+
+          '<span style="color:#9fb2c4;">'+esc(h.zone)+' · duur '+fmtDur(h.actualMs)+' <span style="color:'+DD+';">(verw. '+fmtDur(h.predMs)+')</span> · '+dirBadge+horBadge+'</span>'+
+          '<span style="color:'+retc+';font-weight:700;text-align:right;font-family:\'JetBrains Mono\',monospace;">'+(h.ret>0?'+':'')+h.ret+'%</span>'+
+        '</div>'; }).join('');
+      // samenvatting
+      const done=hist.filter(h=>h.dirOk!=null); const nk=done.length; const wk=done.filter(h=>h.dirOk).length;
+      if(nk) rows+='<div style="font-size:0.54rem;color:'+DD+';margin-top:5px;">samenvatting · richting '+wk+'/'+nk+' goed ('+Math.round(wk/nk*100)+'%) over de getoonde periodes</div>';
+    } else { rows='<div style="font-size:0.55rem;color:'+DD+';">Nog geen afgeronde periodes — de forecast legt elke zone-wissel vast met de gerealiseerde duur, richting en het koersverloop.</div>'; }
+    host.innerHTML=head+curLine+rows;
+  }catch(e){} }
   function renderCommodityChart(){ _activate(COMMO); _render(); }
   function renderCryptoSysChart(){ _activate(CRYPTO); _render(); }
   function renderFxSysChart(){ _activate(FXSRC); _render(); }
-  try{ window.renderCommodityChart=renderCommodityChart; window.renderCryptoSysChart=renderCryptoSysChart; window.renderFxSysChart=renderFxSysChart; }catch(e){}
+  try{ window.renderCommodityChart=renderCommodityChart; window.renderCryptoSysChart=renderCryptoSysChart; window.renderFxSysChart=renderFxSysChart; window.__renderDVHistory=renderForecastHistory; window.__cxSrc=CRYPTO; window.__commoSrc=COMMO; window.__fxSrc=FXSRC; }catch(e){}
   // auto-render + candle-refresh van de crypto- én FX-systeemchart zolang die in beeld zijn
   try{ setInterval(function(){ try{ const cv=document.getElementById('cx-sys-chart'); if(cv&&cv.offsetParent!==null){ renderCryptoSysChart(); } const fv=document.getElementById('fx-sys-chart'); if(fv&&fv.offsetParent!==null){ renderFxSysChart(); } }catch(e){} }, 4000); }catch(e){}
 })();
@@ -25346,6 +25419,9 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         const opts=[['theory',scores.theory.hit],['ngas',scores.ngas.hit],['blend',scBlend.hit]].sort((a,b)=>b[1]-a[1]);
         const bestSrc=opts[0][0]; const vfmSeries=bestSrc==='blend'?blend:cand[bestSrc]; const vfmNow=+(vfmSeries[n-1]||0).toFixed(3);
         const vfmHit=+(opts[0][1]||0).toFixed(2);
+        // VFM-PIEK ("top van de berg") — scherpste short/long-instap: lokaal maximum van |VFM| + institutionele massa
+        let vfmPeak=null; try{ const wv=vfmSeries.slice(-10).map(v=>Math.abs(v||0)); const curAbs=Math.abs(vfmNow); const mxAbs=wv.length?Math.max.apply(null,wv):0;
+          const prevAbs=Math.abs(vfmSeries[n-2]||0); vfmPeak={ at:(curAbs>=1.0 && curAbs>=mxAbs*0.92), turning:(curAbs<prevAbs && prevAbs>=1.2), dir:(vfmNow>=0?'LONG':'SHORT'), mag:+curAbs.toFixed(2) }; }catch(e){}
         // Chaos = |3d %| + dynamische limiet
         const b3=barsPer3d(tf); const p3=cl[Math.max(0,n-1-b3)]; const chaos=p3>0?Math.abs((px-p3)/p3)*100:0; const chaosLim=(Math.abs(vfmNow)>1.8)?15:8;
         // π-klok node + countdown
@@ -25409,7 +25485,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
           node:{num:pin.num,type:pin.type,typeLab:NODE_TYPE[pin.type].lab,col:NODE_TYPE[pin.type].col,msTo:pin.msTo,nextTs:pin.nextTs,session:nodeSess}, nodeFit, tam,
           levels, cnn:+cnn.toFixed(2), cnnMulti, pattern:patt, structure:struct,
           nn:B&&B.probUp!=null?Math.round(B.probUp*100):null, nnProven:!!(B&&B.cal&&B.cal.proven),
-          energy, hmm, bias:biasDir, biasScore:+consScore.toFixed(2),
+          energy, hmm, bias:biasDir, biasScore:+consScore.toFixed(2), vfmPeak,
           // executie-oordeel (v7.7 gate). dir = de ÉNE canonieke Osiris-bias (zelfde overal).
           verdict:(Math.abs(vfmNow)<1.2)?'WAIT':(chaos>chaosLim)?'SKIP':'TRADE', dir:biasDir, dirRaw:(vfmNow>0?'LONG':'SHORT'), lev:(Math.abs(vfmNow)>1.6)?'10x':'5x' };
         // gecombineerd net-advies (één regel die matrix + energie verzoent)
@@ -25671,17 +25747,48 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   }); }catch(e){} }
   try{ if(document.readyState!=='loading')wire(); else document.addEventListener('DOMContentLoaded',wire); setInterval(wire,3000); }catch(e){}
 
-  // ---- data-download (JSON + CSV) van de volledige UOTAM-snapshot (commodity + FX) ----
-  function snapshot(){ const E=window.TrinityCommoUOTAM; if(!E)return {commodity:[],fx:[]};
-    const clean=a=>({ markt:a.mkt,key:a.key,name:a.name,tf:a.tf,ready:a.ready,px:a.px,regime:a.regime,verdict:a.verdict,dir:a.dir,lev:a.lev,
+  // ---- data-download (JSON + CSV) van de VOLLEDIGE UOTAM-snapshot (commodity + FX + crypto) ----
+  // Bevat ALLES wat NEO/Trinity gebruikt om trades te beredeneren: prijs/indicatoren, unified bias,
+  // VFM-piek, energie-zone (Fractal Energy Scale), Support&Target-matrix (frame + levels),
+  // voorspelde periode (forecast), shadow-trust per markt + per level, energie-hitrate per zone,
+  // en het autonome live-gewicht (start standaard, bouwt af als het niet klopt).
+  function snapshot(){ const E=window.TrinityCommoUOTAM; if(!E)return {commodity:[],fx:[],crypto:[]};
+    const SH=window.TrinityUOTAMShadow, FC=window.TrinityEForecast;
+    const clean=a=>{ const mk=a.mkt, ky=a.key;
+      let m=null,tr=null,ls=null,et=null,fc=null,w=null;
+      try{ const prov=E.provFor?E.provFor(mk):undefined; m=E.matrix(ky,'1h',prov); }catch(e){}
+      try{ if(SH){ tr=SH.trust(mk,ky); ls=SH.levelStats(mk,ky); et=SH.energyTrust(mk,ky); } }catch(e){}
+      try{ if(FC)fc=FC.predict(mk,ky); }catch(e){}
+      try{ if(typeof window.uotamWeight==='function')w=window.uotamWeight(mk,ky); }catch(e){}
+      const en=a.energy||{}, nt=a.net||{}, vp=a.vfmPeak||null;
+      return { markt:mk,key:ky,name:a.name,tf:a.tf,ready:a.ready,px:a.px,regime:a.regime,verdict:a.verdict,
+      dir:a.dir,dirRaw:a.dirRaw,lev:a.lev, bias:a.bias,biasScore:a.biasScore,
+      netDir:nt.dir,netVerdict:nt.verdict,netZone:nt.zone,netWhy:nt.why,
       vfm:a.vfm,vfmSrc:a.vfmSrc,vfmHit:a.vfmHit,er:a.er,db:a.db,chaos:a.chaos,chaosLim:a.chaosLim,sigma:a.sigma,
+      vfmPeakAt:vp&&vp.at,vfmPeakTurning:vp&&vp.turning,vfmPeakDir:vp&&vp.dir,vfmPeakMag:vp&&vp.mag,
       nodeNum:a.node&&a.node.num,nodeType:a.node&&a.node.type,nodeTypeLab:a.node&&a.node.typeLab,nodeMsTo:a.node&&a.node.msTo,
+      tamNum:a.tam&&a.tam.num,tamType:a.tam&&a.tam.type,tamMsTo:a.tam&&a.tam.msTo,tamPeriodBars:a.tam&&a.tam.periodBars,
       nodeFitPi:a.nodeFit&&a.nodeFit.piPct,nodeFitAd:a.nodeFit&&a.nodeFit.adPct,nodeFitBetter:a.nodeFit&&a.nodeFit.better,
       cnn:a.cnn,pattern:a.pattern,structure:a.structure,nn:a.nn,
       microLo:a.levels&&a.levels.micro.lo,microHi:a.levels&&a.levels.micro.hi,microBull:a.levels&&a.levels.micro.bull,microBear:a.levels&&a.levels.micro.bear,
       mesoLo:a.levels&&a.levels.meso.lo,mesoHi:a.levels&&a.levels.meso.hi,macroLo:a.levels&&a.levels.macro.lo,macroHi:a.levels&&a.levels.macro.hi,
-      energyZone:a.energy&&a.energy.zone,energyScenario:a.energy&&a.energy.scenario,compression:a.energy&&a.energy.compression,charge:a.energy&&a.energy.charge,move5:a.energy&&a.energy.move5 });
-    return { generatedAt:new Date().toISOString(), commodity:E.all('1h',E.PROV_COMMO).filter(a=>a.ready).map(clean), fx:E.all('1h',E.PROV_FX).filter(a=>a.ready).map(clean), crypto:(E.PROV_CRYPTO?E.all('1h',E.PROV_CRYPTO).filter(a=>a.ready).map(clean):[]) }; }
+      energyZone:en.zone,energyDir:en.dir,energyTactic:en.tactic,energyScenario:en.scenario,energyAction:en.action,compression:en.compression,charge:en.charge,move5:en.move5,
+      // Support & Target Matrix (frame + belangrijkste levels)
+      mtxDir:m&&m.dir,mtxVerdict:m&&m.verdict,mtxStop:m&&m.frame&&m.frame.stop,mtxT1:m&&m.frame&&m.frame.t1,mtxT2:m&&m.frame&&m.frame.t2,mtxRR:m&&m.frame&&m.frame.rr,
+      // voorspelde periode (Energie-forecast)
+      fcZone:fc&&fc.zone,fcDir:fc&&fc.dir,fcRemainMs:fc&&fc.remainMs,fcEtaTs:fc&&fc.etaTs,fcEtaLo:fc&&fc.etaLo,fcEtaHi:fc&&fc.etaHi,fcDirConf:fc&&fc.dirConf,fcHorizonAcc:fc&&fc.horizonAcc,fcProven:fc&&fc.proven,fcTradeType:fc&&fc.tradeType,
+      // shadow-trust (autonoom leren, overfitting-rem)
+      shN:tr&&tr.n,shHitRate:tr&&tr.hitRate,shWilson:tr&&tr.wilson,shProven:tr&&tr.proven,
+      lvlT1Hit:ls&&ls.t1&&ls.t1.hit,lvlT1N:ls&&ls.t1&&ls.t1.n,lvlT2Hit:ls&&ls.t2&&ls.t2.hit,lvlS1Hit:ls&&ls.s1&&ls.s1.hit,lvlS2Hit:ls&&ls.s2&&ls.s2.hit,
+      energyHitRate:et&&et.hitRate,energyHitN:et&&et.n,
+      // autonoom live-gewicht (start standaard 0.6, schaalt af als het niet klopt)
+      liveWeight:w };
+    };
+    const map=prov=>prov?E.all('1h',prov).filter(a=>a.ready).map(clean):[];
+    return { generatedAt:new Date().toISOString(), version:'UOTAM v7.7 · full learning snapshot',
+      uitleg:'Alle data die NEO (crypto) en Trinity (commodity/FX) gebruiken om trades te beredeneren: prijs+indicatoren, unified bias (consensus VFM/NN/CNN/macro), VFM-piek (beste short/long-punt), Fractal Energy Scale (zone/richting), Support & Target Matrix (stop/T1/T2/RR), voorspelde periode (forecast, uren/dagen), shadow-trust per markt + per level (out-of-sample, Wilson-ondergrens), energie-hitrate per zone en het autonome live-gewicht (start standaard, bouwt af als het niet klopt).',
+      commodity:map(E.PROV_COMMO), fx:map(E.PROV_FX), crypto:map(E.PROV_CRYPTO),
+      shadowSummary:(SH?SH.summary():[]) }; }
   function dl(name,txt,mime){ try{ if(typeof window.downloadFile==='function'){ window.downloadFile(name,txt,mime); return; } }catch(e){}
     try{ const b=new Blob([txt],{type:mime||'application/octet-stream'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},100); }catch(e){} }
   function toCSV(rows){ if(!rows.length)return ''; const cols=Object.keys(rows[0]); const esc=v=>{ v=(v==null?'':''+v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
@@ -25693,7 +25800,14 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     else if(kind==='commodity-json') dl('osiris_uotam_commodity_'+stamp+'.json',JSON.stringify({generatedAt:s.generatedAt,commodity:s.commodity},null,2),'application/json');
     else if(kind==='fx-json') dl('osiris_uotam_fx_'+stamp+'.json',JSON.stringify({generatedAt:s.generatedAt,fx:s.fx},null,2),'application/json');
     else if(kind==='crypto-json') dl('osiris_uotam_crypto_'+stamp+'.json',JSON.stringify({generatedAt:s.generatedAt,crypto:s.crypto||[]},null,2),'application/json');
+    // NEO — ALLE crypto-analysedata in één bestand (JSON + CSV)
+    else if(kind==='neo-all-json') dl('osiris_NEO_uotam_ALLES_'+stamp+'.json',JSON.stringify({generatedAt:s.generatedAt,version:s.version,uitleg:s.uitleg,crypto:s.crypto||[],shadowSummary:(s.shadowSummary||[]).filter(x=>String(x.market).indexOf('crypto:')===0)},null,2),'application/json');
+    else if(kind==='neo-all-csv') dl('osiris_NEO_uotam_ALLES_'+stamp+'.csv',toCSV(s.crypto||[]),'text/csv');
+    // Trinity — ALLE commodity + FX analysedata in één bestand (JSON + CSV)
+    else if(kind==='trinity-all-json') dl('trinity_uotam_ALLES_'+stamp+'.json',JSON.stringify({generatedAt:s.generatedAt,version:s.version,uitleg:s.uitleg,commodity:s.commodity,fx:s.fx,shadowSummary:(s.shadowSummary||[]).filter(x=>{const p=String(x.market);return p.indexOf('commo:')===0||p.indexOf('fx:')===0;})},null,2),'application/json');
+    else if(kind==='trinity-all-csv') dl('trinity_uotam_ALLES_'+stamp+'.csv',toCSV((s.commodity||[]).concat(s.fx||[])),'text/csv');
     else dl('osiris_uotam_snapshot_'+stamp+'.json',JSON.stringify(s,null,2),'application/json'); };
+  try{ window.__uotamSnapshot=snapshot; }catch(e){}
   // injecteer download-knoppen bovenin de system-data wraps
   function injectDL(){ try{ [['cd-wrap','commodity'],['fd-wrap','fx'],['ncd-wrap','crypto']].forEach(([id,kind])=>{ const w=document.getElementById(id); if(!w||w._dlInj)return; w._dlInj=true;
     const bar=document.createElement('div'); bar.style.cssText='display:flex;gap:6px;justify-content:flex-end;margin-bottom:6px;';
@@ -25919,6 +26033,57 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   }catch(e){} }
   try{ window.renderUotamAutonomy=renderUotamAutonomy; }catch(e){}
   try{ setInterval(function(){ try{ const h=document.getElementById('ua-body'); if(h&&h.offsetParent!==null)renderUotamAutonomy(); }catch(e){} }, 5000); }catch(e){}
+
+  /* ---- Cortex-tab · NEO UOTAM learnings (crypto BTC/ETH/SOL): per markt shadow-trust,
+     voorspelde periode, energie-hitrate per zone, VFM-piek, matrix-frame en het autonome
+     live-gewicht (start standaard, bouwt af als het niet klopt). Puur weergave. ---- */
+  function renderNeoCortexUotam(){ try{ const host=document.getElementById('neo-cortex-uotam'); if(!host)return;
+    const E=window.TrinityCommoUOTAM, SH=window.TrinityUOTAMShadow, FC=window.TrinityEForecast;
+    if(!E||!E.PROV_CRYPTO){ host.innerHTML='<span style="color:#6d8296;">UOTAM crypto-engine laadt…</span>'; return; }
+    const G='#26d07c',R='#ff5f7e',A='#ffb627',DD='#6d8296',TX='#cfe6f5';
+    const fmtDur=window.__uotamFmtDur||(ms=>Math.round((ms||0)/3600000)+'u');
+    const p2=x=>String(x).padStart(2,'0'); const dS=ts=>{ const d=new Date(ts); return p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+p2(d.getHours())+':'+p2(d.getMinutes()); };
+    const mkts=E.PROV_CRYPTO.markets||['BTC','ETH','SOL'];
+    let ready=0; const cards=mkts.map(k=>{ let a=null,m=null,tr=null,et=null,fc=null,w=null;
+      try{ a=E.analyze(k,'1h',E.PROV_CRYPTO); }catch(e){}
+      try{ m=E.matrix(k,'1h',E.PROV_CRYPTO); }catch(e){}
+      try{ if(SH){ tr=SH.trust('crypto',k); et=SH.energyTrust('crypto',k); } }catch(e){}
+      try{ if(FC)fc=FC.predict('crypto',k); }catch(e){}
+      try{ if(typeof window.uotamWeight==='function')w=window.uotamWeight('crypto',k); }catch(e){}
+      if(!a||!a.ready){ return '<div style="background:rgba(8,16,22,0.55);border:1px solid var(--line);border-radius:7px;padding:9px 10px;"><b style="color:'+TX+';">'+k+'</b> <span style="color:'+DD+';">— analyse laadt (candles nodig)…</span></div>'; }
+      ready++;
+      const bias=a.bias||a.dir||'—', bcol=bias==='LONG'?G:bias==='SHORT'?R:DD;
+      const en=a.energy||{}; const zone=en.zone||'—';
+      const vp=a.vfmPeak||{}; const vpTxt=vp.at?('<span style="color:'+(vp.dir==='LONG'?G:R)+';">⚡ VFM-piek ('+vp.dir+', mag '+vp.mag+') → beste '+(vp.dir==='LONG'?'long':'short')+'-punt</span>'):(vp.turning?'<span style="color:'+A+';">VFM draait — piek nabij</span>':'<span style="color:'+DD+';">geen VFM-piek</span>');
+      // shadow-trust
+      const shTxt = tr&&tr.n>=25 ? ('<b style="color:'+(tr.proven?G:A)+';">'+(tr.proven?'✓ bewezen':'niet bewezen')+'</b> · hit '+(tr.hitRate!=null?Math.round(tr.hitRate*100)+'%':'—')+' · Wilson '+(tr.wilson!=null?tr.wilson:'—')+' · n '+tr.n) : ('<span style="color:'+DD+';">leert… (n '+((tr&&tr.n)||0)+'/25 out-of-sample)</span>');
+      // forecast
+      const fcTxt = fc ? ('<b style="color:'+(fc.dir==='LONG'?G:fc.dir==='SHORT'?R:DD)+';">'+(fc.dir||'—')+'</b> · '+(fc.tradeType||'')+' · nog '+fmtDur(fc.remainMs)+(fc.etaTs?(' → '+dS(fc.etaTs)):'')+' · vertrouwen '+Math.round((fc.dirConf||0)*100)+'%'+(fc.horizonAcc!=null?(' · horizon '+Math.round(fc.horizonAcc*100)+'%'):'')+(fc.proven?' <span style="color:'+G+';">✓</span>':' <span style="color:'+DD+';">(leert)</span>')) : '<span style="color:'+DD+';">forecast verzamelt dwell-historie…</span>';
+      // energie-hitrate per zone
+      let ezTxt='<span style="color:'+DD+';">—</span>';
+      if(et&&et.n){ const zs=Object.keys(et.zones||{}).map(z=>{ const o=et.zones[z]; return z+' '+(o.hit!=null?Math.round(o.hit*100)+'%':'n'+o.n); }); ezTxt='totaal '+(et.hitRate!=null?Math.round(et.hitRate*100)+'%':'—')+' (n '+et.n+')'+(zs.length?' · '+zs.slice(0,4).join(' · '):''); }
+      // matrix frame
+      const fr=(m&&m.frame)||{}; const frTxt=(fr.stop!=null)?('stop '+fr.stop+' · T1 '+fr.t1+' · T2 '+fr.t2+' · RR '+(fr.rr!=null?fr.rr:'—')) : '<span style="color:'+DD+';">matrix laadt…</span>';
+      // live weight
+      const wPct=Math.round((w||0)*100); const wcol=wPct>=60?G:wPct>0?A:DD;
+      return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+bcol+'44;border-radius:7px;padding:9px 11px;">'+
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;"><b style="font-size:0.74rem;color:'+TX+';">Neo '+k+'</b><span style="font-size:0.62rem;font-weight:700;color:'+bcol+';">bias '+bias+' · zone '+zone+'</span></div>'+
+        '<div style="display:grid;grid-template-columns:auto 1fr;gap:3px 8px;font-size:0.57rem;line-height:1.5;">'+
+          '<span style="color:'+DD+';">VFM-piek</span><span>'+vpTxt+'</span>'+
+          '<span style="color:'+DD+';">voorspelde periode</span><span>'+fcTxt+'</span>'+
+          '<span style="color:'+DD+';">Support &amp; Target</span><span style="color:#9fb2c4;">'+frTxt+'</span>'+
+          '<span style="color:'+DD+';">shadow-trust</span><span>'+shTxt+'</span>'+
+          '<span style="color:'+DD+';">energie-hitrate</span><span style="color:#9fb2c4;">'+ezTxt+'</span>'+
+          '<span style="color:'+DD+';">autonoom gewicht</span><span style="color:'+wcol+';font-weight:700;">'+wPct+'% <span style="color:'+DD+';font-weight:400;">(start standaard · schaalt af bij fout)</span></span>'+
+        '</div>'+
+      '</div>';
+    }).join('');
+    const C=window.OSIRIS_UOTAM_TRADE||{on:false};
+    const foot='<div style="font-size:0.52rem;color:'+DD+';line-height:1.7;margin-top:9px;background:rgba(255,255,255,0.02);border:1px solid var(--line);border-radius:6px;padding:7px 9px;">De <b>margin-</b> én <b>spot-wallet</b> vragen deze learnings op vóór elke instap: de positie-grootte wordt vermenigvuldigd met bias-uitlijning × gewicht × VFM-piek × energie-zone (0.5–1.25×). Live T1/T2-sturing staat nu <b style="color:'+(C.on?G:R)+';">'+(C.on?'AAN':'UIT')+'</b> — omschakelbaar op het Trinity-paneel «UOTAM autonomie &amp; shadow-validatie». Alles is out-of-sample gemeten (walk-forward, min-N 25, Wilson-ondergrens) om overfitting te vermijden.</div>';
+    host.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;">'+cards+'</div>'+foot;
+  }catch(e){} }
+  try{ window.renderNeoCortexUotam=renderNeoCortexUotam; }catch(e){}
+  try{ setInterval(function(){ try{ const h=document.getElementById('neo-cortex-uotam'); if(h&&h.offsetParent!==null)renderNeoCortexUotam(); }catch(e){} }, 5000); }catch(e){}
 })();
 
 /* ==================================================================================
@@ -25968,11 +26133,14 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     tick(){ const E=window.TrinityCommoUOTAM; if(!E)return; const now=Date.now(); if(now-this._at<15000)return; this._at=now;
       [E.PROV_COMMO,E.PROV_FX,E.PROV_CRYPTO].filter(Boolean).forEach(prov=>{ prov.markets.forEach(k=>{ try{
         const a=E.analyze(k,'1h',prov); if(!a||!a.ready)return; const lk=prov.key+':'+k; const zone=a.energy.zone, dir=a.energy.dir, px=a.px;
-        const cyc=this._cycleMs(a,'1h'); const st=this.st[lk]||(this.st[lk]={z:{},dirN:0,dirW:0,hN:0,hW:0}); let ep=this.ep[lk];
+        const cyc=this._cycleMs(a,'1h'); const st=this.st[lk]||(this.st[lk]={z:{},dirN:0,dirW:0,hN:0,hW:0,hist:[]}); if(!st.hist)st.hist=[]; let ep=this.ep[lk];
         if(!ep || ep.zone!==zone){
           if(ep){ const dwell=now-ep.since; (st.z[ep.zone]||(st.z[ep.zone]=[])).push(dwell); if(st.z[ep.zone].length>40)st.z[ep.zone].shift();
-            if(ep.predDir&&ep.predDir!=='—'){ const moved=px-ep.startPx; const dh=(ep.predDir==='LONG'&&moved>0)||(ep.predDir==='SHORT'&&moved<0); st.dirN++; if(dh)st.dirW++; }
-            if(ep.predMs>0){ const he=Math.abs(dwell-ep.predMs)<=0.4*ep.predMs; st.hN++; if(he)st.hW++; } }
+            let dirOk=null; if(ep.predDir&&ep.predDir!=='—'){ const moved=px-ep.startPx; dirOk=(ep.predDir==='LONG'&&moved>0)||(ep.predDir==='SHORT'&&moved<0); st.dirN++; if(dirOk)st.dirW++; }
+            let horOk=null; if(ep.predMs>0){ horOk=Math.abs(dwell-ep.predMs)<=0.4*ep.predMs; st.hN++; if(horOk)st.hW++; }
+            // gerealiseerde episode-historie (voorafgaande ΔV/forecast-periodes met uitkomst)
+            st.hist.unshift({ start:ep.since, end:now, zone:ep.zone, predDir:ep.predDir, predMs:ep.predMs, actualMs:dwell,
+              startPx:ep.startPx, endPx:px, ret:+(((px-ep.startPx)/(ep.startPx||1))*100).toFixed(2), dirOk, horOk }); if(st.hist.length>30)st.hist.pop(); }
           const med=this._median((st.z[zone])); const predMs = med!=null? med : (ZMS[zone]||0.6)*cyc;
           ep=this.ep[lk]={zone,dir,since:now,startPx:px,predDir:dir,predMs};
         } else { if(ep.predDir==='—'&&dir!=='—'){ ep.predDir=dir; ep.startPx=px; } ep.dir=dir; }
@@ -25990,7 +26158,12 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const tType=(zone==='DEEP COMPRESSION'||zone==='LOADING')?'entry-setup':(zone==='EXPANSION')?'hold/trail':(zone==='CLIMAX'||zone==='DISCHARGE')?'exit/fade':'wacht';
       const etaTs=Date.now()+remain, etaLo=Date.now()+lo, etaHi=Date.now()+hi;
       return { zone, dir, remainMs:remain, loMs:lo, hiMs:hi, medMs:med, elapsedMs:elapsed, dirConf, horizonAcc:hAcc, dirN:st?st.dirN:0, hN:st?st.hN:0, proven, tradeType:tType, etaTs, etaLo, etaHi,
-        label: (dir&&dir!=='—'?dir:'—')+' · nog '+fmtRange(lo,hi)+' · '+tType }; }catch(e){ return null; } }
+        since:(ep&&ep.zone===zone)?ep.since:null, startPx:(ep&&ep.zone===zone)?ep.startPx:null,
+        label: (dir&&dir!=='—'?dir:'—')+' · nog '+fmtRange(lo,hi)+' · '+tType }; }catch(e){ return null; } },
+    // startpunt van de HUIDIGE voorspelde periode (candle waar de ΔV kill-switch/periode begon)
+    episode(pk,key){ try{ const ep=this.ep[pk+':'+key]; if(!ep)return null; return { since:ep.since, startPx:ep.startPx, zone:ep.zone, predDir:ep.predDir, predMs:ep.predMs }; }catch(e){ return null; } },
+    // gerealiseerde voorafgaande periodes (historisch, met uitkomst)
+    history(pk,key){ try{ const st=this.st[pk+':'+key]; return (st&&st.hist)?st.hist:[]; }catch(e){ return []; } }
   };
   F._restore(); try{ window.TrinityEForecast=F; }catch(e){}
   try{ setInterval(()=>{ try{ F.tick(); }catch(e){} }, 15000); if(document.readyState!=='loading')setTimeout(()=>{try{F.tick();}catch(e){}},2000); }catch(e){}
