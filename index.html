@@ -1256,6 +1256,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
           </div>
           <div id="cx-sys-tools" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"></div>
           <canvas id="cx-sys-chart" style="width:100%;height:300px;display:block;"></canvas>
+          <div id="cx-dv-hist" class="mono" style="margin-top:10px;padding:8px 10px;background:rgba(8,16,22,0.5);border:1px solid var(--line);border-radius:7px;"></div>
           <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Eén doorlopend paneel, <b>Lijn</b> of <b>Candles</b>, per crypto-markt (BTC/ETH/SOL) apart gekalibreerd. Overlays aan/uit: <b>Nodes</b> · <b>NN</b> · <b>MA</b> (fast/slow-cross) · <b>RSI</b> · <b>Fibs</b> (µ/M/XL) · <b>Energie</b>. <span style="color:#ff8a3c;">FSO-schaduw</span> = opgespannen energie (compressie). <span style="color:#ffb73c;">Volume-profiel</span> rechts met POC. Onder (0–1): <span style="color:#e8f4ff;">stress</span>·<span style="color:#7fd8ff;">σ²</span>·<span style="color:#c792ea;">VFM</span>·<span style="color:#ff8a3c;">corr</span> + <span style="color:#ff5f7e;">CRISIS</span>/<span style="color:#ffb627;">SPANNING</span> + ⚡ΔV. Balken: <span style="color:#ffd76a;">HIGH</span>/<span style="color:#ff8a94;">LOW</span> (σ²). Candles via Binance klines.</div>
         </div>
 
@@ -1709,6 +1710,13 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="eyebrow">Adaptief leren &middot; per markt</div><h1 class="h">DE CORTEX &amp; HET LEREN</h1>
 <div class="subhead" style="display:flex; justify-content:space-between; align-items:center;"><span>Adaptive Learning Levels &middot; data</span><button onclick="downloadAdaptiveLearning()" style="font-family:'JetBrains Mono',monospace; font-size:0.56rem; letter-spacing:0.05em; padding:4px 10px; background:rgba(0,217,255,0.08); color:#7fd8ff; border:1px solid rgba(0,217,255,0.4); border-radius:5px; cursor:pointer; text-transform:none;">&#8681; download leerdata</button></div>
       <div class="panel" style="margin:10px 0; border-color:rgba(199,146,234,0.3);"><div class="plabel" style="color:var(--violet);">&#8635; Autonome bijstellingen &middot; live</div><div id="cortex-autofeed" style="font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--dim); line-height:1.9; margin-top:8px; max-height:130px; overflow:auto;">Osiris registreert hier elke autonome bijstelling van de leer-drempels en gewichten&hellip;</div></div>
+
+      <!-- NEO · UOTAM v7.7 LEARNINGS (crypto systeem-analyse: shadow-trust · forecast · autonoom gewicht · energie-hitrate) -->
+      <div class="panel" style="margin:10px 0; border-color:rgba(20,241,149,0.4); background:rgba(20,241,149,0.04);">
+        <div class="plabel" style="color:#14f195; display:flex; justify-content:space-between; align-items:center;"><span>&#9889; NEO &middot; UOTAM v7.7 &mdash; crypto systeem-analyse learnings</span><button type="button" onclick="try{window.__uotamDL('neo-all-json')}catch(e){}" style="font-family:'JetBrains Mono',monospace; font-size:0.54rem; padding:4px 10px; background:rgba(20,241,149,0.08); color:#14f195; border:1px solid rgba(20,241,149,0.4); border-radius:5px; cursor:pointer;">&#8681; download alle analysedata</button></div>
+        <div class="mono" style="font-size:0.54rem; color:var(--dimmer); margin:6px 0 10px; line-height:1.7;">Hoe NEO (BTC/ETH/SOL) autonoom leert van de <b>Fractal Energy Scale</b>, de <b>Support &amp; Target Matrix</b>, de <b>VFM-piek</b> en de <b>voorspelde periode</b> &mdash; en waarom de spot- én margin-wallet er meer of minder zwaar op traden. Het <b>gewicht start op de standaardwaarde</b> en bouwt alleen af als de shadow-backtester (out-of-sample, historisch + toekomstig) laat zien dat het niet klopt.</div>
+        <div id="neo-cortex-uotam" style="font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--dim); line-height:1.7;">UOTAM-learnings initialiseren&hellip; (shadow-worker verzamelt out-of-sample uitkomsten)</div>
+      </div>
                 <div onclick="toggleLearningPanel()" style="font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--violet); cursor:pointer; display:flex; justify-content:space-between; align-items:center;">
                     <span>&#9679; Adaptive Learning · Level 1</span>
                     <span id="learning-chevron">&#9662;</span>
@@ -2290,6 +2298,23 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div class="flex gap wrap center"><button class="btn go" type="button" data-dl="tam" data-dl-label="TAM backtest" onclick="downloadTAMData()" style="background:rgba(199,146,234,0.15); color:#c792ea; border-color:rgba(199,146,234,0.55);">&#8681; Download all TAM backtest data</button>
           <span class="muted">Everything needed to test the TAM/UOTAM hypothesis on the crypto market. Per market: the full candle history <b>aligned to the temporal node grid</b> (nearest node, node type, minutes-to-node) with forward returns (+1/+3/+6 candles) &mdash; so you can measure whether price reacts around the &pi;-cycle nodes. Plus the model constants (&pi;-cycle 188.66 min, anchor, node types, weights), the FSO stress series, kinetic breakpoints/ETA, calibrated prediction outcomes and the timing scenario-backtest.</span></div>
       </div>
+
+      <!-- NEO · UOTAM CRYPTO SYSTEEM-ANALYSE (all reasoning data) -->
+      <div class="panel" style="border-color:rgba(20,241,149,0.5); background:rgba(20,241,149,0.05); margin-top:14px;">
+        <div class="plabel" style="color:#14f195;">&#9889; NEO &middot; CRYPTO SYSTEEM-ANALYSE (UOTAM v7.7) &mdash; <b>alle</b> data NEO gebruikt om trades te beredeneren</div>
+        <div class="flex gap wrap center" style="margin-top:6px;"><button class="btn go" type="button" data-dl="neo_uotam_all" data-dl-label="NEO UOTAM (all)" onclick="try{window.__uotamDL('neo-all-json')}catch(e){}" style="background:rgba(20,241,149,0.15); color:#14f195; border-color:rgba(20,241,149,0.55);">&#8681; Download all NEO crypto analysis (JSON)</button>
+          <button class="btn btn-ghost btn-mini" type="button" onclick="try{window.__uotamDL('neo-all-csv')}catch(e){}" style="color:#14f195; border-color:rgba(20,241,149,0.4);">&#8681; NEO crypto analysis (CSV)</button></div>
+        <div class="note" style="margin-top:10px; line-height:1.8;">Per crypto-markt (BTC / ETH / SOL) &mdash; everything from the <b>CRYPTO SYSTEEM-ANALYSE</b> tools, the <b>UOTAM info-panels</b>, the <b>Fractal Energy Scale</b> and the <b>Support &amp; Target Matrix</b>:<br>
+          <b>prijs &amp; indicatoren</b> &mdash; price, VFM (value/flow), ER, DB, chaos + limit, &sigma;, NN prob, CNN pattern, structure.<br>
+          <b>unified bias</b> &mdash; the single Osiris direction (consensus of VFM sign + NN + CNN + macro), its score, and the net-advies (verdict/zone/why) &mdash; so the Energy-scale and the Matrix always agree.<br>
+          <b>VFM-piek</b> &mdash; whether price is on the top of the VFM &ldquo;mountain&rdquo; (best short/long point): at / turning / direction / magnitude.<br>
+          <b>Fractal Energy Scale</b> &mdash; zone (DEEP COMPRESSION &hellip; DISCHARGE), direction, tactic, scenario, compression / charge / expected 5-bar move.<br>
+          <b>Support &amp; Target Matrix</b> &mdash; stop / T1 / T2 / RR + micro/meso/macro levels.<br>
+          <b>voorspelde periode (forecast)</b> &mdash; predicted zone/direction, how long it holds (remaining ms + ETA range hours/days), direction-confidence, horizon-accuracy, proven?, trade-type.<br>
+          <b>nodes (&pi;-clock + TAM)</b> &mdash; nearest &pi;-node + per-market TAM node (type, ms-to, adaptive period).<br>
+          <b>shadow-trust (autonoom leren)</b> &mdash; out-of-sample per market (n, hit-rate, Wilson lower-bound, proven?), per-level hit-rates (T1/T2/S1/S2) and energy-zone hit-rate.<br>
+          <b>autonoom live-gewicht</b> &mdash; the weight NEO actually trades on (starts at the standard value, only scales down when the shadow says it&rsquo;s wrong). Contains no API keys.</div>
+      </div>
     </section>
 
     <!-- ===================== TRINITY · FX TABS (added; Osiris Crypto untouched) ===================== -->
@@ -2320,6 +2345,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
       <div id="commo-chart-tools" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"></div>
       <canvas id="tr-commo-chart" style="width:100%;height:300px;display:block;"></canvas>
+      <div id="commo-dv-hist" class="mono" style="margin-top:10px;padding:8px 10px;background:rgba(8,16,22,0.5);border:1px solid var(--line);border-radius:7px;"></div>
       <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Eén doorlopend paneel, <b>Lijn</b> of <b>Candles</b>. Overlays aan/uit: <b>Nodes</b> (TAM RESET/VOLA/CORE bij de candles, per-grondstof periode), <b>NN</b> (Neo's Node cap-pijlen — <span style="color:#26d07c;">▲</span>/<span style="color:#ff5f7e;">▼</span> waar het per-grondstof neuraal net omslaat), <b>MA</b> + <b>RSI</b> (periode per grondstof gekalibreerd op hit-rate), <b>Fibs</b> (µ/M/XL = micro/meso/macro swing) en <b>Energie</b>. De <span style="color:#ff8a3c;">FSO-schaduw</span> = opgespannen energie (compressie) gekleurd naar regime: hoe hoger, hoe meer geladen → grotere kans op uitbraak. <span style="color:#ffb73c;">Volume-profiel</span> rechts met POC. Onder (gedeelde 0–1-as): <span style="color:#e8f4ff;">stress</span> · <span style="color:#7fd8ff;">σ²</span> · <span style="color:#c792ea;">VFM</span> · <span style="color:#ff8a3c;">corr-breuk</span> + <span style="color:#ff5f7e;">CRISIS</span>/<span style="color:#ffb627;">SPANNING</span> + ⚡ΔV. Verticale balken (volle hoogte): <span style="color:#ffd76a;">HIGH</span> = σ²-piek (grote candles/uitbraak/climax) · <span style="color:#ff8a94;">LOW</span> = samengedrukt (rust/opbouw, uitbraak in de maak). Vult zich via de Capital /history-route.</div>
     </div>
 
@@ -2389,6 +2415,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
       <div id="fx-sys-tools" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:8px;"></div>
       <canvas id="fx-sys-chart" style="width:100%;height:300px;display:block;"></canvas>
+      <div id="fx-dv-hist" class="mono" style="margin-top:10px;padding:8px 10px;background:rgba(8,16,22,0.5);border:1px solid var(--line);border-radius:7px;"></div>
       <div class="mono" style="font-size:0.5rem;color:var(--dimmer);margin-top:6px;line-height:1.6;">Zelfde unified paneel als de commodity-chart, per FX-pair (Capital-candles). Lijn/Candles · Nodes · NN · MA (fast/slow-cross) · RSI · Fibs (µ/M/XL) · Energie · volume-profiel + POC · FSO-oscillator + HIGH/LOW σ²-balken. Vult zich via de Capital /history-route.</div>
     </div>
 
@@ -2714,6 +2741,20 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
       <div class="mono" style="font-size:0.52rem;color:var(--dimmer);margin-top:10px;line-height:1.6;">Exports bevatten geen API-keys of wachtwoorden. Trades/Pairs als CSV; Wallet/Engine als JSON incl. brain-trust per sessie, kalibratie (predicted vs measured) en auto-aanpassingen.</div>
     </div>
+
+    <div class="secdiv"><h3>UOTAM systeem-analyse &middot; commodity + FX</h3><span class="sub">— alle data die Trinity gebruikt om trades te beredeneren (Fractal Energy Scale · Support &amp; Target Matrix · forecast · shadow-trust · autonoom gewicht)</span></div>
+    <div class="panel" style="border-color:rgba(20,241,149,0.35);background:rgba(20,241,149,0.04);">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div class="exports">
+        <button style="color:#14f195;border-color:rgba(20,241,149,0.5);" onclick="try{window.__uotamDL('trinity-all-json')}catch(e){}">⭳ ALL UOTAM (commodity+FX) JSON</button>
+        <button style="color:#14f195;border-color:rgba(20,241,149,0.4);" onclick="try{window.__uotamDL('trinity-all-csv')}catch(e){}">⭳ ALL UOTAM (CSV)</button>
+        <button onclick="try{window.__uotamDL('commodity-json')}catch(e){}">⭳ Commodity (JSON)</button>
+        <button onclick="try{window.__uotamDL('commodity-csv')}catch(e){}">⭳ Commodity (CSV)</button>
+        <button onclick="try{window.__uotamDL('fx-json')}catch(e){}">⭳ FX (JSON)</button>
+        <button onclick="try{window.__uotamDL('fx-csv')}catch(e){}">⭳ FX (CSV)</button>
+      </div>
+      <div class="mono" style="font-size:0.52rem;color:var(--dimmer);margin-top:10px;line-height:1.7;">Per markt: prijs + indicatoren (VFM/ER/DB/chaos/&sigma;/NN/CNN), <b>unified bias</b> (consensus richting + score + net-advies), <b>VFM-piek</b> (beste short/long-punt), <b>Fractal Energy Scale</b> (zone/richting/tactiek/compressie), <b>Support &amp; Target Matrix</b> (stop/T1/T2/RR + micro/meso/macro levels), <b>voorspelde periode</b> (zone/richting/ETA-venster/vertrouwen/proven), <b>&pi;-node + TAM-node</b>, <b>shadow-trust</b> (n/hitrate/Wilson/proven + per-level + energie-zone) en het <b>autonome live-gewicht</b> (start standaard, bouwt af als het niet klopt). Geen API-keys.</div>
+    </div>
       </div>
     </section>
 
@@ -2925,7 +2966,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260913-build128-unified-bias-bigger-charttext"></script>
+<script src="app.js?v=20260913-build130-neo-uotam-cortex-dl-dvhistory"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
