@@ -25095,7 +25095,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.beginPath(); ctx.moveTo(padL,priceBot); for(let i=0;i<n;i++){ ctx.lineTo(x(i), priceBot - clamp(en[i],0,1)*priceH*0.78); } ctx.lineTo(x(n-1),priceBot); ctx.closePath();
       const grad=ctx.createLinearGradient(0,plotT,0,priceBot); grad.addColorStop(0,`rgba(${regCol[0]},${regCol[1]},${regCol[2]},0.22)`); grad.addColorStop(1,`rgba(${regCol[0]},${regCol[1]},${regCol[2]},0.02)`); ctx.fillStyle=grad; ctx.fill();
       // live energie-% badge + regime, linksonder in de prijs-zone
-      const enNow=Math.round((AV?AV.vfm[n-1]:0)*100); ctx.fillStyle=`rgb(${regCol[0]},${regCol[1]},${regCol[2]})`; ctx.textAlign='left'; ctx.font="8px 'JetBrains Mono',monospace";
+      const enNow=Math.round((AV?AV.vfm[n-1]:0)*100); ctx.fillStyle=`rgb(${regCol[0]},${regCol[1]},${regCol[2]})`; ctx.textAlign='left'; ctx.font="bold 10px 'JetBrains Mono',monospace";
       ctx.fillText('⚡ energie '+enNow+'% · '+(F?F.regime:'—'),padL+3,priceBot-4);
     }
     // ---- VOLUME-PROFIEL (volume-op-prijs) rechts, realtime uit de candles ----
@@ -25116,7 +25116,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       ctx.textAlign='right'; ctx.font="7px 'JetBrains Mono',monospace"; const dec2=mx>=100?1:(mx>=10?2:3);
       fib.levels.forEach(L=>{ if(L.price<mn||L.price>mx)return; const yy=yP(L.price); const c=fcol[L.lab]||'#8aa'; ctx.strokeStyle=c; ctx.globalAlpha=(L.lab==='0.618'||L.lab==='0.5'||L.lab==='0.382')?0.5:0.28; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(padL+gw,yy); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha=1;
         ctx.fillStyle=c; ctx.fillText(L.lab+' '+L.price.toFixed(dec2),padL+gw-2,yy-1); });
-      ctx.fillStyle='#6d8296'; ctx.textAlign='left'; ctx.font="7px 'JetBrains Mono',monospace"; ctx.fillText('FIB '+FIBSCALE+' · '+fib.win+'c '+(fib.up?'↑swing':'↓swing'),padL+3,plotT+20);
+      ctx.fillStyle='#6d8296'; ctx.textAlign='left'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.fillText('FIB '+FIBSCALE+' · '+fib.win+'c '+(fib.up?'↑swing':'↓swing'),padL+3,plotT+20);
     } }
     // ---- MA (per-grondstof gekalibreerde periode) ----
     let _cal=null; try{ _cal=_calib(SRC.nsKey(SEL),TF,cl); }catch(e){}
@@ -25126,7 +25126,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       drawMA(maF,'#ffd76a',1.2);   // SNELLE MA (goud)
       // golden/death cross-markers waar fast de slow kruist
       for(let i=1;i<n;i++){ if(maF[i]==null||maS[i]==null||maF[i-1]==null||maS[i-1]==null)continue; const now=maF[i]>maS[i], was=maF[i-1]>maS[i-1]; if(now!==was){ const xc=x(i), yc=yP(maF[i]); if(now){ ctx.fillStyle='#26d07c'; ctx.beginPath(); ctx.arc(xc,yc,3.2,0,6.283); ctx.fill(); ctx.fillStyle='#0a0e14'; ctx.font="6px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('G',xc,yc+2); } else { ctx.fillStyle='#ff5f7e'; ctx.beginPath(); ctx.arc(xc,yc,3.2,0,6.283); ctx.fill(); ctx.fillStyle='#0a0e14'; ctx.font="6px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('D',xc,yc+2); } } }
-      ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillStyle='#ffd76a'; ctx.fillText('MA'+_cal.maP,padL+3,plotT+30); ctx.fillStyle='#4a7bd0'; ctx.fillText('/MA'+_cal.maSlowP+' cross ('+Math.round(_cal.csHit*100)+'%)',padL+3+22,plotT+30); }
+      ctx.textAlign='left'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.fillStyle='#ffd76a'; ctx.fillText('MA'+_cal.maP,padL+3,plotT+30); ctx.fillStyle='#4a7bd0'; ctx.fillText('/MA'+_cal.maSlowP+' cross ('+Math.round(_cal.csHit*100)+'%)',padL+3+26,plotT+30); }
     if(MODE==='candle'){
       // ECHTE candlesticks (o/h/l/c) — groen omhoog, roze omlaag
       const bw=Math.max(1.4, Math.min(9, gw/n*0.66));
@@ -25152,19 +25152,19 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       });
       // label alleen bij de meest recente node van elk hoofdtype (geen clutter)
       const seen={}; for(let j=ns.nodes.length-1;j>=0;j--){ const nd=ns.nodes[j]; if(nd.type==='osc'||seen[nd.type])continue; seen[nd.type]=1; const xc=x(nd.i); const c=cands[nd.i]; const hi=(c&&c.h!=null)?c.h:cl[nd.i]; const lbl=nd.type==='reset'?'RESET':nd.type==='vola'?'VOLA':'CORE'; ctx.fillStyle=NC[nd.type]; ctx.font="7px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText(lbl+' '+nd.num,Math.max(padL+16,Math.min(padL+gw-16,xc)),yP(hi)-10); }
-      ctx.fillStyle='#6d8296'; ctx.textAlign='left'; ctx.font="7px 'JetBrains Mono',monospace"; ctx.fillText('nodes ×'+ns.period+'c',padL+3,plotT+40);
+      ctx.fillStyle='#6d8296'; ctx.textAlign='left'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.fillText('nodes ×'+ns.period+'c',padL+3,plotT+41);
     } }
     // ---- NEO'S NODE (NN) cap-pijlen bij de candles: waar de per-grondstof NN omslaat ----
     if(VIS.nn){ const nn=_nnSeries(SRC.nsKey(SEL),TF,cl,SRC.brainCands(SEL,TF)); if(nn&&nn.prob){ let prev=null;
       for(let i=13;i<n;i++){ const p=nn.prob[i]; if(p==null)continue; if(prev!=null){ const up=(p>=0.5), was=(prev>=0.5);
         if(up!==was && Math.abs(p-0.5)>0.06){ const c=cands[i]; const xc=x(i); if(up){ const yy=yP((c&&c.l!=null)?c.l:cl[i])+9; ctx.fillStyle='#26d07c'; ctx.beginPath(); ctx.moveTo(xc,yy-5); ctx.lineTo(xc-3,yy); ctx.lineTo(xc+3,yy); ctx.closePath(); ctx.fill(); } else { const yy=yP((c&&c.h!=null)?c.h:cl[i])-9; ctx.fillStyle='#ff5f7e'; ctx.beginPath(); ctx.moveTo(xc,yy+5); ctx.lineTo(xc-3,yy); ctx.lineTo(xc+3,yy); ctx.closePath(); ctx.fill(); } } }
         prev=p; }
-      const pl=nn.prob[n-1]; if(pl!=null){ ctx.fillStyle=pl>=0.5?'#26d07c':'#ff5f7e'; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace"; ctx.fillText('NN '+Math.round(pl*100)+'%'+(pl>=0.5?'↑':'↓')+(nn.cal&&nn.cal.proven?'✓':''),padL+3,plotT+50); }
+      const pl=nn.prob[n-1]; if(pl!=null){ ctx.fillStyle=pl>=0.5?'#26d07c':'#ff5f7e'; ctx.textAlign='left'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.fillText('NN '+Math.round(pl*100)+'%'+(pl>=0.5?'↑':'↓')+(nn.cal&&nn.cal.proven?'✓':''),padL+3,plotT+52); }
     } }
     // PREDICTED 4h doellijn
     try{ const pr=SRC.predict(SEL); if(pr&&pr.target!=null&&pr.target>=mn&&pr.target<=mx){ const yt=yP(pr.target),col=pr.dir==='LONG'?'#14f195':'#ff5f7e';
       ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.55; ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
-      ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillText('4h '+(pr.dir==='LONG'?'▲':'▼')+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw+3,yt+3); } }catch(e){}
+      ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="bold 10px 'JetBrains Mono',monospace"; ctx.fillText('4h '+(pr.dir==='LONG'?'▲':'▼')+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw+3,yt+3); } }catch(e){}
     // ---- ⚡ ΔV KILL-SWITCH PROJECTIE — voorspelde pivot-prijs + voorspelde datum/tijd-range (uit de energie-forecast) ----
     try{ const pk={commo:'commo',crypto:'crypto',fx:'fx'}[SRC.name]||'commo';
       const En2=window.TrinityCommoUOTAM; const fc=window.TrinityEForecast&&window.TrinityEForecast.predict(pk,SEL); const m2=En2&&En2.matrix(SEL,'1h',En2.provFor?En2.provFor(pk):undefined);
@@ -25175,13 +25175,19 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
           ctx.fillStyle=col; ctx.beginPath(); ctx.arc(xProj,yv,3,0,6.283); ctx.fill();
           const p2f=x=>String(x).padStart(2,'0'); const dS=t=>{const d=new Date(t);return p2f(d.getDate())+'/'+p2f(d.getMonth()+1)+' '+p2f(d.getHours())+':'+p2f(d.getMinutes());};
           const rng=(window.__uotamFmtRange?window.__uotamFmtRange(fc.loMs,fc.hiMs):Math.round(fc.remainMs/3600000)+'u');
-          ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace";
-          ctx.fillText('⚡ΔV kill-switch '+(fc.dir&&fc.dir!=='—'?fc.dir:'')+' ~'+projP.toFixed(dec)+' @ '+dS(fc.etaTs)+' ['+rng+']',padL+3,plotT+62);
-          ctx.fillStyle='#6d8296'; ctx.font="6.5px 'JetBrains Mono',monospace"; ctx.fillText('venster '+dS(fc.etaLo)+' → '+dS(fc.etaHi)+' · vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.proven?' ✓':''),padL+3,plotT+72);
+          // GROTE, leesbare ΔV-projectie-badge met donkere achtergrond
+          const line1='⚡ΔV kill-switch '+(fc.dir&&fc.dir!=='—'?fc.dir:'')+' ~'+projP.toFixed(dec)+' @ '+dS(fc.etaTs)+' ['+rng+']';
+          const line2='venster '+dS(fc.etaLo)+' → '+dS(fc.etaHi)+' · vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.proven?' ✓':' (leert)');
+          ctx.textAlign='left'; ctx.font="bold 13px 'JetBrains Mono',monospace"; const w1=ctx.measureText(line1).width; ctx.font="10px 'JetBrains Mono',monospace"; const w2=ctx.measureText(line2).width;
+          const bw=Math.max(w1,w2)+14, bx=padL+4, by=plotT+54, bh=38;
+          ctx.fillStyle='rgba(6,12,20,0.85)'; ctx.strokeStyle=col; ctx.lineWidth=1.2;
+          if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,5); ctx.fill(); ctx.stroke(); } else { ctx.fillRect(bx,by,bw,bh); ctx.strokeRect(bx,by,bw,bh); }
+          ctx.fillStyle=col; ctx.font="bold 13px 'JetBrains Mono',monospace"; ctx.fillText(line1,bx+7,by+16);
+          ctx.fillStyle='#c3d2e0'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText(line2,bx+7,by+31);
         } } }catch(e){}
     // header (links) + markt/sessie-badge (rechts)
-    ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+'pt',padL+2,plotT-5);
-    try{ const mh=SRC.market(SEL); if(mh){ ctx.textAlign='right'; ctx.fillStyle=mh.open?'#14f195':'#ff5f7e'; ctx.font="8px 'JetBrains Mono',monospace";
+    ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="bold 13px 'JetBrains Mono',monospace"; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+'pt',padL+2,plotT-6);
+    try{ const mh=SRC.market(SEL); if(mh){ ctx.textAlign='right'; ctx.fillStyle=mh.open?'#14f195':'#ff5f7e'; ctx.font="10px 'JetBrains Mono',monospace";
       let sfx=''; if(mh.session)sfx=' · '+mh.session+(mh.overlap?' ⚡':'')+(mh.volFactor?' ×'+mh.volFactor.toFixed(2):'');
       ctx.fillText((mh.open?'● open':'○ dicht')+(mh.exchange?' · '+mh.exchange:'')+sfx,padL+gw,plotT-5); } }catch(e){}
     // ================= FSO-OSCILLATOR (onderste zone, gedeelde achtergrond) =================
@@ -25216,7 +25222,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     if(VIS.rsi && _cal){ const r=_rsi(cl,_cal.rsiP);
       [0.3,0.7].forEach(g=>{ const yy=yO(g); ctx.strokeStyle='rgba(255,214,106,0.30)'; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(padL+gw,yy); ctx.stroke(); ctx.setLineDash([]); });
       ctx.beginPath(); let st=false; for(let i=0;i<n;i++){ if(r[i]==null)continue; const px=x(i),py=yO(r[i]/100); st?ctx.lineTo(px,py):(ctx.moveTo(px,py),st=true); } ctx.strokeStyle='#ffd76a'; ctx.lineWidth=1.2; ctx.stroke();
-      const rl=r[n-1]; ctx.fillStyle='#ffd76a'; ctx.textAlign='right'; ctx.font="7.5px 'JetBrains Mono',monospace"; if(rl!=null)ctx.fillText('RSI'+_cal.rsiP+' '+Math.round(rl),padL+gw-2,oscBot-3); }
+      const rl=r[n-1]; ctx.fillStyle='#ffd76a'; ctx.textAlign='right'; ctx.font="9px 'JetBrains Mono',monospace"; if(rl!=null)ctx.fillText('RSI'+_cal.rsiP+' '+Math.round(rl),padL+gw-2,oscBot-3); }
     // ---- meta-regel (alle scalars, DOM — geen canvas-clutter) ----
     if(meta){ let m=''; try{ const a=SRC.brainAnalyze(SEL,TF);
       if(F){ const rc=F.regime==='CRISIS'?'#ff5f7e':F.regime==='SPANNING'?'#ffb627':'#14f195'; m='FSO '+F.regime+' · stress '+F.last.stress+' · σ² '+F.last.varr+' · VFM '+Math.round(F.last.vfm*100)+'% · ΔV '+(F.last.dV>=0?'+':'')+F.last.dV.toFixed(3)+' · node '+F.nodeTh.toFixed(2)+' · vol '+Math.round(F.volScore*100)+'% · LOW '+Math.round(F.lowPct*100)+'%/HIGH '+Math.round(F.highPct*100)+'%'; if(F.verify)m+=' · verif '+Math.round(F.verify.hitRate*100)+'%'+(F.verify.proven?'✓':''); }
@@ -25388,7 +25394,12 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
           else if(prov.key==='commo' && M){ const ro=M.riskOff(); const safe=/GOLD|SILVER|PLAT|PALL/.test(key); macroBias=(safe?1:-1)*((ro-0.45)*2)*0.7; macroSrc='ShockWave risk-'+(ro>=0.5?'OFF':'ON'); }
           if(SW && SW.markov){ const mk=SW.markov(); if(mk&&mk.ready&&mk.pCrisis>0.4){ macroBias*=0.7; macroBias-=(prov.key==='commo'&&/GOLD|SILVER/.test(key)?-0.15:0.15)*mk.pCrisis; } }   // escalatie → risk-off tilt
           macroBias=Math.max(-1,Math.min(1,macroBias)); }catch(e){}
-        const energy=this._energy(F,cl,vfmNow,chaos,px,pin.type,(cnnMulti?cnnMulti.bias:0),(B&&B.probUp!=null?B.probUp:0.5),macroBias,macroSrc);
+        // ---- ÉÉN canonieke Osiris-richting (bias): VFM + NN + CNN + ShockWave-contagion. Dezelfde richting
+        //   wordt overal getoond (energie-scale, matrix, forecast) zodat panelen niet tegenspreken. ----
+        const _nnP=(B&&B.probUp!=null)?B.probUp:0.5; const _cnnB=(cnnMulti?cnnMulti.bias:(cnn||0));
+        const consScore=clamp((vfmNow>0?1:-1)*Math.min(1,Math.abs(vfmNow)/1.6)*0.40 + (_nnP-0.5)*2*0.30 + clamp(_cnnB,-1,1)*0.16 + clamp(macroBias,-1,1)*0.18, -1, 1);
+        const biasDir=consScore>=0?'LONG':'SHORT';
+        const energy=this._energy(F,cl,vfmNow,chaos,px,pin.type,(cnnMulti?cnnMulti.bias:0),(B&&B.probUp!=null?B.probUp:0.5),macroBias,macroSrc,biasDir,consScore);
         // ---- REGIME-HMM (verborgen markt-toestand) ----
         const hmm=_hmm(cl);
         const out={ key, tf, mkt:prov.key, name:prov.names[key]||key, ready:true, px, n, at:now,
@@ -25398,38 +25409,41 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
           node:{num:pin.num,type:pin.type,typeLab:NODE_TYPE[pin.type].lab,col:NODE_TYPE[pin.type].col,msTo:pin.msTo,nextTs:pin.nextTs,session:nodeSess}, nodeFit, tam,
           levels, cnn:+cnn.toFixed(2), cnnMulti, pattern:patt, structure:struct,
           nn:B&&B.probUp!=null?Math.round(B.probUp*100):null, nnProven:!!(B&&B.cal&&B.cal.proven),
-          energy, hmm,
-          // executie-oordeel (v7.7 gate, alleen ADVIES — verandert de werking niet)
-          verdict:(Math.abs(vfmNow)<1.2)?'WAIT':(chaos>chaosLim)?'SKIP':'TRADE', dir:vfmNow>0?'LONG':'SHORT', lev:(Math.abs(vfmNow)>1.6)?'10x':'5x' };
+          energy, hmm, bias:biasDir, biasScore:+consScore.toFixed(2),
+          // executie-oordeel (v7.7 gate). dir = de ÉNE canonieke Osiris-bias (zelfde overal).
+          verdict:(Math.abs(vfmNow)<1.2)?'WAIT':(chaos>chaosLim)?'SKIP':'TRADE', dir:biasDir, dirRaw:(vfmNow>0?'LONG':'SHORT'), lev:(Math.abs(vfmNow)>1.6)?'10x':'5x' };
+        // gecombineerd net-advies (één regel die matrix + energie verzoent)
+        out.net={ dir:biasDir, verdict:out.verdict, zone:energy.zone,
+          txt: biasDir+' · '+(out.verdict==='TRADE'?'INSTAP':out.verdict==='SKIP'?'SKIP (chaos)':'WACHT')+' · '+energy.zone,
+          why: out.verdict==='TRADE'?'VFM-massa aanwezig → instap in bias-richting':(out.verdict==='SKIP'?'chaos boven limiet → niet instappen':'geen institutionele massa (|VFM|<1.2) → wacht op trigger') };
         this._cache[ck]=out; this._at[ck]=now; return out;
       }catch(e){ const o={key,tf,ready:false,err:e.message}; this._cache[ck]=o; this._at[ck]=now; return o; }
     },
     // Fractal Energy Scale: bepaalt waar de markt in de compressie/ontlading-cyclus zit + de RICHTING
     //  (long/short) met een dynamische, adaptieve duiding. cnnBias/probUp verfijnen de richting.
-    _energy(F,cl,vfm,chaos,px,nodeType,cnnBias,probUp,macroBias,macroSrc){ try{
+    //  De RICHTING (dir) is nu de ÉNE canonieke Osiris-bias (biasDir), zodat energie-scale + matrix
+    //  NOOIT tegenspreken. De ZONE beschrijft de fase/tactiek (wachten/instappen/fade/mean-reversion).
+    _energy(F,cl,vfm,chaos,px,nodeType,cnnBias,probUp,macroBias,macroSrc,biasDir,consScore){ try{
       cnnBias=cnnBias||0; probUp=(probUp==null?0.5:probUp); macroBias=macroBias||0;
       const n=cl.length; const move5=n>6?(cl[n-1]/cl[n-6]-1)*100:0;   // recente 5-bar move %
-      // compressie-diepte uit σ²-percentiel (laag σ² = veer geladen)
       let comp=0.5; if(F&&F.varS&&F.varS.length){ const cur=F.varS[F.varS.length-1]; const lo=pctl(F.varS,0.15), hi=pctl(F.varS,0.85); comp=hi>lo?clamp(1-(cur-lo)/(hi-lo),0,1):0.5; }
-      const en=F?F.last.vfm:0;                 // opgeladen energie (0..1)
-      const stress=F?F.last.stress:0;
-      // consensus-richtingsscore uit VFM-teken, NN-kans, CNN-bias én ShockWave-contagion (−1..+1)
-      const dirScore = clamp((vfm>0?1:-1)*Math.min(1,Math.abs(vfm)/1.6)*0.40 + (probUp-0.5)*2*0.30 + clamp(cnnBias,-1,1)*0.16 + clamp(macroBias,-1,1)*0.18, -1, 1);
-      let zone,scn,col,act,dir='—',dirScoreZone=dirScore;
-      const dl=(d)=>d>=0?'LONG':'SHORT'; const arr=(d)=>d>=0?'↑':'↓';
-      if(comp>=0.7 && Math.abs(move5)<1.5){ zone='DEEP COMPRESSION'; dir=dl(dirScore); dirScoreZone=dirScore;
-        scn='Veer maximaal geladen — uitbraak ophanden richting '+dir+' '+arr(dirScore); col='#ffd500'; act='WACHT op trigger / positioneer '+dir+' vóór de breakout'; }
-      else if(comp>=0.5 && en>=0.45){ zone='LOADING'; dir=dl(dirScore); dirScoreZone=dirScore;
-        scn='Energie bouwt op, compressie neemt toe — voorkeur '+dir+' '+arr(dirScore); col='#26d0cc'; act='Voorbereiden '+dir+' (richting uit NN/VFM/CNN)'; }
-      else if(Math.abs(move5)>=3 && stress>=(F?F.crisT:0.4)){ zone='CLIMAX'; dirScoreZone=-Math.sign(move5); dir=dl(dirScoreZone);   // fade = tegen de move in
-        scn='Grote '+(move5>0?'stijging':'daling')+' + stress-piek → climax; fade-kans richting '+dir+' '+arr(dirScoreZone); col='#ff5f7e'; act='Winst beschermen / fade-setup '+dir+', geen verse chase'; }
-      else if(Math.abs(move5)>=2 && Math.abs(vfm)>=1.2){ zone='EXPANSION'; dirScoreZone=Math.sign(move5); dir=dl(dirScoreZone);   // trend meelopen
-        scn='Uitbraak bezig ('+(move5>0?'omhoog':'omlaag')+') — trend loopt '+dir+' '+arr(dirScoreZone); col='#26d07c'; act='Meelopen '+dir+' met trailing stop'; }
-      else if(nodeType===9 || (comp<0.3 && Math.abs(move5)>=1)){ zone='DISCHARGE'; dirScoreZone=-Math.sign(move5); dir=dl(dirScoreZone);   // mean-reversion
-        scn='Ontlading na opbouw — energie loopt eruit; mean-reversion richting '+dir+' '+arr(dirScoreZone); col='#ff8a3c'; act='Trend-einde mogelijk / mean-reversion '+dir; }
-      else { zone='NEUTRAL'; dir='—'; dirScoreZone=0; scn='Geen duidelijke compressie of ontlading — geen richting-edge'; col='#7d8a99'; act='Geduld — geen edge'; }
-      return { zone, scenario:scn, col, action:act, dir, dirScore:+dirScoreZone.toFixed(2), compression:+comp.toFixed(2), charge:+(en||0).toFixed(2), move5:+move5.toFixed(2), macro:+(macroBias||0).toFixed(2), macroSrc:macroSrc||null };
-    }catch(e){ return {zone:'—',scenario:'',col:'#7d8a99',action:'',dir:'—',dirScore:0,compression:0,charge:0,move5:0,macro:0,macroSrc:null}; } },
+      const en=F?F.last.vfm:0; const stress=F?F.last.stress:0;
+      const dirScore=(consScore!=null)?consScore:clamp((vfm>0?1:-1)*Math.min(1,Math.abs(vfm)/1.6)*0.40 + (probUp-0.5)*2*0.30 + clamp(cnnBias,-1,1)*0.16 + clamp(macroBias,-1,1)*0.18, -1, 1);
+      const dir=biasDir||(dirScore>=0?'LONG':'SHORT'); const arrw=dir==='LONG'?'↑':'↓';
+      let zone,scn,col,act,tactic;
+      if(comp>=0.7 && Math.abs(move5)<1.5){ zone='DEEP COMPRESSION'; tactic='breakout-setup';
+        scn='Veer maximaal geladen — uitbraak ophanden; bias '+dir+' '+arrw; col='#ffd500'; act='WACHT op trigger / positioneer '+dir+' vóór de breakout'; }
+      else if(comp>=0.5 && en>=0.45){ zone='LOADING'; tactic='opbouw';
+        scn='Energie bouwt op, compressie neemt toe — bias '+dir+' '+arrw; col='#26d0cc'; act='Voorbereiden '+dir+' (richting uit VFM/NN/CNN/ShockWave)'; }
+      else if(Math.abs(move5)>=3 && stress>=(F?F.crisT:0.4)){ zone='CLIMAX'; tactic='fade-risico';
+        scn='Grote '+(move5>0?'stijging':'daling')+' + stress-piek → climax; uitputting van de '+(move5>0?'stijging':'daling'); col='#ff5f7e'; act='Winst beschermen; korte fade tegen de '+(move5>0?'stijging':'daling')+' mogelijk (bias blijft '+dir+')'; }
+      else if(Math.abs(move5)>=2 && Math.abs(vfm)>=1.2){ zone='EXPANSION'; tactic='trend-mee';
+        scn='Uitbraak bezig ('+(move5>0?'omhoog':'omlaag')+') — trend loopt; bias '+dir+' '+arrw; col='#26d07c'; act='Meelopen '+dir+' met trailing stop'; }
+      else if(nodeType===9 || (comp<0.3 && Math.abs(move5)>=1)){ zone='DISCHARGE'; tactic='mean-reversion';
+        scn='Ontlading na opbouw — energie loopt eruit; korte mean-reversion tegen de '+(move5>0?'stijging':'daling')+' mogelijk (structurele bias '+dir+')'; col='#ff8a3c'; act='Trend-einde mogelijk; kleine tegenbeweging kan, structureel '+dir; }
+      else { zone='NEUTRAL'; tactic='wacht'; scn='Geen duidelijke compressie of ontlading — lage edge; bias '+dir+' (zwak)'; col='#7d8a99'; act='Geduld — wacht op een duidelijke zone'; }
+      return { zone, tactic, scenario:scn, col, action:act, dir, dirScore:+dirScore.toFixed(2), compression:+comp.toFixed(2), charge:+(en||0).toFixed(2), move5:+move5.toFixed(2), macro:+(macroBias||0).toFixed(2), macroSrc:macroSrc||null };
+    }catch(e){ return {zone:'—',tactic:'',scenario:'',col:'#7d8a99',action:'',dir:(biasDir||'—'),dirScore:0,compression:0,charge:0,move5:0,macro:0,macroSrc:null}; } },
     all(tf,prov){ prov=prov||PROV_COMMO; return prov.markets.map(k=>this.analyze(k,tf||'1h',prov)); },
     // ---- SUPPORT & TARGET MATRIX (dynamisch, autonoom-adaptief) per markt ----
     // Klassieke pivots (recente 12 bars) + fib-macro extremen → 6 niveaus + een trade-frame (entry/stop/T1/T2/RR)
@@ -25449,7 +25463,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         const stop = long ? Math.min(S1, px*(1-0.015)) : Math.max(R1, px*(1+0.015));
         const t1 = long?R1:S1, t2 = long?rows[0].price:rows[5].price;
         const rr = +(Math.abs(t1-px)/Math.max(1e-9,Math.abs(px-stop))).toFixed(2);
-        return { key:a.key, name:a.name, mkt:a.mkt, px, dec, dir:a.dir, verdict:a.verdict, energyZone:a.energy.zone, energyCol:a.energy.col, node:a.node,
+        return { key:a.key, name:a.name, mkt:a.mkt, px, dec, dir:a.dir, verdict:a.verdict, energyZone:a.energy.zone, energyCol:a.energy.col, node:a.node, net:a.net, biasScore:a.biasScore,
           rows, frame:{ entry:+px.toFixed(dec), stop:+stop.toFixed(dec), t1:+t1.toFixed(dec), t2:+t2.toFixed(dec), rr } };
       }catch(e){ return null; } },
     matrixAll(tf,prov){ prov=prov||PROV_COMMO; return prov.markets.map(k=>this.matrix(k,tf||'1h',prov)).filter(Boolean); },
@@ -25542,7 +25556,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
            : '<div style="font-size:0.58rem;color:#9fb2c4;margin-top:3px;">node-data laadt…</div>')+
         '<div style="font-size:0.52rem;color:#6d8296;margin-top:2px;">π-klok (kosmisch): Type '+a.node.type+' in '+(window.__uotamCd?window.__uotamCd(a.node.nextTs):fmtT(a.node.msTo))+'</div>'+
         (fit?'<div style="font-size:0.52rem;color:#6d8296;margin-top:1px;">timing-fit: π-klok '+Math.round(fit.piPct*100)+'% vs adaptief '+(fit.adPct!=null?Math.round(fit.adPct*100)+'%':'—')+' → <span style="color:#7fd8ff;">'+esc(fit.better)+'</span></div>':'')); }).join('');
-    const en=document.getElementById(idp+'-energy'); if(en)en.innerHTML=ready.map(a=>{ const Z=a.energy;
+    const en=document.getElementById(idp+'-energy'); if(en)en.innerHTML='<div style="grid-column:1/-1;font-size:0.54rem;color:#8296a8;margin-bottom:4px;line-height:1.5;"><b style="color:#cfe6f5;">Richting</b> = één Osiris-bias (VFM+NN+CNN+ShockWave) — identiek aan de Support&Target Matrix. <b>Zone</b> = de fase (compressie→wachten, expansie→meelopen, climax/discharge→voorzichtig/fade). <b>▸ net-advies</b> = wat te doen · <b>voorspelde periode</b> = hoe lang het geldt.</div>'+ready.map(a=>{ const Z=a.energy;
       const bar=(v,c)=>'<div style="height:5px;border-radius:2px;background:rgba(255,255,255,0.08);overflow:hidden;"><div style="height:100%;width:'+Math.round(v*100)+'%;background:'+c+';"></div></div>';
       let et=null; try{ et=window.TrinityUOTAMShadow&&window.TrinityUOTAMShadow.energyTrust(prov.key,a.key); }catch(e){}
       const dirCol=Z.dir==='LONG'?'#26d07c':Z.dir==='SHORT'?'#ff5f7e':'#7d8a99';
@@ -25552,8 +25566,9 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       let fc=null; try{ fc=window.TrinityEForecast&&window.TrinityEForecast.predict(prov.key,a.key); }catch(e){}
       const fcLine=fc?('<div style="font-size:0.54rem;color:#cfe6f5;margin-top:3px;border-top:1px solid rgba(255,255,255,0.06);padding-top:3px;">⏳ <b>voorspelde periode</b>: '+esc(window.__uotamFmtRange?window.__uotamFmtRange(fc.loMs,fc.hiMs):Math.round(fc.remainMs/3600000)+'u')+' · <span style="color:'+dirCol+';font-weight:700;">'+(fc.dir&&fc.dir!=='—'?fc.dir:'—')+'</span> · '+esc(fc.tradeType)+'</div>'+
         '<div style="font-size:0.48rem;color:#6d8296;">richting-vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.horizonAcc!=null?' · horizon-hit '+Math.round(fc.horizonAcc*100)+'%':'')+' · n'+fc.dirN+(fc.proven?' <span style="color:#26d07c;">✓ bewezen</span>':' <span style="color:#6d8296;">(leert)</span>')+'</div>'):'';
+      const net=a.net; const netLine=net?('<div style="font-size:0.56rem;color:#e8f4ff;margin:3px 0;background:'+dirCol+'1c;border:1px solid '+dirCol+'55;border-radius:5px;padding:3px 7px;">▸ net-advies: <b style="color:'+dirCol+';">'+esc(net.txt)+'</b></div>'):'';
       return card('<div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;"><b style="font-size:0.68rem;color:#cfe6f5;">'+nm(a)+'</b><span style="font-size:0.58rem;color:'+Z.col+';font-weight:700;">'+esc(Z.zone)+'</span></div>'+
-        '<div style="margin:3px 0;">'+dirBadge+hr+'</div>'+macroNote+
+        '<div style="margin:3px 0;">'+dirBadge+hr+'</div>'+netLine+macroNote+
         '<div style="font-size:0.56rem;color:#9fb2c4;margin:2px 0 3px;">'+esc(Z.scenario)+'</div>'+
         '<div style="font-size:0.5rem;color:#6d8296;">compressie '+Math.round(Z.compression*100)+'%</div>'+bar(Z.compression,'#ffd500')+
         '<div style="font-size:0.5rem;color:#6d8296;margin-top:2px;">energie '+Math.round(Z.charge*100)+'% · 5-bar '+(Z.move5>=0?'+':'')+Z.move5+'%</div>'+bar(Z.charge,Z.col)+
@@ -25723,15 +25738,19 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const histRows = hist.length? '<div style="margin-top:4px;border-top:1px dashed rgba(255,255,255,0.08);padding-top:3px;"><div style="font-size:0.56rem;color:#8296a8;letter-spacing:0.05em;margin-bottom:2px;">VORIGE PIVOTS &amp; LEVELS <span style="color:#6d8296;">(scenario-shadow · geresolved)</span></div>'+
       '<div style="max-height:130px;overflow-y:auto;padding-right:3px;">'+hist.slice(0,16).map(h=>{ const d=new Date(h.made); const ok=h.outcome&&h.outcome.win; const oc=ok?'#26d07c':(h.outcome&&h.outcome.hitStop?'#ff5f7e':'#7d8a99');
         return '<div style="font-size:0.58rem;color:#9fb2c4;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);"><span style="font-family:\'JetBrains Mono\',monospace;color:#8aa;">'+p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+p2(d.getHours())+':'+p2(d.getMinutes())+'</span> <span style="color:'+(h.dir==='LONG'?'#26d07c':'#ff5f7e')+';">'+h.dir+'</span> piv '+h.pivot+' · T1 '+h.t1+' · T2 '+h.t2+' · S1 '+h.s1+' · S2 '+h.s2+' · RR '+h.rr+' → <b style="color:'+oc+';">'+(ok?'T1 ✓':(h.outcome&&h.outcome.hitStop?'stop ✗':'—'))+'</b></div>'; }).join('')+'</div></div>' : '<div style="margin-top:3px;font-size:0.56rem;color:#6d8296;">Scenario-shadow verzamelt uitkomsten… (geen geresolvede pivots)</div>';
+    const dCol=m.dir==='LONG'?'#26d07c':'#ff5f7e';
+    const netLine=m.net?('<div style="font-size:0.6rem;color:#e8f4ff;margin:2px 0 5px;background:'+dCol+'1c;border:1px solid '+dCol+'55;border-radius:5px;padding:3px 7px;">▸ Osiris net-advies: <b style="color:'+dCol+';">'+esc(m.net.txt)+'</b></div>'):'';
     return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+(m.energyCol||'var(--line)')+'44;border-radius:7px;padding:9px 11px;">'+
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:0.78rem;color:#cfe6f5;">'+esc(m.name)+'</b><span style="font-size:0.6rem;color:'+(m.dir==='LONG'?'#26d07c':'#ff5f7e')+';font-weight:700;">'+m.dir+' · '+esc(m.verdict)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:0.78rem;color:#cfe6f5;">'+esc(m.name)+'</b><span style="font-size:0.6rem;color:'+dCol+';font-weight:700;">'+m.dir+' · '+esc(m.verdict)+'</span></div>'+
+      netLine+
       rowsH+
       '<div style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.06);padding-top:4px;font-size:0.58rem;color:#6d8296;">frame: entry '+fr.entry+' · stop <span style="color:#ff8a94;">'+fr.stop+'</span> · T1 <span style="color:#26d07c;">'+fr.t1+'</span> · T2 <span style="color:#26d07c;">'+fr.t2+'</span> · RR <span style="color:'+rc+';font-weight:700;">'+fr.rr+'</span></div>'+
       lvlHR+histRows+
     '</div>'; }
   function renderMatrixGrid(prov, id){ try{ const En=E(); if(!En)return; const host=document.getElementById(id); if(!host)return; const ms=En.matrixAll('1h',prov);
     if(!ms.length){ host.innerHTML='<span style="font-size:0.55rem;color:var(--dimmer);">Matrix laadt… (Capital /history vereist)</span>'; return; }
-    host.innerHTML=ms.map(matrixCard).join(''); }catch(e){} }
+    const exp='<div style="grid-column:1/-1;font-size:0.56rem;color:#8296a8;margin-bottom:4px;line-height:1.5;">Zelfde <b style="color:#cfe6f5;">richting</b> als de Energie-scale (één Osiris-bias). Hier staan de <b>prijs-niveaus</b> (T1/T2/S1/S2) en het <b>verdict</b>: <span style="color:#26d07c;">TRADE</span>=nu instappen · <span style="color:#ffb627;">WAIT</span>=wacht op trigger · <span style="color:#ff5f7e;">SKIP</span>=te veel chaos. ▸ net-advies bovenaan elke kaart is de samenvatting.</div>';
+    host.innerHTML=exp+ms.map(matrixCard).join(''); }catch(e){} }
   function renderCommoMatrix(){ const En=E(); if(En)renderMatrixGrid(En.PROV_COMMO,'mx-commo'); }
   function renderFxMatrix(){ const En=E(); if(En)renderMatrixGrid(En.PROV_FX,'mx-fx'); }
 
