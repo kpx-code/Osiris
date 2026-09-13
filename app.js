@@ -25191,7 +25191,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // PREDICTED 4h doellijn
     try{ const pr=SRC.predict(SEL); if(pr&&pr.target!=null&&pr.target>=mn&&pr.target<=mx){ const yt=yP(pr.target),col=pr.dir==='LONG'?'#14f195':'#ff5f7e';
       ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.55; ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
-      ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="bold 10px 'JetBrains Mono',monospace"; ctx.fillText('4h '+(pr.dir==='LONG'?'▲':'▼')+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw+3,yt+3); } }catch(e){}
+      ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="bold 9px 'JetBrains Mono',monospace"; ctx.fillText('4h-koersdoel '+(pr.dir==='LONG'?'▲':'▼')+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw+3,yt+3); } }catch(e){}
     // ---- ⚡ ΔV KILL-SWITCH PROJECTIE — voorspelde pivot-prijs + voorspelde datum/tijd-range (uit de energie-forecast) ----
     //  Toont ALTIJD een badge: volledige projectie zodra de forecast er is, anders een "calibreert…"-melding.
     try{ const pk={commo:'commo',crypto:'crypto',fx:'fx'}[SRC.name]||'commo';
@@ -25208,24 +25208,21 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
             const ys=(sPx!=null&&sPx>=mn&&sPx<=mx)?yP(sPx):(plotT+10);
             ctx.fillStyle=scol; ctx.beginPath(); ctx.moveTo(xs,ys); ctx.lineTo(xs-5,ys-8); ctx.lineTo(xs+5,ys-8); ctx.closePath(); ctx.fill();
             ctx.font="bold 8.5px 'JetBrains Mono',monospace"; ctx.textAlign=(si>n*0.7?'right':'left'); ctx.fillText('◀ ΔV-periode start',(si>n*0.7?xs-6:xs+6),ys-11); } } }catch(e){}
-      const p2f=x=>String(x).padStart(2,'0'); const dS=t=>{const d=new Date(t);return p2f(d.getDate())+'/'+p2f(d.getMonth()+1)+' '+p2f(d.getHours())+':'+p2f(d.getMinutes());};
-      const ready=!!(fc&&m2&&fc.remainMs>0); let line1,line2,col;
+      // De VOLLEDIGE ΔV-tekst (prijs/ETA/venster/vertrouwen/breakout) staat nu in het paneel ONDER de chart
+      //  (renderForecastHistory) — hier op de canvas alleen nog compacte lijn-markers, zodat niets de candles overlapt.
+      const ready=!!(fc&&m2&&fc.remainMs>0);
       if(ready){ const pRow=m2.rows.find(r=>r.kind==='pivot'); const projP=(pRow&&pRow.price!=null)?pRow.price:m2.frame.entry;
-        col=fc.dir==='LONG'?'#14f195':fc.dir==='SHORT'?'#ff5f7e':'#ffb627';
-        const rng=(window.__uotamFmtRange?window.__uotamFmtRange(fc.loMs,fc.hiMs):Math.round(fc.remainMs/3600000)+'u');
-        line1='⚡ΔV kill-switch '+(fc.dir&&fc.dir!=='—'?fc.dir:'')+' ~'+(+projP).toFixed(dec)+' @ '+dS(fc.etaTs)+' ['+rng+']';
-        line2='venster '+dS(fc.etaLo)+' → '+dS(fc.etaHi)+' · vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.proven?' ✓':' (leert)');
-        // marker + lijn op het voorspelde prijspunt (indien binnen zicht)
+        const col=fc.dir==='LONG'?'#14f195':fc.dir==='SHORT'?'#ff5f7e':'#ffb627';
+        // ΔV-pivot: gestippelde lijn + marker rechts, met compact inline label
         if(projP>=mn&&projP<=mx){ const yv=yP(projP); const maxH=72*3600000, frac=Math.max(0.15,Math.min(1,fc.remainMs/maxH)); const xEnd=padL+gw, xProj=Math.min(W-5, xEnd+6+frac*(padR-12));
-          ctx.setLineDash([2,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.75; ctx.beginPath(); ctx.moveTo(padL+gw*0.45,yv); ctx.lineTo(xProj,yv); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
-          ctx.fillStyle=col; ctx.beginPath(); ctx.arc(xProj,yv,3,0,6.283); ctx.fill(); }
-      } else { col='#ffb627'; line1='⚡ΔV kill-switch · calibreert…'; line2='forecast verzamelt zone/dwell-historie — even geduld'; }
-      ctx.textAlign='left'; ctx.font="bold 13px 'JetBrains Mono',monospace"; const w1=ctx.measureText(line1).width; ctx.font="10px 'JetBrains Mono',monospace"; const w2=ctx.measureText(line2).width;
-      const bw=Math.max(w1,w2)+14, bx=padL+4, by=plotT+54, bh=38;
-      ctx.fillStyle='rgba(6,12,20,0.85)'; ctx.strokeStyle=col; ctx.lineWidth=1.2;
-      if(ctx.roundRect){ ctx.beginPath(); ctx.roundRect(bx,by,bw,bh,5); ctx.fill(); ctx.stroke(); } else { ctx.fillRect(bx,by,bw,bh); ctx.strokeRect(bx,by,bw,bh); }
-      ctx.fillStyle=col; ctx.font="bold 13px 'JetBrains Mono',monospace"; ctx.fillText(line1,bx+7,by+16);
-      ctx.fillStyle='#c3d2e0'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText(line2,bx+7,by+31);
+          ctx.setLineDash([2,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.7; ctx.beginPath(); ctx.moveTo(padL+gw*0.45,yv); ctx.lineTo(xProj,yv); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
+          ctx.fillStyle=col; ctx.beginPath(); ctx.arc(xProj,yv,3,0,6.283); ctx.fill();
+          ctx.font="bold 8.5px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText('⚡ΔV-pivot '+(fc.dir&&fc.dir!=='—'?fc.dir:'')+' ~'+(+projP).toFixed(dec),xProj-5,yv-4); }
+      }
+      // BREAKOUT-trigger — na welke prijs is de uitbraak bevestigd? (uit de energie-levels, ook zonder forecast)
+      try{ const bo=a2&&a2.energy&&a2.energy.breakout; if(bo&&bo.price>=mn&&bo.price<=mx){ const yb=yP(bo.price); const bcol=bo.side==='LONG'?'#ffd500':'#ff8a3c';
+        ctx.setLineDash([7,3]); ctx.strokeStyle=bcol; ctx.globalAlpha=0.75; ctx.beginPath(); ctx.moveTo(padL,yb); ctx.lineTo(padL+gw,yb); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
+        ctx.fillStyle=bcol; ctx.textAlign='left'; ctx.font="bold 9px 'JetBrains Mono',monospace"; ctx.fillText((bo.side==='LONG'?'▲':'▼')+' breakout '+bo.side+' '+(bo.side==='LONG'?'>':'<')+' '+(+bo.price).toFixed(dec),padL+3,yb-3); } }catch(e){}
     }catch(e){}
     // header (links) + markt/sessie-badge (rechts)
     ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="bold 13px 'JetBrains Mono',monospace"; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+'pt',padL+2,plotT-6);
@@ -25277,14 +25274,32 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const esc=s=>(''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
     const pk=src.fpk||'commo'; const F=window.TrinityEForecast; if(!F){ host.innerHTML=''; return; }
     const cur=F.episode(pk,sel); const hist=F.history(pk,sel)||[];
-    const G='#26d07c',R='#ff5f7e',A='#ffb627',DD='#6d8296',TX='#cfe6f5',BL='#7fd8ff';
+    const G='#26d07c',R='#ff5f7e',A='#ffb627',DD='#6d8296',TX='#cfe6f5',BL='#7fd8ff',YL='#ffd500',OR='#ff8a3c';
     const fmtDur=window.__uotamFmtDur||(ms=>Math.round((ms||0)/3600000)+'u');
+    const fmtRange=window.__uotamFmtRange||((lo,hi)=>fmtDur(lo)+'–'+fmtDur(hi));
     const p2=x=>String(x).padStart(2,'0'); const dS=ts=>{ const d=new Date(ts); return p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+p2(d.getHours())+':'+p2(d.getMinutes()); };
-    const nm=(src.names&&src.names[sel])||sel;
+    const nm=(src.names&&src.names[sel])||sel; const now=Date.now();
+    // live forecast + matrix + analyse ophalen (voor de volledige ΔV-projectie die van de chart naar dit paneel is verplaatst)
+    const En=window.TrinityCommoUOTAM; const prov=En&&(En.provFor?En.provFor(pk):undefined);
+    let fc=null,m=null,a=null; try{ fc=F.predict(pk,sel); }catch(e){} try{ if(En){ m=En.matrix(sel,'1h',prov); a=En.analyze(sel,'1h',prov); } }catch(e){}
+    const px=a&&a.px; const dec=(px!=null?(px>=1000?1:px>=1?4:6):2); const fx=v=>(v==null||!isFinite(v))?'—':(+v).toFixed(dec);
+    // === ⚡ ΔV KILL-SWITCH · live projectie (verplaatst van de chart hierheen zodat niets de candles overlapt) ===
+    let proj='';
+    if(fc && fc.remainMs>0){ const dcol=fc.dir==='LONG'?G:fc.dir==='SHORT'?R:A;
+      const pRow=m&&m.rows&&m.rows.find(r=>r.kind==='pivot'); const projP=(pRow&&pRow.price!=null)?pRow.price:(m&&m.frame&&m.frame.entry);
+      const bo=a&&a.energy&&a.energy.breakout; const bcol=bo?(bo.side==='LONG'?YL:OR):DD;
+      proj='<div style="padding:6px 9px;background:rgba(255,213,0,0.05);border:1px solid '+dcol+'44;border-radius:6px;margin-bottom:7px;">'+
+        '<div style="font-size:0.62rem;color:'+dcol+';font-weight:700;margin-bottom:3px;">⚡ ΔV kill-switch — energie-ontlading verwacht · richting '+(fc.dir||'—')+'</div>'+
+        '<div style="font-size:0.57rem;color:'+TX+';line-height:1.6;">ontlading rond <b>'+dS(fc.etaTs)+'</b> — nog <b>'+fmtRange(fc.loMs,fc.hiMs)+'</b> · venster '+dS(fc.etaLo)+' → '+dS(fc.etaHi)+' · vertrouwen '+Math.round((fc.dirConf||0)*100)+'%'+(fc.proven?' <span style="color:'+G+';">✓ bewezen</span>':' <span style="color:'+DD+';">(leert)</span>')+'</div>'+
+        (projP!=null?'<div style="font-size:0.57rem;color:#9fb2c4;line-height:1.6;">pivot / instap-trigger <b style="color:'+dcol+';">~'+fx(projP)+'</b>'+(px!=null?(' · huidige prijs ~'+fx(px)):'')+' <span style="color:'+DD+';">('+(fc.dir==='LONG'?'steun waar de long instapt':'weerstand waar de short instapt')+' — niet de huidige koers)</span></div>':'')+
+        (bo?'<div style="font-size:0.57rem;color:'+bcol+';line-height:1.6;">▸ breakout bevestigd '+(bo.side==='LONG'?'bóven':'ónder')+' <b>'+fx(bo.price)+'</b> ('+(bo.distPct>=0?'+':'')+bo.distPct+'% vanaf nu) → pas dan is de uitbraak echt</div>':'')+
+      '</div>';
+    } else { proj='<div style="padding:6px 9px;background:rgba(255,182,39,0.06);border:1px solid '+A+'44;border-radius:6px;margin-bottom:7px;font-size:0.57rem;color:'+A+';">⚡ ΔV kill-switch · calibreert… — de forecast verzamelt eerst zone/dwell-historie (enkele zone-wissels nodig) voordat hij de ontlading durft te dateren.</div>'; }
     let head='<div style="font-size:0.56rem;color:'+DD+';text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;">⚡ ΔV kill-switch · periode-historie <span style="color:'+DD+';text-transform:none;letter-spacing:0;">— '+esc(nm)+' · voorafgaande voorspelde periodes (out-of-sample uitkomst)</span></div>';
     let curLine='';
     if(cur&&cur.since){ const dcol=cur.predDir==='LONG'?G:cur.predDir==='SHORT'?R:DD;
-      curLine='<div style="font-size:0.58rem;padding:4px 7px;background:rgba(127,216,255,0.06);border:1px solid '+BL+'33;border-radius:5px;margin-bottom:5px;color:'+TX+';">◀ <b style="color:'+BL+';">huidige periode</b> · '+esc(cur.zone)+' · <b style="color:'+dcol+';">'+(cur.predDir||'—')+'</b> · gestart '+dS(cur.since)+' · loopt '+fmtDur(Date.now()-cur.since)+' (verwacht '+fmtDur(cur.predMs)+')</div>'; }
+      const etaTxt=(fc&&fc.remainMs>0)?(' · ontlading verwacht ~'+dS(fc.etaTs)+' (nog '+fmtRange(fc.loMs,fc.hiMs)+')'):'';
+      curLine='<div style="font-size:0.57rem;padding:4px 7px;background:rgba(127,216,255,0.06);border:1px solid '+BL+'33;border-radius:5px;margin-bottom:5px;color:'+TX+';line-height:1.6;">◀ <b style="color:'+BL+';">huidige periode</b> · '+esc(cur.zone)+' · <b style="color:'+dcol+';">'+(cur.predDir||'—')+'</b> · <b>gestart '+dS(cur.since)+'</b> (zone-begin) · loopt al '+fmtDur(now-cur.since)+etaTxt+'<br><span style="color:'+DD+';font-size:0.53rem;">start = wanneer deze energie-zone begon · ontlading (ΔV) = wanneer de opgebouwde energie naar verwachting vrijkomt — dat zijn twee verschillende momenten.</span></div>'; }
     let rows='';
     if(hist.length){ rows=hist.slice(0,14).map(h=>{ const dcol=h.predDir==='LONG'?G:h.predDir==='SHORT'?R:DD;
         const dirBadge=h.dirOk==null?'<span style="color:'+DD+';">—</span>':(h.dirOk?'<span style="color:'+G+';">✓ richting</span>':'<span style="color:'+R+';">✗ richting</span>');
@@ -25300,7 +25315,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const done=hist.filter(h=>h.dirOk!=null); const nk=done.length; const wk=done.filter(h=>h.dirOk).length;
       if(nk) rows+='<div style="font-size:0.54rem;color:'+DD+';margin-top:5px;">samenvatting · richting '+wk+'/'+nk+' goed ('+Math.round(wk/nk*100)+'%) over de getoonde periodes</div>';
     } else { rows='<div style="font-size:0.55rem;color:'+DD+';">Nog geen afgeronde periodes — de forecast legt elke zone-wissel vast met de gerealiseerde duur, richting en het koersverloop.</div>'; }
-    host.innerHTML=head+curLine+rows;
+    host.innerHTML=proj+head+curLine+rows;
   }catch(e){} }
   function renderCommodityChart(){ _activate(COMMO); _render(); }
   function renderCryptoSysChart(){ _activate(CRYPTO); _render(); }
@@ -25476,6 +25491,13 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         const consScore=clamp((vfmNow>0?1:-1)*Math.min(1,Math.abs(vfmNow)/1.6)*0.40 + (_nnP-0.5)*2*0.30 + clamp(_cnnB,-1,1)*0.16 + clamp(macroBias,-1,1)*0.18, -1, 1);
         const biasDir=consScore>=0?'LONG':'SHORT';
         const energy=this._energy(F,cl,vfmNow,chaos,px,pin.type,(cnnMulti?cnnMulti.bias:0),(B&&B.probUp!=null?B.probUp:0.5),macroBias,macroSrc,biasDir,consScore);
+        // ---- BREAKOUT-TRIGGER: na welke prijs is de (long/short) uitbraak bevestigd? Dichtstbijzijnde
+        //   weerstand boven (LONG) / steun onder (SHORT) uit de micro/meso/macro-levels. ----
+        try{ const lv=levels||{}; const cands2=[]; const dp=(px>=1000?1:px>=1?4:6);
+          if(biasDir==='LONG'){ [lv.micro&&lv.micro.hi, lv.meso&&lv.meso.hi, lv.macro&&lv.macro.hi].forEach(v=>{ if(v!=null&&isFinite(v)&&v>px)cands2.push(v); }); cands2.sort((x,y)=>x-y); }
+          else { [lv.micro&&lv.micro.lo, lv.meso&&lv.meso.lo, lv.macro&&lv.macro.lo].forEach(v=>{ if(v!=null&&isFinite(v)&&v<px)cands2.push(v); }); cands2.sort((x,y)=>y-x); }
+          if(cands2.length){ const bp=cands2[0]; energy.breakout={ price:+bp.toFixed(dp), side:biasDir, distPct:+(((bp-px)/(px||1))*100).toFixed(2) }; }
+        }catch(e){}
         // ---- REGIME-HMM (verborgen markt-toestand) ----
         const hmm=_hmm(cl);
         const out={ key, tf, mkt:prov.key, name:prov.names[key]||key, ready:true, px, n, at:now,
@@ -25722,6 +25744,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         dirLine+ fcLine+
         '<div style="font-size:0.6rem;color:'+a.energy.col+';margin-bottom:6px;">▸ '+esc(a.energy.scenario)+'</div>'+
         '<div style="font-size:0.58rem;color:'+a.energy.col+';margin-bottom:6px;">Actie: '+esc(a.energy.action)+'</div>'+
+        (a.energy.breakout?('<div style="font-size:0.6rem;margin-bottom:6px;border:1px solid '+(a.energy.breakout.side==='LONG'?'#ffd500':'#ff8a3c')+'55;border-radius:5px;padding:5px 7px;background:rgba(255,213,0,0.05);"><b style="color:'+(a.energy.breakout.side==='LONG'?'#ffd500':'#ff8a3c')+';">⚡ Osiris breakout-prijs</b>: '+(a.energy.breakout.side==='LONG'?'boven':'onder')+' <b style="color:#cfe6f5;">'+a.energy.breakout.price+'</b> <span style="color:#9fb2c4;">('+(a.energy.breakout.distPct>=0?'+':'')+a.energy.breakout.distPct+'% vanaf nu)</span> <span style="color:#6d8296;">→ pas ná deze prijs is de '+a.energy.breakout.side+'-uitbraak bevestigd</span></div>'):'')+
         scale.map(s=>{ const on=s[0]===curz; const zt=et&&et.zones&&et.zones[s[0]]; const zh=(zt&&zt.hit!=null&&zt.n>=4)?' <span style="color:'+(zt.hit>=0.5?'#26d07c':'#ffb627')+';">'+Math.round(zt.hit*100)+'%</span>':''; return '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.58rem;padding:2.5px 5px;border-radius:4px;'+(on?'background:'+s[1]+'22;border:1px solid '+s[1]+'66;':'')+'margin-bottom:2px;"><span style="color:'+s[1]+';min-width:132px;font-weight:'+(on?'700':'400')+';">'+(on?'▸ ':'')+s[0]+zh+'</span><span style="color:#9fb2c4;">'+s[2]+'</span></div>'; }).join(''); }
   }catch(e){} }
   function renderCommoInfoPanels(){ const En=E(); if(En)renderInfoPanels(En.PROV_COMMO,'ci',SEL_C,'ci-sel'); }
@@ -25773,6 +25796,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       microLo:a.levels&&a.levels.micro.lo,microHi:a.levels&&a.levels.micro.hi,microBull:a.levels&&a.levels.micro.bull,microBear:a.levels&&a.levels.micro.bear,
       mesoLo:a.levels&&a.levels.meso.lo,mesoHi:a.levels&&a.levels.meso.hi,macroLo:a.levels&&a.levels.macro.lo,macroHi:a.levels&&a.levels.macro.hi,
       energyZone:en.zone,energyDir:en.dir,energyTactic:en.tactic,energyScenario:en.scenario,energyAction:en.action,compression:en.compression,charge:en.charge,move5:en.move5,
+      breakoutPrice:en.breakout&&en.breakout.price,breakoutSide:en.breakout&&en.breakout.side,breakoutDistPct:en.breakout&&en.breakout.distPct,
       // Support & Target Matrix (frame + belangrijkste levels)
       mtxDir:m&&m.dir,mtxVerdict:m&&m.verdict,mtxStop:m&&m.frame&&m.frame.stop,mtxT1:m&&m.frame&&m.frame.t1,mtxT2:m&&m.frame&&m.frame.t2,mtxRR:m&&m.frame&&m.frame.rr,
       // voorspelde periode (Energie-forecast)
