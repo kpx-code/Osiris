@@ -17421,6 +17421,7 @@ function _neoNetFrame(now) {
 function _neoNetDraw(now, canvasId, outId) {
     const cv = document.getElementById(canvasId);
     if (!cv) return;
+    if (cv.offsetParent === null) return;   // PERF: teken niet in verborgen tabs
     const rect = cv.getBoundingClientRect();
     if (rect.width < 10) return;
     if (cv.width !== Math.round(rect.width * 2)) { cv.width = rect.width * 2; cv.height = rect.height * 2; }
@@ -17732,24 +17733,26 @@ function _neoNetDraw(now, canvasId, outId) {
         const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
         const bowNow = (e.bow || 0) * 0.10 + 0.015 * Math.sin(now / 900 + e.a);
         const cx0 = (A.x + B.x) / 2 + nx * bowNow * len, cy0 = (A.y + B.y) / 2 + ny * bowNow * len;
-        const a2 = (e.input ? 0.11 : 0.16) + 0.30 * sig + 0.20 * eb + 0.05 * flow;   // duidelijker zichtbaar
-        ctx.strokeStyle = `rgba(228,238,248,${Math.min(0.85, a2).toFixed(3)})`;         // wit
-        ctx.lineWidth = 0.5 + 1.1 * sig + 0.5 * eb;
+        // PERF: geen particles/shadowBlur meer — de lijn zélf licht op via een reizende puls-golf
+        const travel = 0.5 + 0.5 * Math.sin(now / 520 - (A.x + A.y) * 0.012 + e.sp * 6.28);
+        const lit = sig > 0.08 ? travel * travel : 0;                                   // actieve lijnen pulseren
+        const pc = (la >= lb ? LV[e.a].ring : LV[e.b].ring) || '150,230,255';           // kleur van de sterkste knoop
+        const a2 = (e.input ? 0.10 : 0.15) + 0.26 * sig + 0.18 * eb + 0.05 * flow;
+        // basislijn wit
+        ctx.strokeStyle = `rgba(228,238,248,${Math.min(0.85, a2).toFixed(3)})`;
+        ctx.lineWidth = 0.5 + 1.0 * sig + 0.5 * eb;
         ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0, cy0, B.x, B.y); ctx.stroke();
-        // PARTICLE — reist van punt naar punt, HOUDT de kleur (van de sterkst-actieve knoop op deze edge)
-        if (sig > 0.10) { const t = ((now / 900) + e.sp) % 1, u = 1 - t; const px = u * u * A.x + 2 * u * t * cx0 + t * t * B.x, py = u * u * A.y + 2 * u * t * cy0 + t * t * B.y;
-            const pc = (la >= lb ? LV[e.a].ring : LV[e.b].ring) || '150,230,255';
-            ctx.save(); ctx.shadowColor = `rgb(${pc})`; ctx.shadowBlur = 4 + 4 * sig; ctx.beginPath(); ctx.arc(px, py, 1.0 + 1.6 * sig, 0, 6.283); ctx.fillStyle = `rgba(${pc},${(0.6 + 0.4 * sig).toFixed(3)})`; ctx.fill(); ctx.restore(); }
+        // oplicht-overlay in de knoop-kleur (alleen als de lijn actief is) — één extra stroke, geen shadow
+        if (lit > 0.05) { ctx.strokeStyle = `rgba(${pc},${(0.10 + 0.55 * sig * lit).toFixed(3)})`; ctx.lineWidth = 0.6 + 1.4 * sig * lit; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0, cy0, B.x, B.y); ctx.stroke(); }
     }
     // 3d. KNOOP-PUNTEN — kleine stippen, ZWART-WIT (grijs→wit met activiteit); kleur zit alleen in de particles
     for (let ci = 0; ci < cells.length; ci++) {
         const c = cells[ci], L = LV[ci], glow = (L.act || 0.3);
         const g = Math.round(150 + 95 * glow); const rgb = g + ',' + g + ',' + Math.min(255, g + 8);
         const rr = dotR(c, glow);
-        ctx.save();
-        if (glow > 0.5 || c.imp >= 0.7) { ctx.shadowColor = `rgb(${rgb})`; ctx.shadowBlur = (c.imp >= 0.7 ? 6 : 3) + 8 * glow; }
+        // PERF: geen shadowBlur — een lichte gloed-halo (2e cirkel) i.p.v.
+        if (glow > 0.5 || c.imp >= 0.7) { ctx.beginPath(); ctx.arc(c.x, c.y, rr + (2 + 5 * glow) * S, 0, 6.283); ctx.fillStyle = `rgba(${rgb},${(0.06 + 0.10 * glow).toFixed(3)})`; ctx.fill(); }
         ctx.beginPath(); ctx.arc(c.x, c.y, rr, 0, 6.283); ctx.fillStyle = `rgba(${rgb},${(0.75 + 0.25 * glow).toFixed(3)})`; ctx.fill();
-        ctx.restore();
         if (c.imp >= 0.55) { ctx.beginPath(); ctx.arc(c.x, c.y, rr + (c.imp >= 0.7 ? 3 : 2) * S, 0, 6.283); ctx.lineWidth = 0.6; ctx.strokeStyle = `rgba(236,243,251,${(0.16 + 0.4 * glow).toFixed(3)})`; ctx.stroke(); }
         if (c.grp === 'osiris') { ctx.beginPath(); ctx.arc(c.x, c.y, rr + 6 * S, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(236,243,251,${(0.14 + 0.3 * glow).toFixed(3)})`; ctx.stroke(); }
         if (L.dot) { ctx.beginPath(); ctx.arc(c.x + rr + 1.6, c.y - rr - 1.6, 1.6, 0, 6.283); ctx.fillStyle = 'rgba(236,243,251,0.9)'; ctx.fill(); }
@@ -21918,6 +21921,7 @@ addEventListener('beforeunload',persistState);
 
   function _trNetDraw(now, canvasId, outId) {
     const cv = document.getElementById(canvasId); if (!cv) return;
+    if (cv.offsetParent === null) return;   // PERF: teken niet in verborgen tabs
     const rect = cv.getBoundingClientRect(); if (rect.width < 10) return;
     if (cv.width !== Math.round(rect.width * 2)) { cv.width = rect.width * 2; cv.height = rect.height * 2; }
     const ctx = cv.getContext('2d'); ctx.setTransform(2, 0, 0, 2, 0, 0);
@@ -22040,24 +22044,23 @@ addEventListener('beforeunload',persistState);
       if (gh) { ctx.save(); ctx.setLineDash([2, 4]); ctx.strokeStyle = 'rgba(92,116,136,0.12)'; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0, cy0, B.x, B.y); ctx.stroke(); ctx.restore(); continue; }
       const sig = Math.max(0, Math.min(1, la * lb)), emph = Math.max(la, lb); const eb = Math.max(0, emph - 0.72) * 1.6;
       const flow2 = 0.5 + 0.5 * Math.sin(now / 1200 + e.a * 0.7);
-      const a2 = (e.input ? 0.11 : 0.16) + 0.30 * sig + 0.20 * eb + 0.05 * flow2;   // duidelijker zichtbaar
-      ctx.strokeStyle = `rgba(228,238,248,${Math.min(0.85, a2).toFixed(3)})`;         // wit
-      ctx.lineWidth = 0.5 + 1.1 * sig + 0.5 * eb;
+      // PERF: geen particles/shadowBlur — de lijn zélf licht op via een reizende puls-golf
+      const travel = 0.5 + 0.5 * Math.sin(now / 520 - (A.x + A.y) * 0.012 + e.sp * 6.28);
+      const lit = sig > 0.08 ? travel * travel : 0;
+      const pc = (la >= lb ? LV[e.a].ring : LV[e.b].ring) || '150,230,255';
+      const a2 = (e.input ? 0.10 : 0.15) + 0.26 * sig + 0.18 * eb + 0.05 * flow2;
+      ctx.strokeStyle = `rgba(228,238,248,${Math.min(0.85, a2).toFixed(3)})`;
+      ctx.lineWidth = 0.5 + 1.0 * sig + 0.5 * eb;
       ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0, cy0, B.x, B.y); ctx.stroke();
-      // PARTICLE — houdt de kleur (van de sterkst-actieve knoop op deze edge)
-      if (sig > 0.10) { const t = ((now / 900) + e.sp) % 1, u = 1 - t; const px = u * u * A.x + 2 * u * t * cx0 + t * t * B.x, py = u * u * A.y + 2 * u * t * cy0 + t * t * B.y;
-        const pc = (la >= lb ? LV[e.a].ring : LV[e.b].ring) || '150,230,255';
-        ctx.save(); ctx.shadowColor = `rgb(${pc})`; ctx.shadowBlur = 4 + 4 * sig; ctx.beginPath(); ctx.arc(px, py, 1.0 + 1.6 * sig, 0, 6.283); ctx.fillStyle = `rgba(${pc},${(0.6 + 0.4 * sig).toFixed(3)})`; ctx.fill(); ctx.restore(); }
+      if (lit > 0.05) { ctx.strokeStyle = `rgba(${pc},${(0.10 + 0.55 * sig * lit).toFixed(3)})`; ctx.lineWidth = 0.6 + 1.4 * sig * lit; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0, cy0, B.x, B.y); ctx.stroke(); }
     }
     // 3c. KNOOP-PUNTEN — kleine stippen, ZWART-WIT (kleur zit alleen in de particles)
     for (let ci = 0; ci < cells.length; ci++) {
       const c = cells[ci], L = LV[ci], glow = (L.act || 0.3);
       if (L.ghost) { const gr = dotR(c, 0.2); ctx.save(); ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.arc(c.x, c.y, gr, 0, 6.283); ctx.lineWidth = 0.8; ctx.strokeStyle = 'rgba(120,134,150,0.5)'; ctx.stroke(); ctx.restore(); continue; }
       const gg = Math.round(150 + 95 * glow); const rgb = gg + ',' + gg + ',' + Math.min(255, gg + 8); const rr = dotR(c, glow);
-      ctx.save();
-      if (glow > 0.5 || c.imp >= 0.7) { ctx.shadowColor = `rgb(${rgb})`; ctx.shadowBlur = (c.imp >= 0.7 ? 6 : 3) + 8 * glow; }
+      if (glow > 0.5 || c.imp >= 0.7) { ctx.beginPath(); ctx.arc(c.x, c.y, rr + (2 + 5 * glow) * S, 0, 6.283); ctx.fillStyle = `rgba(${rgb},${(0.06 + 0.10 * glow).toFixed(3)})`; ctx.fill(); }
       ctx.beginPath(); ctx.arc(c.x, c.y, rr, 0, 6.283); ctx.fillStyle = `rgba(${rgb},${(0.75 + 0.25 * glow).toFixed(3)})`; ctx.fill();
-      ctx.restore();
       if (c.imp >= 0.55) { ctx.beginPath(); ctx.arc(c.x, c.y, rr + (c.imp >= 0.7 ? 3 : 2) * S, 0, 6.283); ctx.lineWidth = 0.6; ctx.strokeStyle = `rgba(236,243,251,${(0.16 + 0.4 * glow).toFixed(3)})`; ctx.stroke(); }
       if (c.grp === 'main') { ctx.beginPath(); ctx.arc(c.x, c.y, rr + 6 * S, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(236,243,251,${(0.14 + 0.3 * glow).toFixed(3)})`; ctx.stroke(); }
       if (L.dot) { ctx.beginPath(); ctx.arc(c.x + rr + 1.6, c.y - rr - 1.6, 1.6, 0, 6.283); ctx.fillStyle = 'rgba(236,243,251,0.9)'; ctx.fill(); }
@@ -25162,6 +25165,20 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     try{ const pr=SRC.predict(SEL); if(pr&&pr.target!=null&&pr.target>=mn&&pr.target<=mx){ const yt=yP(pr.target),col=pr.dir==='LONG'?'#14f195':'#ff5f7e';
       ctx.setLineDash([4,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.55; ctx.beginPath(); ctx.moveTo(padL,yt); ctx.lineTo(padL+gw,yt); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
       ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillText('4h '+(pr.dir==='LONG'?'▲':'▼')+(pr.dir==='LONG'?'+':'-')+pr.expMovePct+'%',padL+gw+3,yt+3); } }catch(e){}
+    // ---- ⚡ ΔV KILL-SWITCH PROJECTIE — voorspelde pivot-prijs + voorspelde datum/tijd-range (uit de energie-forecast) ----
+    try{ const pk={commo:'commo',crypto:'crypto',fx:'fx'}[SRC.name]||'commo';
+      const En2=window.TrinityCommoUOTAM; const fc=window.TrinityEForecast&&window.TrinityEForecast.predict(pk,SEL); const m2=En2&&En2.matrix(SEL,'1h',En2.provFor?En2.provFor(pk):undefined);
+      if(fc&&m2&&fc.remainMs>0){ const pRow=m2.rows.find(r=>r.kind==='pivot'); const projP=(pRow&&pRow.price!=null)?pRow.price:m2.frame.entry;
+        if(projP>=mn&&projP<=mx){ const yv=yP(projP); const col=fc.dir==='LONG'?'#14f195':fc.dir==='SHORT'?'#ff5f7e':'#ffb627';
+          const maxH=72*3600000, frac=Math.max(0.15,Math.min(1,fc.remainMs/maxH)); const xEnd=padL+gw, xProj=Math.min(W-5, xEnd+6+frac*(padR-12));
+          ctx.setLineDash([2,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.75; ctx.beginPath(); ctx.moveTo(padL+gw*0.45,yv); ctx.lineTo(xProj,yv); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
+          ctx.fillStyle=col; ctx.beginPath(); ctx.arc(xProj,yv,3,0,6.283); ctx.fill();
+          const p2f=x=>String(x).padStart(2,'0'); const dS=t=>{const d=new Date(t);return p2f(d.getDate())+'/'+p2f(d.getMonth()+1)+' '+p2f(d.getHours())+':'+p2f(d.getMinutes());};
+          const rng=(window.__uotamFmtRange?window.__uotamFmtRange(fc.loMs,fc.hiMs):Math.round(fc.remainMs/3600000)+'u');
+          ctx.fillStyle=col; ctx.textAlign='left'; ctx.font="7.5px 'JetBrains Mono',monospace";
+          ctx.fillText('⚡ΔV kill-switch '+(fc.dir&&fc.dir!=='—'?fc.dir:'')+' ~'+projP.toFixed(dec)+' @ '+dS(fc.etaTs)+' ['+rng+']',padL+3,plotT+62);
+          ctx.fillStyle='#6d8296'; ctx.font="6.5px 'JetBrains Mono',monospace"; ctx.fillText('venster '+dS(fc.etaLo)+' → '+dS(fc.etaHi)+' · vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.proven?' ✓':''),padL+3,plotT+72);
+        } } }catch(e){}
     // header (links) + markt/sessie-badge (rechts)
     ctx.textAlign='left'; ctx.fillStyle='#7fd8ff'; ctx.font="10px 'JetBrains Mono',monospace"; ctx.fillText((NAMES[SEL]||SEL)+' · '+TF+' · '+n+'pt',padL+2,plotT-5);
     try{ const mh=SRC.market(SEL); if(mh){ ctx.textAlign='right'; ctx.fillStyle=mh.open?'#14f195':'#ff5f7e'; ctx.font="8px 'JetBrains Mono',monospace";
@@ -25365,7 +25382,13 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         const struct=(()=>{ const w=cl.slice(-20); if(w.length<6)return '—'; const hh=w[w.length-1]>Math.max.apply(null,w.slice(0,-1)), ll=w[w.length-1]<Math.min.apply(null,w.slice(0,-1));
           const slope=(w[w.length-1]-w[0])/(Math.abs(w[0])||1); return hh?'higher-high (bullish break)':ll?'lower-low (bearish break)':slope>0.01?'higher-highs/-lows':slope<-0.01?'lower-highs/-lows':'range/consolidatie'; })();
         // ---- FRACTAL ENERGY SCALE: zone/scenario per markt (compressie/ontlading + richting) ----
-        const energy=this._energy(F,cl,vfmNow,chaos,px,pin.type,(cnnMulti?cnnMulti.bias:0),(B&&B.probUp!=null?B.probUp:0.5));
+        // ShockWave-contagion / wereld-stress bias (commodity + FX) — meer inzicht in de energie-richting
+        let macroBias=0, macroSrc=null; try{ const M=window.OsirisMacro, SW=window.TrinityShockWave;
+          if(prov.key==='fx' && M){ macroBias=M.pairLean(key)||0; macroSrc='ShockWave macro-lean'; }
+          else if(prov.key==='commo' && M){ const ro=M.riskOff(); const safe=/GOLD|SILVER|PLAT|PALL/.test(key); macroBias=(safe?1:-1)*((ro-0.45)*2)*0.7; macroSrc='ShockWave risk-'+(ro>=0.5?'OFF':'ON'); }
+          if(SW && SW.markov){ const mk=SW.markov(); if(mk&&mk.ready&&mk.pCrisis>0.4){ macroBias*=0.7; macroBias-=(prov.key==='commo'&&/GOLD|SILVER/.test(key)?-0.15:0.15)*mk.pCrisis; } }   // escalatie → risk-off tilt
+          macroBias=Math.max(-1,Math.min(1,macroBias)); }catch(e){}
+        const energy=this._energy(F,cl,vfmNow,chaos,px,pin.type,(cnnMulti?cnnMulti.bias:0),(B&&B.probUp!=null?B.probUp:0.5),macroBias,macroSrc);
         // ---- REGIME-HMM (verborgen markt-toestand) ----
         const hmm=_hmm(cl);
         const out={ key, tf, mkt:prov.key, name:prov.names[key]||key, ready:true, px, n, at:now,
@@ -25383,15 +25406,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     },
     // Fractal Energy Scale: bepaalt waar de markt in de compressie/ontlading-cyclus zit + de RICHTING
     //  (long/short) met een dynamische, adaptieve duiding. cnnBias/probUp verfijnen de richting.
-    _energy(F,cl,vfm,chaos,px,nodeType,cnnBias,probUp){ try{
-      cnnBias=cnnBias||0; probUp=(probUp==null?0.5:probUp);
+    _energy(F,cl,vfm,chaos,px,nodeType,cnnBias,probUp,macroBias,macroSrc){ try{
+      cnnBias=cnnBias||0; probUp=(probUp==null?0.5:probUp); macroBias=macroBias||0;
       const n=cl.length; const move5=n>6?(cl[n-1]/cl[n-6]-1)*100:0;   // recente 5-bar move %
       // compressie-diepte uit σ²-percentiel (laag σ² = veer geladen)
       let comp=0.5; if(F&&F.varS&&F.varS.length){ const cur=F.varS[F.varS.length-1]; const lo=pctl(F.varS,0.15), hi=pctl(F.varS,0.85); comp=hi>lo?clamp(1-(cur-lo)/(hi-lo),0,1):0.5; }
       const en=F?F.last.vfm:0;                 // opgeladen energie (0..1)
       const stress=F?F.last.stress:0;
-      // consensus-richtingsscore uit VFM-teken, NN-kans en CNN-bias (−1..+1)
-      const dirScore = clamp((vfm>0?1:-1)*Math.min(1,Math.abs(vfm)/1.6)*0.45 + (probUp-0.5)*2*0.35 + clamp(cnnBias,-1,1)*0.20, -1, 1);
+      // consensus-richtingsscore uit VFM-teken, NN-kans, CNN-bias én ShockWave-contagion (−1..+1)
+      const dirScore = clamp((vfm>0?1:-1)*Math.min(1,Math.abs(vfm)/1.6)*0.40 + (probUp-0.5)*2*0.30 + clamp(cnnBias,-1,1)*0.16 + clamp(macroBias,-1,1)*0.18, -1, 1);
       let zone,scn,col,act,dir='—',dirScoreZone=dirScore;
       const dl=(d)=>d>=0?'LONG':'SHORT'; const arr=(d)=>d>=0?'↑':'↓';
       if(comp>=0.7 && Math.abs(move5)<1.5){ zone='DEEP COMPRESSION'; dir=dl(dirScore); dirScoreZone=dirScore;
@@ -25405,8 +25428,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       else if(nodeType===9 || (comp<0.3 && Math.abs(move5)>=1)){ zone='DISCHARGE'; dirScoreZone=-Math.sign(move5); dir=dl(dirScoreZone);   // mean-reversion
         scn='Ontlading na opbouw — energie loopt eruit; mean-reversion richting '+dir+' '+arr(dirScoreZone); col='#ff8a3c'; act='Trend-einde mogelijk / mean-reversion '+dir; }
       else { zone='NEUTRAL'; dir='—'; dirScoreZone=0; scn='Geen duidelijke compressie of ontlading — geen richting-edge'; col='#7d8a99'; act='Geduld — geen edge'; }
-      return { zone, scenario:scn, col, action:act, dir, dirScore:+dirScoreZone.toFixed(2), compression:+comp.toFixed(2), charge:+(en||0).toFixed(2), move5:+move5.toFixed(2) };
-    }catch(e){ return {zone:'—',scenario:'',col:'#7d8a99',action:'',dir:'—',dirScore:0,compression:0,charge:0,move5:0}; } },
+      return { zone, scenario:scn, col, action:act, dir, dirScore:+dirScoreZone.toFixed(2), compression:+comp.toFixed(2), charge:+(en||0).toFixed(2), move5:+move5.toFixed(2), macro:+(macroBias||0).toFixed(2), macroSrc:macroSrc||null };
+    }catch(e){ return {zone:'—',scenario:'',col:'#7d8a99',action:'',dir:'—',dirScore:0,compression:0,charge:0,move5:0,macro:0,macroSrc:null}; } },
     all(tf,prov){ prov=prov||PROV_COMMO; return prov.markets.map(k=>this.analyze(k,tf||'1h',prov)); },
     // ---- SUPPORT & TARGET MATRIX (dynamisch, autonoom-adaptief) per markt ----
     // Klassieke pivots (recente 12 bars) + fib-macro extremen → 6 niveaus + een trade-frame (entry/stop/T1/T2/RR)
@@ -25525,11 +25548,16 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const dirCol=Z.dir==='LONG'?'#26d07c':Z.dir==='SHORT'?'#ff5f7e':'#7d8a99';
       const dirBadge=(Z.dir&&Z.dir!=='—')?'<span style="font-size:0.56rem;color:'+dirCol+';font-weight:800;border:1px solid '+dirCol+'66;border-radius:4px;padding:0 5px;">'+Z.dir+' '+(Z.dirScore>=0?'↑':'↓')+'</span>':'';
       const hr=(et&&et.hitRate!=null&&et.n>=8)?'<span style="font-size:0.5rem;color:'+(et.hitRate>=0.5?'#26d07c':'#ffb627')+';"> · richting-hit '+Math.round(et.hitRate*100)+'% (n'+et.n+')</span>':(et&&et.n>0?'<span style="font-size:0.5rem;color:#6d8296;"> · shadow leert ('+et.n+')</span>':'');
+      const macroNote=(Z.macroSrc&&Math.abs(Z.macro)>=0.06)?'<div style="font-size:0.48rem;color:#ff8a3c;margin:1px 0 2px;">⚡ '+esc(Z.macroSrc)+' '+(Z.macro>=0?'+':'')+Z.macro+' (contagion-bias)</div>':'';
+      let fc=null; try{ fc=window.TrinityEForecast&&window.TrinityEForecast.predict(prov.key,a.key); }catch(e){}
+      const fcLine=fc?('<div style="font-size:0.54rem;color:#cfe6f5;margin-top:3px;border-top:1px solid rgba(255,255,255,0.06);padding-top:3px;">⏳ <b>voorspelde periode</b>: '+esc(window.__uotamFmtRange?window.__uotamFmtRange(fc.loMs,fc.hiMs):Math.round(fc.remainMs/3600000)+'u')+' · <span style="color:'+dirCol+';font-weight:700;">'+(fc.dir&&fc.dir!=='—'?fc.dir:'—')+'</span> · '+esc(fc.tradeType)+'</div>'+
+        '<div style="font-size:0.48rem;color:#6d8296;">richting-vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.horizonAcc!=null?' · horizon-hit '+Math.round(fc.horizonAcc*100)+'%':'')+' · n'+fc.dirN+(fc.proven?' <span style="color:#26d07c;">✓ bewezen</span>':' <span style="color:#6d8296;">(leert)</span>')+'</div>'):'';
       return card('<div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;"><b style="font-size:0.68rem;color:#cfe6f5;">'+nm(a)+'</b><span style="font-size:0.58rem;color:'+Z.col+';font-weight:700;">'+esc(Z.zone)+'</span></div>'+
-        '<div style="margin:3px 0;">'+dirBadge+hr+'</div>'+
+        '<div style="margin:3px 0;">'+dirBadge+hr+'</div>'+macroNote+
         '<div style="font-size:0.56rem;color:#9fb2c4;margin:2px 0 3px;">'+esc(Z.scenario)+'</div>'+
         '<div style="font-size:0.5rem;color:#6d8296;">compressie '+Math.round(Z.compression*100)+'%</div>'+bar(Z.compression,'#ffd500')+
         '<div style="font-size:0.5rem;color:#6d8296;margin-top:2px;">energie '+Math.round(Z.charge*100)+'% · 5-bar '+(Z.move5>=0?'+':'')+Z.move5+'%</div>'+bar(Z.charge,Z.col)+
+        fcLine+
         '<div style="font-size:0.54rem;color:'+Z.col+';margin-top:3px;">▸ '+esc(Z.action)+'</div>',Z.col+'55'); }).join('');
   }catch(e){} }
   function renderCommoSystemData(){ const E=ENGN(); if(E)renderSD(E.PROV_COMMO,'cd','Commodity-data laadt… verbind de Capital /history-route.'); }
@@ -25594,8 +25622,13 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       let et=null; try{ et=window.TrinityUOTAMShadow&&window.TrinityUOTAMShadow.energyTrust(prov.key,cur); }catch(e){}
       const dirLine=(Zd&&Zd!=='—')?'<div style="font-size:0.62rem;margin-bottom:5px;">Richting-signaal: <span style="color:'+dCol+';font-weight:800;border:1px solid '+dCol+'66;border-radius:4px;padding:1px 6px;">'+Zd+' '+(a.energy.dirScore>=0?'↑':'↓')+'</span>'+
           (et&&et.hitRate!=null&&et.n>=8?' <span style="color:'+(et.hitRate>=0.5?'#26d07c':'#ffb627')+';">shadow-hit '+Math.round(et.hitRate*100)+'% (n'+et.n+')</span>':(et&&et.n>0?' <span style="color:#6d8296;">shadow leert ('+et.n+')</span>':' <span style="color:#6d8296;">shadow verzamelt…</span>'))+'</div>':'<div style="font-size:0.6rem;color:#6d8296;margin-bottom:5px;">Richting: neutraal — geen edge, wacht op zone-shift.</div>';
+      let fc=null; try{ fc=window.TrinityEForecast&&window.TrinityEForecast.predict(prov.key,cur); }catch(e){}
+      const p2c=x=>String(x).padStart(2,'0'); const etaStr=t=>{ const d=new Date(t); return p2c(d.getDate())+'/'+p2c(d.getMonth()+1)+' '+p2c(d.getHours())+':'+p2c(d.getMinutes()); };
+      const fcLine=fc?('<div style="font-size:0.62rem;color:#cfe6f5;margin-bottom:5px;border:1px solid '+dCol+'44;border-radius:5px;padding:5px 7px;background:rgba(255,255,255,0.02);">🔮 <b>Voorspelde periode</b>: '+esc(window.__uotamFmtRange?window.__uotamFmtRange(fc.loMs,fc.hiMs):Math.round(fc.remainMs/3600000)+'u')+' · richting <span style="color:'+dCol+';font-weight:800;">'+(fc.dir&&fc.dir!=='—'?fc.dir:'—')+'</span> · '+esc(fc.tradeType)+
+          '<div style="font-size:0.54rem;color:#9fb2c4;margin-top:2px;">verwacht tot ± '+esc(etaStr(fc.etaTs))+' (venster '+esc(etaStr(fc.etaLo))+' → '+esc(etaStr(fc.etaHi))+')</div>'+
+          '<div style="font-size:0.52rem;color:#6d8296;margin-top:1px;">richting-vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.horizonAcc!=null?' · horizon-hit '+Math.round(fc.horizonAcc*100)+'%':'')+' · n'+fc.dirN+(fc.proven?' <span style="color:#26d07c;">✓ bewezen (out-of-sample)</span>':' <span style="color:#6d8296;">(shadow leert & corrigeert)</span>')+'</div></div>'):'';
       chz.innerHTML='<div style="font-size:0.66rem;color:#cfe6f5;margin-bottom:4px;">Huidig: <span style="color:'+a.energy.col+';font-weight:700;">'+esc(curz)+'</span> · compressie '+Math.round(a.energy.compression*100)+'% · energie '+Math.round(a.energy.charge*100)+'% · 5-bar '+(a.energy.move5>=0?'+':'')+a.energy.move5+'%</div>'+
-        dirLine+
+        dirLine+ fcLine+
         '<div style="font-size:0.6rem;color:'+a.energy.col+';margin-bottom:6px;">▸ '+esc(a.energy.scenario)+'</div>'+
         '<div style="font-size:0.58rem;color:'+a.energy.col+';margin-bottom:6px;">Actie: '+esc(a.energy.action)+'</div>'+
         scale.map(s=>{ const on=s[0]===curz; const zt=et&&et.zones&&et.zones[s[0]]; const zh=(zt&&zt.hit!=null&&zt.n>=4)?' <span style="color:'+(zt.hit>=0.5?'#26d07c':'#ffb627')+';">'+Math.round(zt.hit*100)+'%</span>':''; return '<div style="display:flex;gap:6px;align-items:baseline;font-size:0.58rem;padding:2.5px 5px;border-radius:4px;'+(on?'background:'+s[1]+'22;border:1px solid '+s[1]+'66;':'')+'margin-bottom:2px;"><span style="color:'+s[1]+';min-width:132px;font-weight:'+(on?'700':'400')+';">'+(on?'▸ ':'')+s[0]+zh+'</span><span style="color:#9fb2c4;">'+s[2]+'</span></div>'; }).join(''); }
@@ -25680,20 +25713,20 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const kindCol={target:'#26d07c',now:'#e8f4ff',pivot:'#7fd8ff',support:'#ff8a94'};
   function matrixCard(m){ if(!m)return '';
     const rowsH=m.rows.map(r=>{ const c=kindCol[r.kind]||'#9fb2c4'; const dp=r.kind==='now'?'':( (r.distPct>=0?'+':'')+r.distPct+'%' );
-      return '<div style="display:grid;grid-template-columns:1.15fr 0.9fr 0.7fr;gap:4px;font-size:0.56rem;padding:2px 0;'+(r.kind==='now'?'background:rgba(127,216,255,0.08);':'')+'"><span style="color:'+c+';">'+esc(r.lvl)+'</span><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;text-align:right;">'+r.price+'</span><span style="color:#6d8296;text-align:right;">'+dp+'</span></div>'; }).join('');
+      return '<div style="display:grid;grid-template-columns:1.15fr 0.9fr 0.7fr;gap:4px;font-size:0.66rem;padding:2.5px 0;'+(r.kind==='now'?'background:rgba(127,216,255,0.08);':'')+'"><span style="color:'+c+';">'+esc(r.lvl)+'</span><span style="color:#cfe6f5;font-family:\'JetBrains Mono\',monospace;text-align:right;">'+r.price+'</span><span style="color:#6d8296;text-align:right;">'+dp+'</span></div>'; }).join('');
     const fr=m.frame; const rc=fr.rr>=1.5?'#26d07c':fr.rr>=1?'#ffb627':'#ff5f7e';
     // shadow: per-level hitrate + gerealiseerde historie (previous pivots & levels)
     let ls=null,hist=[]; try{ const SH=window.TrinityUOTAMShadow; if(SH){ ls=SH.levelStats(m.mkt,m.key); hist=SH.history(m.mkt,m.key)||[]; } }catch(e){}
     const hrCell=(lab,st,col)=>{ const t=(st&&st.hit!=null&&st.n>=4)?('<span style="color:'+(st.hit>=0.5?'#26d07c':'#ffb627')+';">'+Math.round(st.hit*100)+'%</span>'):'<span style="color:#6d8296;">'+((st&&st.n)?('n'+st.n):'—')+'</span>'; return '<span style="color:'+col+';">'+lab+' '+t+'</span>'; };
-    const lvlHR = ls? '<div style="margin-top:3px;font-size:0.5rem;color:#6d8296;display:flex;gap:8px;flex-wrap:wrap;"><span style="color:#8296a8;">hitrate (shadow):</span>'+hrCell('T1',ls.t1,'#26d07c')+hrCell('T2',ls.t2,'#26d07c')+hrCell('S1',ls.s1,'#ff8a94')+hrCell('S2',ls.s2,'#ff8a94')+'</div>' : '';
+    const lvlHR = ls? '<div style="margin-top:4px;font-size:0.58rem;color:#6d8296;display:flex;gap:9px;flex-wrap:wrap;"><span style="color:#8296a8;">hitrate (shadow):</span>'+hrCell('T1',ls.t1,'#26d07c')+hrCell('T2',ls.t2,'#26d07c')+hrCell('S1',ls.s1,'#ff8a94')+hrCell('S2',ls.s2,'#ff8a94')+'</div>' : '';
     const p2=x=>String(x).padStart(2,'0');
-    const histRows = hist.length? '<div style="margin-top:3px;border-top:1px dashed rgba(255,255,255,0.08);padding-top:3px;"><div style="font-size:0.48rem;color:#8296a8;letter-spacing:0.05em;margin-bottom:2px;">VORIGE PIVOTS &amp; LEVELS <span style="color:#6d8296;">(scenario-shadow · geresolved)</span></div>'+
-      '<div style="max-height:104px;overflow-y:auto;padding-right:3px;">'+hist.slice(0,16).map(h=>{ const d=new Date(h.made); const ok=h.outcome&&h.outcome.win; const oc=ok?'#26d07c':(h.outcome&&h.outcome.hitStop?'#ff5f7e':'#7d8a99');
-        return '<div style="font-size:0.5rem;color:#9fb2c4;padding:1.5px 0;border-bottom:1px solid rgba(255,255,255,0.03);"><span style="font-family:\'JetBrains Mono\',monospace;color:#8aa;">'+p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+p2(d.getHours())+':'+p2(d.getMinutes())+'</span> <span style="color:'+(h.dir==='LONG'?'#26d07c':'#ff5f7e')+';">'+h.dir+'</span> piv '+h.pivot+' · T1 '+h.t1+' · T2 '+h.t2+' · S1 '+h.s1+' · S2 '+h.s2+' · RR '+h.rr+' → <b style="color:'+oc+';">'+(ok?'T1 ✓':(h.outcome&&h.outcome.hitStop?'stop ✗':'—'))+'</b></div>'; }).join('')+'</div></div>' : '<div style="margin-top:3px;font-size:0.48rem;color:#6d8296;">Scenario-shadow verzamelt uitkomsten… (geen geresolvede pivots)</div>';
-    return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+(m.energyCol||'var(--line)')+'44;border-radius:7px;padding:8px 9px;">'+
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px;"><b style="font-size:0.66rem;color:#cfe6f5;">'+esc(m.name)+'</b><span style="font-size:0.52rem;color:'+(m.dir==='LONG'?'#26d07c':'#ff5f7e')+';">'+m.dir+' · '+esc(m.verdict)+'</span></div>'+
+    const histRows = hist.length? '<div style="margin-top:4px;border-top:1px dashed rgba(255,255,255,0.08);padding-top:3px;"><div style="font-size:0.56rem;color:#8296a8;letter-spacing:0.05em;margin-bottom:2px;">VORIGE PIVOTS &amp; LEVELS <span style="color:#6d8296;">(scenario-shadow · geresolved)</span></div>'+
+      '<div style="max-height:130px;overflow-y:auto;padding-right:3px;">'+hist.slice(0,16).map(h=>{ const d=new Date(h.made); const ok=h.outcome&&h.outcome.win; const oc=ok?'#26d07c':(h.outcome&&h.outcome.hitStop?'#ff5f7e':'#7d8a99');
+        return '<div style="font-size:0.58rem;color:#9fb2c4;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);"><span style="font-family:\'JetBrains Mono\',monospace;color:#8aa;">'+p2(d.getDate())+'/'+p2(d.getMonth()+1)+' '+p2(d.getHours())+':'+p2(d.getMinutes())+'</span> <span style="color:'+(h.dir==='LONG'?'#26d07c':'#ff5f7e')+';">'+h.dir+'</span> piv '+h.pivot+' · T1 '+h.t1+' · T2 '+h.t2+' · S1 '+h.s1+' · S2 '+h.s2+' · RR '+h.rr+' → <b style="color:'+oc+';">'+(ok?'T1 ✓':(h.outcome&&h.outcome.hitStop?'stop ✗':'—'))+'</b></div>'; }).join('')+'</div></div>' : '<div style="margin-top:3px;font-size:0.56rem;color:#6d8296;">Scenario-shadow verzamelt uitkomsten… (geen geresolvede pivots)</div>';
+    return '<div style="background:rgba(8,16,22,0.55);border:1px solid '+(m.energyCol||'var(--line)')+'44;border-radius:7px;padding:9px 11px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;"><b style="font-size:0.78rem;color:#cfe6f5;">'+esc(m.name)+'</b><span style="font-size:0.6rem;color:'+(m.dir==='LONG'?'#26d07c':'#ff5f7e')+';font-weight:700;">'+m.dir+' · '+esc(m.verdict)+'</span></div>'+
       rowsH+
-      '<div style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.06);padding-top:3px;font-size:0.5rem;color:#6d8296;">frame: entry '+fr.entry+' · stop <span style="color:#ff8a94;">'+fr.stop+'</span> · T1 <span style="color:#26d07c;">'+fr.t1+'</span> · T2 <span style="color:#26d07c;">'+fr.t2+'</span> · RR <span style="color:'+rc+';font-weight:700;">'+fr.rr+'</span></div>'+
+      '<div style="margin-top:4px;border-top:1px solid rgba(255,255,255,0.06);padding-top:4px;font-size:0.58rem;color:#6d8296;">frame: entry '+fr.entry+' · stop <span style="color:#ff8a94;">'+fr.stop+'</span> · T1 <span style="color:#26d07c;">'+fr.t1+'</span> · T2 <span style="color:#26d07c;">'+fr.t2+'</span> · RR <span style="color:'+rc+';font-weight:700;">'+fr.rr+'</span></div>'+
       lvlHR+histRows+
     '</div>'; }
   function renderMatrixGrid(prov, id){ try{ const En=E(); if(!En)return; const host=document.getElementById(id); if(!host)return; const ms=En.matrixAll('1h',prov);
@@ -25892,6 +25925,56 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   }
   function hideSystemNav(){ try{ document.querySelectorAll('[data-tab="system"]').forEach(b=>{ b.style.display='none'; }); }catch(e){} }
   try{ if(document.readyState!=='loading'){ neoWire(); hideSystemNav(); } else document.addEventListener('DOMContentLoaded',function(){ neoWire(); hideSystemNav(); }); setInterval(function(){ neoWire(); hideSystemNav(); }, 3000); }catch(e){}
+})();
+
+/* ==================================================================================
+   OSIRIS · ENERGIE-FORECAST (predictive period) — voorspelt PER MARKT hoe lang de huidige
+   Fractal-Energy-zone + richting nog aanhoudt (uren/dagen), met AUTONOME adaptatie: leert de
+   werkelijke dwell-tijd per (markt, zone) uit historie en corrigeert. Een shadow-tester checkt
+   OUT-OF-SAMPLE de correctheid van (a) de richting en (b) de voorspelde horizon (zonder overfit:
+   alleen tellingen + Wilson-ondergrens + medianen). Werkt voor crypto, commodity én FX.
+   ================================================================================== */
+(function(){
+  'use strict';
+  const ZMS = { 'DEEP COMPRESSION':0.45,'LOADING':0.70,'EXPANSION':0.95,'CLIMAX':0.22,'DISCHARGE':0.35,'NEUTRAL':0.60 }; // × markt-cyclus
+  function fmtDur(ms){ ms=Math.max(0,ms||0); const h=ms/3600000; if(h<1)return '~'+Math.max(1,Math.round(ms/60000))+'m'; if(h<48)return '~'+Math.round(h)+'u'; const d=h/24; if(d<14)return '~'+d.toFixed(d<3?1:0)+'d'; return '~'+(d/7).toFixed(1)+'wk'; }
+  function fmtRange(lo,hi){ const H=x=>x/3600000; if(H(hi)<48)return '~'+Math.round(H(lo))+'–'+Math.round(H(hi))+'u'; const dl=H(lo)/24, dh=H(hi)/24; return '~'+dl.toFixed(dl<3?1:0)+'–'+dh.toFixed(dh<3?1:0)+'d'; }
+  try{ window.__uotamFmtDur=fmtDur; window.__uotamFmtRange=fmtRange; }catch(e){}
+  const F={ ep:{}, st:{}, _at:0,
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityEForecast')||'null'); if(d){ this.ep=d.ep||{}; this.st=d.st||{}; } }catch(e){} },
+    _save(){ try{ localStorage.setItem('trinityEForecast',JSON.stringify({ep:this.ep,st:this.st})); }catch(e){} },
+    _tfms(tf){ return {'5m':3e5,'15m':9e5,'1h':36e5,'4h':144e5,'all':864e5}[tf||'1h']||36e5; },
+    _cycleMs(a,tf){ try{ const per=(a.tam&&a.tam.periodBars)||24; return Math.max(6,per)*this._tfms(tf); }catch(e){ return 24*36e5; } },
+    _median(arr){ if(!arr||!arr.length)return null; const s=arr.slice().sort((x,y)=>x-y); const m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; },
+    tick(){ const E=window.TrinityCommoUOTAM; if(!E)return; const now=Date.now(); if(now-this._at<15000)return; this._at=now;
+      [E.PROV_COMMO,E.PROV_FX,E.PROV_CRYPTO].filter(Boolean).forEach(prov=>{ prov.markets.forEach(k=>{ try{
+        const a=E.analyze(k,'1h',prov); if(!a||!a.ready)return; const lk=prov.key+':'+k; const zone=a.energy.zone, dir=a.energy.dir, px=a.px;
+        const cyc=this._cycleMs(a,'1h'); const st=this.st[lk]||(this.st[lk]={z:{},dirN:0,dirW:0,hN:0,hW:0}); let ep=this.ep[lk];
+        if(!ep || ep.zone!==zone){
+          if(ep){ const dwell=now-ep.since; (st.z[ep.zone]||(st.z[ep.zone]=[])).push(dwell); if(st.z[ep.zone].length>40)st.z[ep.zone].shift();
+            if(ep.predDir&&ep.predDir!=='—'){ const moved=px-ep.startPx; const dh=(ep.predDir==='LONG'&&moved>0)||(ep.predDir==='SHORT'&&moved<0); st.dirN++; if(dh)st.dirW++; }
+            if(ep.predMs>0){ const he=Math.abs(dwell-ep.predMs)<=0.4*ep.predMs; st.hN++; if(he)st.hW++; } }
+          const med=this._median((st.z[zone])); const predMs = med!=null? med : (ZMS[zone]||0.6)*cyc;
+          ep=this.ep[lk]={zone,dir,since:now,startPx:px,predDir:dir,predMs};
+        } else { if(ep.predDir==='—'&&dir!=='—'){ ep.predDir=dir; ep.startPx=px; } ep.dir=dir; }
+      }catch(e){} }); });
+      this._save();
+    },
+    predict(pk,key){ try{ const E=window.TrinityCommoUOTAM; if(!E)return null; const prov=E.provFor?E.provFor(pk):(pk==='fx'?E.PROV_FX:pk==='crypto'?E.PROV_CRYPTO:E.PROV_COMMO);
+      const a=E.analyze(key,'1h',prov); if(!a||!a.ready)return null; const lk=pk+':'+key; const st=this.st[lk]; const ep=this.ep[lk];
+      const cyc=this._cycleMs(a,'1h'); const zone=a.energy.zone, dir=a.energy.dir;
+      const med=(st&&this._median(st.z[zone]))||((ZMS[zone]||0.6)*cyc);
+      const elapsed=(ep&&ep.zone===zone)?(Date.now()-ep.since):0; const remain=Math.max(0, med-elapsed); const lo=remain*0.6, hi=remain*1.5;
+      let dirConf=0.4; if(st&&st.dirN>=6)dirConf=st.dirW/st.dirN; dirConf=+Math.max(0.1,Math.min(0.95,dirConf*0.7+(a.vfmHit||0.5)*0.3)).toFixed(2);
+      const hAcc=(st&&st.hN>=6)?+(st.hW/st.hN).toFixed(2):null;
+      const proven=!!(st&&st.dirN>=15&&(st.dirW/st.dirN)>0.5);
+      const tType=(zone==='DEEP COMPRESSION'||zone==='LOADING')?'entry-setup':(zone==='EXPANSION')?'hold/trail':(zone==='CLIMAX'||zone==='DISCHARGE')?'exit/fade':'wacht';
+      const etaTs=Date.now()+remain, etaLo=Date.now()+lo, etaHi=Date.now()+hi;
+      return { zone, dir, remainMs:remain, loMs:lo, hiMs:hi, medMs:med, elapsedMs:elapsed, dirConf, horizonAcc:hAcc, dirN:st?st.dirN:0, hN:st?st.hN:0, proven, tradeType:tType, etaTs, etaLo, etaHi,
+        label: (dir&&dir!=='—'?dir:'—')+' · nog '+fmtRange(lo,hi)+' · '+tType }; }catch(e){ return null; } }
+  };
+  F._restore(); try{ window.TrinityEForecast=F; }catch(e){}
+  try{ setInterval(()=>{ try{ F.tick(); }catch(e){} }, 15000); if(document.readyState!=='loading')setTimeout(()=>{try{F.tick();}catch(e){}},2000); }catch(e){}
 })();
 
 
