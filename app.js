@@ -17627,7 +17627,7 @@ function _neoNetDraw(now, canvasId, outId) {
         (_neonet.meta || []).forEach(mn => { const a = metaAnchor[mn.id]; if (a) specs.push({ ref: ['m', mn.id], bx: a[0], by: a[1], imp: 0.3, grp: grpMeta[mn.id] || 'sys' }); });
         const cells = specs.map((sp, k) => {
             const jx = (SR(k * 2 + 1) - 0.5) * (sp.grp === 'in' ? 0 : 0.02), jy = (SR(k * 2 + 7) - 0.5) * (sp.grp === 'in' ? 0 : 0.028);
-            return { ref: sp.ref, grp: sp.grp, imp: sp.imp, mk: sp.mk, x: MX(sp.bx + jx), y: MY(sp.by + jy), baseR: (sp.grp === 'in' ? 9 * S : (5 + sp.imp * 60) * S), k, key: sp.ref.join(':') };
+            return { ref: sp.ref, grp: sp.grp, imp: sp.imp, mk: sp.mk, x: MX(sp.bx + jx), y: MY(sp.by + jy), baseR: (sp.grp === 'in' ? 8 * S : (7 + sp.imp * 20) * S), k, key: sp.ref.join(':') };
         });
         const idxOf = {}; cells.forEach((c, i) => idxOf[c.key] = i);
         const edgeSet = new Set(), edges = [];
@@ -17724,49 +17724,45 @@ function _neoNetDraw(now, canvasId, outId) {
     // 3a. achtergrond-bogen (biologische diepte)
     ctx.lineWidth = 0.6;
     for (const b of ORG.bg) { ctx.strokeStyle = 'rgba(200,220,240,0.03)'; ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, 6.283); ctx.stroke(); }
-    // 3b. hub-bursts (faint rechte stralen zoals de referentie)
-    for (const bu of ORG.bursts) { const c = cells[bu.ci]; ctx.strokeStyle = 'rgba(220,235,250,0.05)'; ctx.lineWidth = 0.4; for (const p of bu.pts) { ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(p[0], p[1]); ctx.stroke(); } }
-    // 3c. filament-web (witte gebogen bundels; helderheid ~ echte co-activatie)
+    // dot-radius helper — kleine knooppunten i.p.v. grote ringen (referentie-look: punten + lijnen-mesh)
+    const dotR = (c, glow) => ((c.grp === 'osiris' ? 5 : c.imp >= 0.7 ? 4 : (c.imp >= 0.4 ? 2.8 : 1.9)) + (c.imp >= 0.7 ? 3.4 : 1.7) * glow) * S;
+    // 3b. héél subtiele hub-stralen (bijna weg — voorkomt de vroegere ring-drukte)
+    for (const bu of ORG.bursts) { const c = cells[bu.ci]; ctx.strokeStyle = 'rgba(220,235,250,0.018)'; ctx.lineWidth = 0.3; for (const p of bu.pts) { ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(p[0], p[1]); ctx.stroke(); } }
+    // 3c. MESH — dunne, (bijna) rechte lijnen; helderheid ~ echte co-activatie (geen dikke gebogen bundels meer)
     for (const e of ORG.edges) {
         const A = cells[e.a], B = cells[e.b];
         const la = LV[e.a].act || 0.3, lb = LV[e.b].act || 0.3;
-        const sig = Math.max(0, Math.min(1, la * lb)), emph = Math.max(la, lb);   // emph = de sterkst-actieve cel op deze edge
-        const eb = Math.max(0, emph - 0.72) * 1.6;                                  // extra oplichten voor de meest-actieve elementen
-        const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+        const sig = Math.max(0, Math.min(1, la * lb)), emph = Math.max(la, lb);
+        const eb = Math.max(0, emph - 0.72) * 1.6;
+        const hot = sig > 0.3 || emph > 0.75;
         const flow = 0.5 + 0.5 * Math.sin(now / 1200 + e.a * 0.7);
-        // "haar in de wind": het controle-punt wappert traag heen en weer (input-haren wat meer)
-        const sway = (0.11 * Math.sin(now / 700 + e.a * 0.9 + e.b * 0.5) + 0.07 * Math.sin(now / 410 + e.b * 1.3)) * (e.input ? 1.7 : 1);
-        const bowNow = e.bow + sway;
+        // heel lichte boog zodat parallelle lijnen niet samensmelten, maar overwegend recht
+        const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+        const bowNow = (e.bow || 0) * 0.10 + 0.015 * Math.sin(now / 900 + e.a);
         const cx0 = (A.x + B.x) / 2 + nx * bowNow * len, cy0 = (A.y + B.y) / 2 + ny * bowNow * len;
-        const hot = sig > 0.28 || emph > 0.74, baseA = (e.input ? 0.035 : 0.05) + 0.10 * flow;   // input-lijnen extra ijl
-        for (let s = 0; s < 3; s++) {
-            const off = (s - 1) * (1.6 + 2 * sig), a2 = (s === 0 ? (baseA + 0.30 * sig + 0.18 * eb) : baseA * 0.6);
-            ctx.strokeStyle = hot ? `rgba(120,225,255,${(a2 + 0.12 * sig + 0.10 * eb).toFixed(3)})` : `rgba(228,238,248,${a2.toFixed(3)})`;
-            ctx.lineWidth = (s === 0 ? 0.9 + 1.3 * sig + 0.5 * eb : 0.4);
-            ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0 + nx * off, cy0 + ny * off, B.x, B.y); ctx.stroke();
-        }
-        if (sig > 0.12) { const t = ((now / 900) + e.sp) % 1, u = 1 - t; const px = u * u * A.x + 2 * u * t * cx0 + t * t * B.x, py = u * u * A.y + 2 * u * t * cy0 + t * t * B.y; ctx.beginPath(); ctx.arc(px, py, 0.8 + 1.4 * sig, 0, 6.283); ctx.fillStyle = `rgba(${hot ? '120,225,255' : '150,190,230'},${(0.3 + 0.5 * sig).toFixed(3)})`; ctx.fill(); }
+        const a2 = (e.input ? 0.045 : 0.07) + 0.24 * sig + 0.16 * eb + 0.035 * flow;
+        ctx.strokeStyle = hot ? `rgba(150,230,255,${(a2 + 0.10).toFixed(3)})` : `rgba(228,238,248,${a2.toFixed(3)})`;
+        ctx.lineWidth = 0.35 + 1.05 * sig + 0.45 * eb;
+        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0, cy0, B.x, B.y); ctx.stroke();
+        if (sig > 0.13) { const t = ((now / 900) + e.sp) % 1, u = 1 - t; const px = u * u * A.x + 2 * u * t * cx0 + t * t * B.x, py = u * u * A.y + 2 * u * t * cy0 + t * t * B.y; ctx.beginPath(); ctx.arc(px, py, 0.7 + 1.3 * sig, 0, 6.283); ctx.fillStyle = `rgba(${hot ? '150,230,255' : '150,190,230'},${(0.32 + 0.5 * sig).toFixed(3)})`; ctx.fill(); }
     }
-    // 3d. ring-cellen (celmembranen met filament-wrap)
+    // 3d. KNOOP-PUNTEN — kleine stippen (kleur ~ activatie/eigen-kleur), hub met één dunne halo
     for (let ci = 0; ci < cells.length; ci++) {
         const c = cells[ci], L = LV[ci], glow = (L.act || 0.3);
-        const r = c.baseR * (c.imp >= 0.7 ? (0.72 + 0.28 * glow) : (0.5 + 0.6 * glow));
-        // KLEUR: standaard WIT, kleurt naar de EIGEN kleur naarmate de cel actiever is; een dataflow-
-        // golf (L→R) laat ze bovendien om beurten hun eigen kleur oplichten. OSIRIS blijft jarvis-blauw.
         const wave = 0.5 + 0.5 * Math.sin(now / 1250 - (c.x / w) * 7 + c.k * 0.35);
         const actMix = Math.max(0, Math.min(1, (glow - 0.34) / 0.42));
         let mix = Math.min(1, Math.max(actMix, wave * wave * (0.30 + 0.55 * glow)));
         if (c.grp === 'osiris') mix = 1;
-        const ringRGB = _mixRGB(RING_WHITE, L.ring, mix);
-        ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.fillStyle = `rgba(3,7,14,${(0.42 + 0.3 * glow).toFixed(3)})`; ctx.fill();
+        const rgb = _mixRGB(RING_WHITE, L.ring, mix);
+        const rr = dotR(c, glow);
         ctx.save();
-        if (glow > 0.45 || c.imp >= 0.7 || mix > 0.5) { ctx.shadowColor = `rgb(${ringRGB})`; ctx.shadowBlur = (c.imp >= 0.7 ? 8 : 3) + 10 * glow; }
-        ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = (c.imp >= 0.7 ? 1.6 : 1.05) + glow * 0.9; ctx.strokeStyle = `rgba(${ringRGB},${(0.34 + 0.62 * glow).toFixed(3)})`; ctx.stroke();
+        if (glow > 0.5 || c.imp >= 0.7) { ctx.shadowColor = `rgb(${rgb})`; ctx.shadowBlur = (c.imp >= 0.7 ? 7 : 3) + 9 * glow; }
+        ctx.beginPath(); ctx.arc(c.x, c.y, rr, 0, 6.283); ctx.fillStyle = `rgba(${rgb},${(0.72 + 0.28 * glow).toFixed(3)})`; ctx.fill();
         ctx.restore();
-        if (c.imp >= 0.55) { for (let k = 1; k <= 3; k++) { const rr = r * (1 + k * 0.14), a0 = SR(c.k * 9 + k) * 6.28, a1 = a0 + 1.2 + SR(c.k * 9 + k + 2) * 2.5; ctx.beginPath(); ctx.arc(c.x, c.y, rr, a0, a1); ctx.lineWidth = 0.5; ctx.strokeStyle = `rgba(228,238,248,${(0.10 * (1 - k * 0.22)).toFixed(3)})`; ctx.stroke(); } }
-        if (c.imp >= 0.7) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.62, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(${ringRGB},${(0.2 + 0.35 * glow).toFixed(3)})`; ctx.stroke(); }
-        if (L.dot) { ctx.beginPath(); ctx.arc(c.x + r * 0.72, c.y - r * 0.72, 2.2, 0, 6.283); ctx.fillStyle = L.dot; ctx.fill(); }
-        if (glow > 0.5) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.34, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${(0.4 * glow * pulse).toFixed(3)})`; ctx.fill(); }
+        if (c.imp >= 0.55) { ctx.beginPath(); ctx.arc(c.x, c.y, rr + (c.imp >= 0.7 ? 3 : 2) * S, 0, 6.283); ctx.lineWidth = 0.6; ctx.strokeStyle = `rgba(${rgb},${(0.16 + 0.4 * glow).toFixed(3)})`; ctx.stroke(); }
+        if (c.grp === 'osiris') { ctx.beginPath(); ctx.arc(c.x, c.y, rr + 6 * S, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(${rgb},${(0.14 + 0.3 * glow).toFixed(3)})`; ctx.stroke(); }
+        if (L.dot) { ctx.beginPath(); ctx.arc(c.x + rr + 1.6, c.y - rr - 1.6, 1.8, 0, 6.283); ctx.fillStyle = L.dot; ctx.fill(); }
+        if (glow > 0.55) { ctx.beginPath(); ctx.arc(c.x, c.y, rr * 0.4, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${(0.5 * glow * pulse).toFixed(3)})`; ctx.fill(); }
     }
     // 3e. feedback-flits (groen deeltje reist terug door het web als het net leert)
     if (_fbActive) { for (const e of ORG.edges) { if (SR(e.a * 3 + e.b) > 0.4) continue; const A = cells[e.a], B = cells[e.b], tt = (Math.sin(now / 400 + e.a) * 0.5 + 0.5); ctx.beginPath(); ctx.arc(A.x + (B.x - A.x) * tt, A.y + (B.y - A.y) * tt, 0.8, 0, 6.283); ctx.fillStyle = 'rgba(150,255,210,0.45)'; ctx.fill(); } }
@@ -17784,17 +17780,17 @@ function _neoNetDraw(now, canvasId, outId) {
         const c = o.c, L = o.L;
         ctx.font = (c.imp >= 0.7 ? "bold 7px 'JetBrains Mono',monospace" : "6.5px 'JetBrains Mono',monospace");
         const tw = ctx.measureText(L.tag).width, ph = 9, pw = tw + 7;
-        const baseAng = SR(c.k * 3 + 1) * 6.283; let best = null;
-        for (let att = 0; att < 8 && !best; att++) {
-            const ang = baseAng + att * 0.85 * (att % 2 ? 1 : -1);
-            for (const rf of [1.16, 1.5, 1.9, 2.35]) {
-                const rr = c.baseR * rf + 7 * S;
+        const _dr = dotR(c, o.L.act || 0.3); const baseAng = SR(c.k * 3 + 1) * 6.283; let best = null;
+        for (let att = 0; att < 10 && !best; att++) {
+            const ang = baseAng + att * 0.7 * (att % 2 ? 1 : -1);
+            for (const rf of [0, 1, 2, 3, 4]) {
+                const rr = _dr + (7 + rf * 9) * S;
                 let tx = c.x + Math.cos(ang) * rr, ty = c.y + Math.sin(ang) * rr;
                 tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(isBig ? 46 : 12, Math.min(h - 12, ty));
                 if (!_tagHit(tx, ty - ph / 2, pw, ph)) { best = { tx, ty }; break; }
             }
         }
-        if (!best) { const rr = c.baseR * 1.16 + 7 * S; let tx = c.x + Math.cos(baseAng) * rr, ty = c.y + Math.sin(baseAng) * rr; tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(isBig ? 46 : 12, Math.min(h - 12, ty)); best = { tx, ty }; }
+        if (!best) { const rr = _dr + 7 * S; let tx = c.x + Math.cos(baseAng) * rr, ty = c.y + Math.sin(baseAng) * rr; tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(isBig ? 46 : 12, Math.min(h - 12, ty)); best = { tx, ty }; }
         placedTags.push({ x: best.tx, y: best.ty - ph / 2, w: pw, h: ph });
         ctx.fillStyle = L.tagBg; ctx.globalAlpha = 0.92; _roundRect(ctx, best.tx, best.ty - ph / 2, pw, ph, 1.5); ctx.fill(); ctx.globalAlpha = 1;
         ctx.fillStyle = '#04121a'; ctx.textAlign = 'left'; ctx.fillText(L.tag, best.tx + 3.5, best.ty + 0.5);
@@ -21976,7 +21972,7 @@ addEventListener('beforeunload',persistState);
       (_trnet.meta || []).forEach(m => { specs.push({ ref: ['m', m.id], bx: Math.max(0.02, Math.min(0.97, m.mx)), by: Math.max(0.06, Math.min(0.94, 0.47 + m.yoff)), imp: 0.3, grp: m.ghost ? 'ghost' : 'meta' }); });
       const cells = specs.map((sp, k) => {
         const jx = (SRf(k * 2 + 1) - 0.5) * (sp.grp === 'in' ? 0 : 0.02), jy = (SRf(k * 2 + 7) - 0.5) * (sp.grp === 'in' ? 0 : 0.028);
-        return { ref: sp.ref, grp: sp.grp, imp: sp.imp, x: MX(sp.bx + jx), y: MY(sp.by + jy), baseR: (sp.grp === 'in' ? 8 * S : (5 + sp.imp * 58) * S), k, key: sp.ref.join(':') };
+        return { ref: sp.ref, grp: sp.grp, imp: sp.imp, x: MX(sp.bx + jx), y: MY(sp.by + jy), baseR: (sp.grp === 'in' ? 8 * S : (7 + sp.imp * 20) * S), k, key: sp.ref.join(':') };
       });
       const idxOf = {}; cells.forEach((c, i) => idxOf[c.key] = i);
       const edgeSet = new Set(), edges = [];
@@ -22043,53 +22039,41 @@ addEventListener('beforeunload',persistState);
       ctx.restore(); } catch (e) {}
     // 3a. achtergrond-bogen
     ctx.lineWidth = 0.6; for (const b of ORG.bg) { ctx.strokeStyle = 'rgba(200,220,240,0.03)'; ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, 6.283); ctx.stroke(); }
-    // 3b. filament-web
+    // dot-radius helper — kleine knooppunten i.p.v. grote ringen (referentie-look: punten + lijnen-mesh)
+    const dotR = (c, glow) => ((c.grp === 'main' ? 5 : c.imp >= 0.7 ? 4 : (c.imp >= 0.4 ? 2.8 : 1.9)) + (c.imp >= 0.7 ? 3.4 : 1.7) * glow) * S;
+    // 3b. MESH — dunne, (bijna) rechte lijnen; helderheid ~ echte co-activatie
     for (const e of ORG.edges) {
       const A = cells[e.a], B = cells[e.b]; const la = LV[e.a].act || 0.3, lb = LV[e.b].act || 0.3;
       const gh = e.ghost || LV[e.a].ghost || LV[e.b].ghost;
-      const sig = gh ? 0.05 : Math.max(0, Math.min(1, la * lb)), emph = gh ? 0.1 : Math.max(la, lb);
-      const eb = Math.max(0, emph - 0.72) * 1.6;
       const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
-      const flow2 = 0.5 + 0.5 * Math.sin(now / 1200 + e.a * 0.7);
-      const sway = (0.11 * Math.sin(now / 700 + e.a * 0.9 + e.b * 0.5) + 0.07 * Math.sin(now / 410 + e.b * 1.3)) * (e.input ? 1.7 : 1);
-      const bowNow = e.bow + sway;
+      const bowNow = (e.bow || 0) * 0.10 + 0.015 * Math.sin(now / 900 + e.a);
       const cx0 = (A.x + B.x) / 2 + nx * bowNow * len, cy0 = (A.y + B.y) / 2 + ny * bowNow * len;
-      if (gh) { // ghost-edges: gestippeld, zeer ijl
-        ctx.save(); ctx.setLineDash([2, 4]); ctx.strokeStyle = 'rgba(92,116,136,0.14)'; ctx.lineWidth = 0.5;
-        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0, cy0, B.x, B.y); ctx.stroke(); ctx.restore(); continue;
-      }
-      const hot = sig > 0.28 || emph > 0.74, baseA = (e.input ? 0.035 : 0.05) + 0.10 * flow2;
-      for (let s = 0; s < 3; s++) {
-        const off = (s - 1) * (1.6 + 2 * sig), a2 = (s === 0 ? (baseA + 0.30 * sig + 0.18 * eb) : baseA * 0.6);
-        ctx.strokeStyle = hot ? `rgba(120,225,255,${(a2 + 0.12 * sig + 0.10 * eb).toFixed(3)})` : `rgba(228,238,248,${a2.toFixed(3)})`;
-        ctx.lineWidth = (s === 0 ? 0.9 + 1.3 * sig + 0.5 * eb : 0.4);
-        ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0 + nx * off, cy0 + ny * off, B.x, B.y); ctx.stroke();
-      }
-      if (sig > 0.12) { const t = ((now / 900) + e.sp) % 1, u = 1 - t; const px = u * u * A.x + 2 * u * t * cx0 + t * t * B.x, py = u * u * A.y + 2 * u * t * cy0 + t * t * B.y; ctx.beginPath(); ctx.arc(px, py, 0.8 + 1.4 * sig, 0, 6.283); ctx.fillStyle = `rgba(${hot ? '120,225,255' : '150,190,230'},${(0.3 + 0.5 * sig).toFixed(3)})`; ctx.fill(); }
+      if (gh) { ctx.save(); ctx.setLineDash([2, 4]); ctx.strokeStyle = 'rgba(92,116,136,0.12)'; ctx.lineWidth = 0.5; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0, cy0, B.x, B.y); ctx.stroke(); ctx.restore(); continue; }
+      const sig = Math.max(0, Math.min(1, la * lb)), emph = Math.max(la, lb); const eb = Math.max(0, emph - 0.72) * 1.6;
+      const hot = sig > 0.3 || emph > 0.75; const flow2 = 0.5 + 0.5 * Math.sin(now / 1200 + e.a * 0.7);
+      const a2 = (e.input ? 0.045 : 0.07) + 0.24 * sig + 0.16 * eb + 0.035 * flow2;
+      ctx.strokeStyle = hot ? `rgba(150,230,255,${(a2 + 0.10).toFixed(3)})` : `rgba(228,238,248,${a2.toFixed(3)})`;
+      ctx.lineWidth = 0.35 + 1.05 * sig + 0.45 * eb;
+      ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.quadraticCurveTo(cx0, cy0, B.x, B.y); ctx.stroke();
+      if (sig > 0.13) { const t = ((now / 900) + e.sp) % 1, u = 1 - t; const px = u * u * A.x + 2 * u * t * cx0 + t * t * B.x, py = u * u * A.y + 2 * u * t * cy0 + t * t * B.y; ctx.beginPath(); ctx.arc(px, py, 0.7 + 1.3 * sig, 0, 6.283); ctx.fillStyle = `rgba(${hot ? '150,230,255' : '150,190,230'},${(0.32 + 0.5 * sig).toFixed(3)})`; ctx.fill(); }
     }
-    // 3c. ring-cellen
+    // 3c. KNOOP-PUNTEN — kleine stippen (kleur ~ activatie/eigen-kleur), hub met één dunne halo
     for (let ci = 0; ci < cells.length; ci++) {
       const c = cells[ci], L = LV[ci], glow = (L.act || 0.3);
-      const r = c.baseR * (c.imp >= 0.7 ? (0.72 + 0.28 * glow) : (0.5 + 0.6 * glow));
-      if (L.ghost) {
-        ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.fillStyle = 'rgba(3,7,14,0.4)'; ctx.fill();
-        ctx.save(); ctx.setLineDash([2.5, 3.5]); ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(92,116,136,0.5)'; ctx.stroke(); ctx.restore();
-        continue;
-      }
+      if (L.ghost) { const gr = dotR(c, 0.2); ctx.save(); ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.arc(c.x, c.y, gr, 0, 6.283); ctx.lineWidth = 0.8; ctx.strokeStyle = 'rgba(92,116,136,0.5)'; ctx.stroke(); ctx.restore(); continue; }
       const wave = 0.5 + 0.5 * Math.sin(now / 1250 - (c.x / w) * 7 + c.k * 0.35);
       const actMix = Math.max(0, Math.min(1, (glow - 0.34) / 0.42));
       let mix = Math.min(1, Math.max(actMix, wave * wave * (0.30 + 0.55 * glow)));
       if (c.grp === 'main') mix = 1;
-      const ringRGB = _trMix(RING_WHITE, L.ring, mix);
-      ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.fillStyle = `rgba(3,7,14,${(0.42 + 0.3 * glow).toFixed(3)})`; ctx.fill();
+      const rgb = _trMix(RING_WHITE, L.ring, mix); const rr = dotR(c, glow);
       ctx.save();
-      if (glow > 0.45 || c.imp >= 0.7 || mix > 0.5) { ctx.shadowColor = `rgb(${ringRGB})`; ctx.shadowBlur = (c.imp >= 0.7 ? 8 : 3) + 10 * glow; }
-      ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.lineWidth = (c.imp >= 0.7 ? 1.6 : 1.05) + glow * 0.9; ctx.strokeStyle = `rgba(${ringRGB},${(0.34 + 0.62 * glow).toFixed(3)})`; ctx.stroke();
+      if (glow > 0.5 || c.imp >= 0.7) { ctx.shadowColor = `rgb(${rgb})`; ctx.shadowBlur = (c.imp >= 0.7 ? 7 : 3) + 9 * glow; }
+      ctx.beginPath(); ctx.arc(c.x, c.y, rr, 0, 6.283); ctx.fillStyle = `rgba(${rgb},${(0.72 + 0.28 * glow).toFixed(3)})`; ctx.fill();
       ctx.restore();
-      if (c.imp >= 0.55) { for (let k = 1; k <= 3; k++) { const rr = r * (1 + k * 0.14), a0 = SRf(c.k * 9 + k) * 6.28, a1 = a0 + 1.2 + SRf(c.k * 9 + k + 2) * 2.5; ctx.beginPath(); ctx.arc(c.x, c.y, rr, a0, a1); ctx.lineWidth = 0.5; ctx.strokeStyle = `rgba(228,238,248,${(0.10 * (1 - k * 0.22)).toFixed(3)})`; ctx.stroke(); } }
-      if (c.imp >= 0.7) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.62, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(${ringRGB},${(0.2 + 0.35 * glow).toFixed(3)})`; ctx.stroke(); }
-      if (L.dot) { ctx.beginPath(); ctx.arc(c.x + r * 0.72, c.y - r * 0.72, 2.2, 0, 6.283); ctx.fillStyle = L.dot; ctx.fill(); }
-      if (glow > 0.5) { ctx.beginPath(); ctx.arc(c.x, c.y, r * 0.34, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${(0.4 * glow * pulse).toFixed(3)})`; ctx.fill(); }
+      if (c.imp >= 0.55) { ctx.beginPath(); ctx.arc(c.x, c.y, rr + (c.imp >= 0.7 ? 3 : 2) * S, 0, 6.283); ctx.lineWidth = 0.6; ctx.strokeStyle = `rgba(${rgb},${(0.16 + 0.4 * glow).toFixed(3)})`; ctx.stroke(); }
+      if (c.grp === 'main') { ctx.beginPath(); ctx.arc(c.x, c.y, rr + 6 * S, 0, 6.283); ctx.lineWidth = 0.7; ctx.strokeStyle = `rgba(${rgb},${(0.14 + 0.3 * glow).toFixed(3)})`; ctx.stroke(); }
+      if (L.dot) { ctx.beginPath(); ctx.arc(c.x + rr + 1.6, c.y - rr - 1.6, 1.8, 0, 6.283); ctx.fillStyle = L.dot; ctx.fill(); }
+      if (glow > 0.55) { ctx.beginPath(); ctx.arc(c.x, c.y, rr * 0.4, 0, 6.283); ctx.fillStyle = `rgba(255,255,255,${(0.5 * glow * pulse).toFixed(3)})`; ctx.fill(); }
     }
     // 3d. feedback-flits
     if (_fbActive) { for (const e of ORG.edges) { if (e.ghost || SRf(e.a * 3 + e.b) > 0.4) continue; const A = cells[e.a], B = cells[e.b], tt = (Math.sin(now / 400 + e.a) * 0.5 + 0.5); ctx.beginPath(); ctx.arc(A.x + (B.x - A.x) * tt, A.y + (B.y - A.y) * tt, 0.8, 0, 6.283); ctx.fillStyle = 'rgba(150,255,210,0.45)'; ctx.fill(); } }
@@ -22106,17 +22090,17 @@ addEventListener('beforeunload',persistState);
       const c = o.c, L = o.L;
       ctx.font = (c.imp >= 0.7 ? "bold 7px 'JetBrains Mono',monospace" : "6.5px 'JetBrains Mono',monospace");
       const tw = ctx.measureText(L.tag).width, ph = 9, pw = tw + 7;
-      const baseAng = SRf(c.k * 3 + 1) * 6.283; let best = null;
-      for (let att = 0; att < 8 && !best; att++) {
-        const ang = baseAng + att * 0.85 * (att % 2 ? 1 : -1);
-        for (const rf of [1.16, 1.5, 1.9, 2.35]) {
-          const rr = c.baseR * rf + 7 * S;
+      const _dr = dotR(c, o.L.act || 0.3); const baseAng = SRf(c.k * 3 + 1) * 6.283; let best = null;
+      for (let att = 0; att < 10 && !best; att++) {
+        const ang = baseAng + att * 0.7 * (att % 2 ? 1 : -1);
+        for (const rf of [0, 1, 2, 3, 4]) {
+          const rr = _dr + (7 + rf * 9) * S;
           let tx = c.x + Math.cos(ang) * rr, ty = c.y + Math.sin(ang) * rr;
           tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(46, Math.min(h - 12, ty));
           if (!_tagHit(tx, ty - ph / 2, pw, ph)) { best = { tx, ty }; break; }
         }
       }
-      if (!best) { const rr = c.baseR * 1.16 + 7 * S; let tx = c.x + Math.cos(baseAng) * rr, ty = c.y + Math.sin(baseAng) * rr; tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(46, Math.min(h - 12, ty)); best = { tx, ty }; }
+      if (!best) { const rr = _dr + 7 * S; let tx = c.x + Math.cos(baseAng) * rr, ty = c.y + Math.sin(baseAng) * rr; tx = Math.max(w * 0.15, Math.min(w - pw - 2, tx)); ty = Math.max(46, Math.min(h - 12, ty)); best = { tx, ty }; }
       placedTags.push({ x: best.tx, y: best.ty - ph / 2, w: pw, h: ph });
       ctx.fillStyle = L.tagBg; ctx.globalAlpha = L.ghost ? 0.5 : 0.92; _trRR(ctx, best.tx, best.ty - ph / 2, pw, ph, 1.5); ctx.fill(); ctx.globalAlpha = 1;
       ctx.fillStyle = L.ghost ? 'rgba(200,214,228,0.85)' : '#04121a'; ctx.textAlign = 'left'; ctx.fillText(L.tag, best.tx + 3.5, best.ty + 0.5);
