@@ -25210,14 +25210,14 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
             ctx.font="bold 8.5px 'JetBrains Mono',monospace"; ctx.textAlign=(si>n*0.7?'right':'left'); ctx.fillText('◀ ΔV-periode start',(si>n*0.7?xs-6:xs+6),ys-11); } } }catch(e){}
       // De VOLLEDIGE ΔV-tekst (prijs/ETA/venster/vertrouwen/breakout) staat nu in het paneel ONDER de chart
       //  (renderForecastHistory) — hier op de canvas alleen nog compacte lijn-markers, zodat niets de candles overlapt.
-      const ready=!!(fc&&m2&&fc.remainMs>0);
-      if(ready){ const pRow=m2.rows.find(r=>r.kind==='pivot'); const projP=(pRow&&pRow.price!=null)?pRow.price:m2.frame.entry;
-        const col=fc.dir==='LONG'?'#14f195':fc.dir==='SHORT'?'#ff5f7e':'#ffb627';
+      const ready=!!(fc&&m2&&fc.remainMs>0&&!fc.noEdge);   // geen ΔV-pivot tekenen als er geen richting-edge is
+      if(ready){ const projP=(fc.pivot!=null)?fc.pivot:((m2.rows.find(r=>r.kind==='pivot')||{}).price)||m2.frame.entry;
+        const col=fc.dirUnreliable?'#ffb627':(fc.dir==='LONG'?'#14f195':fc.dir==='SHORT'?'#ff5f7e':'#ffb627');
         // ΔV-pivot: gestippelde lijn + marker rechts, met compact inline label
         if(projP>=mn&&projP<=mx){ const yv=yP(projP); const maxH=72*3600000, frac=Math.max(0.15,Math.min(1,fc.remainMs/maxH)); const xEnd=padL+gw, xProj=Math.min(W-5, xEnd+6+frac*(padR-12));
           ctx.setLineDash([2,3]); ctx.strokeStyle=col; ctx.globalAlpha=0.7; ctx.beginPath(); ctx.moveTo(padL+gw*0.45,yv); ctx.lineTo(xProj,yv); ctx.stroke(); ctx.globalAlpha=1; ctx.setLineDash([]);
           ctx.fillStyle=col; ctx.beginPath(); ctx.arc(xProj,yv,3,0,6.283); ctx.fill();
-          ctx.font="bold 8.5px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText('⚡ΔV-pivot '+(fc.dir&&fc.dir!=='—'?fc.dir:'')+' ~'+(+projP).toFixed(dec),xProj-5,yv-4); }
+          ctx.font="bold 8.5px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText('⚡ΔV-pivot '+(fc.dir&&fc.dir!=='—'?fc.dir:'')+(fc.overdue?' ⏱':'')+' ~'+(+projP).toFixed(dec),xProj-5,yv-4); }
       }
       // BREAKOUT-trigger — na welke prijs is de uitbraak bevestigd? (uit de energie-levels, ook zonder forecast)
       try{ const bo=a2&&a2.energy&&a2.energy.breakout; if(bo&&bo.price>=mn&&bo.price<=mx){ const yb=yP(bo.price); const bcol=bo.side==='LONG'?'#ffd500':'#ff8a3c';
@@ -25285,14 +25285,23 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     const px=a&&a.px; const dec=(px!=null?(px>=1000?1:px>=1?4:6):2); const fx=v=>(v==null||!isFinite(v))?'—':(+v).toFixed(dec);
     // === ⚡ ΔV KILL-SWITCH · live projectie (verplaatst van de chart hierheen zodat niets de candles overlapt) ===
     let proj='';
-    if(fc && fc.remainMs>0){ const dcol=fc.dir==='LONG'?G:fc.dir==='SHORT'?R:A;
-      const pRow=m&&m.rows&&m.rows.find(r=>r.kind==='pivot'); const projP=(pRow&&pRow.price!=null)?pRow.price:(m&&m.frame&&m.frame.entry);
+    if(fc && fc.remainMs>0){ const dcol=fc.noEdge?DD:(fc.dir==='LONG'?G:fc.dir==='SHORT'?R:A);
+      const projP=(fc.pivot!=null)?fc.pivot:((m&&m.frame&&m.frame.entry)||null);
       const bo=a&&a.energy&&a.energy.breakout; const bcol=bo?(bo.side==='LONG'?YL:OR):DD;
+      const cPct=Math.round((fc.dirConf||0)*100);
+      const cLab=fc.proven?'<span style="color:'+G+';">✓ bewezen (shadow)</span>':(fc.confSrc==='shadow-evidence'?'<span style="color:'+BL+';">gegrond op '+fc.evN+' shadow-metingen</span>':'<span style="color:'+DD+';">(leert)</span>');
+      // waarschuwingsregels: geen edge / richting bewezen-onbetrouwbaar / over tijd
+      const warn = fc.noEdge? '<div style="font-size:0.55rem;color:'+A+';margin-top:2px;">⚠ geen richting-edge nu (NEUTRAL / zwakke bias) — wacht op een duidelijke zone.</div>'
+        : (fc.dirUnreliable? '<div style="font-size:0.55rem;color:'+R+';margin-top:2px;">⚠ richting hier <b>bewezen onbetrouwbaar</b> (shadow '+Math.round((fc.evConf||0)*100)+'% ondergrens, n'+fc.evN+') — behandel als fade/tegendraads.</div>' : '');
+      const over = fc.overdue? ' <span style="color:'+A+';">· ⏱ over tijd → ontlading imminent, ijk op volgende node</span>' : '';
+      const tgt = (fc.targetT1!=null)? '<div style="font-size:0.57rem;color:#9fb2c4;line-height:1.6;">verwacht discharge-doel <b style="color:'+dcol+';">T1 ~'+fx(fc.targetT1)+'</b>'+(fc.targetT1Hit!=null?(' <span style="color:'+(fc.targetT1Hit>=0.5?G:A)+';">('+Math.round(fc.targetT1Hit*100)+'% bereikt · n'+fc.targetT1N+')</span>'):' <span style="color:'+DD+';">(hitrate leert)</span>')+'</div>' : '';
       proj='<div style="padding:6px 9px;background:rgba(255,213,0,0.05);border:1px solid '+dcol+'44;border-radius:6px;margin-bottom:7px;">'+
-        '<div style="font-size:0.62rem;color:'+dcol+';font-weight:700;margin-bottom:3px;">⚡ ΔV kill-switch — energie-ontlading verwacht · richting '+(fc.dir||'—')+'</div>'+
-        '<div style="font-size:0.57rem;color:'+TX+';line-height:1.6;">ontlading rond <b>'+dS(fc.etaTs)+'</b> — nog <b>'+fmtRange(fc.loMs,fc.hiMs)+'</b> · venster '+dS(fc.etaLo)+' → '+dS(fc.etaHi)+' · vertrouwen '+Math.round((fc.dirConf||0)*100)+'%'+(fc.proven?' <span style="color:'+G+';">✓ bewezen</span>':' <span style="color:'+DD+';">(leert)</span>')+'</div>'+
+        '<div style="font-size:0.62rem;color:'+dcol+';font-weight:700;margin-bottom:3px;">⚡ ΔV kill-switch — energie-ontlading verwacht · richting '+(fc.noEdge?'—':(fc.dir||'—'))+'</div>'+
+        '<div style="font-size:0.57rem;color:'+TX+';line-height:1.6;">ontlading rond <b>'+dS(fc.etaTs)+'</b> — nog <b>'+fmtRange(fc.loMs,fc.hiMs)+'</b>'+over+' · venster '+dS(fc.etaLo)+' → '+dS(fc.etaHi)+' · vertrouwen '+cPct+'% '+cLab+'</div>'+
         (projP!=null?'<div style="font-size:0.57rem;color:#9fb2c4;line-height:1.6;">pivot / instap-trigger <b style="color:'+dcol+';">~'+fx(projP)+'</b>'+(px!=null?(' · huidige prijs ~'+fx(px)):'')+' <span style="color:'+DD+';">('+(fc.dir==='LONG'?'steun waar de long instapt':'weerstand waar de short instapt')+' — niet de huidige koers)</span></div>':'')+
+        tgt+
         (bo?'<div style="font-size:0.57rem;color:'+bcol+';line-height:1.6;">▸ breakout bevestigd '+(bo.side==='LONG'?'bóven':'ónder')+' <b>'+fx(bo.price)+'</b> ('+(bo.distPct>=0?'+':'')+bo.distPct+'% vanaf nu) → pas dan is de uitbraak echt</div>':'')+
+        warn+
       '</div>';
     } else { proj='<div style="padding:6px 9px;background:rgba(255,182,39,0.06);border:1px solid '+A+'44;border-radius:6px;margin-bottom:7px;font-size:0.57rem;color:'+A+';">⚡ ΔV kill-switch · calibreert… — de forecast verzamelt eerst zone/dwell-historie (enkele zone-wissels nodig) voordat hij de ontlading durft te dateren.</div>'; }
     let head='<div style="font-size:0.56rem;color:'+DD+';text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;">⚡ ΔV kill-switch · periode-historie <span style="color:'+DD+';text-transform:none;letter-spacing:0;">— '+esc(nm)+' · voorafgaande voorspelde periodes (out-of-sample uitkomst)</span></div>';
@@ -25737,9 +25746,12 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
           (et&&et.hitRate!=null&&et.n>=8?' <span style="color:'+(et.hitRate>=0.5?'#26d07c':'#ffb627')+';">shadow-hit '+Math.round(et.hitRate*100)+'% (n'+et.n+')</span>':(et&&et.n>0?' <span style="color:#6d8296;">shadow leert ('+et.n+')</span>':' <span style="color:#6d8296;">shadow verzamelt…</span>'))+'</div>':'<div style="font-size:0.6rem;color:#6d8296;margin-bottom:5px;">Richting: neutraal — geen edge, wacht op zone-shift.</div>';
       let fc=null; try{ fc=window.TrinityEForecast&&window.TrinityEForecast.predict(prov.key,cur); }catch(e){}
       const p2c=x=>String(x).padStart(2,'0'); const etaStr=t=>{ const d=new Date(t); return p2c(d.getDate())+'/'+p2c(d.getMonth()+1)+' '+p2c(d.getHours())+':'+p2c(d.getMinutes()); };
-      const fcLine=fc?('<div style="font-size:0.62rem;color:#cfe6f5;margin-bottom:5px;border:1px solid '+dCol+'44;border-radius:5px;padding:5px 7px;background:rgba(255,255,255,0.02);">🔮 <b>Voorspelde periode</b>: '+esc(window.__uotamFmtRange?window.__uotamFmtRange(fc.loMs,fc.hiMs):Math.round(fc.remainMs/3600000)+'u')+' · richting <span style="color:'+dCol+';font-weight:800;">'+(fc.dir&&fc.dir!=='—'?fc.dir:'—')+'</span> · '+esc(fc.tradeType)+
+      const fcConfLab=fc?(fc.proven?'<span style="color:#26d07c;">✓ bewezen (out-of-sample)</span>':(fc.confSrc==='shadow-evidence'?'<span style="color:#7fd8ff;">gegrond op '+fc.evN+' shadow-metingen</span>':'<span style="color:#6d8296;">(shadow leert &amp; corrigeert)</span>')):'';
+      const fcWarn=fc?(fc.noEdge?'<div style="font-size:0.52rem;color:#ffb627;margin-top:2px;">⚠ geen richting-edge nu (NEUTRAL / zwakke bias) — wacht op zone-shift.</div>':(fc.dirUnreliable?'<div style="font-size:0.52rem;color:#ff5f7e;margin-top:2px;">⚠ richting hier bewezen onbetrouwbaar (shadow) — behandel als fade.</div>':'')):'';
+      const fcTgt=(fc&&fc.targetT1!=null)?('<div style="font-size:0.52rem;color:#9fb2c4;margin-top:1px;">discharge-doel T1 ~'+fc.targetT1+(fc.targetT1Hit!=null?(' <span style="color:'+(fc.targetT1Hit>=0.5?'#26d07c':'#ffb627')+';">('+Math.round(fc.targetT1Hit*100)+'% bereikt · n'+fc.targetT1N+')</span>'):'')+'</div>'):'';
+      const fcLine=fc?('<div style="font-size:0.62rem;color:#cfe6f5;margin-bottom:5px;border:1px solid '+dCol+'44;border-radius:5px;padding:5px 7px;background:rgba(255,255,255,0.02);">🔮 <b>Voorspelde periode</b>: '+esc(window.__uotamFmtRange?window.__uotamFmtRange(fc.loMs,fc.hiMs):Math.round(fc.remainMs/3600000)+'u')+(fc.overdue?' <span style="color:#ffb627;">⏱ over tijd</span>':'')+' · richting <span style="color:'+dCol+';font-weight:800;">'+(fc.noEdge?'—':(fc.dir&&fc.dir!=='—'?fc.dir:'—'))+'</span> · '+esc(fc.tradeType)+
           '<div style="font-size:0.54rem;color:#9fb2c4;margin-top:2px;">verwacht tot ± '+esc(etaStr(fc.etaTs))+' (venster '+esc(etaStr(fc.etaLo))+' → '+esc(etaStr(fc.etaHi))+')</div>'+
-          '<div style="font-size:0.52rem;color:#6d8296;margin-top:1px;">richting-vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.horizonAcc!=null?' · horizon-hit '+Math.round(fc.horizonAcc*100)+'%':'')+' · n'+fc.dirN+(fc.proven?' <span style="color:#26d07c;">✓ bewezen (out-of-sample)</span>':' <span style="color:#6d8296;">(shadow leert & corrigeert)</span>')+'</div></div>'):'';
+          '<div style="font-size:0.52rem;color:#6d8296;margin-top:1px;">richting-vertrouwen '+Math.round(fc.dirConf*100)+'%'+(fc.horizonAcc!=null?' · horizon-hit '+Math.round(fc.horizonAcc*100)+'%':'')+' · '+fcConfLab+'</div>'+fcTgt+fcWarn+'</div>'):'';
       chz.innerHTML='<div style="font-size:0.66rem;color:#cfe6f5;margin-bottom:4px;">Huidig: <span style="color:'+a.energy.col+';font-weight:700;">'+esc(curz)+'</span> · compressie '+Math.round(a.energy.compression*100)+'% · energie '+Math.round(a.energy.charge*100)+'% · 5-bar '+(a.energy.move5>=0?'+':'')+a.energy.move5+'%</div>'+
         dirLine+ fcLine+
         '<div style="font-size:0.6rem;color:'+a.energy.col+';margin-bottom:6px;">▸ '+esc(a.energy.scenario)+'</div>'+
@@ -25801,6 +25813,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       mtxDir:m&&m.dir,mtxVerdict:m&&m.verdict,mtxStop:m&&m.frame&&m.frame.stop,mtxT1:m&&m.frame&&m.frame.t1,mtxT2:m&&m.frame&&m.frame.t2,mtxRR:m&&m.frame&&m.frame.rr,
       // voorspelde periode (Energie-forecast)
       fcZone:fc&&fc.zone,fcDir:fc&&fc.dir,fcRemainMs:fc&&fc.remainMs,fcEtaTs:fc&&fc.etaTs,fcEtaLo:fc&&fc.etaLo,fcEtaHi:fc&&fc.etaHi,fcDirConf:fc&&fc.dirConf,fcHorizonAcc:fc&&fc.horizonAcc,fcProven:fc&&fc.proven,fcTradeType:fc&&fc.tradeType,
+      fcOverdue:fc&&fc.overdue,fcNoEdge:fc&&fc.noEdge,fcDirUnreliable:fc&&fc.dirUnreliable,fcConfSrc:fc&&fc.confSrc,fcEvConf:fc&&fc.evConf,fcEvN:fc&&fc.evN,fcPivot:fc&&fc.pivot,fcTargetT1:fc&&fc.targetT1,fcTargetT1Hit:fc&&fc.targetT1Hit,
       // shadow-trust (autonoom leren, overfitting-rem)
       shN:tr&&tr.n,shHitRate:tr&&tr.hitRate,shWilson:tr&&tr.wilson,shProven:tr&&tr.proven,
       lvlT1Hit:ls&&ls.t1&&ls.t1.hit,lvlT1N:ls&&ls.t1&&ls.t1.n,lvlT2Hit:ls&&ls.t2&&ls.t2.hit,lvlS1Hit:ls&&ls.s1&&ls.s1.hit,lvlS2Hit:ls&&ls.s2&&ls.s2.hit,
@@ -26081,8 +26094,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       const vp=a.vfmPeak||{}; const vpTxt=vp.at?('<span style="color:'+(vp.dir==='LONG'?G:R)+';">⚡ VFM-piek ('+vp.dir+', mag '+vp.mag+') → beste '+(vp.dir==='LONG'?'long':'short')+'-punt</span>'):(vp.turning?'<span style="color:'+A+';">VFM draait — piek nabij</span>':'<span style="color:'+DD+';">geen VFM-piek</span>');
       // shadow-trust
       const shTxt = tr&&tr.n>=25 ? ('<b style="color:'+(tr.proven?G:A)+';">'+(tr.proven?'✓ bewezen':'niet bewezen')+'</b> · hit '+(tr.hitRate!=null?Math.round(tr.hitRate*100)+'%':'—')+' · Wilson '+(tr.wilson!=null?tr.wilson:'—')+' · n '+tr.n) : ('<span style="color:'+DD+';">leert… (n '+((tr&&tr.n)||0)+'/25 out-of-sample)</span>');
-      // forecast
-      const fcTxt = fc ? ('<b style="color:'+(fc.dir==='LONG'?G:fc.dir==='SHORT'?R:DD)+';">'+(fc.dir||'—')+'</b> · '+(fc.tradeType||'')+' · nog '+fmtDur(fc.remainMs)+(fc.etaTs?(' → '+dS(fc.etaTs)):'')+' · vertrouwen '+Math.round((fc.dirConf||0)*100)+'%'+(fc.horizonAcc!=null?(' · horizon '+Math.round(fc.horizonAcc*100)+'%'):'')+(fc.proven?' <span style="color:'+G+';">✓</span>':' <span style="color:'+DD+';">(leert)</span>')) : '<span style="color:'+DD+';">forecast verzamelt dwell-historie…</span>';
+      // forecast (met gegronde confidence + waarschuwingen)
+      const fcTxt = fc ? ((fc.noEdge?'<span style="color:'+A+';">geen richting-edge (wacht)</span>':'<b style="color:'+(fc.dirUnreliable?A:fc.dir==='LONG'?G:fc.dir==='SHORT'?R:DD)+';">'+(fc.dir||'—')+(fc.dirUnreliable?' ⚠fade':'')+'</b>')+' · '+(fc.tradeType||'')+' · nog '+fmtDur(fc.remainMs)+(fc.overdue?' ⏱':'')+(fc.etaTs?(' → '+dS(fc.etaTs)):'')+' · vertrouwen '+Math.round((fc.dirConf||0)*100)+'%'+(fc.proven?' <span style="color:'+G+';">✓ bewezen</span>':(fc.confSrc==='shadow-evidence'?' <span style="color:'+BL+';">(n'+fc.evN+')</span>':' <span style="color:'+DD+';">(leert)</span>'))+((fc.targetT1!=null)?(' · doel T1 '+fc.targetT1+(fc.targetT1Hit!=null?(' '+Math.round(fc.targetT1Hit*100)+'%'):'')):'')) : '<span style="color:'+DD+';">forecast verzamelt dwell-historie…</span>';
       // energie-hitrate per zone
       let ezTxt='<span style="color:'+DD+';">—</span>';
       if(et&&et.n){ const zs=Object.keys(et.zones||{}).map(z=>{ const o=et.zones[z]; return z+' '+(o.hit!=null?Math.round(o.hit*100)+'%':'n'+o.n); }); ezTxt='totaal '+(et.hitRate!=null?Math.round(et.hitRate*100)+'%':'—')+' (n '+et.n+')'+(zs.length?' · '+zs.slice(0,4).join(' · '):''); }
@@ -26152,8 +26165,22 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityEForecast')||'null'); if(d){ this.ep=d.ep||{}; this.st=d.st||{}; } }catch(e){} },
     _save(){ try{ localStorage.setItem('trinityEForecast',JSON.stringify({ep:this.ep,st:this.st})); }catch(e){} },
     _tfms(tf){ return {'5m':3e5,'15m':9e5,'1h':36e5,'4h':144e5,'all':864e5}[tf||'1h']||36e5; },
-    _cycleMs(a,tf){ try{ const per=(a.tam&&a.tam.periodBars)||24; return Math.max(6,per)*this._tfms(tf); }catch(e){ return 24*36e5; } },
+    // cyclus-vloer: min. 10 bars zodat een korte-periode-markt (bv. commodity per=4) geen minuten-ETA's meer geeft
+    _cycleMs(a,tf){ try{ const per=(a.tam&&a.tam.periodBars)||24; return Math.max(10,per)*this._tfms(tf); }catch(e){ return 24*36e5; } },
     _median(arr){ if(!arr||!arr.length)return null; const s=arr.slice().sort((x,y)=>x-y); const m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; },
+    // Wilson-ondergrens (z=1.28 ≈ 80%) — eerlijke, conservatieve schatting van een hit-rate p over n metingen
+    _wlb(p,n){ if(!n||p==null)return null; const z=1.28,zz=z*z; return (p+zz/(2*n)-z*Math.sqrt((p*(1-p)+zz/(4*n))/n))/(1+zz/n); },
+    // data-gegronde typische zone-duur: geleerde mediaan (naarmate n groeit) ⇄ model (ZMS × cyclus)
+    _estDur(a,st,zone){ const cyc=this._cycleMs(a,'1h'); const arr=st&&st.z&&st.z[zone]; const samples=arr?arr.length:0; const med=this._median(arr); const modelDur=(ZMS[zone]||0.6)*cyc; const w=Math.min(1,samples/8); return (med!=null)? (med*w+modelDur*(1-w)) : modelDur; },
+    // resterende tijd tot ontlading — geankerd op de TAM-attractor-node zolang de dwell-historie dun is,
+    //  rolt door naar de volgende node als de zone "over tijd" is (nooit 0 / verdwijnend)
+    _project(a,st,ep,zone){ const now=Date.now(); const cyc=this._cycleMs(a,'1h'); const dur=this._estDur(a,st,zone);
+      const elapsed=(ep&&ep.zone===zone)?(now-ep.since):0; const remain0=Math.max(0,dur-elapsed);
+      const nodeMs=(a.tam&&a.tam.msTo>0)?a.tam.msTo:((a.node&&a.node.msTo>0)?a.node.msTo:dur);
+      const samples=(st&&st.z&&st.z[zone])?st.z[zone].length:0; let overdue=false,remain;
+      if(remain0<=0){ overdue=true; remain=Math.min(nodeMs,0.3*cyc); }
+      else { const wNode=Math.max(0.25,Math.min(0.8,1-samples/8)); remain=wNode*Math.min(nodeMs,dur*1.5)+(1-wNode)*remain0; }
+      remain=Math.max(remain,0.05*cyc); return { remain, lo:remain*0.6, hi:remain*1.6, dur, elapsed, overdue, nodeMs, samples }; },
     tick(){ const E=window.TrinityCommoUOTAM; if(!E)return; const now=Date.now(); if(now-this._at<15000)return; this._at=now;
       [E.PROV_COMMO,E.PROV_FX,E.PROV_CRYPTO].filter(Boolean).forEach(prov=>{ prov.markets.forEach(k=>{ try{
         const a=E.analyze(k,'1h',prov); if(!a||!a.ready)return; const lk=prov.key+':'+k; const zone=a.energy.zone, dir=a.energy.dir, px=a.px;
@@ -26165,7 +26192,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
             // gerealiseerde episode-historie (voorafgaande ΔV/forecast-periodes met uitkomst)
             st.hist.unshift({ start:ep.since, end:now, zone:ep.zone, predDir:ep.predDir, predMs:ep.predMs, actualMs:dwell,
               startPx:ep.startPx, endPx:px, ret:+(((px-ep.startPx)/(ep.startPx||1))*100).toFixed(2), dirOk, horOk }); if(st.hist.length>30)st.hist.pop(); }
-          const med=this._median((st.z[zone])); const predMs = med!=null? med : (ZMS[zone]||0.6)*cyc;
+          const predMs = this._estDur(a,st,zone);   // data-gegronde duur (mediaan ⇄ model), i.p.v. lege mediaan
           ep=this.ep[lk]={zone,dir,since:now,startPx:px,predDir:dir,predMs};
         } else { if(ep.predDir==='—'&&dir!=='—'){ ep.predDir=dir; ep.startPx=px; } ep.dir=dir; }
       }catch(e){} }); });
@@ -26173,15 +26200,31 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     },
     predict(pk,key){ try{ const E=window.TrinityCommoUOTAM; if(!E)return null; const prov=E.provFor?E.provFor(pk):(pk==='fx'?E.PROV_FX:pk==='crypto'?E.PROV_CRYPTO:E.PROV_COMMO);
       const a=E.analyze(key,'1h',prov); if(!a||!a.ready)return null; const lk=pk+':'+key; const st=this.st[lk]; const ep=this.ep[lk];
-      const cyc=this._cycleMs(a,'1h'); const zone=a.energy.zone, dir=a.energy.dir;
-      const med=(st&&this._median(st.z[zone]))||((ZMS[zone]||0.6)*cyc);
-      const elapsed=(ep&&ep.zone===zone)?(Date.now()-ep.since):0; const remain=Math.max(0, med-elapsed); const lo=remain*0.6, hi=remain*1.5;
-      let dirConf=0.4; if(st&&st.dirN>=6)dirConf=st.dirW/st.dirN; dirConf=+Math.max(0.1,Math.min(0.95,dirConf*0.7+(a.vfmHit||0.5)*0.3)).toFixed(2);
+      const zone=a.energy.zone, dir=a.energy.dir; const now=Date.now();
+      // (2/3/4) TIMING — geankerd op de TAM-attractor-node, cyclus-vloer, nooit 0/verdwijnend
+      const pj=this._project(a,st,ep,zone); const remain=pj.remain, lo=pj.lo, hi=pj.hi, overdue=pj.overdue;
+      // (1) VERTROUWEN — gegrond in het bewijs dat er AL is (shadow energie-hitrate + eigen teller), Wilson-ondergrens
+      const SH=window.TrinityUOTAMShadow; let et=null,ls=null; try{ if(SH){ et=SH.energyTrust(pk,key); ls=SH.levelStats(pk,key); } }catch(e){}
+      const noEdge=(zone==='NEUTRAL')||(Math.abs(a.biasScore||0)<0.08);
+      let evConf=null, evN=0, dirUnreliable=false, confSrc='model';
+      if(et&&et.n>=6 && et.hitRate!=null){ evConf=this._wlb(et.hitRate,et.n); evN=et.n; if(et.n>=10 && et.hitRate<0.4)dirUnreliable=true; }
+      let dirConf;
+      if(noEdge){ dirConf=0.10; confSrc='no-edge'; }
+      else if(evConf!=null){ dirConf=+Math.max(0.1,Math.min(0.95, 0.12 + evConf*0.72 + ((a.vfmHit||0.5)-0.5)*0.3)).toFixed(2); confSrc='shadow-evidence'; }
+      else { let d=0.4; if(st&&st.dirN>=6)d=st.dirW/st.dirN; dirConf=+Math.max(0.1,Math.min(0.95,d*0.7+(a.vfmHit||0.5)*0.3)).toFixed(2); confSrc=(st&&st.dirN>=6)?'own-count':'model'; }
       const hAcc=(st&&st.hN>=6)?+(st.hW/st.hN).toFixed(2):null;
-      const proven=!!(st&&st.dirN>=15&&(st.dirW/st.dirN)>0.5);
+      // proven = of via het bewijs (energie-hitrate, n≥12, Wilson>0.55) of via de eigen teller (n≥15, >50%)
+      const proven=!!((evN>=12 && evConf!=null && evConf>0.55) || (st&&st.dirN>=15&&(st.dirW/st.dirN)>0.5));
+      // (5) DISCHARGE-DOEL — verwacht T1-doel + bewezen T1-hitrate (uit de Support & Target Matrix + shadow)
+      let m=null; try{ m=E.matrix(key,'1h',prov); }catch(e){}
+      const pivot=(m&&m.rows&&(m.rows.find(r=>r.kind==='pivot')||{}).price)||(m&&m.frame&&m.frame.entry)||null;
+      const targetT1=(m&&m.frame&&m.frame.t1!=null)?m.frame.t1:null;
+      const targetT1Hit=(ls&&ls.t1&&ls.t1.n>=4)?ls.t1.hit:null; const targetT1N=(ls&&ls.t1)?ls.t1.n:0;
       const tType=(zone==='DEEP COMPRESSION'||zone==='LOADING')?'entry-setup':(zone==='EXPANSION')?'hold/trail':(zone==='CLIMAX'||zone==='DISCHARGE')?'exit/fade':'wacht';
-      const etaTs=Date.now()+remain, etaLo=Date.now()+lo, etaHi=Date.now()+hi;
-      return { zone, dir, remainMs:remain, loMs:lo, hiMs:hi, medMs:med, elapsedMs:elapsed, dirConf, horizonAcc:hAcc, dirN:st?st.dirN:0, hN:st?st.hN:0, proven, tradeType:tType, etaTs, etaLo, etaHi,
+      const etaTs=now+remain, etaLo=now+lo, etaHi=now+hi;
+      return { zone, dir, remainMs:remain, loMs:lo, hiMs:hi, medMs:pj.dur, elapsedMs:pj.elapsed, dirConf, horizonAcc:hAcc, dirN:st?st.dirN:0, hN:st?st.hN:0, proven,
+        tradeType:tType, etaTs, etaLo, etaHi, overdue, noEdge, dirUnreliable, confSrc, evConf:(evConf!=null?+evConf.toFixed(2):null), evN,
+        pivot, targetT1, targetT1Hit, targetT1N, nodeMs:pj.nodeMs,
         since:(ep&&ep.zone===zone)?ep.since:null, startPx:(ep&&ep.zone===zone)?ep.startPx:null,
         label: (dir&&dir!=='—'?dir:'—')+' · nog '+fmtRange(lo,hi)+' · '+tType }; }catch(e){ return null; } },
     // startpunt van de HUIDIGE voorspelde periode (candle waar de ΔV kill-switch/periode begon)
