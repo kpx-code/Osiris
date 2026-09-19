@@ -22056,7 +22056,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null),(typeof renderTrinityCommodities==='function'?renderTrinityCommodities:null),(typeof renderCommodityChart==='function'?renderCommodityChart:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null),(typeof renderGSDOcean==='function'?renderGSDOcean:null),(typeof renderTrinityCommodities==='function'?renderTrinityCommodities:null),(typeof renderCommodityChart==='function'?renderCommodityChart:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
@@ -23347,7 +23347,7 @@ const TrinityGSD = {
   globalRisk(){ return { regime:this.regime, stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, vfm:this.vfm, kill:this.killSwitch }; },
   bundle(){ return { zones:GSD_ZONES.map(z=>({key:z.key,name:z.name,ccy:z.ccy})), categories:GSD_CATS.map(c=>({key:c.key,name:c.name,src:c.src,direct:c.direct})),
     live:{ stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, spanT:this.spanT, crisT:this.crisT, vfm:this.vfm, escapeVel:this.escapeVel, regime:this.regime, tippingRisk:this.tippingRisk, tippingTier:this.tippingTier, killSwitch:this.killSwitch, calibrated:this.calibrated },
-    zoneStress:this.zoneStress, zoneConfidence:this.zoneConf, catStress:this.catStress, cells:this.cells, ranking:this.ranking, predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
+    zoneStress:this.zoneStress, zoneConfidence:this.zoneConf, catStress:this.catStress, cells:this.cells, ranking:this.ranking, oceanLevel:(typeof osirisOceanLevel==='function'?osirisOceanLevel():null), predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
     calibration:this._cal, shadow:this._shadow, histCal:this.histCal, historicalBackfill:(typeof TrinityGSDBackfill!=='undefined'?TrinityGSDBackfill.bundle():null), proxy:this.proxy?'(ingesteld)':'(geen)', tamAnchor:new Date(this.anchorTs).toISOString(),
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
@@ -23620,6 +23620,7 @@ const GSDData = {
     this._getText(url,false).then(txt=>{ const lines=txt.trim().split('\n').filter(Boolean); const last=lines[lines.length-1].trim().split(/\s+/); const oni=parseFloat(last[last.length-1]);
       if(!isFinite(oni)){ TrinityFeeds.markErr('gsd-enso','parse'); return; }
       const s=_clamp01(Math.abs(oni)/2.5); const phase=oni>=0.5?'El Niño':oni<=-0.5?'La Niña':'neutral';
+      TrinityGSD._oni=oni; TrinityGSD._oniPhase=phase; TrinityGSD._oniAt=Date.now();   // bewaard voor de ocean-level-module
       GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const cur=TrinityGSD.cells[z.key].weather.v; TrinityGSD.setCell(z.key,'weather', cur!=null?Math.max(cur,s*0.55):s*0.55, 'Open-Meteo+ENSO', 'ONI '+oni.toFixed(1)+' ('+phase+')'); });
       TrinityFeeds.markOk('gsd-enso','ONI '+oni.toFixed(1)+' '+phase);
     }).catch(e=>TrinityFeeds.markErr('gsd-enso',e.message,e.http)); },
@@ -23789,6 +23790,50 @@ try{ Object.assign(window,{TrinityGSD,GSDData,GSD_ZONES,GSD_CATS}); }catch(e){}
 
 // ==================================================================================
 // GSD · TIME-MACHINE — record global/per-zone stress snapshots (~every 60s) and scrub back through them
+// ==================================================================================
+// OCEAN-LEVEL · zeespiegel-anomalie per zone (ENSO-herverdeling + seculaire stijging)
+// ----------------------------------------------------------------------------------
+// Bij El Niño (ONI > 0) verzwakken de passaatwinden: warm water + hogere zeespiegel schuiven van de
+// WESTELIJKE Grote Oceaan (Asia-Pacific) naar de OOSTELIJKE (west-kust Amerika). Dus AP "zakt weg" terwijl
+// Latijns-Amerika/Noord-Amerika stijgen — precies andersom bij La Niña. Bovenop die herverdeling loopt de
+// seculaire zeespiegelstijging (~3.4 mm/jr sinds de satelliet-baseline 1993). Dit model is ENSO-afgeleid uit
+// de LIVE ONI (NOAA CPC) die Osiris al ophaalt; live satelliet-altimetrie (NASA/Copernicus) kan later worden
+// gekoppeld op dezelfde structuur.
+function osirisOceanLevel(){
+  const G=(typeof TrinityGSD!=='undefined')?TrinityGSD:{};
+  const oni=(G._oni!=null&&isFinite(G._oni))?G._oni:0;
+  const phase=oni>=0.5?'El Niño':oni<=-0.5?'La Niña':'neutraal';
+  const now=new Date(); const yrs=(now.getUTCFullYear()+now.getUTCMonth()/12)-1993;
+  const secular=Math.round(3.4*yrs);   // mm t.o.v. 1993-baseline (globaal gemiddelde)
+  // ENSO-gevoeligheid per zone (mm per eenheid ONI). Westelijke Pacific negatief, oostelijke/Amerika positief.
+  const coef={ ap:-70, latam:55, na:30, af:9, eu:6, me:0, ca:0 };
+  const zones=[];
+  (typeof GSD_ZONES!=='undefined'?GSD_ZONES:[]).forEach(z=>{ if(z.synthetic)return; const c=coef[z.key]!=null?coef[z.key]:0;
+    const enso=Math.round(c*oni); zones.push({ key:z.key, name:z.name, col:z.col, coef:c, enso, total:secular+enso }); });
+  zones.sort((a,b)=>b.enso-a.enso);
+  return { oni:+oni.toFixed(2), phase, secular, updatedAt:G._oniAt||0, zones,
+    note:'ENSO-afgeleid uit live ONI (NOAA CPC) + seculaire stijging ~3.4 mm/jr sinds 1993. Positief = hoger dan baseline; ENSO-kolom = de huidige herverdeling (El Niño: Pacific-west omlaag, Amerika omhoog).' };
+}
+try{ window.osirisOceanLevel=osirisOceanLevel; }catch(e){}
+function renderGSDOcean(){ const el=document.getElementById('gsd-ocean'); if(!el)return;
+  const O=osirisOceanLevel();
+  const up='#14f195', dn='#ff5f7e', DD='var(--dimmer)', D='var(--dim)';
+  const maxAbs=Math.max(30,...O.zones.map(z=>Math.abs(z.enso)));
+  const when=O.updatedAt?new Date(O.updatedAt).toLocaleTimeString('nl-NL'):'—';
+  let h=`<div style="font-size:0.56rem;color:${D};line-height:1.6;margin-bottom:7px;">Zeespiegel-anomalie per zone. <b style="color:#7fd8ff;">ONI ${O.oni} (${O.phase})</b> · seculaire stijging <b>+${O.secular} mm</b> t.o.v. 1993. De <b>ENSO-kolom</b> is de huidige herverdeling: bij El Niño zakt de west-Pacific (Asia-Pacific) en stijgt de oost-Pacific (Amerika). <span style="color:${DD};">bijgewerkt ${when}</span></div>`;
+  h+=`<div style="display:flex;font-size:0.46rem;letter-spacing:0.04em;color:${DD};text-transform:uppercase;margin-bottom:2px;"><span style="flex:0 0 118px;">zone</span><span style="flex:1 1 auto;">ENSO-herverdeling (mm)</span><span style="flex:0 0 62px;text-align:right;">ENSO</span><span style="flex:0 0 74px;text-align:right;">vs 1993</span></div>`;
+  h+=O.zones.map(z=>{ const col=z.enso>0?up:z.enso<0?dn:DD; const w=Math.round(Math.abs(z.enso)/maxAbs*100/2);
+    const bar=z.enso>=0
+      ? `<span style="display:inline-block;width:50%;text-align:right;"></span><span style="display:inline-block;width:50%;"><i style="display:inline-block;height:8px;width:${w*2}%;background:${col};border-radius:2px;vertical-align:middle;"></i></span>`
+      : `<span style="display:inline-block;width:50%;text-align:right;"><i style="display:inline-block;height:8px;width:${w*2}%;background:${col};border-radius:2px;vertical-align:middle;"></i></span><span style="display:inline-block;width:50%;"></span>`;
+    const arrow=z.enso>0?'▲':z.enso<0?'▼':'·';
+    return `<div style="display:flex;align-items:center;font-size:0.54rem;padding:2px 0;"><span style="flex:0 0 118px;color:var(--tx);"><span style="color:${z.col};">●</span> ${z.name}</span><span style="flex:1 1 auto;position:relative;">${bar}</span><span style="flex:0 0 62px;text-align:right;color:${col};font-weight:700;">${arrow} ${z.enso>0?'+':''}${z.enso}</span><span style="flex:0 0 74px;text-align:right;color:${D};">+${z.total} mm</span></div>`;
+  }).join('');
+  h+=`<div style="font-size:0.46rem;color:${DD};margin-top:6px;line-height:1.5;">${O.note}</div>`;
+  el.innerHTML=h;
+}
+try{ window.renderGSDOcean=renderGSDOcean; }catch(e){}
+
 // ==================================================================================
 const GSD_TM={ snaps:[], _ts:0 };
 try{ const s=JSON.parse(localStorage.getItem('gsdTM')||'null'); if(Array.isArray(s)) GSD_TM.snaps=s; }catch(e){}
@@ -27114,19 +27159,35 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function _fmtCountdown(ms){ if(ms==null||!isFinite(ms))return ''; let s=(ms-Date.now())/1000; if(s<=0)return 'T- now'; const d=s/86400;
     if(d>=365)return 'T- '+(d/365).toFixed(1)+'y'; if(d>=30)return 'T- '+Math.round(d/30)+'mo'; if(d>=1)return 'T- '+Math.floor(d)+'d '+Math.floor((d%1)*24)+'h'; const h=s/3600; if(h>=1)return 'T- '+Math.floor(h)+'h '+Math.floor((h%1)*60)+'m'; return 'T- '+Math.max(1,Math.floor(s/60))+'m'; }
   function _star(ctx,x,y,r,col){ ctx.save(); ctx.beginPath(); for(let i=0;i<10;i++){ const a=-Math.PI/2+i*Math.PI/5, rr=i%2?r*0.45:r; const px=x+Math.cos(a)*rr, py=y+Math.sin(a)*rr; i?ctx.lineTo(px,py):ctx.moveTo(px,py);} ctx.closePath(); ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=8; ctx.fill(); ctx.restore(); }
-  function _drawKill(iz){ const ctx=M.ctx; let proj; try{ proj=TrinityGSD.killProjection||[]; }catch(e){ return; } const seen={}; M._primaryStar=null;
+  function _drawKill(iz){ const ctx=M.ctx; let proj; try{ proj=TrinityGSD.killProjection||[]; }catch(e){ return; } M._primaryStar=null;
+    // PRIMARY = de near-term (week) ground-zero: waar de eerstvolgende crisis-ontlading het waarschijnlijkst begint.
+    const primaryZone=(proj.find(p=>p.key==='week')||proj[0]||{}).zone;
+    const seen={};
     proj.forEach(pz=>{ if(!pz.zone||seen[pz.zone])return; seen[pz.zone]=1; const z=GSD_ZONES.find(z=>z.name===pz.zone); if(!z)return; const c=zCentroid(z.key); if(!c)return; const sn=_snapLand(c[0],c[1]); const p=pB(sn[0],sn[1]); if(!p)return;
-      _star(ctx,p[0],p[1],7*iz,'#ff8a3c');
       const cn=pz.chanceNow!=null?pz.chanceNow:Math.round((pz.prob||0)*100);
-      // ORANJE ZONE-LABEL bij de ster (naam van de KS-zone, niet alleen de ster). Altijd zichtbaar, met
-      // een halftransparante pil zodat de naam leesbaar blijft boven land/zee.
-      const zlbl=String(pz.zone||''); if(zlbl){ ctx.save(); ctx.font='bold '+(8.5*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left';
-        const tw=ctx.measureText(zlbl).width, lx=p[0]+9*iz, ly=p[1]-8*iz;
-        ctx.fillStyle='rgba(12,16,26,0.72)'; ctx.fillRect(lx-3*iz, ly-8*iz, tw+6*iz, 12*iz);
-        ctx.fillStyle='#ff8a3c'; ctx.fillText(zlbl, lx, ly+1.5*iz); ctx.restore(); }
-      if(M.view.scale>1.2){ ctx.fillStyle='#ffd76a'; ctx.font=(8*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText(cn+'% '+pz.key,p[0]+9*iz,p[1]+6*iz); }
-      if(pz.key==='week'||!M._primaryStar){ M._primaryStar=[M.view.tx+p[0]*M.view.scale, M.view.ty+p[1]*M.view.scale]; }
-      M._markers.push({x:p[0],y:p[1],t:'ΔV kill-switch start-zone · '+pz.zone+' · '+cn+'% ('+pz.key+')'}); }); }
+      const isPrimary=pz.zone===primaryZone;
+      if(isPrimary){
+        // pulserende dubbele ring + duidelijke "GROUND-ZERO"-tag → ondubbelzinnig welke zone de primaire is
+        const t=(Date.now()%2000)/2000, pr=(11+5*Math.sin(t*6.283))*iz;
+        ctx.save(); ctx.beginPath(); ctx.arc(p[0],p[1],pr,0,6.283); ctx.strokeStyle='rgba(255,138,60,0.6)'; ctx.lineWidth=1.6*iz; ctx.stroke();
+        ctx.beginPath(); ctx.arc(p[0],p[1],pr+5*iz,0,6.283); ctx.strokeStyle='rgba(255,138,60,0.22)'; ctx.lineWidth=1*iz; ctx.stroke(); ctx.restore();
+        _star(ctx,p[0],p[1],9*iz,'#ff8a3c');
+        const lbl='◎ GROUND-ZERO · '+pz.zone+'  '+cn+'%';
+        ctx.save(); ctx.font='bold '+(9.5*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left';
+        const tw=ctx.measureText(lbl).width, lx=p[0]+13*iz, ly=p[1]-9*iz;
+        ctx.fillStyle='rgba(12,16,26,0.82)'; ctx.fillRect(lx-4*iz, ly-9*iz, tw+8*iz, 14*iz);
+        ctx.fillStyle='#ffb056'; ctx.fillText(lbl, lx, ly+2*iz); ctx.restore();
+        M._primaryStar=[M.view.tx+p[0]*M.view.scale, M.view.ty+p[1]*M.view.scale];
+      } else {
+        // secundaire start-zones (latere horizonnen) — kleiner + gedimd, zodat de primaire eruit springt
+        _star(ctx,p[0],p[1],6*iz,'#c98a4c');
+        const lbl=pz.zone+' · '+pz.key+' '+cn+'%';
+        ctx.save(); ctx.font=(7.5*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left';
+        const tw=ctx.measureText(lbl).width, lx=p[0]+8*iz, ly=p[1]-6*iz;
+        ctx.fillStyle='rgba(12,16,26,0.62)'; ctx.fillRect(lx-3*iz, ly-7*iz, tw+6*iz, 11*iz);
+        ctx.fillStyle='#d9a066'; ctx.fillText(lbl, lx, ly+1.5*iz); ctx.restore();
+      }
+      M._markers.push({x:p[0],y:p[1],t:(isPrimary?'GROUND-ZERO (near-term) · ':'ΔV start-zone · ')+pz.zone+' · '+cn+'% ('+pz.key+')'}); }); }
   // per-category, per-country stress ranking. ECONOMY is the primary target.
   const SW_STRESS_CATS = [
     {key:'economic', label:'Economic stress', primary:true, col:'#14f195'},
