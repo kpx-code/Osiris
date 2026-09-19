@@ -2839,9 +2839,9 @@ function updateWalletUI() {
     if (posBody) {
         // MARGIN-posities óók tonen in de hoofd-Open-Posities-tabel (voorheen alleen in de margin-sectie
         // + Support&Target, waardoor een open margin-short hier ontbrak). Ze krijgen een MARGIN-badge.
-        let marginRows = '';
+        let marginRows = '';   // margin blijft in de eigen MARGIN WALLET-tabel; hier NIET tonen (spot/margin gescheiden)
         try {
-            if (typeof marginState !== 'undefined' && marginState.positions && marginState.positions.length) {
+            if (false) {
                 marginRows = marginState.positions.map((mp, mi) => {
                     const mm = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[mp.sym] : null;
                     const price = (mm && mm.lastPrice != null) ? mm.lastPrice : mp.entryPrice;
@@ -2867,7 +2867,7 @@ function updateWalletUI() {
                 }).join('');
             }
         } catch (e) {}
-        if (openPositions.length === 0 && !marginRows) {
+        if (openPositions.length === 0) {
             posBody.innerHTML = `<tr><td colspan="11" style="text-align:center; color:#888; padding:8px;">Geen open posities</td></tr>`;
             setText('bot-position', 'Geen');
         } else {
@@ -2906,8 +2906,8 @@ function updateWalletUI() {
                     <td style="color:${color};">${formatMoney(p.notional * pnlPct)}</td>
                     <td style="padding:2px 4px;"><button type="button" class="btn btn-ghost btn-mini" style="color:#ff5f7e; border-color:rgba(255,95,126,0.5); padding:2px 7px; font-size:0.7em;" onclick="closePositionManually('${p.id}')" title="Sluit deze positie nu">Sluit</button></td>
                 </tr>`;
-            }).join('') + marginRows;
-            setText('bot-position', openPositions.map(p => p.side).join(' + ') || (marginRows ? 'MARGIN' : 'Geen'));
+            }).join('');
+            setText('bot-position', openPositions.map(p => p.side).join(' + '));
         }
     }
 
