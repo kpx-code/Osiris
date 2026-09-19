@@ -16468,28 +16468,27 @@ let __cxCalWalletMode = 'all';
 function __cxAuc(rows) { const pos = rows.filter(r => r.w), neg = rows.filter(r => !r.w); if (!pos.length || !neg.length) return null; let c = 0; for (const p of pos) for (const n of neg) { if (p.s > n.s) c++; else if (p.s === n.s) c += 0.5; } return c / (pos.length * neg.length); }
 function __cxBins(rows) { const b = {}; for (const r of rows) { const k = Math.floor(r.s / 5) * 5; (b[k] = b[k] || []).push(r); } return Object.keys(b).map(k => { const a = b[k]; return { x: +k + 2.5, y: a.reduce((s, r) => s + r.w, 0) / a.length * 100, n: a.length }; }).sort((p, q) => p.x - q.x); }
 function __cxCalChart(rows, title, color) {
-    const W = 430, H = 200, pl = 32, pr = 12, pt = 12, pb = 24, gw = W - pl - pr, gh = H - pt - pb;
-    const xmin = Math.min(50, ...rows.map(r => r.s)); const xlo = isFinite(xmin) ? xmin : 50, xhi = 100;
-    const X = s => pl + gw * ((s - xlo) / (xhi - xlo || 1)), Y = v => pt + gh * (1 - v / 100);
+    // HELDER ontwerp: reliability-curve als hoofdelement (bin-stippen op de diagonaal) + geordende
+    // win/loss-'rug'-strips onderaan (alle trades als puntjes, maar niet meer als ruis over de curve).
+    const W = 430, H = 250, pl = 36, pr = 14, pt = 16, pb = 52, gw = W - pl - pr, gh = H - pt - pb;
+    const xlo = 50, xhi = 100; const X = s => pl + gw * ((Math.max(xlo, Math.min(xhi, s)) - xlo) / (xhi - xlo)), Y = v => pt + gh * (1 - v / 100);
     const wr = rows.length ? rows.reduce((s, r) => s + r.w, 0) / rows.length * 100 : 0; const a = __cxAuc(rows);
-    let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:180px;background:rgba(0,0,0,0.2);border-radius:6px;">';
-    s += '<line x1="' + pl + '" y1="' + pt + '" x2="' + pl + '" y2="' + (pt + gh) + '" stroke="rgba(255,255,255,.12)"/>';
-    s += '<line x1="' + pl + '" y1="' + (pt + gh) + '" x2="' + (pl + gw) + '" y2="' + (pt + gh) + '" stroke="rgba(255,255,255,.12)"/>';
-    s += '<line x1="' + pl + '" y1="' + (pt + gh) + '" x2="' + (pl + gw) + '" y2="' + pt + '" stroke="rgba(255,255,255,.18)" stroke-dasharray="4 4"/>';
-    s += '<text x="' + (pl + gw) + '" y="' + (pt + 8) + '" fill="#5c7488" font-size="8" text-anchor="end" font-style="italic">perfect</text>';
-    s += '<text x="' + (pl - 4) + '" y="' + (pt + 4) + '" fill="#5c7488" font-size="8" text-anchor="end">100</text><text x="' + (pl - 4) + '" y="' + (pt + gh) + '" fill="#5c7488" font-size="8" text-anchor="end">0</text>';
-    s += '<text x="' + pl + '" y="' + (H - 6) + '" fill="#5c7488" font-size="8" text-anchor="middle">' + Math.round(xlo) + '</text><text x="' + (pl + gw) + '" y="' + (H - 6) + '" fill="#5c7488" font-size="8" text-anchor="middle">100</text>';
-    s += '<text x="' + (pl + gw / 2) + '" y="' + (H - 6) + '" fill="#5c7488" font-size="7.5" text-anchor="middle">ruwe score →</text>';
-    s += '<line x1="' + pl + '" y1="' + Y(wr) + '" x2="' + (pl + gw) + '" y2="' + Y(wr) + '" stroke="' + color + '" stroke-dasharray="2 3" opacity=".5"/>';
-    s += '<text x="' + (pl + gw) + '" y="' + (Y(wr) - 3) + '" fill="' + color + '" font-size="8" text-anchor="end">gem ' + wr.toFixed(0) + '%</text>';
-    for (const r of rows) { const x = X(r.s); const jy = r.w ? (pt + gh * 0.06 + ((r.s * 9301 + 49297) % 233 / 233) * gh * 0.13) : (pt + gh * 0.81 + ((r.s * 4021 + 971) % 233 / 233) * gh * 0.13); s += '<circle cx="' + x.toFixed(1) + '" cy="' + jy.toFixed(1) + '" r="1.5" fill="' + (r.w ? '#14f195' : '#ff5f7e') + '" opacity=".42"/>'; }
-    const bs = __cxBins(rows); if (bs.length) { let d = ''; bs.forEach((p, i) => { d += (i ? 'L' : 'M') + X(p.x).toFixed(1) + ' ' + Y(p.y).toFixed(1) + ' '; }); s += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.8"/>'; for (const p of bs) s += '<circle cx="' + X(p.x).toFixed(1) + '" cy="' + Y(p.y).toFixed(1) + '" r="' + (2 + Math.min(6, Math.sqrt(p.n))).toFixed(1) + '" fill="' + color + '" opacity=".85"/>'; }
+    let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:210px;">';
+    s += '<rect x="' + pl + '" y="' + pt + '" width="' + gw + '" height="' + gh + '" fill="rgba(255,255,255,.015)" stroke="rgba(255,255,255,.10)"/>';
+    for (let v = 0; v <= 100; v += 25) { s += '<line x1="' + pl + '" y1="' + Y(v) + '" x2="' + (pl + gw) + '" y2="' + Y(v) + '" stroke="rgba(255,255,255,.05)"/><text x="' + (pl - 4) + '" y="' + (Y(v) + 3) + '" fill="#5c7488" font-size="8" text-anchor="end">' + v + '</text>'; }
+    s += '<line x1="' + pl + '" y1="' + Y(0) + '" x2="' + (pl + gw) + '" y2="' + Y(100) + '" stroke="rgba(255,255,255,.22)" stroke-dasharray="4 4"/><text x="' + (pl + gw - 3) + '" y="' + (Y(100) + 9) + '" fill="#5c7488" font-size="8" text-anchor="end" font-style="italic">perfect</text>';
+    s += '<line x1="' + pl + '" y1="' + Y(wr) + '" x2="' + (pl + gw) + '" y2="' + Y(wr) + '" stroke="' + color + '" stroke-dasharray="2 3" opacity=".55"/><text x="' + (pl + 3) + '" y="' + (Y(wr) - 3) + '" fill="' + color + '" font-size="8">gem ' + wr.toFixed(0) + '%</text>';
+    const bs = __cxBins(rows); if (bs.length) { let d = ''; bs.forEach((p, i) => { d += (i ? 'L' : 'M') + X(p.x).toFixed(1) + ' ' + Y(p.y).toFixed(1) + ' '; }); s += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2"/>'; for (const p of bs) s += '<circle cx="' + X(p.x).toFixed(1) + '" cy="' + Y(p.y).toFixed(1) + '" r="' + (2.5 + Math.min(6, Math.sqrt(p.n))).toFixed(1) + '" fill="' + color + '" stroke="#0b1420" stroke-width="1"/>'; }
+    const ry1 = pt + gh + 8, ry2 = pt + gh + 26;
+    s += '<text x="' + pl + '" y="' + (ry1 - 1) + '" fill="#14f195" font-size="7">wins ▸ elke trade een stip</text><text x="' + pl + '" y="' + (ry2 + 9) + '" fill="#ff5f7e" font-size="7">losses</text>';
+    for (const r of rows) { const x = X(r.s); const y = r.w ? (ry1 + (Math.floor(r.s * 13) % 5)) : (ry2 + (Math.floor(r.s * 7) % 5)); s += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="1.3" fill="' + (r.w ? '#14f195' : '#ff5f7e') + '" opacity=".5"/>'; }
+    s += '<text x="' + (pl + gw / 2) + '" y="' + (H - 3) + '" fill="#5c7488" font-size="8" text-anchor="middle">ruwe score →</text>';
     s += '</svg>';
     const acol = a == null ? '#6d8296' : (a >= 0.55 ? '#14f195' : a >= 0.5 ? '#ffb627' : '#ff5f7e');
     const verdict = a == null ? 'te weinig' : (a < 0.5 ? 'omgekeerd' : a >= 0.55 ? 'onderscheidt' : 'vlak');
     return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 9px;background:var(--panel);">' +
-        '<div style="font-size:0.72rem;color:' + color + ';font-weight:700;">' + title + '</div>' +
-        '<div style="font-size:0.54rem;color:var(--dim);margin-bottom:4px;">n=' + rows.length + ' · winrate ' + wr.toFixed(0) + '% · <span style="color:' + acol + ';">AUC ' + (a == null ? '—' : a.toFixed(2)) + ' (' + verdict + ')</span></div>' + s + '</div>';
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;"><b style="font-size:0.72rem;color:' + color + ';">' + title + '</b>' +
+        '<span style="font-size:0.54rem;color:var(--dim);">n=' + rows.length + ' · wr ' + wr.toFixed(0) + '% · <span style="color:' + acol + ';">AUC ' + (a == null ? '—' : a.toFixed(2)) + ' (' + verdict + ')</span></span></div>' + s + '</div>';
 }
 function renderCortexCalibV2() {
     try {
@@ -16514,6 +16513,182 @@ function renderCortexCalibV2() {
 window.__cxCalWallet = function (m) { __cxCalWalletMode = (m === 'spot' || m === 'margin') ? m : 'all'; try { ['all', 'spot', 'margin'].forEach(k => { const b = document.getElementById('cxcal-' + k); if (b) b.style.background = (k === __cxCalWalletMode) ? 'rgba(20,241,149,0.15)' : ''; }); } catch (e) {} renderCortexCalibV2(); };
 try { setInterval(() => { try { const h = document.getElementById('cortex-calib-v2'); if (h && h.offsetParent !== null) renderCortexCalibV2(); } catch (e) {} }, 5000); } catch (e) {}
 window.renderCortexCalibV2 = renderCortexCalibV2;
+
+// ============================================================
+// CORTEX-VISUALISATIES · Adaptive Learning L1/L2/L3 (nieuw ontwerp, live data)
+// L1 = adaptieve factor-gewichten (per brein) · L2 = logistisch model (per brein)
+// L3 = neuraal net met backprop (Osiris-mainbrain, gedeeld over de markten)
+// ============================================================
+const __CX_BRAINS = [['BTC', 'Neo BTC', '#f7931a'], ['ETH', 'Neo ETH', '#627eea'], ['SOL', 'Neo SOL', '#14f195'], ['OSIRIS', 'Osiris Mainbrain', '#00d9ff']];
+let __cxL1Brain = 'BTC', __cxL2Brain = 'BTC';
+function __cxBrainTabs(active, cb) {
+    return '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">' + __CX_BRAINS.map(([k, lab, col]) =>
+        '<button onclick="' + cb + '(\'' + k + '\')" id="' + cb + '-' + k + '" style="cursor:pointer;font-size:0.56rem;letter-spacing:.04em;padding:3px 9px;border-radius:6px;border:1px solid ' + col + ';color:' + col + ';background:' + (k === active ? 'rgba(255,255,255,0.10)' : 'transparent') + ';">' + lab + '</button>'
+    ).join('') + '</div>';
+}
+// diverging horizontale balken; center = neutrale waarde (mid), waardebereik [lo,hi]
+function __cxDivBars(items, mid, lo, hi, unit, color) {
+    if (!items.length) return '<span style="color:var(--dim);font-size:0.6rem;">geen gewichten beschikbaar</span>';
+    items = items.slice().sort((a, b) => b.v - a.v);
+    const W = 560, rh = 22, H = items.length * rh + 20, pl = 132, gw = W - pl - 46;
+    const X = v => pl + gw * ((Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo));
+    const xm = X(mid);
+    let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;">';
+    s += '<line x1="' + xm.toFixed(1) + '" y1="6" x2="' + xm.toFixed(1) + '" y2="' + (H - 12) + '" stroke="rgba(255,255,255,.22)" stroke-dasharray="3 3"/>';
+    s += '<text x="' + xm.toFixed(1) + '" y="' + (H - 2) + '" fill="#5c7488" font-size="8" text-anchor="middle">' + mid + (unit || '') + '</text>';
+    items.forEach((it, i) => {
+        const y = 12 + i * rh, x2 = X(it.v), up = it.v >= mid, col = up ? '#14f195' : '#ff5f7e';
+        s += '<text x="' + (pl - 6) + '" y="' + (y + rh / 2 - 2) + '" fill="#c9d6e3" font-size="9" text-anchor="end">' + it.label + '</text>';
+        if (up) s += '<rect x="' + xm.toFixed(1) + '" y="' + (y + 2) + '" width="' + Math.max(0, x2 - xm).toFixed(1) + '" height="' + (rh - 8) + '" fill="' + col + '" opacity=".82" rx="2"/>';
+        else s += '<rect x="' + x2.toFixed(1) + '" y="' + (y + 2) + '" width="' + Math.max(0, xm - x2).toFixed(1) + '" height="' + (rh - 8) + '" fill="' + col + '" opacity=".82" rx="2"/>';
+        s += '<text x="' + (x2 + (up ? 4 : -4)).toFixed(1) + '" y="' + (y + rh / 2 - 1) + '" fill="' + col + '" font-size="8" text-anchor="' + (up ? 'start' : 'end') + '">' + it.v.toFixed(2) + (unit || '') + '</text>';
+    });
+    s += '</svg>';
+    return s;
+}
+function __cxSigmoid(W, H, color) {
+    const pl = 30, pr = 14, pt = 10, pb = 22, gw = W - pl - pr, gh = H - pt - pb;
+    let s = '<rect x="' + pl + '" y="' + pt + '" width="' + gw + '" height="' + gh + '" fill="rgba(255,255,255,.015)" stroke="rgba(255,255,255,.1)"/>';
+    let d = ''; for (let i = 0; i <= 60; i++) { const x = i / 60, z = (x - 0.5) * 12, y = 1 / (1 + Math.exp(-z)); d += (i ? 'L' : 'M') + (pl + x * gw).toFixed(1) + ' ' + (pt + gh * (1 - y)).toFixed(1) + ' '; }
+    s += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2"/>';
+    s += '<line x1="' + pl + '" y1="' + (pt + gh / 2) + '" x2="' + (pl + gw) + '" y2="' + (pt + gh / 2) + '" stroke="rgba(255,255,255,.12)" stroke-dasharray="3 3"/>';
+    s += '<text x="' + pl + '" y="' + (H - 5) + '" fill="#5c7488" font-size="8">z (gewogen som) →</text>';
+    s += '<text x="' + (pl - 4) + '" y="' + (pt + 6) + '" fill="#5c7488" font-size="8" text-anchor="end">1</text><text x="' + (pl - 4) + '" y="' + (pt + gh) + '" fill="#5c7488" font-size="8" text-anchor="end">0</text>';
+    s += '<text x="' + (pl + gw - 2) + '" y="' + (pt + 12) + '" fill="' + color + '" font-size="8" text-anchor="end">win-kans</text>';
+    return s;
+}
+function __cxGauge(v, lab, col) {
+    if (v == null) v = 0; const pct = Math.round(v * 100), W = 130, H = 96, cx = 65, cy = 72, r = 50;
+    const a0 = Math.PI, a1 = Math.PI * (1 - v), x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0), x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+    let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:130px;"><path d="M' + (cx - r) + ' ' + cy + ' A' + r + ' ' + r + ' 0 0 1 ' + (cx + r) + ' ' + cy + '" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="8"/>';
+    s += '<path d="M' + x0.toFixed(1) + ' ' + y0.toFixed(1) + ' A' + r + ' ' + r + ' 0 0 1 ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + '" fill="none" stroke="' + col + '" stroke-width="8"/>';
+    s += '<text x="' + cx + '" y="' + (cy - 6) + '" fill="' + col + '" font-size="21" font-weight="700" text-anchor="middle">' + pct + '%</text>';
+    s += '<text x="' + cx + '" y="' + (cy + 11) + '" fill="#8199ad" font-size="8" text-anchor="middle">' + lab + '</text></svg>';
+    return s;
+}
+function __cxPanel(inner) { return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 11px;background:var(--panel);">' + inner + '</div>'; }
+
+// ---------- LEVEL 1: adaptieve factor-gewichten (per brein) ----------
+function renderCortexL1() {
+    try {
+        const host = document.getElementById('cortex-l1'); if (!host) return;
+        const labels = { confluence: 'Confluence', nodeInfluence: 'Node-invloed', momentumInfluence: 'Momentum', fibConfluence: 'Fib-confluentie', pattern: 'Patroon/structuur', rsi: 'RSI', ema: 'EMA', cnn: 'CNN multi-candle', nn: "Neo's Node (NN)", nodeconf: 'Node-confluentie', mtfDir: 'MTF-richting', mtfMom: 'MTF-momentum', nodeFade: 'Node-fade' };
+        const b = __cxL1Brain;
+        let src = {};
+        if (b === 'BTC') src = (typeof adaptiveWeights !== 'undefined') ? adaptiveWeights : {};
+        else if (b === 'ETH' || b === 'SOL') src = (typeof neoMultiState !== 'undefined' && neoMultiState.markets[b] && neoMultiState.markets[b].brain && neoMultiState.markets[b].brain.weights) || {};
+        else { // OSIRIS = gemiddelde over de drie sub-breinen
+            const set = ['BTC', 'ETH', 'SOL'].map(s => s === 'BTC' ? ((typeof adaptiveWeights !== 'undefined') ? adaptiveWeights : {}) : ((typeof neoMultiState !== 'undefined' && neoMultiState.markets[s] && neoMultiState.markets[s].brain && neoMultiState.markets[s].brain.weights) || {}));
+            const keys = new Set(); set.forEach(w => Object.keys(w).forEach(k => keys.add(k)));
+            keys.forEach(k => { const vals = set.map(w => w[k] != null ? w[k] : 1.0); src[k] = vals.reduce((a, v) => a + v, 0) / vals.length; });
+        }
+        const items = Object.keys(labels).filter(k => src[k] != null).map(k => ({ label: labels[k], v: +src[k] }));
+        const col = (__CX_BRAINS.find(x => x[0] === b) || [, , '#00d9ff'])[2];
+        const nTr = (() => { try { const LL = (typeof learningLog !== 'undefined' && learningLog) ? learningLog : []; return b === 'OSIRIS' ? LL.length : LL.filter(l => (l.market || 'BTC') === b).length; } catch (e) { return 0; } })();
+        let html = __cxBrainTabs(b, 'window.__cxL1');
+        html += __cxPanel(
+            '<div style="font-size:0.62rem;color:var(--dim);margin-bottom:6px;">Elke balk = het gewicht van één signaal in de beslissing. <span style="color:#14f195;">Naar rechts</span> = telt zwaarder dan neutraal (1.0×), <span style="color:#ff5f7e;">naar links</span> = afgezwakt. Contrafeitelijk geleerd uit ' + nTr + ' trade(s).</div>' +
+            __cxDivBars(items, 1.0, 0, 2, '×', col)
+        );
+        host.innerHTML = html;
+    } catch (e) {}
+}
+window.__cxL1 = function (b) { __cxL1Brain = b; renderCortexL1(); };
+window.renderCortexL1 = renderCortexL1;
+
+// ---------- LEVEL 2: logistisch model (per brein) ----------
+function renderCortexL2() {
+    try {
+        const host = document.getElementById('cortex-l2'); if (!host) return;
+        const b = __cxL2Brain;
+        const col = (__CX_BRAINS.find(x => x[0] === b) || [, , '#00d9ff'])[2];
+        let model = null, feats = [], meta = '';
+        if (b === 'OSIRIS') {
+            if (typeof _l2 !== 'undefined' && _l2 && _l2.weights) { model = { w: _l2.weights, b: _l2.bias }; feats = L2_FEATURES.slice(); meta = _l2.trained ? ('getraind op ' + _l2.trainedOn + ' samples') : 'nog niet getraind'; }
+        } else {
+            const m = (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.markets[b]) ? OsirisDeepNet.markets[b].model : null;
+            if (m && m.w) { model = m; feats = L2_FEATURES.concat(['btcRet']); meta = 'per-markt logistisch model (' + m.w.length + ' features)'; }
+        }
+        let html = __cxBrainTabs(b, 'window.__cxL2');
+        if (!model) {
+            host.innerHTML = html + __cxPanel('<span style="color:var(--dim);font-size:0.62rem;">Dit logistische model is nog niet getraind — het vult zich zodra ' + (b === 'OSIRIS' ? 'Osiris' : 'brein ' + b) + ' genoeg gesloten trades heeft.</span>');
+            return;
+        }
+        const flabel = { vfm: 'VFM (energie)', momentum: 'Momentum', er: 'Efficiency-ratio', fib: 'Fib-confluentie', pattern: 'Patroon', svp: 'Volume-profiel', btcRet: 'BTC-cross-markt' };
+        const items = model.w.map((w, i) => ({ label: flabel[feats[i]] || feats[i], v: +w }));
+        const mx = Math.max(1, ...items.map(it => Math.abs(it.v))) * 1.1;
+        html += __cxPanel(
+            '<div style="font-size:0.62rem;color:var(--dim);margin-bottom:6px;">Logistische regressie: elke feature krijgt een <b>coëfficiënt</b>. <span style="color:#14f195;">Positief</span> duwt de win-kans omhoog, <span style="color:#ff5f7e;">negatief</span> omlaag. De gewogen som gaat door de sigmoid → win-kans. <span style="color:' + col + ';">' + meta + '</span>.</div>' +
+            '<div style="display:grid;grid-template-columns:1.35fr 1fr;gap:12px;align-items:center;">' +
+            '<div>' + __cxDivBars(items, 0, -mx, mx, '', col) + '</div>' +
+            '<div><svg viewBox="0 0 300 150" style="width:100%;">' + __cxSigmoid(300, 150, col) + '</svg><div style="font-size:0.54rem;color:var(--dim);text-align:center;">bias b = ' + (model.b != null ? model.b.toFixed(3) : '—') + '</div></div>' +
+            '</div>'
+        );
+        host.innerHTML = html;
+    } catch (e) {}
+}
+window.__cxL2 = function (b) { __cxL2Brain = b; renderCortexL2(); };
+window.renderCortexL2 = renderCortexL2;
+
+// ---------- LEVEL 3: neuraal net met backprop (Osiris-mainbrain) ----------
+function renderCortexL3() {
+    try {
+        const host = document.getElementById('cortex-l3'); if (!host) return;
+        const net = (typeof _l3 !== 'undefined') ? _l3 : null;
+        const G = '#14f195', R = '#ff5f7e', C = '#7fd8ff', V = '#c792ea';
+        if (!net || !net.trained || !net.W1) {
+            host.innerHTML = __cxPanel('<span style="color:var(--dim);font-size:0.62rem;">Het neurale net (backprop) is nog niet getraind — het heeft meer gesloten trades nodig voordat de gewichten betekenis krijgen. ' + (net ? '(cap ' + (l3WeightCap ? Math.round(l3WeightCap().cap * 100) : '?') + '%)' : '') + '</span>');
+            return;
+        }
+        const inLab = ['VFM', 'Mom', 'ER', 'Fib', 'Patr', 'SVP'];
+        const nIn = net.W1[0] ? net.W1[0].length : 6, H = net.H || net.W1.length || 6;
+        const W = 460, HH = 230, lx = [60, 230, 380];
+        const ys = (n) => { const a = []; for (let i = 0; i < n; i++) a.push(28 + (HH - 60) * (n === 1 ? 0.5 : i / (n - 1))); return a; };
+        const iy = ys(nIn), hy = ys(H), oy = ys(1);
+        // maximum abs gewicht voor lijndikte-schaling
+        let mx1 = 1e-6; for (let j = 0; j < H; j++) for (let k = 0; k < nIn; k++) mx1 = Math.max(mx1, Math.abs(net.W1[j][k]));
+        let mx2 = 1e-6; for (let j = 0; j < H; j++) mx2 = Math.max(mx2, Math.abs(net.W2[j]));
+        let s = '<svg viewBox="0 0 ' + W + ' ' + HH + '" style="width:100%;">';
+        // input -> hidden edges (kleur = teken, dikte = |gewicht|)
+        for (let j = 0; j < H; j++) for (let k = 0; k < nIn; k++) {
+            const w = net.W1[j][k], sw = (0.3 + 2.6 * Math.abs(w) / mx1).toFixed(2), o = (0.12 + 0.55 * Math.abs(w) / mx1).toFixed(2);
+            s += '<line x1="' + lx[0] + '" y1="' + iy[k] + '" x2="' + lx[1] + '" y2="' + hy[j] + '" stroke="' + (w >= 0 ? G : R) + '" stroke-width="' + sw + '" opacity="' + o + '"/>';
+        }
+        // hidden -> output edges
+        for (let j = 0; j < H; j++) {
+            const w = net.W2[j], sw = (0.3 + 3.2 * Math.abs(w) / mx2).toFixed(2), o = (0.15 + 0.6 * Math.abs(w) / mx2).toFixed(2);
+            s += '<line x1="' + lx[1] + '" y1="' + hy[j] + '" x2="' + lx[2] + '" y2="' + oy[0] + '" stroke="' + (w >= 0 ? G : R) + '" stroke-width="' + sw + '" opacity="' + o + '"/>';
+        }
+        iy.forEach((y, i) => { s += '<circle cx="' + lx[0] + '" cy="' + y + '" r="8" fill="#0b1420" stroke="' + C + '" stroke-width="1.5"/><text x="' + (lx[0] - 13) + '" y="' + (y + 3) + '" fill="#8199ad" font-size="8" text-anchor="end">' + (inLab[i] || 'x' + i) + '</text>'; });
+        hy.forEach((y) => s += '<circle cx="' + lx[1] + '" cy="' + y + '" r="9" fill="#0b1420" stroke="' + V + '" stroke-width="1.5"/>');
+        s += '<circle cx="' + lx[2] + '" cy="' + oy[0] + '" r="11" fill="rgba(20,241,149,.15)" stroke="' + G + '" stroke-width="2"/><text x="' + (lx[2] + 15) + '" y="' + (oy[0] + 3) + '" fill="' + G + '" font-size="9">win?</text>';
+        s += '<text x="' + lx[0] + '" y="16" fill="#5c7488" font-size="8" text-anchor="middle">inputs (' + nIn + ')</text><text x="' + lx[1] + '" y="16" fill="#5c7488" font-size="8" text-anchor="middle">verborgen (' + H + ', tanh)</text><text x="' + lx[2] + '" y="16" fill="#5c7488" font-size="8" text-anchor="middle">output</text>';
+        s += '</svg>';
+        const cap = (typeof l3WeightCap === 'function') ? l3WeightCap() : { cap: 0, n: 0 };
+        const va = net.valAcc;
+        const gcol = va == null ? '#6d8296' : (va >= 0.55 ? G : va >= 0.5 ? '#ffb627' : R);
+        let html = __cxPanel(
+            '<div style="font-size:0.62rem;color:var(--dim);margin-bottom:6px;">Eén verborgen laag met backprop (tanh → sigmoid). <span style="color:' + G + ';">Groene</span> verbindingen versterken, <span style="color:' + R + ';">rode</span> remmen; de lijndikte = de sterkte van het geleerde gewicht. Dit is het gedeelde Osiris-mainbrain-net (getraind over alle markten samen).</div>' +
+            '<div style="display:grid;grid-template-columns:1fr 150px;gap:12px;align-items:center;">' +
+            '<div>' + s + '</div>' +
+            '<div style="text-align:center;">' + __cxGauge(va, 'validatie-acc', gcol) +
+            '<div style="font-size:0.54rem;color:var(--dim);margin-top:4px;">getraind op ' + (net.trainedOn || 0) + ' samples<br>gewicht-cap ' + Math.round(cap.cap * 100) + '% (n=' + cap.n + ')</div></div>' +
+            '</div>'
+        );
+        host.innerHTML = html;
+    } catch (e) {}
+}
+window.renderCortexL3 = renderCortexL3;
+
+// render-lus met zichtbaarheids-poort (zoals calib v2)
+try {
+    setInterval(() => {
+        try {
+            const anyVis = ['cortex-l1', 'cortex-l2', 'cortex-l3'].some(id => { const e = document.getElementById(id); return e && e.offsetParent !== null; });
+            if (anyVis) { renderCortexL1(); renderCortexL2(); renderCortexL3(); }
+        } catch (e) {}
+    }, 5000);
+} catch (e) {}
 
 function renderCalibrationCurve() {
     try{ renderAllCalibrationCurves(); }catch(e){}
