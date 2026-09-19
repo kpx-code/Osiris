@@ -22057,7 +22057,7 @@ function loop(now){requestAnimationFrame(loop);
   const dt=Math.min(0.06,(now-lastFrame)/1000)||0.033;lastFrame=now;
   renderMapTarget(mapMain,now,dt,flowMode); renderMapTarget(mapOcular,now,dt,'capital'); updateBrain(now,dt); if(heroBrainCtx)paintBrain(heroBrainCv,heroBrainCtx,now); if(ocBrainCtx)paintBrain(ocBrainCv,ocBrainCtx,now);}
 requestAnimationFrame(loop);
-setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null),(typeof renderGSDOcean==='function'?renderGSDOcean:null),(typeof renderTrinityCommodities==='function'?renderTrinityCommodities:null),(typeof renderCommodityChart==='function'?renderCommodityChart:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
+setInterval(()=>{ [tick,renderTable,renderOpp,renderTrinity,renderWallet,renderInternals,renderCalib,(typeof renderGSD==='function'?renderGSD:null),(typeof renderGSDShadow==='function'?renderGSDShadow:null),(typeof renderPairTrust==='function'?renderPairTrust:null),(typeof renderTrinityLearnings==='function'?renderTrinityLearnings:null),(typeof renderCompRelease==='function'?renderCompRelease:null),(typeof renderTrinityTools==='function'?renderTrinityTools:null),(typeof maybeInitShockWaveMap==='function'?maybeInitShockWaveMap:null),(typeof renderShockWaveFeed==='function'?renderShockWaveFeed:null),(typeof renderOsirisMacro==='function'?renderOsirisMacro:null),(typeof renderChokepoints==='function'?renderChokepoints:null),(typeof renderGSDTimeMachine==='function'?renderGSDTimeMachine:null),(typeof renderGSDOcean==='function'?renderGSDOcean:null),(typeof renderFloodWatch==='function'?renderFloodWatch:null),(typeof renderZoneWatch==='function'?renderZoneWatch:null),(typeof renderTrinityCommodities==='function'?renderTrinityCommodities:null),(typeof renderCommodityChart==='function'?renderCommodityChart:null)].forEach(f=>{ if(f) _safe(f); }); },1200);
 setInterval(rebuildCapArcs,4000);
 setInterval(persistState,10000);   // persist learning + running flag every 10s
 addEventListener('beforeunload',persistState);
@@ -23359,7 +23359,7 @@ const TrinityGSD = {
   globalRisk(){ return { regime:this.regime, stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, vfm:this.vfm, kill:this.killSwitch }; },
   bundle(){ return { zones:GSD_ZONES.map(z=>({key:z.key,name:z.name,ccy:z.ccy})), categories:GSD_CATS.map(c=>({key:c.key,name:c.name,src:c.src,direct:c.direct})),
     live:{ stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, spanT:this.spanT, crisT:this.crisT, vfm:this.vfm, escapeVel:this.escapeVel, regime:this.regime, tippingRisk:this.tippingRisk, tippingTier:this.tippingTier, killSwitch:this.killSwitch, calibrated:this.calibrated },
-    zoneStress:this.zoneStress, zoneConfidence:this.zoneConf, catStress:this.catStress, cells:this.cells, ranking:this.ranking, oceanLevel:(typeof osirisOceanLevel==='function'?osirisOceanLevel():null), causalChain:(typeof OsirisCausalChain!=='undefined'?OsirisCausalChain.bundle():null), predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
+    zoneStress:this.zoneStress, zoneConfidence:this.zoneConf, catStress:this.catStress, cells:this.cells, ranking:this.ranking, oceanLevel:(typeof osirisOceanLevel==='function'?osirisOceanLevel():null), floodWatch:(typeof OsirisFloodWatch!=='undefined'?OsirisFloodWatch.bundle():null), zoneWatch:(typeof OsirisZoneWatch!=='undefined'?OsirisZoneWatch.bundle():null), causalChain:(typeof OsirisCausalChain!=='undefined'?OsirisCausalChain.bundle():null), predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
     calibration:this._cal, shadow:this._shadow, histCal:this.histCal, historicalBackfill:(typeof TrinityGSDBackfill!=='undefined'?TrinityGSDBackfill.bundle():null), proxy:this.proxy?'(ingesteld)':'(geen)', tamAnchor:new Date(this.anchorTs).toISOString(),
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
@@ -23824,16 +23824,16 @@ function osirisOceanLevel(){
     const enso=Math.round(c*oni); zones.push({ key:z.key, name:z.name, col:z.col, coef:c, enso, total:secular+enso }); });
   zones.sort((a,b)=>b.enso-a.enso);
   return { oni:+oni.toFixed(2), phase, secular, updatedAt:G._oniAt||0, zones,
-    note:'ENSO-afgeleid uit live ONI (NOAA CPC) + seculaire stijging ~3.4 mm/jr sinds 1993. Positief = hoger dan baseline; ENSO-kolom = de huidige herverdeling (El Niño: Pacific-west omlaag, Amerika omhoog).' };
+    note:'ENSO-derived from live ONI (NOAA CPC) + secular rise ~3.4 mm/yr since 1993. Positive = above baseline; ENSO column = the current redistribution (El Niño: west Pacific down, Americas up).' };
 }
 try{ window.osirisOceanLevel=osirisOceanLevel; }catch(e){}
 function renderGSDOcean(){ const el=document.getElementById('gsd-ocean'); if(!el)return;
   const O=osirisOceanLevel();
   const up='#14f195', dn='#ff5f7e', DD='var(--dimmer)', D='var(--dim)';
   const maxAbs=Math.max(30,...O.zones.map(z=>Math.abs(z.enso)));
-  const when=O.updatedAt?new Date(O.updatedAt).toLocaleTimeString('nl-NL'):'—';
-  let h=`<div style="font-size:0.56rem;color:${D};line-height:1.6;margin-bottom:7px;">Zeespiegel-anomalie per zone. <b style="color:#7fd8ff;">ONI ${O.oni} (${O.phase})</b> · seculaire stijging <b>+${O.secular} mm</b> t.o.v. 1993. De <b>ENSO-kolom</b> is de huidige herverdeling: bij El Niño zakt de west-Pacific (Asia-Pacific) en stijgt de oost-Pacific (Amerika). <span style="color:${DD};">bijgewerkt ${when}</span></div>`;
-  h+=`<div style="display:flex;font-size:0.46rem;letter-spacing:0.04em;color:${DD};text-transform:uppercase;margin-bottom:2px;"><span style="flex:0 0 118px;">zone</span><span style="flex:1 1 auto;">ENSO-herverdeling (mm)</span><span style="flex:0 0 62px;text-align:right;">ENSO</span><span style="flex:0 0 74px;text-align:right;">vs 1993</span></div>`;
+  const when=O.updatedAt?new Date(O.updatedAt).toLocaleTimeString('en-GB'):'—';
+  let h=`<div style="font-size:0.56rem;color:${D};line-height:1.6;margin-bottom:7px;">Sea-level anomaly per zone. <b style="color:#7fd8ff;">ONI ${O.oni} (${O.phase})</b> · secular rise <b>+${O.secular} mm</b> vs 1993. The <b>ENSO column</b> is the current redistribution: under El Niño the west Pacific (Asia-Pacific) drops and the east Pacific (Americas) rises. <span style="color:${DD};">updated ${when}</span></div>`;
+  h+=`<div style="display:flex;font-size:0.46rem;letter-spacing:0.04em;color:${DD};text-transform:uppercase;margin-bottom:2px;"><span style="flex:0 0 118px;">zone</span><span style="flex:1 1 auto;">ENSO redistribution (mm)</span><span style="flex:0 0 62px;text-align:right;">ENSO</span><span style="flex:0 0 74px;text-align:right;">vs 1993</span></div>`;
   h+=O.zones.map(z=>{ const col=z.enso>0?up:z.enso<0?dn:DD; const w=Math.round(Math.abs(z.enso)/maxAbs*100/2);
     const bar=z.enso>=0
       ? `<span style="display:inline-block;width:50%;text-align:right;"></span><span style="display:inline-block;width:50%;"><i style="display:inline-block;height:8px;width:${w*2}%;background:${col};border-radius:2px;vertical-align:middle;"></i></span>`
@@ -23859,11 +23859,11 @@ try{ window.renderGSDOcean=renderGSDOcean; }catch(e){}
 // transmissie-gewichten worden adaptief bijgesteld (zelfcorrectie).
 const OsirisCausalChain = {
   STAGES: [
-    { key:'resource',  short:'grondstoffen',    label:'grondstoffen · olie · water · gas · handel', cats:['energy','trade','supply','weather','disaster'], origin:0.90 },
-    { key:'conflict',  short:'conflict',        label:'conflict · geopolitiek',                     cats:['conflict','geo'],                              origin:1.00 },
-    { key:'inflation', short:'inflatie',        label:'inflatie / deflatie',                        cats:['econ','housing'],                              origin:0.45 },
-    { key:'cb',        short:'centrale banken', label:'centrale banken · rentes',                   cats:['cb'],                                          origin:0.30 },
-    { key:'financial', short:'financieel',      label:'financiële stress · markten',               cats:['finstress','market','tone'],                   origin:0.30 },
+    { key:'resource',  short:'resources',       label:'resources · oil · water · gas · trade',      cats:['energy','trade','supply','weather','disaster'], origin:0.90 },
+    { key:'conflict',  short:'conflict',        label:'conflict · geopolitics',                     cats:['conflict','geo'],                              origin:1.00 },
+    { key:'inflation', short:'inflation',       label:'inflation / deflation',                      cats:['econ','housing'],                              origin:0.45 },
+    { key:'cb',        short:'central banks',   label:'central banks · rates',                      cats:['cb'],                                          origin:0.30 },
+    { key:'financial', short:'financial',       label:'financial stress · markets',                 cats:['finstress','market','tone'],                   origin:0.30 },
   ],
   T:[0.60,0.55,0.70,0.65], Tn:[0,0,0,0], hist:[], _lastSnap:0, THR:0.22,
   _imp(k){ try{ return (typeof TrinityGSD.catImpact==='function')?TrinityGSD.catImpact(k):0.5; }catch(e){ return 0.5; } },
@@ -23901,7 +23901,7 @@ const OsirisCausalChain = {
   bundle(){ const zk=(typeof GSD_ZONES!=='undefined')?GSD_ZONES.filter(z=>!z.synthetic&&z.key!=='global'):[];
     const perZone={}; zk.forEach(z=>{ const r=this.rootCauseFor(z.key); if(r) perZone[z.key]={ root:r.root.key, chain:r.chainText, ignition:+this.ignitionScore(z.key).toFixed(3), loads:r.loads }; });
     return { stages:this.STAGES.map(s=>({key:s.key,label:s.label})), transmission:this.T.map(x=>+x.toFixed(2)), consistency:this._consistency(), perZone,
-      note:'Grondstoffen/olie/water/gas/handel → conflict → inflatie/deflatie → centrale banken → financieel. Ground-zero = meest-upstream geladen schakel (ignitie). Transmissie adaptief geleerd uit lead-lag op echte zone-data.' }; }
+      note:'Resources/oil/water/gas/trade → conflict → inflation/deflation → central banks → financial. Ground-zero = most-upstream loaded link (ignition). Transmission adaptively learned from lead-lag on real zone data.' }; }
 };
 try{ const s=JSON.parse(localStorage.getItem('osirisCausalChain')||'null'); if(s&&Array.isArray(s.T)&&s.T.length===4){ OsirisCausalChain.T=s.T; OsirisCausalChain.Tn=s.Tn||[0,0,0,0]; } }catch(e){}
 try{ window.OsirisCausalChain=OsirisCausalChain; }catch(e){}
@@ -23994,7 +23994,7 @@ window.__gsdExplain=function(key){
     // 1b) WAAR BEGINT DE KILL-SWITCH — causale keten (root-cause), niet het downstream-symptoom
     try{ if(typeof OsirisCausalChain!=='undefined'){ const zk2=(GSD_ZONES.find(z=>z.name===P.zone)||{}).key; const rc=zk2?OsirisCausalChain.rootCauseFor(zk2):null;
       if(rc){ const cons=Math.round((rc.consistency||0)*100);
-        html+=`<div style="font-size:0.54rem;color:${D};margin:7px 0 2px;background:rgba(255,138,60,0.06);border-left:3px solid ${SH};border-radius:0 5px 5px 0;padding:5px 8px;"><b style="color:${SH}">Kill-switch begint bij:</b> <b style="color:#ffd76a;">${rc.root.label}</b> <span style="color:${DD};">(load ${Math.round(rc.rootLoad*100)}%)</span><br><span style="color:${DD};">causale keten →</span> <b>${rc.chainText}</b><br><span style="color:${DD};font-size:0.5rem;">De keten begint stroomopwaarts (grondstoffen/energie → conflict), niet bij het downstream-symptoom (inflatie/rentes). Keten-consistentie ${cons}% — adaptief geleerd uit lead-lag op echte data.</span></div>`; } } }catch(e){}
+        html+=`<div style="font-size:0.54rem;color:${D};margin:7px 0 2px;background:rgba(255,138,60,0.06);border-left:3px solid ${SH};border-radius:0 5px 5px 0;padding:5px 8px;"><b style="color:${SH}">Kill-switch begins at:</b> <b style="color:#ffd76a;">${rc.root.label}</b> <span style="color:${DD};">(load ${Math.round(rc.rootLoad*100)}%)</span><br><span style="color:${DD};">causal chain →</span> <b>${rc.chainText}</b><br><span style="color:${DD};font-size:0.5rem;">The chain begins upstream (resources/energy → conflict), not at the downstream symptom (inflation/rates). Chain consistency ${cons}% — adaptively learned from lead-lag on real data.</span></div>`; } } }catch(e){}
     // 2) why this topic
     html+=`<div style="font-size:0.54rem;color:${D};margin:7px 0 2px;"><b>Why "${P.topic}":</b> topic is chosen from the <b>leading categories</b> (${leadOn.join(', ')||'economics'}), ranked by global stress. Toggle which categories lead from the map controls.</div>`;
     // 3) why this probability
@@ -24387,6 +24387,102 @@ function drawHistCalChart(){
     {c:'rgba(240,214,90,0.55)',label:'danger zone (compression)',type:'area'},
     {c:'#ff3b5c',label:'ΔV kill-switch trigger',type:'star'} ]);
 }
+// ==================================================================================
+// OSIRIS · SHOCKWAVE ZONE WATCH — per-zone UOTAM panorama (same layers as the global chart),
+// toggle-able over periods (week … all time). HYBRID data: real live per-zone history where it
+// covers the window, otherwise reconstructed from the global 36y backfill scaled to the zone's
+// stress profile (clearly labelled). Reuses the exact UOTAM layer set: stress · σ² chaos · VFM
+// stored energy · node threshold · danger zone · ΔV kill-switch stars.
+// ==================================================================================
+const ZONEWATCH_PERIODS=[['week',7],['month',30],['quarter',91],['6m',182],['year',365],['2y',730],['3y',1095],['5y',1825],['10y',3650],['all',999999]];
+let __zwZone='me', __zwPeriod='all';
+const OsirisZoneWatch = {
+  _hash(zk,i){ let x=0; const s=zk+':'+i; for(let c=0;c<s.length;c++)x=(x*31+s.charCodeAt(c))>>>0; return (x%1000)/1000; },
+  _zrel(zk){ try{ const gs=TrinityGSD.stress||0.3; const zs=(TrinityGSD.zoneStress&&TrinityGSD.zoneStress[zk]!=null)?TrinityGSD.zoneStress[zk]:gs; let r=gs>0?zs/gs:1; return Math.max(0.5,Math.min(1.5,r)); }catch(e){ return 1; } },
+  // reconstrueer een per-zone reeks uit een globale reeks (monthly of daily) — schaalt naar het zone-profiel
+  _recon(zk, G){ if(!G||!G.length) return []; const zrel=this._zrel(zk); const spanT=(TrinityGSD.spanT||0.24);
+    return G.map((p,i)=>{ const seed=this._hash(zk,i); const amp=zrel*(0.85+0.3*seed);
+      const s=Math.max(0,Math.min(1,(p.s||0)*amp)); const vfm=Math.max(0,Math.min(1,(p.vfm||0)*(0.7+0.6*zrel)*(0.8+0.4*seed)));
+      const kill=!!p.kill && s>spanT;   // de crisis 'raakte' deze zone alleen als de zone-stress opliep
+      return { t:p.t, s:+s.toFixed(4), v:p.v, vfm:+vfm.toFixed(4), comp:p.comp, kill, recon:true }; }); },
+  // synthetiseer de UOTAM-lagen (σ²/VFM/compressie/kill) uit een pure stress-reeks (voor daily/live die die velden missen)
+  _synthUOTAM(rows){ try{ const nodeTh=TrinityGSD.nodeTh||0.05, crisT=TrinityGSD.crisT||0.32; let vfm=0; const win=6;
+    return rows.map((p,i)=>{ const a=rows.slice(Math.max(0,i-win),i+1).map(r=>r.s); const m=a.reduce((x,y)=>x+y,0)/a.length; const varr=a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length; const v=Math.sqrt(varr);
+      const comp=v<=nodeTh; const rising=i>0 && p.s>rows[i-1].s; vfm=Math.max(0,Math.min(1, vfm + (comp&&rising?0.05:comp?0.02:-0.03)));
+      const kill = i>0 && rows[i-1].s<=crisT && p.s>crisT; if(kill) vfm=Math.max(0,vfm*0.35);
+      return { t:p.t, s:p.s, v:+v.toFixed(4), vfm:+vfm.toFixed(4), comp, kill, recon:p.recon, live:p.live }; }); }catch(e){ return rows; } },
+  _liveZone(zk){ try{ const snaps=(typeof GSD_TM!=='undefined'&&GSD_TM.snaps)||[]; const nodeTh=TrinityGSD.nodeTh||0.05, spanT=TrinityGSD.spanT||0.24;
+    return snaps.filter(sn=>sn&&sn.z&&sn.z[zk]!=null).map(sn=>({ t:sn.t, s:sn.z[zk], v:TrinityGSD.sysVar, vfm:(TrinityGSD.vfm||0)*0.5, comp:(TrinityGSD.sysVar<=nodeTh), kill:!!sn.k && sn.z[zk]>spanT, live:true })); }catch(e){ return []; } },
+  series(zk, period){ try{
+    const S=(typeof TrinityGSDBackfill!=='undefined'&&TrinityGSDBackfill.status)||{}; const monthly=S.histMonthly||[]; const daily=S.recentDaily||[];
+    const now=Date.now(); const days=(ZONEWATCH_PERIODS.find(p=>p[0]===period)||['all',999999])[1]; const from = period==='all'?0: now-days*864e5;
+    // kies granulariteit: korte periodes → daily (fijn), lange → monthly
+    const useDaily = (days<=400 && daily.length>8);
+    let base = useDaily ? this._recon(zk, daily) : this._recon(zk, monthly);
+    base = base.filter(p=>p.t>=from);
+    if(useDaily) base = this._synthUOTAM(base);   // daily mist σ²/VFM/kill → synthetiseer ze uit de stress-reeks
+    // HYBRIDE: splice de echte live per-zone tail erop waar die het venster dekt
+    const live=this._liveZone(zk).filter(p=>p.t>=from);
+    let mode='reconstructed';
+    if(live.length>=6){ const cut=live[0].t; const head=base.filter(p=>p.t<cut); base=head.concat(live); base=this._synthUOTAM(base); mode = head.length?'hybrid':'live'; }
+    if(!base.length && monthly.length){ base=this._recon(zk,monthly).filter(p=>p.t>=from); }
+    return { rows:base, mode }; }catch(e){ return {rows:[],mode:'—'}; } },
+  bundle(){ try{ const out={}; (typeof GSD_ZONES!=='undefined'?GSD_ZONES:[]).filter(z=>!z.synthetic&&z.key!=='global').forEach(z=>{ const s=this.series(z.key,'all'); out[z.key]={ points:s.rows.length, mode:s.mode, kills:s.rows.filter(r=>r.kill).length }; }); return { periods:ZONEWATCH_PERIODS.map(p=>p[0]), perZone:out, note:'Per-zone UOTAM panorama. Live per-zone history where available, otherwise reconstructed from the global 36y backfill scaled to the zone profile.' }; }catch(e){ return null; } }
+};
+try{ window.OsirisZoneWatch=OsirisZoneWatch; }catch(e){}
+function drawZoneWatchChart(){
+  const cv=document.getElementById('zonewatch-chart'); if(!cv||!cv.getContext)return;
+  const zk=__zwZone, period=__zwPeriod; const z=(typeof GSD_ZONES!=='undefined')?GSD_ZONES.find(x=>x.key===zk):null;
+  const S=(typeof TrinityGSDBackfill!=='undefined'&&TrinityGSDBackfill.status)||{}; const th=(S&&S.thresholds)||{spanT:TrinityGSD.spanT,crisT:TrinityGSD.crisT,nodeTh:TrinityGSD.nodeTh};
+  const nodeTh=th.nodeTh!=null?th.nodeTh:TrinityGSD.nodeTh;
+  const ser=OsirisZoneWatch.series(zk,period); const mm=ser.rows;
+  const r=cv.getBoundingClientRect(); if(r.width<10)return; if(cv.width!==Math.round(r.width*2)){ cv.width=r.width*2; cv.height=r.height*2; }
+  const ctx=cv.getContext('2d'); ctx.setTransform(2,0,0,2,0,0); const W=r.width,H=r.height; ctx.clearRect(0,0,W,H);
+  const padL=40,padR=20,padT=26,padB=24; const yS=v=>padT+(1-Math.max(0,Math.min(1,v)))*(H-padT-padB);
+  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1; [0,0.25,0.5,0.75,1].forEach(v=>{ ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); });
+  ctx.fillStyle='#8398ac'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; [0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v.toFixed(2),padL-5,yS(v)+3));
+  const zcol=(z&&z.col)||'#7fd8ff', zname=(z&&z.name)||zk;
+  if(mm.length<3){ ctx.fillStyle='#5c7488'; ctx.font="12px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('gathering / run “Calibrate from history” for the deep series…',W/2,H/2);
+    ctx.textAlign='left'; ctx.fillStyle=zcol; ctx.font="bold 11px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText('ZONE WATCH · '+zname+' · '+period,padL+2,padT-9); return; }
+  const t0=mm[0].t,t1=mm[mm.length-1].t,span=(t1-t0)||1,plotW=W-padL-padR,x=t=>padL+((t-t0)/span)*plotW;
+  ctx.fillStyle='rgba(255,182,39,0.05)'; ctx.fillRect(padL,yS(th.crisT),plotW,yS(th.spanT)-yS(th.crisT));
+  ctx.fillStyle='rgba(255,79,109,0.09)'; ctx.fillRect(padL,yS(1),plotW,yS(th.crisT)-yS(1));
+  _gsdDrawUOTAM(ctx,mm,x,yS,W,H,padL,padR,padB,nodeTh);
+  // named crisis markers (only when the window spans them)
+  [['1998',1998,8],['dotcom',2001,8],['GFC 2008',2008,9],['euro 2011',2011,8],['COVID',2020,2],['2022',2022,5]].forEach(([lab,y,mo])=>{ const tt=Date.UTC(y,mo-1,1); if(tt<t0||tt>t1)return; const px=x(tt); ctx.strokeStyle='rgba(199,146,234,0.28)'; ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(px,padT); ctx.lineTo(px,H-padB); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle='rgba(199,146,234,0.8)'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText(lab,px,padT-3); });
+  [[th.crisT,'rgba(255,79,109,0.75)','CRISIS'],[th.spanT,'rgba(255,182,39,0.7)','TENSION']].forEach(([v,col,l])=>{ ctx.strokeStyle=col; ctx.lineWidth=1; ctx.setLineDash([6,5]); ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText(l,W-padR-3,yS(v)-2); });
+  ctx.save(); ctx.shadowColor='rgba(127,216,255,0.4)'; ctx.shadowBlur=4; ctx.strokeStyle=zcol; ctx.lineWidth=1.8; ctx.beginPath(); mm.forEach((p,i)=>{ const px=x(p.t),py=yS(p.s); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke(); ctx.restore();
+  // time axis
+  ctx.fillStyle='#6d8296'; ctx.font="8.5px 'JetBrains Mono',monospace"; const ticks=6; for(let i=0;i<=ticks;i++){ const tt=t0+i/ticks*span; ctx.textAlign=i===0?'left':i===ticks?'right':'center'; const d=new Date(tt); const lab= span>3*365*864e5? String(d.getUTCFullYear()) : (d.getUTCDate()+'/'+(d.getUTCMonth()+1)); ctx.fillText(lab,x(tt),H-6); }
+  const kills=mm.filter(p=>p.kill).length;
+  ctx.textAlign='left'; ctx.fillStyle=zcol; ctx.font="bold 11px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText('ZONE WATCH · '+zname+' · '+period+' · '+kills+' kill-triggers',padL+2,padT-9);
+  // mode badge (live/hybrid/reconstructed)
+  ctx.textAlign='right'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.fillStyle= ser.mode==='live'?'#14f195':ser.mode==='hybrid'?'#ffb627':'#8b7cf6'; ctx.fillText(ser.mode.toUpperCase(),W-padR-2,padT-9);
+  _gsdLegend(ctx, padL+5, padT+4, [
+    {c:zcol,label:'zone stress',type:'line'},
+    {c:'rgba(90,150,240,0.9)',label:'σ² chaos meter',type:'line'},
+    {c:'rgba(170,90,200,0.55)',label:'VFM stored energy',type:'area'},
+    {c:'rgba(255,79,109,0.9)',label:'critical node threshold',type:'dash'},
+    {c:'rgba(240,214,90,0.55)',label:'danger zone (compression)',type:'area'},
+    {c:'#ff3b5c',label:'ΔV kill-switch trigger',type:'star'} ]);
+}
+function renderZoneWatch(){ try{
+  const host=document.getElementById('zonewatch-panel'); if(!host) return;
+  // build zone-tabs + period-toggles once
+  const zt=document.getElementById('zonewatch-zones');
+  if(zt && !zt._built){ const zs=(typeof GSD_ZONES!=='undefined'?GSD_ZONES:[]).filter(z=>!z.synthetic&&z.key!=='global');
+    zt.innerHTML=zs.map(z=>'<button type="button" onclick="window.__zwSetZone&&window.__zwSetZone(\''+z.key+'\')" id="zwz-'+z.key+'" class="btn btn-ghost btn-mini" style="font-size:0.56rem;border-color:'+z.col+';color:'+z.col+';">'+z.name+'</button>').join(''); zt._built=1; }
+  const pt=document.getElementById('zonewatch-periods');
+  if(pt && !pt._built){ pt.innerHTML=ZONEWATCH_PERIODS.map(p=>'<button type="button" onclick="window.__zwSetPeriod&&window.__zwSetPeriod(\''+p[0]+'\')" id="zwp-'+p[0]+'" class="btn btn-ghost btn-mini" style="font-size:0.54rem;">'+p[0]+'</button>').join(''); pt._built=1; }
+  // active-state styling
+  try{ (typeof GSD_ZONES!=='undefined'?GSD_ZONES:[]).forEach(z=>{ const b=document.getElementById('zwz-'+z.key); if(b) b.style.background=(z.key===__zwZone)?'rgba(255,255,255,0.12)':''; }); }catch(e){}
+  try{ ZONEWATCH_PERIODS.forEach(p=>{ const b=document.getElementById('zwp-'+p[0]); if(b){ b.style.background=(p[0]===__zwPeriod)?'rgba(20,241,149,0.16)':''; b.style.color=(p[0]===__zwPeriod)?'#14f195':''; } }); }catch(e){}
+  drawZoneWatchChart();
+}catch(e){} }
+window.__zwSetZone=function(zk){ __zwZone=zk; try{ renderZoneWatch(); }catch(e){} };
+window.__zwSetPeriod=function(p){ __zwPeriod=p; try{ renderZoneWatch(); }catch(e){} };
+window.renderZoneWatch=renderZoneWatch;
+
 const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-gdacs','GDACS multi-hazard','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-space','NOAA SWPC space weather','direct'],['gsd-commod','Commodities · FRED (WTI/Brent/gas/wheat/gold)','proxy'],['gsd-btc','BTC cross-asset · Coinbase','direct'],['gsd-enso','NOAA ONI · El Niño/La Niña','proxy'],['gsd-conflicts','Conflicts (curated + live scoring)','embedded'],['gsd-migration','Migration corridors (curated)','embedded'],['gsd-flashpoints','Economic flashpoints (live-scored)','embedded'],['gsd-capflow','Capital flow · IMF BoP (real USD)','proxy'],['gsd-tic','US Treasury TIC · foreign UST (FRED)','proxy'],['gsd-z1','Fed Z.1 · debt-service (FRED)','proxy'],['gsd-bis','BIS credit-to-GDP gap','proxy'],['gsd-portwatch','IMF PortWatch chokepoints','proxy'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
 function renderGSD(){
   if(!TrinityGSD._built) return;
@@ -24409,7 +24505,7 @@ function renderGSD(){
   const rk=document.getElementById('gsd-ranking');
   if(rk){ const rows=(TrinityGSD.ranking||[]).filter(r=>GSD_VIS.zones[r.zone]&&GSD_VIS.cats[r.cat]).slice(0,18);
     const nowUTC=_gsdWhen(Date.now());
-    const head=`<div class="gsdrow gsdhdr"><span class="gsdrk">#</span><span class="gsddot"></span><span class="gsdzone">Zone</span><span class="gsdcat">Category</span><div class="gsdbar" style="background:none;color:var(--dimmer);font-size:0.48rem;text-align:left;">as of ${nowUTC} &middot; orde: economische impact</div><span class="gsdval">score ×imp</span><span class="gsdwin">period</span><span class="gsdupd">updated</span></div>`;
+    const head=`<div class="gsdrow gsdhdr"><span class="gsdrk">#</span><span class="gsddot"></span><span class="gsdzone">Zone</span><span class="gsdcat">Category</span><div class="gsdbar" style="background:none;color:var(--dimmer);font-size:0.48rem;text-align:left;">as of ${nowUTC} &middot; ordered by economic impact</div><span class="gsdval">score ×imp</span><span class="gsdwin">period</span><span class="gsdupd">updated</span></div>`;
     if(!rows.length) rk.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.56rem;">no zones under pressure measured yet…</div>';
     else rk.innerHTML=head+rows.map((r,i)=>{ const bad=r.v>=TrinityGSD.crisT?'#ff4f6d':r.v>=TrinityGSD.spanT?'#ffb627':'#14f195'; const win=GSD_CAT_WINDOW[r.cat]||'';
       const why=r.why?` <small style="color:var(--dimmer)" title="what's driving this">— ${r.why}</small>`:'';
@@ -26836,7 +26932,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   const USGS_URL  = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson';
   const EONET_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&days=30&limit=500';
 
-  const LAYERS = { pressure:true, killzones:true, groundzero:true, contagion:true, conflicts:true, quakes:true, disasters:true, tsunami:true,
+  const LAYERS = { pressure:true, killzones:true, groundzero:true, contagion:true, conflicts:true, quakes:true, disasters:true, tsunami:true, floodwatch:true,
                    rain:false, temp:false, commodity:false, commodityflow:false, plates:false, capital:true, capitalLabels:true, migration:false,
                    chokepoints:false, spaceweather:false, currents:false, density:false, cities:true, labels:true };
   try{ const s=JSON.parse(localStorage.getItem('swMapLayers4')||'null'); if(s) Object.assign(LAYERS,s); }catch(e){}
@@ -26844,7 +26940,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 
   // groepen (zoals de referentie) → togglelijst
   const LAYER_GROUPS = [
-    ['SHOCKWAVE', [['pressure','Zones under pressure','#ff5f7e'],['killzones','ΔV kill-switch start-zones','#ff8a3c'],['groundzero','Ground-zero (per country)','#ffd76a'],['contagion','Contagion propagation','#ff8a3c'],['conflicts','Conflicts (live · red dots)','#ff2d55']]],
+    ['SHOCKWAVE', [['pressure','Zones under pressure','#ff5f7e'],['killzones','ΔV kill-switch start-zones','#ff8a3c'],['groundzero','Ground-zero (per country)','#ffd76a'],['contagion','Contagion propagation','#ff8a3c'],['conflicts','Conflicts (live · red dots)','#ff2d55'],['floodwatch','Flood-watch · overstromings-ETA','#4fc3f7']]],
     ['GLOBAL FLOWS', [['capital','Capital flow (cities)','#14f195'],['capitalLabels','Capital-flow zone labels','#14f195'],['commodityflow','Commodity flow','#ffd76a'],['migration','Human migration','#ec4899']]],
     ['NATURE / REALTIME', [['quakes','Earthquakes · USGS','#ff4f6d'],['tsunami','Tsunami risk','#a3e4ff'],['disasters','Disasters / volcano / fire','#ffb627'],['plates','Tectonic plates + clash','#7fd8ff']]],
     ['SUPPLY & SPACE', [['chokepoints','Shipping chokepoints','#ffd54a'],['spaceweather','Space weather · NOAA SWPC','#b388ff']]],
@@ -27111,6 +27207,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     if(LAYERS.disasters) M.events.forEach(e=>{ const p=pB(e.lon,e.lat); const col=EONET_COL[e.cat]||'#ffb627'; blobSmall(p[0],p[1],col,iz); M._markers.push({x:p[0],y:p[1],t:e.cat+' · '+(e.title||'')}); });
     // kill-zones
     if(LAYERS.killzones) _drawKill(iz);
+    if(LAYERS.floodwatch) _drawFloodWatch(iz);
     // geselecteerd land markeren
     if(M.detail&&M.detail._f){ ctx.beginPath(); M.path(M.detail._f); ctx.strokeStyle='#ff8a3c'; ctx.lineWidth=1.6*iz; ctx.stroke(); }
     // cities
@@ -27355,12 +27452,12 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     let chain='', root='', cons=null, ign=null;
     try{ if(typeof OsirisCausalChain!=='undefined'){ const rc=OsirisCausalChain.rootCauseFor(zk); if(rc){ chain=rc.chainText; root=rc.root.short; cons=rc.consistency; } ign=OsirisCausalChain.ignitionScore(zk); } }catch(e){}
     const wk=P[0]&&(P[0].chanceNow!=null?P[0].chanceNow:Math.round((P[0].prob||0)*100));
-    // TOELICHTING: waarom is DEZE zone de ground-zero? (root-cause keten + driver + selectielogica)
+    // EXPLAINER: why is THIS zone the ground-zero? (root-cause chain + driver + selection logic)
     let h='<div style="border:1px solid rgba(255,138,60,0.4);border-radius:5px;background:rgba(255,138,60,0.07);padding:5px 7px;margin:5px 0 2px;line-height:1.5;">';
-    h+='<div style="font-size:0.5rem;color:#ffb056;font-weight:700;letter-spacing:0.04em;">◎ WAAROM GROUND-ZERO · '+zn+(wk!=null?' ('+wk+'%)':'')+'</div>';
-    if(chain) h+='<div style="font-size:0.46rem;color:#9fb2c4;">begint bij <b style="color:#ffd76a">'+root+'</b> &rarr; keten <b>'+chain+'</b>'+(ign!=null?' · ignitie '+ign.toFixed(2):'')+(cons!=null?' · keten-consistentie '+Math.round(cons*100)+'%':'')+'</div>';
+    h+='<div style="font-size:0.5rem;color:#ffb056;font-weight:700;letter-spacing:0.04em;">◎ WHY GROUND-ZERO · '+zn+(wk!=null?' ('+wk+'%)':'')+'</div>';
+    if(chain) h+='<div style="font-size:0.46rem;color:#9fb2c4;">begins at <b style="color:#ffd76a">'+root+'</b> &rarr; chain <b>'+chain+'</b>'+(ign!=null?' · ignition '+ign.toFixed(2):'')+(cons!=null?' · chain consistency '+Math.round(cons*100)+'%':'')+'</div>';
     if(d) h+='<div style="font-size:0.46rem;color:#9fb2c4;">driver: <b style="color:#ffd76a">'+d.name+'</b> '+(d.s*100|0)+'%</div>';
-    h+='<div style="font-size:0.44rem;color:#7f93a6;">Gekozen op de meest-<b>upstream</b> geladen schakel (economisch-gewogen: grondstoffen/energie &rarr; conflict), niet op het luidste downstream-symptoom. Daarom is een inflatie-only zone (bv. Latijns-Amerika) of een fysiek/weer-signaal (Asia-Pacific) g&eacute;&eacute;n ground-zero. Adaptief: de keten-gewichten leren uit lead-lag op echte data.</div>';
+    h+='<div style="font-size:0.44rem;color:#7f93a6;">Chosen on the most-<b>upstream</b> loaded link (economically weighted: resources/energy &rarr; conflict), not the loudest downstream symptom. So an inflation-only zone (e.g. Latin America) or a physical/weather signal (Asia-Pacific) is <b>not</b> the ground-zero. Adaptive: the chain weights learn from lead-lag on real data.</div>';
     h+='</div>'; return h; }catch(e){ return ''; } }
   function _updateHud(){ const el=document.getElementById('sw-hud'); if(!el)return;
     if(!LAYERS.killzones){ el.style.display='none'; return; }   // panel toggles on/off with the ΔV kill-switch layer
@@ -27425,7 +27522,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   function _hideTip(){ if(M._tip)M._tip.style.display='none'; }
 
   // ---- fetchers ----
-  function _fetchAll(){ _fetchQuakes(); _fetchEvents(); if(LAYERS.rain||LAYERS.temp)_fetchWx(); if(LAYERS.plates)_fetchPlates(); _fetchSpace(); _feedGSDfromCurated(); _fetchCapitalFlows(); if(M.view&&M.view.scale>4)_fetch50(); }
+  function _fetchAll(){ _fetchQuakes(); _fetchEvents(); if(LAYERS.rain||LAYERS.temp)_fetchWx(); try{ OsirisFloodWatch._fetch(); }catch(e){} if(LAYERS.plates)_fetchPlates(); _fetchSpace(); _feedGSDfromCurated(); _fetchCapitalFlows(); if(M.view&&M.view.scale>4)_fetch50(); }
   // ---- REAL cross-border capital flow per zone (USD), via the GSD proxy — IMF Balance-of-Payments
   //      financial account (BPM6, USD). Free/keyless source, but CORS-blocked in-browser → needs the
   //      same proxy as GDELT/FRED. Activates only when a proxy is set; on any failure the labels keep
@@ -27465,8 +27562,133 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     fetchT(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=temperature_2m&daily=precipitation_sum&forecast_days=7&timezone=UTC`,12000,{cache:'no-store'})
       .then(r=>r.json()).then(j=>{ const arr=Array.isArray(j)?j:[j]; M.wx=arr.map((loc,i)=>{ const ps=(loc.daily&&loc.daily.precipitation_sum)||[]; const tot=ps.reduce((a,b)=>a+(b||0),0); let streak=0,mx=0,fh=-1,days=(loc.daily&&loc.daily.time)||[]; for(let d=0;d<ps.length;d++){ if((ps[d]||0)>=15){streak++;if(fh<0)fh=d;}else streak=0; mx=Math.max(mx,streak);}
         return {lat:WX_PTS[i][0],lon:WX_PTS[i][1],temp:loc.current?loc.current.temperature_2m:null,tot:+tot.toFixed(0),flood:(tot>=80||mx>=3),etaMs:fh>=0&&days[fh]?Date.parse(days[fh]):0}; }); }).catch(()=>{}); }
+  // ============================================================
+  // OSIRIS · FLOOD-WATCH (UOTAM-stijl) — overstromings-ETA per gebied + HEVIGE REGENVAL apart.
+  // Model-gebaseerde vroegsignalering (GEEN officiële waarschuwing): combineert de live 10-daagse
+  // Open-Meteo neerslag-forecast (hevige regen = eigen signaal), de kust-zeespiegel uit de ENSO/ONI
+  // (oostelijke Pacific omhoog bij El Niño → kust-/getijde-bijdrage) en een curated drainage-/
+  // kwetsbaarheidsfactor per gebied (Peru/Ecuador aride & droogte-gebouwd = hoog; ontwikkelde kust = lager).
+  // ETA = eerstvolgende zware-regendag (nabij) of de El Niño-flood-seizoenspiek (kust, verder weg).
+  // ============================================================
+  const FLOOD_WATCH = [
+    // ── South America (Pacific = El Niño core, + Atlantic) ──
+    {name:'N-Peru · Piura/Tumbes', lat:-5.2, lon:-80.6, zone:'latam', vuln:1.7, coast:1},
+    {name:'Ecuador · Guayaquil',   lat:-2.2, lon:-79.9, zone:'latam', vuln:1.6, coast:1},
+    {name:'Peru · Lima',           lat:-12.0,lon:-77.0, zone:'latam', vuln:1.3, coast:1},
+    {name:'Colombia · Buenaventura',lat:3.9, lon:-77.1, zone:'latam', vuln:1.5, coast:1},
+    {name:'Chile · north coast',   lat:-23.6,lon:-70.4, zone:'latam', vuln:1.1, coast:1},
+    {name:'Brazil · Recife',       lat:-8.05,lon:-34.9, zone:'latam', vuln:1.3, coast:1},
+    {name:'Argentina · Buenos Aires',lat:-34.6,lon:-58.4,zone:'latam',vuln:1.1, coast:1},
+    // ── North America (Pacific + Gulf + Atlantic) ──
+    {name:'California · LA/SF',     lat:34.0, lon:-118.2,zone:'na',    vuln:0.9, coast:1},
+    {name:'San Diego',             lat:32.7, lon:-117.2,zone:'na',    vuln:0.9, coast:1},
+    {name:'Pacific NW · Portland/Seattle', lat:46.5,lon:-122.7,zone:'na', vuln:1.0, coast:1},
+    {name:'Vancouver (BC)',        lat:49.3, lon:-123.1,zone:'na',    vuln:0.9, coast:1},
+    {name:'Mexico Pacific · Acapulco', lat:16.9,lon:-99.9,zone:'na',  vuln:1.3, coast:1},
+    {name:'New Orleans (Gulf)',    lat:29.95,lon:-90.07,zone:'na',    vuln:1.3, coast:1},
+    {name:'Miami (Atlantic)',      lat:25.8, lon:-80.2, zone:'na',    vuln:1.2, coast:1},
+    {name:'New York City',         lat:40.7, lon:-74.0, zone:'na',    vuln:0.9, coast:1},
+    // ── Europe (Atlantic + Mediterranean + North Sea) ──
+    {name:'Netherlands · Rotterdam',lat:51.9,lon:4.5,   zone:'eu',    vuln:0.8, coast:1},
+    {name:'London (Thames)',       lat:51.5, lon:0.0,   zone:'eu',    vuln:0.8, coast:1},
+    {name:'Venice (Adriatic)',     lat:45.4, lon:12.3,  zone:'eu',    vuln:1.2, coast:1},
+    {name:'Hamburg (Elbe)',        lat:53.55,lon:9.99,  zone:'eu',    vuln:0.9, coast:1},
+    // ── Africa (coasts) ──
+    {name:'Nigeria · Lagos',       lat:6.45, lon:3.4,   zone:'af',    vuln:1.6, coast:1},
+    {name:'Egypt · Alexandria/Nile',lat:31.2,lon:29.9,  zone:'af',    vuln:1.5, coast:1},
+    {name:'Mozambique · Beira',    lat:-19.8,lon:34.8,  zone:'af',    vuln:1.6, coast:1},
+    {name:'Tanzania · Dar es Salaam',lat:-6.8,lon:39.3, zone:'af',    vuln:1.4, coast:1},
+    {name:'Horn of Africa (ONI+)', lat:2.0,  lon:45.3,  zone:'af',    vuln:1.4, coast:0},
+    // ── Asia-Pacific (monsoon + subsidence deltas) ──
+    {name:'Jakarta',               lat:-6.2, lon:106.8, zone:'ap',    vuln:1.7, coast:1},
+    {name:'Manila',                lat:14.6, lon:121.0, zone:'ap',    vuln:1.5, coast:1},
+    {name:'Dhaka · Bangladesh',    lat:23.8, lon:90.4,  zone:'ap',    vuln:1.7, coast:1},
+    {name:'Kolkata',               lat:22.6, lon:88.4,  zone:'ap',    vuln:1.5, coast:1},
+    {name:'Mumbai',                lat:19.1, lon:72.9,  zone:'ap',    vuln:1.4, coast:1},
+    {name:'Shanghai',              lat:31.2, lon:121.5, zone:'ap',    vuln:1.2, coast:1},
+    {name:'Ho Chi Minh City',      lat:10.8, lon:106.7, zone:'ap',    vuln:1.5, coast:1},
+    {name:'Bangkok',               lat:13.7, lon:100.5, zone:'ap',    vuln:1.5, coast:1},
+    {name:'Tokyo Bay',             lat:35.6, lon:139.8, zone:'ap',    vuln:0.9, coast:1},
+    // ── Central Asia / Middle East ──
+    {name:'Iraq · Basra (Shatt)',  lat:30.5, lon:47.8,  zone:'me',    vuln:1.3, coast:1},
+  ];
+  const OsirisFloodWatch = {
+    data:[], _at:0, _busy:false,
+    _fetch(){ if(this._busy) return; const now=Date.now(); if(now-this._at<15*60000 && this.data.length) return; this._busy=true;
+      const lats=FLOOD_WATCH.map(p=>p.lat).join(','), lons=FLOOD_WATCH.map(p=>p.lon).join(',');
+      fetchT(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&daily=precipitation_sum&forecast_days=10&timezone=UTC`,12000,{cache:'no-store'})
+        .then(r=>r.json()).then(j=>{ const arr=Array.isArray(j)?j:[j];
+          this.data=arr.map((loc,i)=>{ const w=FLOOD_WATCH[i]; const ps=(loc.daily&&loc.daily.precipitation_sum)||[]; const days=(loc.daily&&loc.daily.time)||[];
+            const rain7=ps.slice(0,7).reduce((a,b)=>a+(b||0),0); const rain10=ps.reduce((a,b)=>a+(b||0),0);
+            let streak=0,mx=0,fh=-1,mxDay=0; for(let d=0;d<ps.length;d++){ const v=ps[d]||0; if(v>=15){streak++; if(fh<0)fh=d;} else streak=0; mx=Math.max(mx,streak); mxDay=Math.max(mxDay,v); }
+            const rainEtaMs = (fh>=0&&days[fh])?Date.parse(days[fh]):0;
+            return {...w, rain7:+rain7.toFixed(0), rain10:+rain10.toFixed(0), streak:mx, maxDay:+mxDay.toFixed(0), rainEtaMs}; });
+          this._at=Date.now(); this._busy=false; try{ renderFloodWatch(); }catch(e){}
+        }).catch(()=>{ this._busy=false; }); },
+    // El Niño flood-seizoenspiek per regio (volgende voorkomen), voor kust-risico zonder imminente regen
+    _seasonEta(w){ try{ const o=(typeof osirisOceanLevel==='function')?osirisOceanLevel():null; if(!o||o.oni<0.5) return 0; // alleen bij El Niño
+      const now=new Date(); const y=now.getUTCFullYear(); let m=0,day=31;   // default: eind jan (Z-Amerika piek)
+      if(w.zone==='na'){ m=0; day=15; } else if(w.zone==='latam'){ m=1; day=15; } else if(w.zone==='af'){ m=2; day=1; } else { m=1; day=1; }
+      let d=Date.UTC(y,m,day); if(d<now.getTime()) d=Date.UTC(y+1,m,day); return d; }catch(e){ return 0; } },
+    compute(){ const o=(typeof osirisOceanLevel==='function')?osirisOceanLevel():{zones:[],oni:0};
+      const ensoOf=zk=>{ try{ const z=(o.zones||[]).find(z=>z.key===zk); return z?z.enso:0; }catch(e){ return 0; } };
+      return this.data.map(w=>{
+        // HEVIGE REGEN (eigen signaal): 7-daagse som + streak + piekdag
+        const rainSig = _clampF(0.0, 1.0, 0.55*(w.rain7/120) + 0.30*(w.streak/4) + 0.15*(w.maxDay/60));
+        // KUST-bijdrage: ENSO-zeespiegel (alleen positief = verhoogd) → getijde/kust-flood
+        const ensoMM = ensoOf(w.zone); const coastal = w.coast ? _clampF(0,1, Math.max(0,ensoMM)/150) : 0;
+        // OVERSTROMINGSRISICO = (regen + kust) × kwetsbaarheid
+        const floodRisk = _clampF(0,1, (0.62*rainSig + 0.38*coastal) * w.vuln );
+        // ETA: eerstvolgende zware-regendag (nabij) of seizoenspiek (kust, verder weg)
+        let etaMs = w.rainEtaMs || 0; let etaKind = w.rainEtaMs ? 'regen' : '';
+        if(!etaMs && coastal>=0.25){ const se=this._seasonEta(w); if(se){ etaMs=se; etaKind='kust-seizoen'; } }
+        const driver = rainSig>=coastal ? 'heavy rain' : 'coastal surge (ENSO)';
+        // kans: risico getemperd door lead-tijd (verder weg = onzekerder)
+        const leadD = etaMs? Math.max(0,(etaMs-Date.now())/864e5):999; const leadFac = etaMs? _clampF(0.4,1, 1-leadD/120):0.4;
+        const prob = Math.round(_clampF(0,1, floodRisk*leadFac)*100);
+        return {...w, rainSig:+rainSig.toFixed(2), coastal:+coastal.toFixed(2), ensoMM, floodRisk:+floodRisk.toFixed(2), etaMs, etaKind, driver, prob};
+      }); },
+    bundle(){ try{ const c=this.compute(); return { updatedAt:this._at, oni:(typeof osirisOceanLevel==='function'?osirisOceanLevel().oni:null),
+      heavyRain:c.slice().sort((a,b)=>b.rain7-a.rain7).slice(0,8).map(x=>({area:x.name,rain7mm:x.rain7,streakDays:x.streak,rainEta:x.rainEtaMs||null})),
+      floodRisk:c.slice().sort((a,b)=>b.floodRisk-a.floodRisk).slice(0,10).map(x=>({area:x.name,risk:x.floodRisk,prob:x.prob,eta:x.etaMs||null,driver:x.driver,vuln:x.vuln})),
+      note:'Model-gebaseerde vroegsignalering (GEEN officiële waarschuwing). Regen = live Open-Meteo 10d-forecast; kust = ENSO-zeespiegel; kwetsbaarheid = curated drainage-factor.' }; }catch(e){ return null; } }
+  };
+  function _clampF(lo,hi,v){ return v<lo?lo:v>hi?hi:v; }
+  try{ window.OsirisFloodWatch=OsirisFloodWatch; }catch(e){}
+  // ---- map-highlight: cyaan pulserende ring bij overstromings-risico (los van de oranje ground-zero) ----
+  function _drawFloodWatch(iz){ try{ const ctx=M.ctx; const c=OsirisFloodWatch.compute(); const now=Date.now();
+    c.forEach(w=>{ if(w.floodRisk<0.3)return; const p=pB(w.lon,w.lat); if(!p)return;
+      const t=(now%2200)/2200, pr=(6+4*Math.sin(t*6.283))*iz; const col=w.floodRisk>=0.6?'#4fc3f7':'#7fd8ff';
+      ctx.save(); ctx.beginPath(); ctx.arc(p[0],p[1],pr,0,6.283); ctx.strokeStyle='rgba(79,195,247,'+(0.35+0.4*w.floodRisk)+')'; ctx.lineWidth=1.4*iz; ctx.stroke();
+      ctx.beginPath(); ctx.arc(p[0],p[1],2.2*iz,0,6.283); ctx.fillStyle=col; ctx.fill(); ctx.restore();
+      if(M.view.scale>1.3){ ctx.save(); ctx.font=(7.5*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left';
+        const lbl='~'+w.prob+'% '+(w.etaMs?_fmtDate(w.etaMs):'—'); const tw=ctx.measureText(lbl).width;
+        ctx.fillStyle='rgba(12,16,26,0.66)'; ctx.fillRect(p[0]+6*iz-2, p[1]-6*iz-7, tw+5, 11); ctx.fillStyle=col; ctx.fillText(lbl,p[0]+6*iz, p[1]-6*iz+1); ctx.restore(); }
+      M._markers.push({x:p[0],y:p[1],t:'Flood-watch · '+w.name+' · risk '+(w.floodRisk*100|0)+'% · '+w.driver+(w.etaMs?' · ETA '+_fmtDate(w.etaMs):'')}); });
+  }catch(e){} }
+  function renderFloodWatch(){ const el=document.getElementById('gsd-flood'); if(!el)return;
+    try{ OsirisFloodWatch._fetch(); }catch(e){}
+    const c=OsirisFloodWatch.compute(); const o=(typeof osirisOceanLevel==='function')?osirisOceanLevel():{oni:null,phase:''};
+    const D='var(--dim)',DD='var(--dimmer)',BL='#4fc3f7';
+    if(!c.length){ el.innerHTML='<div class="mono" style="font-size:0.56rem;color:'+DD+';">Flood-watch loading&hellip; (Open-Meteo 10-day precipitation forecast)</div>'; return; }
+    const when=OsirisFloodWatch._at?new Date(OsirisFloodWatch._at).toLocaleTimeString('en-GB'):'—';
+    const rain=c.slice().sort((a,b)=>b.rain7-a.rain7).filter(x=>x.rain7>=15).slice(0,10);
+    const fld=c.slice().sort((a,b)=>b.prob-a.prob).slice(0,14);
+    let h='<div style="font-size:0.5rem;color:'+DD+';margin-bottom:6px;line-height:1.5;">Model-based early signal &mdash; <b style="color:#ffb627;">NOT an official warning</b>. ONI '+o.oni+' ('+o.phase+') &middot; updated '+when+'. Rain = live Open-Meteo 10d; coast = ENSO sea level; vulnerability = drainage factor.</div>';
+    h+='<div style="font-size:0.56rem;letter-spacing:0.08em;color:#8fb8ff;text-transform:uppercase;margin:4px 0 3px;">&#9656; Heavy rainfall &middot; ETA (separate signal)</div>';
+    h+= rain.length? rain.map(x=>'<div style="display:flex;gap:6px;font-size:0.54rem;padding:1px 0;"><span style="flex:1 1 auto;color:var(--tx);">'+x.name+'</span><span style="flex:0 0 76px;color:#8fb8ff;text-align:right;">'+x.rain7+'mm/7d</span><span style="flex:0 0 52px;color:'+DD+';text-align:right;">'+x.streak+'d streak</span><span style="flex:0 0 58px;color:#8fb8ff;text-align:right;">'+(x.rainEtaMs?_fmtDate(x.rainEtaMs):'—')+'</span></div>').join('') : '<div style="font-size:0.5rem;color:'+DD+';">no heavy-rain signal in the 10-day forecast.</div>';
+    h+='<div style="border-top:1px solid rgba(79,195,247,0.25);margin:7px 0 4px;"></div>';
+    h+='<div style="font-size:0.56rem;letter-spacing:0.08em;color:'+BL+';text-transform:uppercase;margin:4px 0 3px;">&#9656; Flood risk &middot; cities &middot; probability &amp; ETA</div>';
+    h+='<div style="display:flex;gap:6px;font-size:0.46rem;color:'+DD+';text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px;"><span style="flex:1 1 auto;">city / coast</span><span style="flex:0 0 44px;text-align:right;">chance</span><span style="flex:0 0 40px;text-align:right;">sev.</span><span style="flex:0 0 62px;text-align:right;">ETA</span><span style="flex:0 0 96px;text-align:right;">driver</span></div>';
+    h+= fld.map(x=>{ const rc=x.prob>=60?'#ff5f7e':x.prob>=40?'#ffb627':x.prob>=20?'#4fc3f7':'#6d8296';
+      return '<div style="display:flex;gap:6px;font-size:0.54rem;padding:2px 0;align-items:center;"><span style="flex:1 1 auto;color:var(--tx);"><span style="color:'+rc+';">&#9679;</span> '+x.name+'</span><span style="flex:0 0 44px;color:'+rc+';text-align:right;font-weight:700;">'+x.prob+'%</span><span style="flex:0 0 40px;color:'+DD+';text-align:right;">'+(x.floodRisk*100|0)+'%</span><span style="flex:0 0 62px;color:'+DD+';text-align:right;">'+(x.etaMs?_fmtDate(x.etaMs):'—')+'</span><span style="flex:0 0 96px;color:'+DD+';text-align:right;">'+x.driver+'</span></div>'; }).join('');
+    h+='<div style="font-size:0.46rem;color:'+DD+';margin-top:6px;line-height:1.5;"><b>chance</b> = flood probability (severity tempered by lead time) &middot; <b>sev.</b> = severity potential. ETA = next heavy-rain day (near) or El Ni&ntilde;o flood-season peak (coastal, further). The cyan pulsing rings on the map mark these areas.</div>';
+    el.innerHTML=h;
+  }
+  try{ window.renderFloodWatch=renderFloodWatch; }catch(e){}
   function _startTimers(){ clearInterval(M._t.q);clearInterval(M._t.e);clearInterval(M._t.w);clearInterval(M._t.s);
     M._t.q=setInterval(_fetchQuakes,120000); M._t.e=setInterval(_fetchEvents,300000); M._t.w=setInterval(()=>{ if(LAYERS.rain||LAYERS.temp)_fetchWx(); },900000);
+    M._t.fw=setInterval(()=>{ try{ OsirisFloodWatch._fetch(); }catch(e){} }, 15*60000);
     M._t.s=setInterval(()=>{ if(LAYERS.spaceweather)_fetchSpace(); },1800000);
     setInterval(()=>{ if(M.view.scale>4)_fetch50(); },5000); }
 
@@ -27484,7 +27706,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       +`<div style="font:0.46rem JetBrains Mono,monospace;color:#5c7488;margin:0 0 3px;line-height:1.5;">Alle bronnen worden altijd op de achtergrond verwerkt voor de real-time voorspelling — de vinkjes filteren niets weg, ze leggen alleen accent (uitgevinkt telt op halve weging mee).</div><div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`
       +LEAD_CATS.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${L[k]?'checked':''} onchange="window.gsdLeadToggle&&window.gsdLeadToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`; }
   function _renderLegend(){ const el=document.getElementById('sw-legend'); if(!el)return;
-    el.innerHTML=`<div class="mono" style="font-size:0.54rem;color:var(--dim);line-height:1.9;"><b style="color:#ff5f7e;">Heat zones = glow</b> (opacity overlap) over the regions — brighter = more pressure/heat/rain. <span style="color:#ff4f6d;">● earthquake</span> · <span style="color:#ff7a1a;">● wildfire</span> · <span style="color:#ff4f6d;">● volcano</span> · <span style="color:#4fc3f7;">● flood</span> · <span style="color:#7fd8ff;">— plate boundary</span> · <span style="color:#ff8a3c;">◌ clash/pressure zone</span> · <span style="color:#14f195;">— capital flow</span> · <span style="color:#ff8a3c;">★ ΔV kill-switch start-zone (de ENIGE ground-zero = de gelabelde pulserende ster)</span> · <span style="color:#ff8a3c;">⋯➔ oranje stippel-boog + lopende stippen = contagion-voortplanting (schok langs handelslijnen — GÉÉN ground-zero)</span> · <span style="color:#ffd76a;">◌ ground-zero-gloed (per zone)</span> · <span style="color:#ff2d55;">● live conflict</span> · <span style="color:#ec4899;">+ migration destination (est. inflow)</span> · <span style="color:#14f195;">▲ zone capital-flow +</span>/<span style="color:#ff4f6d;">▼ −</span> (solid box = real USD via IMF BoP proxy; dashed box = simulated FX-flow index fallback).</div>`; }
+    el.innerHTML=`<div class="mono" style="font-size:0.54rem;color:var(--dim);line-height:1.9;"><b style="color:#ff5f7e;">Heat zones = glow</b> (opacity overlap) over the regions — brighter = more pressure/heat/rain. <span style="color:#ff4f6d;">● earthquake</span> · <span style="color:#ff7a1a;">● wildfire</span> · <span style="color:#ff4f6d;">● volcano</span> · <span style="color:#4fc3f7;">● flood</span> · <span style="color:#7fd8ff;">— plate boundary</span> · <span style="color:#ff8a3c;">◌ clash/pressure zone</span> · <span style="color:#14f195;">— capital flow</span> · <span style="color:#ff8a3c;">★ ΔV kill-switch start-zone (the ONLY ground-zero = the labelled pulsing star)</span> · <span style="color:#ff8a3c;">⋯➔ orange dotted arc + moving dots = contagion propagation (shock along trade lines — NOT a ground-zero)</span> · <span style="color:#4fc3f7;">◍ flood-watch (flood-risk ETA)</span> · <span style="color:#ffd76a;">◌ ground-zero glow (per zone)</span> · <span style="color:#ff2d55;">● live conflict</span> · <span style="color:#ec4899;">+ migration destination (est. inflow)</span> · <span style="color:#14f195;">▲ zone capital-flow +</span>/<span style="color:#ff4f6d;">▼ −</span> (solid box = real USD via IMF BoP proxy; dashed box = simulated FX-flow index fallback).</div>`; }
   function _renderCountryList(){ const el=document.getElementById('sw-countrylist'); if(!el)return; let zones; try{ zones=GSD_ZONES; }catch(e){ return; }
     el.innerHTML=zones.filter(z=>z.key!=='global').map(z=>{ const s=zStress(z.key), cs=(M.byZone[z.key]||[]).slice().sort(); const sc=s>=0.5?'#ff5f7e':s>=0.3?'#ffb627':'#14f195';
       return `<details style="margin-bottom:6px;border-left:3px solid ${z.col};padding-left:8px;break-inside:avoid;"><summary style="cursor:pointer;font-size:0.6rem;color:var(--tx);"><b style="color:${z.col}">${z.name}</b> <span style="color:${sc}">stress ${(s*100|0)}%</span> <span style="color:var(--dimmer)">· ${cs.length} countries</span></summary><div style="font-size:0.54rem;color:var(--dim);line-height:1.7;margin-top:3px;">${cs.join(' · ')||'—'}</div></details>`; }).join('');
