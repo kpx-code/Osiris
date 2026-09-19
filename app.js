@@ -20474,6 +20474,7 @@ function tick(){
   try{ const px={}; for(const p of PAIRS){ const st=pair[p]; if(st&&st.rate) px[p]=st.rate; } TrinityCompRelease.feed(TrinityFSO.sysVar, TrinityFSO.nodeTh, px); }catch(e){}
   try{ if(typeof _trinityToolsTick==='function') _trinityToolsTick(); }catch(e){}   // regime-HMM observe + LLM sentiment-scan
   try{ if(typeof TrinityShockWave!=='undefined') TrinityShockWave.tick(); }catch(e){}  // ShockWave contagion: detecteer schokken + resolve voorspellingen
+  try{ if(typeof OsirisCausalChain!=='undefined') OsirisCausalChain.tick(); }catch(e){}  // causale keten: lead-lag zelfcorrectie (adaptief)
   try{ if(typeof OsirisCryptoRisk!=='undefined') OsirisCryptoRisk.tick(); }catch(e){}  // ShockWave→Neo crypto-risk shadow-backtest (record/resolve)
   try{ TrinityFeeds.markOk('engine', feed.mode==='live'&&feed.ok ? 'live-prijzen actief' : 'sim-tick actief'); }catch(e){}
   manageTrinity();
@@ -23265,9 +23266,16 @@ const TrinityGSD = {
         structMean[z.key]=0.6*ec+0.4*geo; });
       // topic = de twee categorieen met de hoogste economisch-gewogen stress IN de gekozen zone (per-zone, niet globaal)
       const topicFor=(zk)=>{ const cc=this.cells[zk]; if(!cc)return topGlobal(); const arr=allKeys.map(k=>[k,(cc[k]&&cc[k].v!=null?cc[k].v:0)*iw(k)]).sort((a,b)=>b[1]-a[1]); const t=arr.slice(0,2).map(([k])=>catN[k]||k).join(' + '); return t||topGlobal(); };
-      // milde grootte-tilt (0.65..1.0) i.p.v. de oude (0.55..1.0): de zone-grootte kleurt de keuze, maar overheerst
-      // niet meer de werkelijke stress. Zo staat niet elke horizon meer op dezelfde (grootste) zone.
-      const zoneFor=(days)=>{ const w=Math.min(1,days/3650)*0.6; let best=null,bv=-1; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return; const raw=econMean[z.key]*(1-w)+structMean[z.key]*w; const sc=raw*(0.65+0.35*_gsdZoneEconW(z.key)); if(sc>bv){bv=sc;best=z;} }); return best?best.key:'global'; };
+      // GROUND-ZERO via de CAUSALE KETEN: dichtbij = IGNITIE (upstream root: grondstoffen/energie → conflict),
+      // ver = structureel-systemisch (economisch-gewogen conflict + geopolitiek). Zo begint de wekelijkse KS bij
+      // de wortel (bv. olie/energie/conflict — Midden-Oosten) i.p.v. bij een downstream-symptoom (inflatie in
+      // Latijns-Amerika) of een fysiek/perifeer signaal (weer in Asia-Pacific). Valt terug op de geld-kant-score
+      // als de keten-module (nog) niet geladen is.
+      const CC=(typeof OsirisCausalChain!=='undefined')?OsirisCausalChain:null;
+      const zoneFor=(days)=>{ const w=Math.min(1,days/3650)*0.6; let best=null,bv=-1; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return;
+        let sc; if(CC){ sc = CC.ignitionScore(z.key)*(1-w) + CC.structuralScore(z.key)*w; }
+        else { sc = (econMean[z.key]*(1-w)+structMean[z.key]*w)*(0.65+0.35*_gsdZoneEconW(z.key)); }
+        if(sc>bv){bv=sc;best=z;} }); return best?best.key:'global'; };
       const topZone=(GSD_ZONES.find(z=>z.key===zoneFor(7))||{}).name||'Global';
       const out=[];
       HZ.forEach(([key,days,hk])=>{
@@ -23289,7 +23297,8 @@ const TrinityGSD = {
         }
         const halfw = days<=30? days*0.25*864e5 : days<=365? days*0.12*864e5 : days*0.08*864e5;
         const _zk=zoneFor(days); const _zName=(GSD_ZONES.find(z=>z.key===_zk)||{}).name||'Global';
-        out.push({ key, days, prob:+_clamp01(prob).toFixed(2), eta, window:[eta-halfw, eta+halfw], topic:topicFor(_zk)||'—', zone:_zName, basis, estimate:est });
+        const _rc=CC?CC.rootCauseFor(_zk):null;
+        out.push({ key, days, prob:+_clamp01(prob).toFixed(2), eta, window:[eta-halfw, eta+halfw], topic:topicFor(_zk)||'—', zone:_zName, rootCause:_rc?_rc.root.key:null, rootCauseLabel:_rc?_rc.root.short:null, causalChain:_rc?_rc.chainText:null, chainConsistency:_rc?_rc.consistency:null, basis, estimate:est });
       });
       // ---- 1) trigger-events loggen (voor predicted-vs-outcome scoring) ----
       if(this.tippingRisk>=0.75 || this.killSwitch){ this._killTrig=this._killTrig||[]; const last=this._killTrig[this._killTrig.length-1]; if(!last||now-last>3600e3){ this._killTrig.push(now); if(this._killTrig.length>300)this._killTrig.shift(); } }
@@ -23347,7 +23356,7 @@ const TrinityGSD = {
   globalRisk(){ return { regime:this.regime, stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, vfm:this.vfm, kill:this.killSwitch }; },
   bundle(){ return { zones:GSD_ZONES.map(z=>({key:z.key,name:z.name,ccy:z.ccy})), categories:GSD_CATS.map(c=>({key:c.key,name:c.name,src:c.src,direct:c.direct})),
     live:{ stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, spanT:this.spanT, crisT:this.crisT, vfm:this.vfm, escapeVel:this.escapeVel, regime:this.regime, tippingRisk:this.tippingRisk, tippingTier:this.tippingTier, killSwitch:this.killSwitch, calibrated:this.calibrated },
-    zoneStress:this.zoneStress, zoneConfidence:this.zoneConf, catStress:this.catStress, cells:this.cells, ranking:this.ranking, oceanLevel:(typeof osirisOceanLevel==='function'?osirisOceanLevel():null), predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
+    zoneStress:this.zoneStress, zoneConfidence:this.zoneConf, catStress:this.catStress, cells:this.cells, ranking:this.ranking, oceanLevel:(typeof osirisOceanLevel==='function'?osirisOceanLevel():null), causalChain:(typeof OsirisCausalChain!=='undefined'?OsirisCausalChain.bundle():null), predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
     calibration:this._cal, shadow:this._shadow, histCal:this.histCal, historicalBackfill:(typeof TrinityGSDBackfill!=='undefined'?TrinityGSDBackfill.bundle():null), proxy:this.proxy?'(ingesteld)':'(geen)', tamAnchor:new Date(this.anchorTs).toISOString(),
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
@@ -23835,6 +23844,61 @@ function renderGSDOcean(){ const el=document.getElementById('gsd-ocean'); if(!el
 try{ window.renderGSDOcean=renderGSDOcean; }catch(e){}
 
 // ==================================================================================
+// ==================================================================================
+// OSIRIS · CAUSALE KETEN (kill-switch root-cause + adaptieve lead-lag zelfcorrectie)
+// ----------------------------------------------------------------------------------
+// Hypothese (expliciet gemodelleerd): grondstoffen/olie/water/gas/handel → conflict →
+// inflatie/deflatie → centrale banken (rentes) → financiële stress/markten.
+// De kill-switch BEGINT stroomopwaarts (de wortel), niet bij het luidste downstream-symptoom:
+// een chronisch hoog inflatiecijfer (bv. Latijns-Amerika) is een GEVOLG, geen trigger. Osiris
+// scoort de ground-zero daarom op IGNITIE (upstream-gewogen) en verifieert de keten autonoom via
+// lead-lag op echte data: raakt een upstream-schok werkelijk gevolgd door downstream-stress? → de
+// transmissie-gewichten worden adaptief bijgesteld (zelfcorrectie).
+const OsirisCausalChain = {
+  STAGES: [
+    { key:'resource',  short:'grondstoffen',    label:'grondstoffen · olie · water · gas · handel', cats:['energy','trade','supply','weather','disaster'], origin:0.90 },
+    { key:'conflict',  short:'conflict',        label:'conflict · geopolitiek',                     cats:['conflict','geo'],                              origin:1.00 },
+    { key:'inflation', short:'inflatie',        label:'inflatie / deflatie',                        cats:['econ','housing'],                              origin:0.45 },
+    { key:'cb',        short:'centrale banken', label:'centrale banken · rentes',                   cats:['cb'],                                          origin:0.30 },
+    { key:'financial', short:'financieel',      label:'financiële stress · markten',               cats:['finstress','market','tone'],                   origin:0.30 },
+  ],
+  T:[0.60,0.55,0.70,0.65], Tn:[0,0,0,0], hist:[], _lastSnap:0, THR:0.22,
+  _imp(k){ try{ return (typeof TrinityGSD.catImpact==='function')?TrinityGSD.catImpact(k):0.5; }catch(e){ return 0.5; } },
+  _stageLoad(zk, st){ try{ const cc=TrinityGSD.cells[zk]; if(!cc)return 0; let mx=0;
+    st.cats.forEach(k=>{
+      if(k==='conflict'){ const ec=(TrinityGSD._econConflict&&TrinityGSD._econConflict[zk]!=null)?TrinityGSD._econConflict[zk]:((cc[k]&&cc[k].v)||0); mx=Math.max(mx,ec); return; }   // economisch-gewogen conflict
+      const v=(cc[k]&&cc[k].v!=null)?cc[k].v:0; mx=Math.max(mx, v*this._imp(k)); });
+    return mx; }catch(e){ return 0; } },
+  stageLoads(zk){ return this.STAGES.map(s=>this._stageLoad(zk,s)); },
+  ignitionScore(zk){ try{ const L=this.stageLoads(zk); let s=0; this.STAGES.forEach((st,i)=>{ s+=L[i]*st.origin; }); return s*(0.75+0.25*_gsdZoneEconW(zk)); }catch(e){ return 0; } },
+  structuralScore(zk){ try{ const geo=(TrinityGSD.cells[zk]&&TrinityGSD.cells[zk].geo&&TrinityGSD.cells[zk].geo.v)||0; const ec=(TrinityGSD._econConflict&&TrinityGSD._econConflict[zk]!=null)?TrinityGSD._econConflict[zk]:0; return (0.6*ec+0.4*geo)*(0.65+0.35*_gsdZoneEconW(zk)); }catch(e){ return 0; } },
+  rootCauseFor(zk){ try{ const L=this.stageLoads(zk);
+    let rootIdx=-1; for(let i=0;i<L.length;i++){ if(L[i]>=this.THR){ rootIdx=i; break; } }
+    if(rootIdx<0){ let mx=-1; L.forEach((v,i)=>{ if(v>mx){mx=v;rootIdx=i;} }); }
+    const chain=[]; for(let i=rootIdx;i<this.STAGES.length;i++){ if(i===rootIdx||L[i]>=this.THR*0.6) chain.push(this.STAGES[i]); }
+    return { rootIdx, root:this.STAGES[rootIdx], rootLoad:+L[rootIdx].toFixed(2), loads:L.map(v=>+v.toFixed(2)), chainKeys:chain.map(s=>s.key), chainText:chain.map(s=>s.short).join(' → '), consistency:this._consistency() };
+  }catch(e){ return null; } },
+  _consistency(){ try{ return +(this.T.reduce((a,b)=>a+b,0)/this.T.length).toFixed(2); }catch(e){ return 0.5; } },
+  tick(){ try{ const now=Date.now(); if(now-this._lastSnap<60000)return; this._lastSnap=now;
+    const zk=GSD_ZONES.filter(z=>!z.synthetic&&z.key!=='global').map(z=>z.key);
+    const snap={t:now,z:{}}; zk.forEach(z=>snap.z[z]=this.stageLoads(z)); this.hist.push(snap); if(this.hist.length>240)this.hist.shift();
+    const lag=3; if(this.hist.length>lag){ const A=this.hist[this.hist.length-1-lag];
+      for(let i=0;i<this.T.length;i++){ let n=0,hit=0;
+        zk.forEach(z=>{ const a=A.z[z], b=snap.z[z]; if(!a||!b)return; if(a[i]>=this.THR){ n++; if((b[i+1]-a[i+1])>=0.02) hit++; } });   // upstream geladen op t-lag → steeg downstream sindsdien?
+        if(n>=3){ const hr=hit/n; const w=Math.min(0.25,1/(this.Tn[i]+4)); this.T[i]=Math.max(0.2,Math.min(0.95, this.T[i]*(1-w)+(0.35+0.65*hr)*w)); this.Tn[i]++; }
+      }
+      try{ localStorage.setItem('osirisCausalChain',JSON.stringify({T:this.T,Tn:this.Tn})); }catch(e){}
+    }
+  }catch(e){} },
+  bundle(){ const zk=(typeof GSD_ZONES!=='undefined')?GSD_ZONES.filter(z=>!z.synthetic&&z.key!=='global'):[];
+    const perZone={}; zk.forEach(z=>{ const r=this.rootCauseFor(z.key); if(r) perZone[z.key]={ root:r.root.key, chain:r.chainText, ignition:+this.ignitionScore(z.key).toFixed(3), loads:r.loads }; });
+    return { stages:this.STAGES.map(s=>({key:s.key,label:s.label})), transmission:this.T.map(x=>+x.toFixed(2)), consistency:this._consistency(), perZone,
+      note:'Grondstoffen/olie/water/gas/handel → conflict → inflatie/deflatie → centrale banken → financieel. Ground-zero = meest-upstream geladen schakel (ignitie). Transmissie adaptief geleerd uit lead-lag op echte zone-data.' }; }
+};
+try{ const s=JSON.parse(localStorage.getItem('osirisCausalChain')||'null'); if(s&&Array.isArray(s.T)&&s.T.length===4){ OsirisCausalChain.T=s.T; OsirisCausalChain.Tn=s.Tn||[0,0,0,0]; } }catch(e){}
+try{ window.OsirisCausalChain=OsirisCausalChain; }catch(e){}
+
+// ==================================================================================
 const GSD_TM={ snaps:[], _ts:0 };
 try{ const s=JSON.parse(localStorage.getItem('gsdTM')||'null'); if(Array.isArray(s)) GSD_TM.snaps=s; }catch(e){}
 function _gsdTMrecord(){ const now=Date.now(); if(now-GSD_TM._ts<60000) return; GSD_TM._ts=now;
@@ -23919,6 +23983,10 @@ window.__gsdExplain=function(key){
     if(drivers.length){ html+=drivers.map(d=>{ const col=d.v>=0.6?R:d.v>=0.35?A:GG;
       return `<div style="display:flex;align-items:center;gap:8px;font-size:0.54rem;padding:1px 0;"><span style="width:120px;color:var(--tx);">${d.name}</span>${bar(d.v,col)}<span style="color:${col};width:38px;">${Math.round(d.v*100)}%</span><span style="color:${DD};width:34px;font-size:0.48rem;" title="economische-impact-weging">&times;${(d.imp!=null?d.imp:1).toFixed(2)}</span><span style="color:${DD};font-size:0.5rem;">${d.src||''}${d.why?' · '+d.why:''}</span></div>`; }).join(''); }
     else html+=`<div style="font-size:0.52rem;color:${DD};">no elevated cells recorded in this zone yet.</div>`;
+    // 1b) WAAR BEGINT DE KILL-SWITCH — causale keten (root-cause), niet het downstream-symptoom
+    try{ if(typeof OsirisCausalChain!=='undefined'){ const zk2=(GSD_ZONES.find(z=>z.name===P.zone)||{}).key; const rc=zk2?OsirisCausalChain.rootCauseFor(zk2):null;
+      if(rc){ const cons=Math.round((rc.consistency||0)*100);
+        html+=`<div style="font-size:0.54rem;color:${D};margin:7px 0 2px;background:rgba(255,138,60,0.06);border-left:3px solid ${SH};border-radius:0 5px 5px 0;padding:5px 8px;"><b style="color:${SH}">Kill-switch begint bij:</b> <b style="color:#ffd76a;">${rc.root.label}</b> <span style="color:${DD};">(load ${Math.round(rc.rootLoad*100)}%)</span><br><span style="color:${DD};">causale keten →</span> <b>${rc.chainText}</b><br><span style="color:${DD};font-size:0.5rem;">De keten begint stroomopwaarts (grondstoffen/energie → conflict), niet bij het downstream-symptoom (inflatie/rentes). Keten-consistentie ${cons}% — adaptief geleerd uit lead-lag op echte data.</span></div>`; } } }catch(e){}
     // 2) why this topic
     html+=`<div style="font-size:0.54rem;color:${D};margin:7px 0 2px;"><b>Why "${P.topic}":</b> topic is chosen from the <b>leading categories</b> (${leadOn.join(', ')||'economics'}), ranked by global stress. Toggle which categories lead from the map controls.</div>`;
     // 3) why this probability
@@ -26890,7 +26958,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   //   base = structural importance; live score blends GSD stress, kill-switch chance & conflict proximity.
   //   {name, cc:[countries], zones:[keys], cats:[keys], base} ----
   const FLASHPOINTS = [
-    {name:'Semiconductors · supply chain',cc:['Taiwan','China','United States of America','South Korea'],zones:['ap','na'],cats:['trade','market','supply'],base:0.72},
+    {name:'Semiconductors · Taiwan fabricage',cc:['Taiwan','China','United States of America','South Korea'],zones:['ap','na'],cats:['supply','trade','market'],base:0.66,couple:'semis'},
+    {name:'Chip-grondstoffen · China gallium/germanium',cc:['China','United States of America','Taiwan'],zones:['ap','na'],cats:['supply','trade'],base:0.60,couple:'semis'},
     {name:'Oil · Strait of Hormuz',cc:['Iran','Saudi Arabia','United States of America','United Arab Emirates'],zones:['me'],cats:['trade','market','conflict'],base:0.95},
     {name:'US–China trade & tariffs',cc:['United States of America','China'],zones:['na','ap'],cats:['trade','market','econ'],base:0.92},
     {name:'US rates · Treasury & the dollar',cc:['United States of America'],zones:['na'],cats:['cb','econ','market'],base:0.9},
@@ -27203,11 +27272,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // kill-switch chance per zone-key (max over horizons)
   function _killChanceByZone(){ const m={}; try{ (TrinityGSD.killProjection||[]).forEach(p=>{ const z=GSD_ZONES.find(z=>z.name===p.zone||z.key===p.zone); if(!z)return; const cn=p.chanceNow!=null?p.chanceNow:Math.round((p.prob||0)*100); if(m[z.key]==null||cn>m[z.key]) m[z.key]=cn; }); }catch(e){} return m; }
   // economic-influence flashpoint score: structural base blended with live GSD stress, kill-switch chance & conflict proximity
-  function _flashScore(f){ let live=0; const cats=f.cats||['econ','market','trade'];
+  function _flashScore(f, _depth){ let live=0; const cats=f.cats||['econ','market','trade'];
     (f.zones||[]).forEach(z=>{ cats.forEach(cat=>{ live=Math.max(live,_cellV(z,cat)); }); });
     const km=_killChanceByZone(); let ks=0; (f.zones||[]).forEach(z=>{ if(km[z]!=null) ks=Math.max(ks,km[z]/100); });
     let cf=0; CONFLICTS.forEach(c=>{ if((f.cc||[]).some(n=>c.cc.indexOf(n)>=0)) cf=Math.max(cf,c.i); });
-    return Math.min(1, f.base*(0.5 + 0.28*live + 0.12*ks + 0.22*cf)); }
+    let base=f.base*(0.5 + 0.28*live + 0.12*ks + 0.22*cf);
+    // GEKOPPELDE flashpoints (bv. de twee semiconductor-nodes: Taiwan-fabricage ↔ China-grondstoffen) versterken
+    // elkaar — een schok in de één verhoogt de systemische relevantie van de ander (wederzijdse afhankelijkheid).
+    if(f.couple && !_depth){ let partner=0; FLASHPOINTS.forEach(o=>{ if(o!==f && o.couple===f.couple) partner=Math.max(partner,_flashScore(o,1)); }); base=base+partner*0.18; }
+    return Math.min(1, base); }
   function _econInfluenceRanking(){ return FLASHPOINTS.map(f=>({name:f.name,score:_flashScore(f),cc:f.cc})).sort((a,b)=>b.score-a.score).slice(0,10); }
   // conflict ranking straight from geolocated conflict data → REAL conflict countries surface
   function _conflictRanking(){ const agg={}; CONFLICTS.forEach(c=>{ const z=zoneOfCentroid(c.lon,c.lat);
