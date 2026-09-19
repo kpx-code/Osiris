@@ -24495,7 +24495,8 @@ function _renderZonePulse(){ const el=document.getElementById('zonewatch-pulse')
   const zk=__zwZone; const z=(typeof GSD_ZONES!=='undefined')?GSD_ZONES.find(x=>x.key===zk):null; const zname=(z&&z.name)||zk; const zcol=(z&&z.col)||'#7fd8ff';
   const DD='var(--dimmer)',D='var(--dim)';
   const SC={COMPRESSION:'#ffd24a',EXPANSION:'#7fd8ff',CLIMAX:'#ff8a3c',DISCHARGE:'#ff4f6d',RELEASE:'#ff2d55',NEUTRAL:'#6d8296'};
-  const st=OsirisZonePulse.stateOf(zk); const bt=OsirisZonePulse.backtest(zk); const ss=OsirisZonePulse.shadow;
+  try{ OsirisZonePulse._seedFromBacktest(); }catch(e){}
+  const st=OsirisZonePulse.stateOf(zk); const bt=OsirisZonePulse.backtest(zk); const ss=OsirisZonePulse.shadowCombined();
   const scol=SC[st.state]||'#6d8296';
   let h='';
   // current pulse state
@@ -24512,8 +24513,8 @@ function _renderZonePulse(){ const el=document.getElementById('zonewatch-pulse')
   h+='</div>';
   // ETA predicted vs actual (live shadow) + historical backtest
   h+='<div style="font-size:0.56rem;letter-spacing:0.08em;color:#c792ea;text-transform:uppercase;margin:5px 0 3px;">▸ Predicted vs actual · ΔV turn</div>';
-  const hr=ss.n?Math.round(ss.hit/ss.n*100):null; const mae=ss.n?(ss.absErrH/ss.n).toFixed(1):null;
-  h+='<div style="font-size:0.5rem;color:'+DD+';">live shadow: '+(ss.n?('resolved '+ss.n+' · on-time (±72h) <b style="color:'+(hr>=50?'#14f195':'#ffb627')+'">'+hr+'%</b> · mean error <b>'+mae+'h</b>'):'accumulating — logs each predicted ETA vs the actual detected turn')+'</div>';
+  const hr=ss.n?Math.round((ss.hitRate||0)*100):null;
+  h+='<div style="font-size:0.5rem;color:'+DD+';">'+(ss.n?('resolved <b>'+ss.n+'</b> ('+ss.seeded+' backtest + '+ss.live+' live) · lead-hit <b style="color:'+(hr>=50?'#14f195':'#ffb627')+'">'+hr+'%</b> · mean timing <b>'+(ss.meanAbsErrH!=null?Math.round(ss.meanAbsErrH/24)+'d':'—')+'</b>'):'accumulating — logs each predicted ETA vs the actual detected turn')+'</div>';
   h+='<div style="font-size:0.5rem;color:'+DD+';margin-top:2px;">backtest ('+zname+', 36y reconstructed): '+(bt.kills||0)+' kill-triggers · '+(bt.detected||0)+' climax-turns detected · lead-hit <b style="color:'+((bt.hitRate||0)>=0.5?'#14f195':'#ffb627')+'">'+(bt.hitRate!=null?Math.round(bt.hitRate*100)+'%':'—')+'</b>'+(bt.meanLeadD!=null?' · mean lead '+bt.meanLeadD+'d before the crisis':'')+'</div>';
   el.innerHTML=h;
 }
@@ -24535,7 +24536,13 @@ const ZONE_PULSE_CATS=[
   {key:'disaster', label:'disaster', col:'#ffb627',cats:{disaster:1.1,weather:0.8}},
 ];
 const OsirisZonePulse = {
-  hist:[], _last:0, preds:[], shadow:{n:0,hit:0,absErrH:0}, bias:{}, _lastState:{},
+  hist:[], _last:0, preds:[], shadow:{n:0,hit:0,absErrH:0}, bias:{}, _lastState:{}, seed:null, _seeded:false,
+  // WARM-UP: neem de gereconstrueerde 36y-historie mee als backtest-basis in de predicted-vs-actual-teller,
+  // zodat de shadow meteen betekenisvolle cijfers toont i.p.v. vanaf 0. Live resolves tellen er daarna bovenop.
+  _seedFromBacktest(){ try{ if(this._seeded)return; const S=TrinityGSDBackfill&&TrinityGSDBackfill.status; if(!S||!S.histMonthly||!S.histMonthly.length)return;
+    let n=0,hit=0,abs=0; GSD_ZONES.filter(z=>!z.synthetic&&z.key!=='global').forEach(z=>{ const bt=this.backtest(z.key); const k=bt.kills||0; if(!k)return; const h=Math.round((bt.hitRate||0)*k); n+=k; hit+=h; abs+=(bt.meanLeadD!=null?bt.meanLeadD*24:120)*k; });
+    if(n>0) this.seed={n,hit,absErrH:abs}; this._seeded=true; }catch(e){} },
+  shadowCombined(){ const s=this.shadow, sd=this.seed||{n:0,hit:0,absErrH:0}; const n=s.n+sd.n, hit=s.hit+sd.hit, abs=s.absErrH+sd.absErrH; return { n, hit, hitRate:n?+(hit/n).toFixed(2):null, meanAbsErrH:n?+(abs/n).toFixed(1):null, live:s.n, seeded:sd.n }; },
   _comp(zk,cats){ try{ const cc=TrinityGSD.cells[zk]; if(!cc)return 0; let s=0,w=0; for(const k in cats){ const v=(cc[k]&&cc[k].v!=null)?cc[k].v:0; s+=v*cats[k]; w+=cats[k]; } return w?s/w:0; }catch(e){ return 0; } },
   // classificeer een energie-reeks → toestand + piek/omslag-detectie (hoogste punt → start van de daling)
   _classify(rows){ const n=rows.length; if(n<3) return {state:'NEUTRAL',energy:(rows[n-1]&&rows[n-1].e)||0,slope:0,peakTs:0,peakVal:0,sincePeakH:null,dropped:0};
@@ -24554,6 +24561,7 @@ const OsirisZonePulse = {
   stateOf(zk){ return this._classify(this._zEnergy(zk)); },
   catStateOf(zk,ckey){ try{ const rows=this.hist.filter(sn=>sn.z&&sn.z[zk]).map(sn=>({t:sn.t,e:sn.z[zk][ckey]||0})); if(rows.length<3){ const cur=this._comp(zk,(ZONE_PULSE_CATS.find(c=>c.key===ckey)||{}).cats||{}); return {state:'NEUTRAL',energy:+cur.toFixed(2),slope:0}; } return this._classify(rows); }catch(e){ return {state:'NEUTRAL',energy:0,slope:0}; } },
   tick(){ try{ const now=Date.now(); if(now-this._last<60000)return; this._last=now;
+    this._seedFromBacktest();   // eenmalig: warm de predicted-vs-actual op met de 36y-backtest
     const zk=GSD_ZONES.filter(z=>!z.synthetic&&z.key!=='global').map(z=>z.key);
     const snap={t:now,z:{}}; zk.forEach(z=>{ const rec={stress:(TrinityGSD.zoneStress&&TrinityGSD.zoneStress[z])||0}; ZONE_PULSE_CATS.forEach(c=>rec[c.key]=this._comp(z,c.cats)); snap.z[z]=rec; }); this.hist.push(snap); if(this.hist.length>1440)this.hist.shift();
     // log de voorspelde ETA per zone (uit de kill-projectie) als open prediction
@@ -24577,7 +24585,7 @@ const OsirisZonePulse = {
     kills.forEach(k=>{ const c=climax.filter(t=>t<=k.t && k.t-t<=90*864e5).sort((a,b)=>b-a)[0]; if(c!=null){ hit++; leadSum+=(k.t-c)/864e5; ln++; } });
     return { kills:kills.length, detected:climax.length, hitRate:kills.length?+(hit/kills.length).toFixed(2):null, meanLeadD:ln?Math.round(leadSum/ln):null }; }catch(e){ return {kills:0,detected:0,hitRate:null,meanLeadD:null}; } },
   bundle(){ try{ const out={}; GSD_ZONES.filter(z=>!z.synthetic&&z.key!=='global').forEach(z=>{ const st=this.stateOf(z.key); out[z.key]={ state:st.state, energy:st.energy, cats:Object.fromEntries(ZONE_PULSE_CATS.map(c=>[c.key,this.catStateOf(z.key,c.key).state])), backtest:this.backtest(z.key), etaBiasH:this.bias[z.key]?+this.bias[z.key].e.toFixed(1):0 }; });
-    return { states:['COMPRESSION','EXPANSION','CLIMAX','DISCHARGE','RELEASE','NEUTRAL'], shadow:{n:this.shadow.n,hitRate:this.shadow.n?+(this.shadow.hit/this.shadow.n).toFixed(2):null,meanAbsErrH:this.shadow.n?+(this.shadow.absErrH/this.shadow.n).toFixed(1):null}, perZone:out,
+    return { states:['COMPRESSION','EXPANSION','CLIMAX','DISCHARGE','RELEASE','NEUTRAL'], shadow:this.shadowCombined(), perZone:out,
       note:'Autonomous per-zone/per-category energy-state machine (compression→climax→discharge). Turn = highest-energy point where discharge begins. Shadow-backtest: predicted ETA (kill-projection) vs actual detected turn, adaptive per-zone bias.' }; }catch(e){ return null; } }
 };
 try{ const s=JSON.parse(localStorage.getItem('osirisZonePulse')||'null'); if(s){ OsirisZonePulse.shadow=s.shadow||OsirisZonePulse.shadow; OsirisZonePulse.bias=s.bias||{}; OsirisZonePulse.preds=s.preds||[]; } }catch(e){}
