@@ -23247,20 +23247,28 @@ const TrinityGSD = {
       const lead=(typeof GSD_LEAD!=='undefined')?GSD_LEAD:{};
       const allKeys=GSD_CATS.map(c=>c.key);
       const iw=k=>{ const imp=(typeof this.catImpact==='function')?this.catImpact(k):0.5; return imp*(lead[k]?1.0:0.9); };   // economische impact × klein toggle-accent
-      const cats=allKeys.map(k=>[k,(this.catStress&&this.catStress[k]!=null?this.catStress[k]:0)*iw(k)]).sort((a,b)=>b[1]-a[1]);
-      const topCats=cats.slice(0,2).map(([k])=>catN[k]||k);
-      // PER-HORIZON zone: near term = wat nu oplaadt (economisch-impact-gewogen over ALLE cats); long term
-      // schuift naar structureel/persistent risico (conflict/geo/central-banks). Alle data telt altijd mee.
-      const leadMean={}, structMean={};
+      const topGlobal=()=>{ const cats=allKeys.map(k=>[k,(this.catStress&&this.catStress[k]!=null?this.catStress[k]:0)*iw(k)]).sort((a,b)=>b[1]-a[1]); return cats.slice(0,2).map(([k])=>catN[k]||k).join(' + '); };
+      // ---- GROUND-ZERO per horizon — REALISTISCH & GEDIVERSIFIEERD (fix 19-09) ----
+      // Dichtbij = de ACUTE economische stress (waar de crisis NU zit: geld-kant = econ/markt/financieel/handel).
+      //   Zo wint een echte economische crisis in een kleinere zone (bv. Latijns-Amerika, hyperinflatie) van de
+      //   grootste economie i.p.v. dat alles automatisch op Asia-Pacific belandt.
+      // Ver = STRUCTUREEL-SYSTEMISCH risico = economisch-gewogen conflict + geopolitiek. Een conflict telt alleen
+      //   zwaar mee als het de wéreldeconomie raakt: Oekraïne (graan/energie), Hormuz (olie), China-nabij tellen
+      //   zwaar; een burgeroorlog met lage grondstoffen-export/wereldaandeel (bv. Myanmar) telt licht mee.
+      const MONEY=['econ','market','finstress','trade','cb','housing','energy','supply'];
+      const econMean={}, structMean={};
+      const ecf=(this._econConflict&&typeof this._econConflict==='object')?this._econConflict:{};
       GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return;
-        let s=0,w=0; allKeys.forEach(k=>{ const c=this.cells[z.key]&&this.cells[z.key][k]; if(c&&c.v!=null){ const e=iw(k); s+=c.v*e; w+=e; } }); leadMean[z.key]=w?s/w:0;
-        let ss=0,sn=0; ['conflict','geo','cb'].forEach(k=>{ const c=this.cells[z.key]&&this.cells[z.key][k]; if(c&&c.v!=null){ss+=c.v;sn++;} }); structMean[z.key]=sn?ss/sn:0; });
-      // ECONOMISCHE WEGING van de ground-zero-keuze: dezelfde stress in een zone met groot economisch/
-      // supplychain-gewicht (NA/AP/EU, of ME via de olie-chokepoints) weegt zwaarder dan in een licht-
-      // economische zone. Een lichte zone kan nog steeds ground-zero worden als de stress echt hoog is,
-      // maar krijgt niet gratis voorrang op een puur fysiek (bv. afgelegen) event.
-      const zoneFor=(days)=>{ const w=Math.min(1,days/3650)*0.7; let best=null,bv=-1; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return; const raw=leadMean[z.key]*(1-w)+structMean[z.key]*w; const sc=raw*(0.55+0.45*_gsdZoneEconW(z.key)); if(sc>bv){bv=sc;best=z;} }); return best?best.name:'Global'; };
-      const topZone=zoneFor(7);
+        let s=0,w=0; MONEY.forEach(k=>{ const c=this.cells[z.key]&&this.cells[z.key][k]; if(c&&c.v!=null){ const e=iw(k); s+=c.v*e; w+=e; } }); econMean[z.key]=w?s/w:0;
+        const geo=(this.cells[z.key]&&this.cells[z.key].geo&&this.cells[z.key].geo.v)||0;
+        const ec=ecf[z.key]!=null?ecf[z.key]:0;   // economisch-gewogen conflict (intensiteit × economische massa v/d locatie)
+        structMean[z.key]=0.6*ec+0.4*geo; });
+      // topic = de twee categorieen met de hoogste economisch-gewogen stress IN de gekozen zone (per-zone, niet globaal)
+      const topicFor=(zk)=>{ const cc=this.cells[zk]; if(!cc)return topGlobal(); const arr=allKeys.map(k=>[k,(cc[k]&&cc[k].v!=null?cc[k].v:0)*iw(k)]).sort((a,b)=>b[1]-a[1]); const t=arr.slice(0,2).map(([k])=>catN[k]||k).join(' + '); return t||topGlobal(); };
+      // milde grootte-tilt (0.65..1.0) i.p.v. de oude (0.55..1.0): de zone-grootte kleurt de keuze, maar overheerst
+      // niet meer de werkelijke stress. Zo staat niet elke horizon meer op dezelfde (grootste) zone.
+      const zoneFor=(days)=>{ const w=Math.min(1,days/3650)*0.6; let best=null,bv=-1; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return; const raw=econMean[z.key]*(1-w)+structMean[z.key]*w; const sc=raw*(0.65+0.35*_gsdZoneEconW(z.key)); if(sc>bv){bv=sc;best=z;} }); return best?best.key:'global'; };
+      const topZone=(GSD_ZONES.find(z=>z.key===zoneFor(7))||{}).name||'Global';
       const out=[];
       HZ.forEach(([key,days,hk])=>{
         const horizonMs=days*864e5; const nodes=this.tamNodes(now, now+horizonMs*1.05, hk); const nn=nodes.find(t=>t>now);
@@ -23280,7 +23288,8 @@ const TrinityGSD = {
           basis='historical cadence · '+killsPerYear.toFixed(2)+'/yr over '+yrs+'y · cumulative by horizon end'; est=false;
         }
         const halfw = days<=30? days*0.25*864e5 : days<=365? days*0.12*864e5 : days*0.08*864e5;
-        out.push({ key, days, prob:+_clamp01(prob).toFixed(2), eta, window:[eta-halfw, eta+halfw], topic:topCats.join(' + ')||'—', zone:zoneFor(days), basis, estimate:est });
+        const _zk=zoneFor(days); const _zName=(GSD_ZONES.find(z=>z.key===_zk)||{}).name||'Global';
+        out.push({ key, days, prob:+_clamp01(prob).toFixed(2), eta, window:[eta-halfw, eta+halfw], topic:topicFor(_zk)||'—', zone:_zName, basis, estimate:est });
       });
       // ---- 1) trigger-events loggen (voor predicted-vs-outcome scoring) ----
       if(this.tippingRisk>=0.75 || this.killSwitch){ this._killTrig=this._killTrig||[]; const last=this._killTrig[this._killTrig.length-1]; if(!last||now-last>3600e3){ this._killTrig.push(now); if(this._killTrig.length>300)this._killTrig.shift(); } }
@@ -23853,7 +23862,7 @@ window.__gsdExplain=function(key){
     const near=P.days<=120;
     // top driver cells in the projected zone (what's loading there right now)
     let drivers=[];
-    if(zk&&G.cells[zk]){ drivers=GSD_CATS.map(c=>{ const cell=G.cells[zk][c.key]; return (cell&&cell.v!=null&&cell.v>=0.02)?{k:c.key,name:c.name,col:c.col,v:cell.v,src:cell.src,at:cell.at,why:cell.why}:null; }).filter(Boolean).sort((a,b)=>b.v-a.v).slice(0,5); }
+    if(zk&&G.cells[zk]){ drivers=GSD_CATS.map(c=>{ const cell=G.cells[zk][c.key]; if(!(cell&&cell.v!=null&&cell.v>=0.02))return null; const imp=(typeof G.catImpact==='function')?G.catImpact(c.key):0.5; return {k:c.key,name:c.name,col:c.col,v:cell.v,imp:+imp.toFixed(2),eff:cell.v*imp,src:cell.src,at:cell.at,why:cell.why}; }).filter(Boolean).sort((a,b)=>b.eff-a.eff).slice(0,5); }
     const lead=(typeof GSD_LEAD!=='undefined')?GSD_LEAD:{econ:1,cb:1,trade:1,market:1};
     const leadOn=GSD_CATS.filter(c=>lead[c.key]).map(c=>c.name);
     const bar=(v,col)=>`<span style="display:inline-block;width:60px;height:6px;border-radius:3px;background:rgba(255,255,255,0.06);vertical-align:middle;position:relative;"><span style="position:absolute;left:0;top:0;height:6px;width:${Math.round(Math.min(1,v)*100)}%;background:${col};border-radius:3px;"></span></span>`;
@@ -23861,9 +23870,9 @@ window.__gsdExplain=function(key){
     let html=`<div style="border-left:3px solid ${SH};padding:9px 12px;background:rgba(255,138,60,0.04);border-radius:0 6px 6px 0;">`;
     html+=`<div style="font-size:0.62rem;color:var(--tx);margin-bottom:6px;"><b style="color:${SH}">Why the ${LAB[key]||key} forecast?</b> — ${P.chanceNow}% chance, likely in <b style="color:${BL}">${P.zone}</b>${conf!=null?` <span style="color:${DD}">(zone confidence ${conf}%)</span>`:''}, topic <b style="color:#ff8a94">${P.topic}</b>.</div>`;
     // 1) why this zone
-    html+=`<div style="font-size:0.54rem;color:${D};margin:6px 0 3px;"><b>Why ${P.zone}:</b> ${near?'the categories loading fastest here right now':'the most persistent structural stress (conflict / geopolitics / central-banks) plus current loading'} —</div>`;
+    html+=`<div style="font-size:0.54rem;color:${D};margin:6px 0 3px;"><b>Why ${P.zone}:</b> ${near?'the categories with the highest ECONOMIC-IMPACT loading here right now (score × impact, so weather counts only for its economic effect)':'the most persistent structural stress (conflict / geopolitics / central-banks) plus current loading'} —</div>`;
     if(drivers.length){ html+=drivers.map(d=>{ const col=d.v>=0.6?R:d.v>=0.35?A:GG;
-      return `<div style="display:flex;align-items:center;gap:8px;font-size:0.54rem;padding:1px 0;"><span style="width:120px;color:var(--tx);">${d.name}</span>${bar(d.v,col)}<span style="color:${col};width:38px;">${Math.round(d.v*100)}%</span><span style="color:${DD};font-size:0.5rem;">${d.src||''}${d.why?' · '+d.why:''}</span></div>`; }).join(''); }
+      return `<div style="display:flex;align-items:center;gap:8px;font-size:0.54rem;padding:1px 0;"><span style="width:120px;color:var(--tx);">${d.name}</span>${bar(d.v,col)}<span style="color:${col};width:38px;">${Math.round(d.v*100)}%</span><span style="color:${DD};width:34px;font-size:0.48rem;" title="economische-impact-weging">&times;${(d.imp!=null?d.imp:1).toFixed(2)}</span><span style="color:${DD};font-size:0.5rem;">${d.src||''}${d.why?' · '+d.why:''}</span></div>`; }).join(''); }
     else html+=`<div style="font-size:0.52rem;color:${DD};">no elevated cells recorded in this zone yet.</div>`;
     // 2) why this topic
     html+=`<div style="font-size:0.54rem;color:${D};margin:7px 0 2px;"><b>Why "${P.topic}":</b> topic is chosen from the <b>leading categories</b> (${leadOn.join(', ')||'economics'}), ranked by global stress. Toggle which categories lead from the map controls.</div>`;
@@ -26800,7 +26809,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     {lat:21.4,lon:92.2,name:'Rohingya crisis (Myanmar–Bangladesh)',i:0.6,cc:['Myanmar','Bangladesh']},
     {lat:14.35,lon:104.9,name:'Thailand–Cambodia border clashes',i:0.6,cc:['Thailand','Cambodia']},
     {lat:15.2,lon:120.6,name:'South China Sea · PH–China standoff',i:0.65,cc:['Philippines','China']},
-    {lat:24.0,lon:120.5,name:'Taiwan Strait tensions',i:0.7,cc:['Taiwan','China']},
+    {lat:24.0,lon:120.5,name:'Taiwan Strait tensions (standing deterrent)',i:0.3,cc:['Taiwan','China']},
     {lat:34.0,lon:74.0,name:'Kashmir · India–Pakistan (LoC)',i:0.65,cc:['India','Pakistan']},
     {lat:33.6,lon:66.0,name:'Afghanistan · Taliban vs ISIS-K',i:0.6,cc:['Afghanistan']},
     {lat:29.4,lon:66.0,name:'Pakistan · TTP / Balochistan',i:0.6,cc:['Pakistan']},
@@ -26836,7 +26845,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   //   base = structural importance; live score blends GSD stress, kill-switch chance & conflict proximity.
   //   {name, cc:[countries], zones:[keys], cats:[keys], base} ----
   const FLASHPOINTS = [
-    {name:'Semiconductors · Taiwan Strait',cc:['Taiwan','China','United States of America','South Korea'],zones:['ap','na'],cats:['trade','market','geo'],base:1.0},
+    {name:'Semiconductors · supply chain',cc:['Taiwan','China','United States of America','South Korea'],zones:['ap','na'],cats:['trade','market','supply'],base:0.72},
     {name:'Oil · Strait of Hormuz',cc:['Iran','Saudi Arabia','United States of America','United Arab Emirates'],zones:['me'],cats:['trade','market','conflict'],base:0.95},
     {name:'US–China trade & tariffs',cc:['United States of America','China'],zones:['na','ap'],cats:['trade','market','econ'],base:0.92},
     {name:'US rates · Treasury & the dollar',cc:['United States of America'],zones:['na'],cats:['cb','econ','market'],base:0.9},
@@ -26844,7 +26853,6 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     {name:'Red Sea · Suez shipping',cc:['Egypt','Yemen','Saudi Arabia'],zones:['me','af'],cats:['trade','conflict'],base:0.78},
     {name:'Rare earths & critical minerals',cc:['China','United States of America'],zones:['ap','na'],cats:['trade','market'],base:0.8},
     {name:'China property & deflation',cc:['China'],zones:['ap'],cats:['econ','market','cb'],base:0.8},
-    {name:'Taiwan invasion risk',cc:['Taiwan','China'],zones:['ap'],cats:['geo','conflict','market'],base:0.85},
     {name:'Japan/Korea · yen & won',cc:['Japan','South Korea'],zones:['ap'],cats:['cb','market'],base:0.62},
     {name:'Europe recession · ECB',cc:['Germany','France'],zones:['eu'],cats:['econ','cb'],base:0.65},
     {name:'De-dollarization · BRICS/gold',cc:['China','Russia','India'],zones:['ap','eu'],cats:['market','trade'],base:0.6},
@@ -27079,8 +27087,24 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // feed the curated conflict/flashpoint signal into the GSD cells → zoneStress → kill-switch + contagion learning
   function _feedGSDfromCurated(){ try{ if(typeof TrinityGSD==='undefined'||!TrinityGSD.setCell)return;
     // conflicts → per-zone conflict cell (soft aggregate of intensities), blended with any live value
-    const zc={}; CONFLICTS.forEach(c=>{ const z=zoneOfCentroid(c.lon,c.lat); if(z==='global')return; zc[z]=(zc[z]||0)+c.i; });
-    GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const raw=zc[z.key]||0; const v=1-Math.exp(-raw*0.5); const cell=TrinityGSD.cells[z.key]&&TrinityGSD.cells[z.key].conflict; const cur=cell&&cell.v!=null?cell.v:0; const nv=cur+(v-cur)*0.25; TrinityGSD.setCell(z.key,'conflict',Math.max(cur,nv),'curated+live','curated conflict floor'); }); // ramp, not step → no artificial shock
+    // Conflict-floor (humanitair, voor de Conflicts-laag) = gedomineerd door het ZWAARSTE conflict in de zone
+    // (max) + een kleine breedte-bonus — NIET de oude som-en-satureer (die elke zone met véél kleine conflicten
+    // naar ~1.0 tilde, ongeacht ernst). Daarnaast een APART economisch-systemisch conflict-signaal voor de
+    // kill-switch ground-zero: elk conflict × de economische massa van zijn locatie, zodat een economisch
+    // perifeer conflict (bv. Myanmar: lage grondstoffen-export/wereldaandeel) licht telt en Oekraïne/Hormuz/
+    // China-nabije conflicten zwaar. Ramp NAAR target (mag ook dalen) i.p.v. een permanente ratchet omhoog.
+    const zmax={}, zsum={}, zecon={};
+    CONFLICTS.forEach(c=>{ const z=zoneOfCentroid(c.lon,c.lat); if(z==='global')return;
+      zmax[z]=Math.max(zmax[z]||0,c.i); zsum[z]=(zsum[z]||0)+c.i;
+      const em=(typeof _gsdEconMass==='function')?_gsdEconMass(c.lon,c.lat):0.5; zecon[z]=Math.max(zecon[z]||0, c.i*em); });   // economisch-gewogen: max(intensiteit × economische massa)
+    TrinityGSD._econConflict=TrinityGSD._econConflict||{};
+    GSD_ZONES.forEach(z=>{ if(z.synthetic)return;
+      const breadth=1-Math.exp(-(zsum[z.key]||0)*0.30);
+      const target=Math.min(1, 0.78*(zmax[z.key]||0)+0.22*breadth);
+      const cell=TrinityGSD.cells[z.key]&&TrinityGSD.cells[z.key].conflict; const cur=cell&&cell.v!=null?cell.v:0;
+      const nv=cur+(target-cur)*0.25; TrinityGSD.setCell(z.key,'conflict',nv,'curated+live','worst conflict + breadth');
+      TrinityGSD._econConflict[z.key]=Math.min(1,(zecon[z.key]||0)*1.6);   // 0..1 economisch-systemisch conflict
+    });
     // flashpoints → per-zone geo cell (live-scored influence), ramped
     const zg={}; FLASHPOINTS.forEach(f=>{ const s=_flashScore(f); (f.zones||[]).forEach(z=>{ if(z==='global')return; zg[z]=Math.max(zg[z]||0,s); }); });
     GSD_ZONES.forEach(z=>{ if(z.synthetic)return; const v=(zg[z.key]||0)*0.75; if(v<=0)return; const cell=TrinityGSD.cells[z.key]&&TrinityGSD.cells[z.key].geo; const cur=cell&&cell.v!=null?cell.v:0; const nv=cur+(v-cur)*0.25; TrinityGSD.setCell(z.key,'geo',Math.max(cur,nv),'flashpoints','economic-flashpoint influence'); });
