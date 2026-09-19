@@ -11501,6 +11501,7 @@ function osirisMasterBundle() {
             timing_agent: 'Timing-Agent: component weights & out-of-sample hit-rates (NN, node, FSO, RL, confluence, volume, fib, funding, predict), live vs shadow, the scenario-backtest results and the latest per-market component values.',
             overige_tools: 'Kinetic engine export, LLM context, journal, next-steps queue, Guardian (data integrity), Risk (drawdown/day P/L/exposure) and the per-market circuit breaker.',
             beveiliging: 'Access/security log: device-ID + label, IP + coarse location (if enabled), precise location (if consented), engagement time per device and the click log with sensitive actions flagged. (Webhook URL / email keys are NOT included.)',
+            ip_verbindingen: 'IP-lijst / verbindingen: het eigen publieke IP van dit apparaat (+ beschrijvend VPN/proxy-label uit de IP-lookup) en de endpoints waarmee het apparaat praat, gecategoriseerd — standaard/eigen, crypto (NEO), crypto-testnet, Trinity (FX/commodity), ShockWave-bronnen, onbekend. Puur registratie + categorisatie; geen tracering of ontmaskering.',
             sessies: 'Per-wallet session archive (saved on Stop bot / Reset): net P/L, gains/losses, runtime, trades/wins/losses, winrate, end equity, session cost (fees/slippage) and BTC/ETH/SOL positions opened — plus the live current-session metrics for spot and margin.',
             rest: 'Full trade action log (every ENTRY/EXIT/PENDING/CANCELLED/SKIPPED with € amounts + timestamps), network errors and the dataset schema (field descriptions).'
         },
@@ -11694,6 +11695,9 @@ function osirisMasterBundle() {
         toegangslog: g(() => (typeof OsirisAudit !== 'undefined' ? OsirisAudit.bundle() : null)),
         uitleg: 'Access/security log: device-ID + label (OS/browser/type), IP + coarse location (if enabled), precise location (if consented), engagement time per device and the click log with sensitive actions flagged. Webhook URL / email keys are intentionally NOT included.'
     };
+
+    // 6e-bis) IP-LIJST / VERBINDINGEN — registratie + categorisatie (geen tracering/ontmaskering)
+    C.ip_verbindingen = g(() => (typeof OsirisConn !== 'undefined' ? OsirisConn.bundle() : null));
 
     // 6f) SESSIE-ARCHIEF (per wallet: p/l, runtime, trades/wins/losses, eind-equity, kosten, posities per munt)
     C.sessies = {
@@ -12018,6 +12022,124 @@ window.OsirisAudit = OsirisAudit;
 try { if (document.readyState !== 'loading') OsirisAudit.init(); else document.addEventListener('DOMContentLoaded', () => OsirisAudit.init()); } catch (e) {}
 function downloadAccessLog() { try { OsirisAudit.download(); } catch (e) {} }
 window.downloadAccessLog = downloadAccessLog;
+
+// ============================================================
+// OSIRIS · VERBINDINGEN-MONITOR (IP/endpoints) — REGISTREERT & CATEGORISEERT alleen.
+// Geen tracering, geen ontmaskering, geen VPN/proxy-omzeiling. Legt vast met welke
+// endpoints dit apparaat praat (categorie), + het eigen publieke IP (via OsirisAudit),
+// met een puur beschrijvend label 'VPN/proxy' als de IP-lookup de org als hosting/vpn kent.
+// ============================================================
+const OsirisConn = {
+    hosts: {},            // host -> { cat, count, firstTs, lastTs }
+    _wrapped: false, lastUpdated: null, _perfIdx: 0,
+    // categorie-herkenning op hostnaam
+    CATS: [
+        ['crypto-testnet', /testnet\.?binance|binancefuture.*testnet|testnet.*binance/i],
+        ['crypto', /binance|bnbstatic|\.vision/i],
+        ['trinity', /capital\.com|capital.*proxy|cap-proxy|oanda|forex/i],
+        ['shockwave', /usgs\.gov|earthquake|eonet|nasa\.gov|gdacs|open-meteo|stlouisfed|fred|worldbank|world-?bank|portwatch|imf\.org|acled|gdelt|reliefweb|tectonic|naturalearth|unpkg.*topojson/i],
+        ['standaard', /ipwho\.is|ipapi|ip-api|supabase|cdnjs|jsdelivr|fonts\.(googleapis|gstatic)|gstatic|cloudflare|githubusercontent|code\.jquery/i]
+    ],
+    // hosting/VPN/proxy-herkenning op de org/isp-naam (beschrijvend label, geen ontmaskering)
+    VPN_RE: /\b(vpn|proxy|hosting|datacenter|data ?center|cloud|amazon|aws|google\s?(cloud|llc)|microsoft|azure|digitalocean|ovh|hetzner|linode|vultr|m247|leaseweb|choopa|datacamp|nord|express\s?vpn|mullvad|private internet|surfshark|cyberghost|proton|relay|tor exit)\b/i,
+    _cat(host) { try { for (const [c, re] of this.CATS) if (re.test(host)) return c; } catch (e) {} return 'onbekend'; },
+    record(url) {
+        try {
+            let host = '';
+            try { host = new URL(url, location.href).hostname; } catch (e) { host = String(url).split('/')[2] || String(url); }
+            if (!host) return;
+            const now = Date.now();
+            const h = this.hosts[host] || (this.hosts[host] = { cat: this._cat(host), count: 0, firstTs: now, lastTs: now });
+            h.count++; h.lastTs = now; this.lastUpdated = now;
+        } catch (e) {}
+    },
+    // ALLE verbindingen die de Osiris-pagina maakt (ook scripts/afbeeldingen/beacons/derde-partijen),
+    // via de Resource Timing API — zo staat élke host waarmee deze pagina praat in de lijst, niet alleen
+    // de fetch/websocket-calls. (Browser-grens: alleen de verbindingen van DEZE pagina; niet andere apps/tabs.)
+    _scanPerf() {
+        try {
+            if (!(window.performance && performance.getEntriesByType)) return;
+            const ents = performance.getEntriesByType('resource') || [];
+            for (let i = this._perfIdx; i < ents.length; i++) { try { if (ents[i] && ents[i].name) this.record(ents[i].name); } catch (e) {} }
+            this._perfIdx = ents.length;
+            try { const nav = performance.getEntriesByType('navigation') || []; if (nav[0] && location && location.href) this.record(location.href); } catch (e) {}
+        } catch (e) {}
+    },
+    wrap() {
+        if (this._wrapped) return; this._wrapped = true;
+        try {
+            const of = window.fetch.bind(window);
+            window.fetch = (input, init) => { try { this.record(typeof input === 'string' ? input : (input && input.url)); } catch (e) {} return of(input, init); };
+        } catch (e) {}
+        // WebSocket ook meenemen (bv. live prijzen)
+        try {
+            const OW = window.WebSocket;
+            if (OW && !OW._osHooked) { const W = function (u, p) { try { OsirisConn.record(u); } catch (e) {} return p !== undefined ? new OW(u, p) : new OW(u); }; W.prototype = OW.prototype; W._osHooked = true; W.OPEN = OW.OPEN; W.CLOSED = OW.CLOSED; W.CONNECTING = OW.CONNECTING; W.CLOSING = OW.CLOSING; window.WebSocket = W; }
+        } catch (e) {}
+    },
+    device() {
+        const A = (typeof OsirisAudit !== 'undefined') ? OsirisAudit : null;
+        const org = A && A.geo ? (A.geo.org || '') : '';
+        const vpn = org ? this.VPN_RE.test(org) : false;
+        const dev = A ? A.device : null;
+        const isPhone = dev && /mobile|iphone|ios/i.test((dev.type || '') + (dev.os || ''));
+        return {
+            ip: A ? A.ip : null, org: org || null, geo: A && A.geo ? (A.geo.city ? (A.geo.city + ', ' + (A.geo.country || '')) : (A.geo.country || null)) : null,
+            label: isPhone ? 'iPhone 17 Pro (standaard)' : (dev ? (dev.label + ' (standaard)') : 'dit apparaat (standaard)'),
+            vpnProxy: vpn, deviceType: dev ? dev.type : null
+        };
+    },
+    grouped() {
+        const cats = ['standaard', 'crypto', 'crypto-testnet', 'trinity', 'shockwave', 'onbekend'];
+        const out = {}; cats.forEach(c => out[c] = []);
+        Object.keys(this.hosts).sort().forEach(host => { const h = this.hosts[host]; (out[h.cat] || (out[h.cat] = [])).push({ host, count: h.count, firstTs: h.firstTs, lastTs: h.lastTs }); });
+        return out;
+    },
+    bundle() {
+        try { this._scanPerf(); } catch (e) {}
+        const totalHosts = Object.keys(this.hosts).length;
+        return {
+            exportedAt: new Date().toISOString(),
+            lastUpdated: this.lastUpdated ? new Date(this.lastUpdated).toISOString() : null,
+            totaalHosts: totalHosts,
+            uitleg: 'Alle verbindingen die de Osiris-pagina maakt terwijl hij open is (fetch + websocket + alle paginabronnen via Resource Timing), geregistreerd + gecategoriseerd — geen tracering/ontmaskering. Browser-grens: alleen de verbindingen van DEZE pagina/dit apparaat, niet die van andere apps of tabs. ditApparaat = eigen publieke IP + beschrijvend VPN/proxy-label. endpointsPerCategorie: standaard (eigen/infra), crypto (NEO/Binance), crypto-testnet, trinity (Capital/FX), shockwave (databronnen), onbekend (niet-Osiris).',
+            ditApparaat: this.device(),
+            endpointsPerCategorie: this.grouped(),
+            toegangslog: (typeof OsirisAudit !== 'undefined' && OsirisAudit.bundle) ? OsirisAudit.bundle() : null
+        };
+    },
+    download() { try { const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-'); _dlSized(this.bundle(), 'osiris_ip_verbindingen_' + stamp + '.json'); } catch (e) { try { _downloadJSON(this.bundle(), 'osiris_ip_verbindingen.json'); } catch (x) {} } },
+    render() {
+        try {
+            const el = document.getElementById('conn-ip-feed'); if (!el) return;
+            this._scanPerf();
+            const catMeta = { standaard: ['#7fd8ff', 'standaard / eigen'], crypto: ['#f7931a', 'crypto (NEO)'], 'crypto-testnet': ['#ffb627', 'crypto-testnet'], trinity: ['#14f195', 'Trinity (FX/commodity)'], shockwave: ['#ff8a3c', 'ShockWave-bronnen'], onbekend: ['#8b95a5', 'onbekend (niet-Osiris)'] };
+            const g = this.grouped(); const d = this.device();
+            const p2 = x => String(x).padStart(2, '0'); const tm = ts => { const x = new Date(ts); return p2(x.getHours()) + ':' + p2(x.getMinutes()) + ':' + p2(x.getSeconds()); };
+            const total = Object.keys(this.hosts).length;
+            let html = '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-size:0.54rem;color:var(--dim);margin-bottom:5px;"><span>' + total + ' unieke hosts geregistreerd</span><span>last updated ' + (this.lastUpdated ? tm(this.lastUpdated) : '—') + '</span></div>';
+            html += '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:rgba(127,216,255,0.06);border:1px solid rgba(127,216,255,0.25);border-radius:7px;padding:7px 10px;margin-bottom:8px;font-family:\'JetBrains Mono\',monospace;font-size:0.6rem;">' +
+                '<b style="color:#7fd8ff;">Dit apparaat</b> <span style="color:#cfe6f5;">' + (d.label || '—') + '</span>' +
+                '<span style="color:var(--dim);">IP ' + (d.ip || '—') + '</span>' + (d.geo ? '<span style="color:var(--dim);">' + d.geo + '</span>' : '') + (d.org ? '<span style="color:var(--dim);">' + d.org + '</span>' : '') +
+                (d.vpnProxy ? '<span style="color:#c792ea;border:1px solid #c792ea55;border-radius:10px;padding:1px 8px;">⚑ VPN/proxy</span>' : '<span style="color:#14f195;">● direct</span>') + '</div>';
+            const cats = ['standaard', 'crypto', 'crypto-testnet', 'trinity', 'shockwave', 'onbekend'];
+            html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;">';
+            for (const c of cats) {
+                const rows = g[c] || []; const [col, lab] = catMeta[c] || ['#8b95a5', c];
+                html += '<div style="border:1px solid ' + col + '33;border-radius:7px;padding:7px 9px;background:rgba(8,16,22,0.5);">' +
+                    '<div style="font-size:0.58rem;color:' + col + ';font-weight:700;letter-spacing:0.04em;margin-bottom:4px;">' + lab + ' <span style="color:var(--dim);font-weight:400;">' + rows.length + '</span></div>';
+                if (!rows.length) html += '<div style="font-size:0.54rem;color:var(--dimmer);">—</div>';
+                else html += rows.slice(0, 12).map(r => '<div style="font-size:0.54rem;color:#9fb2c4;display:flex;justify-content:space-between;gap:6px;padding:1px 0;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + r.host + '</span><span style="color:var(--dim);white-space:nowrap;">×' + r.count + ' · ' + tm(r.lastTs) + '</span></div>').join('');
+                html += '</div>';
+            }
+            html += '</div>';
+            el.innerHTML = html;
+        } catch (e) {}
+    },
+    init() { this.wrap(); try { setInterval(() => { try { const h = document.getElementById('conn-ip-feed'); if (h && h.offsetParent !== null) this.render(); } catch (e) {} }, 4000); } catch (e) {} }
+};
+window.OsirisConn = OsirisConn;
+try { OsirisConn.wrap(); if (document.readyState !== 'loading') OsirisConn.init(); else document.addEventListener('DOMContentLoaded', () => OsirisConn.init()); } catch (e) {}
 
 // Live grootte-schatting van elke categorie (voor de UI-badges op de Downloads-tab).
 function osirisExportSizes() {
