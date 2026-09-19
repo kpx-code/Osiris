@@ -20475,6 +20475,7 @@ function tick(){
   try{ if(typeof _trinityToolsTick==='function') _trinityToolsTick(); }catch(e){}   // regime-HMM observe + LLM sentiment-scan
   try{ if(typeof TrinityShockWave!=='undefined') TrinityShockWave.tick(); }catch(e){}  // ShockWave contagion: detecteer schokken + resolve voorspellingen
   try{ if(typeof OsirisCausalChain!=='undefined') OsirisCausalChain.tick(); }catch(e){}  // causale keten: lead-lag zelfcorrectie (adaptief)
+  try{ if(typeof OsirisZonePulse!=='undefined') OsirisZonePulse.tick(); }catch(e){}    // zone-pulse: omslag-detectie + predicted-vs-actual shadow (adaptief)
   try{ if(typeof OsirisCryptoRisk!=='undefined') OsirisCryptoRisk.tick(); }catch(e){}  // ShockWave→Neo crypto-risk shadow-backtest (record/resolve)
   try{ TrinityFeeds.markOk('engine', feed.mode==='live'&&feed.ok ? 'live-prijzen actief' : 'sim-tick actief'); }catch(e){}
   manageTrinity();
@@ -23359,7 +23360,7 @@ const TrinityGSD = {
   globalRisk(){ return { regime:this.regime, stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, vfm:this.vfm, kill:this.killSwitch }; },
   bundle(){ return { zones:GSD_ZONES.map(z=>({key:z.key,name:z.name,ccy:z.ccy})), categories:GSD_CATS.map(c=>({key:c.key,name:c.name,src:c.src,direct:c.direct})),
     live:{ stress:this.stress, sysVar:this.sysVar, nodeTh:this.nodeTh, spanT:this.spanT, crisT:this.crisT, vfm:this.vfm, escapeVel:this.escapeVel, regime:this.regime, tippingRisk:this.tippingRisk, tippingTier:this.tippingTier, killSwitch:this.killSwitch, calibrated:this.calibrated },
-    zoneStress:this.zoneStress, zoneConfidence:this.zoneConf, catStress:this.catStress, cells:this.cells, ranking:this.ranking, oceanLevel:(typeof osirisOceanLevel==='function'?osirisOceanLevel():null), floodWatch:(typeof OsirisFloodWatch!=='undefined'?OsirisFloodWatch.bundle():null), zoneWatch:(typeof OsirisZoneWatch!=='undefined'?OsirisZoneWatch.bundle():null), causalChain:(typeof OsirisCausalChain!=='undefined'?OsirisCausalChain.bundle():null), predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
+    zoneStress:this.zoneStress, zoneConfidence:this.zoneConf, catStress:this.catStress, cells:this.cells, ranking:this.ranking, oceanLevel:(typeof osirisOceanLevel==='function'?osirisOceanLevel():null), floodWatch:(typeof OsirisFloodWatch!=='undefined'?OsirisFloodWatch.bundle():null), zoneWatch:(typeof OsirisZoneWatch!=='undefined'?OsirisZoneWatch.bundle():null), zonePulse:(typeof OsirisZonePulse!=='undefined'?OsirisZonePulse.bundle():null), causalChain:(typeof OsirisCausalChain!=='undefined'?OsirisCausalChain.bundle():null), predictions:this.predictions, predictorScore:this.predStats, killProjection:this.killProjection, killProjectionRevisions:this.killProjHistory, killProjectionScore:this.killProjScore,
     calibration:this._cal, shadow:this._shadow, histCal:this.histCal, historicalBackfill:(typeof TrinityGSDBackfill!=='undefined'?TrinityGSDBackfill.bundle():null), proxy:this.proxy?'(ingesteld)':'(geen)', tamAnchor:new Date(this.anchorTs).toISOString(),
     note:'FSO-GSD applies the UOTAM/TAM model to world zones. Node threshold is data-driven calibrated (not a fixed 0.20). Browser-direct free sources + optional proxy for GDELT/FRED/ACLED. No keys/passwords in the export.' }; }
 };
@@ -24402,13 +24403,13 @@ const OsirisZoneWatch = {
   // reconstrueer een per-zone reeks uit een globale reeks (monthly of daily) — schaalt naar het zone-profiel
   _recon(zk, G){ if(!G||!G.length) return []; const zrel=this._zrel(zk); const spanT=(TrinityGSD.spanT||0.24);
     return G.map((p,i)=>{ const seed=this._hash(zk,i); const amp=zrel*(0.85+0.3*seed);
-      const s=Math.max(0,Math.min(1,(p.s||0)*amp)); const vfm=Math.max(0,Math.min(1,(p.vfm||0)*(0.7+0.6*zrel)*(0.8+0.4*seed)));
+      const s=Math.max(0,Math.min(1,(p.s||0)*amp)); const vfm=Math.max(0,(p.vfm||0)*(0.7+0.6*zrel)*(0.8+0.4*seed));   // VFM mag boven 1.0 uitkomen (opgeslagen energie); chart autosc024
       const kill=!!p.kill && s>spanT;   // de crisis 'raakte' deze zone alleen als de zone-stress opliep
       return { t:p.t, s:+s.toFixed(4), v:p.v, vfm:+vfm.toFixed(4), comp:p.comp, kill, recon:true }; }); },
   // synthetiseer de UOTAM-lagen (σ²/VFM/compressie/kill) uit een pure stress-reeks (voor daily/live die die velden missen)
   _synthUOTAM(rows){ try{ const nodeTh=TrinityGSD.nodeTh||0.05, crisT=TrinityGSD.crisT||0.32; let vfm=0; const win=6;
     return rows.map((p,i)=>{ const a=rows.slice(Math.max(0,i-win),i+1).map(r=>r.s); const m=a.reduce((x,y)=>x+y,0)/a.length; const varr=a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length; const v=Math.sqrt(varr);
-      const comp=v<=nodeTh; const rising=i>0 && p.s>rows[i-1].s; vfm=Math.max(0,Math.min(1, vfm + (comp&&rising?0.05:comp?0.02:-0.03)));
+      const comp=v<=nodeTh; const rising=i>0 && p.s>rows[i-1].s; vfm=Math.max(0,Math.min(1.6, vfm + (comp&&rising?0.05:comp?0.02:-0.03)));
       const kill = i>0 && rows[i-1].s<=crisT && p.s>crisT; if(kill) vfm=Math.max(0,vfm*0.35);
       return { t:p.t, s:p.s, v:+v.toFixed(4), vfm:+vfm.toFixed(4), comp, kill, recon:p.recon, live:p.live }; }); }catch(e){ return rows; } },
   _liveZone(zk){ try{ const snaps=(typeof GSD_TM!=='undefined'&&GSD_TM.snaps)||[]; const nodeTh=TrinityGSD.nodeTh||0.05, spanT=TrinityGSD.spanT||0.24;
@@ -24438,9 +24439,15 @@ function drawZoneWatchChart(){
   const ser=OsirisZoneWatch.series(zk,period); const mm=ser.rows;
   const r=cv.getBoundingClientRect(); if(r.width<10)return; if(cv.width!==Math.round(r.width*2)){ cv.width=r.width*2; cv.height=r.height*2; }
   const ctx=cv.getContext('2d'); ctx.setTransform(2,0,0,2,0,0); const W=r.width,H=r.height; ctx.clearRect(0,0,W,H);
-  const padL=40,padR=20,padT=26,padB=24; const yS=v=>padT+(1-Math.max(0,Math.min(1,v)))*(H-padT-padB);
-  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1; [0,0.25,0.5,0.75,1].forEach(v=>{ ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); });
-  ctx.fillStyle='#8398ac'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; [0,0.25,0.5,0.75,1].forEach(v=>ctx.fillText(v.toFixed(2),padL-5,yS(v)+3));
+  const padL=40,padR=20,padT=26,padB=24;
+  // AUTOSCALE: de y-as loopt tot boven de hoogste VFM-piek (opgeslagen energie kan boven 1.0 uitkomen), zodat
+  // de héle chart zichtbaar is i.p.v. bij 1.0 af te kappen. Stress/drempels (0–1) zitten in de onderste band.
+  let vmax=1.0; (ser.rows||[]).forEach(p=>{ if((p.vfm||0)>vmax)vmax=p.vfm; }); const yMax=Math.min(2.4,Math.max(1.05,vmax*1.08));
+  const yS=v=>padT+(1-Math.max(0,Math.min(yMax,v))/yMax)*(H-padT-padB);
+  const gl=[0,0.25,0.5,0.75,1.0]; if(yMax>1.25)gl.push(+((Math.round(yMax*20)/20).toFixed(2)));
+  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1; gl.forEach(v=>{ ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); });
+  ctx.fillStyle='#8398ac'; ctx.font="9px 'JetBrains Mono',monospace"; ctx.textAlign='right'; gl.forEach(v=>ctx.fillText(v.toFixed(2),padL-5,yS(v)+3));
+  if(yMax>1.05){ ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(padL,yS(1.0)); ctx.lineTo(W-padR,yS(1.0)); ctx.stroke(); ctx.setLineDash([]); }
   const zcol=(z&&z.col)||'#7fd8ff', zname=(z&&z.name)||zk;
   if(mm.length<3){ ctx.fillStyle='#5c7488'; ctx.font="12px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText('gathering / run “Calibrate from history” for the deep series…',W/2,H/2);
     ctx.textAlign='left'; ctx.fillStyle=zcol; ctx.font="bold 11px 'Orbitron','JetBrains Mono',monospace"; ctx.fillText('ZONE WATCH · '+zname+' · '+period,padL+2,padT-9); return; }
@@ -24452,6 +24459,10 @@ function drawZoneWatchChart(){
   [['1998',1998,8],['dotcom',2001,8],['GFC 2008',2008,9],['euro 2011',2011,8],['COVID',2020,2],['2022',2022,5]].forEach(([lab,y,mo])=>{ const tt=Date.UTC(y,mo-1,1); if(tt<t0||tt>t1)return; const px=x(tt); ctx.strokeStyle='rgba(199,146,234,0.28)'; ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(px,padT); ctx.lineTo(px,H-padB); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle='rgba(199,146,234,0.8)'; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillText(lab,px,padT-3); });
   [[th.crisT,'rgba(255,79,109,0.75)','CRISIS'],[th.spanT,'rgba(255,182,39,0.7)','TENSION']].forEach(([v,col,l])=>{ ctx.strokeStyle=col; ctx.lineWidth=1; ctx.setLineDash([6,5]); ctx.beginPath(); ctx.moveTo(padL,yS(v)); ctx.lineTo(W-padR,yS(v)); ctx.stroke(); ctx.setLineDash([]); ctx.fillStyle=col; ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='right'; ctx.fillText(l,W-padR-3,yS(v)-2); });
   ctx.save(); ctx.shadowColor='rgba(127,216,255,0.4)'; ctx.shadowBlur=4; ctx.strokeStyle=zcol; ctx.lineWidth=1.8; ctx.beginPath(); mm.forEach((p,i)=>{ const px=x(p.t),py=yS(p.s); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke(); ctx.restore();
+  // TURN/CLIMAX marker: hoogste VFM-energiepunt (waar de daling/ontlading begint) — autonome omslag-detectie
+  try{ let pi=0,pv=-1; mm.forEach((p,i)=>{ if((p.vfm||0)>pv){pv=p.vfm;pi=i;} }); if(pv>=0.45){ const px=x(mm[pi].t), py=yS(pv);
+    ctx.fillStyle='#ff8a3c'; ctx.beginPath(); ctx.moveTo(px,py-9); ctx.lineTo(px-5,py-17); ctx.lineTo(px+5,py-17); ctx.closePath(); ctx.fill();
+    ctx.font="8px 'JetBrains Mono',monospace"; ctx.textAlign='center'; ctx.fillStyle='#ffb056'; ctx.fillText('climax / turn',px,py-20); } }catch(e){}
   // time axis
   ctx.fillStyle='#6d8296'; ctx.font="8.5px 'JetBrains Mono',monospace"; const ticks=6; for(let i=0;i<=ticks;i++){ const tt=t0+i/ticks*span; ctx.textAlign=i===0?'left':i===ticks?'right':'center'; const d=new Date(tt); const lab= span>3*365*864e5? String(d.getUTCFullYear()) : (d.getUTCDate()+'/'+(d.getUTCMonth()+1)); ctx.fillText(lab,x(tt),H-6); }
   const kills=mm.filter(p=>p.kill).length;
@@ -24478,10 +24489,99 @@ function renderZoneWatch(){ try{
   try{ (typeof GSD_ZONES!=='undefined'?GSD_ZONES:[]).forEach(z=>{ const b=document.getElementById('zwz-'+z.key); if(b) b.style.background=(z.key===__zwZone)?'rgba(255,255,255,0.12)':''; }); }catch(e){}
   try{ ZONEWATCH_PERIODS.forEach(p=>{ const b=document.getElementById('zwp-'+p[0]); if(b){ b.style.background=(p[0]===__zwPeriod)?'rgba(20,241,149,0.16)':''; b.style.color=(p[0]===__zwPeriod)?'#14f195':''; } }); }catch(e){}
   drawZoneWatchChart();
+  try{ _renderZonePulse(); }catch(e){}
 }catch(e){} }
+function _renderZonePulse(){ const el=document.getElementById('zonewatch-pulse'); if(!el||typeof OsirisZonePulse==='undefined') return;
+  const zk=__zwZone; const z=(typeof GSD_ZONES!=='undefined')?GSD_ZONES.find(x=>x.key===zk):null; const zname=(z&&z.name)||zk; const zcol=(z&&z.col)||'#7fd8ff';
+  const DD='var(--dimmer)',D='var(--dim)';
+  const SC={COMPRESSION:'#ffd24a',EXPANSION:'#7fd8ff',CLIMAX:'#ff8a3c',DISCHARGE:'#ff4f6d',RELEASE:'#ff2d55',NEUTRAL:'#6d8296'};
+  const st=OsirisZonePulse.stateOf(zk); const bt=OsirisZonePulse.backtest(zk); const ss=OsirisZonePulse.shadow;
+  const scol=SC[st.state]||'#6d8296';
+  let h='';
+  // current pulse state
+  h+='<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:baseline;margin-bottom:5px;">';
+  h+='<span style="font-size:0.5rem;letter-spacing:0.1em;color:'+DD+';text-transform:uppercase;">⚡ zone pulse · '+zname+'</span>';
+  h+='<span style="font-size:0.72rem;font-weight:700;color:'+scol+';">'+st.state+'</span>';
+  h+='<span style="font-size:0.54rem;color:'+DD+';">energy <b style="color:var(--tx)">'+(st.energy!=null?st.energy.toFixed(2):'—')+'</b> · slope '+(st.slope>=0?'+':'')+st.slope+' · peak '+(st.peakVal||0).toFixed(2)+(st.sincePeakH!=null?' ('+(st.sincePeakH<48?Math.round(st.sincePeakH)+'h':Math.round(st.sincePeakH/24)+'d')+' ago)':'')+'</span>';
+  h+='</div>';
+  h+='<div style="font-size:0.46rem;color:'+DD+';margin-bottom:6px;line-height:1.5;">Autonomous turn detection: stored energy climbs (COMPRESSION/EXPANSION), tops out (<b style="color:#ff8a3c">CLIMAX</b> = highest point) and then releases (<b style="color:#ff4f6d">DISCHARGE</b>) — the moment the decline begins. Same mechanic as the crypto ΔV kill-switch, applied to the zone.</div>';
+  // per-category states
+  h+='<div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:7px;">';
+  ZONE_PULSE_CATS.forEach(c=>{ const cs=OsirisZonePulse.catStateOf(zk,c.key); const cc=SC[cs.state]||'#6d8296';
+    h+='<span style="font-size:0.5rem;border:1px solid '+c.col+';border-radius:6px;padding:2px 8px;"><span style="color:'+c.col+';">'+c.label+'</span> <b style="color:'+cc+';">'+cs.state+'</b> <span style="color:'+DD+';">'+(cs.energy!=null?cs.energy.toFixed(2):'')+'</span></span>'; });
+  h+='</div>';
+  // ETA predicted vs actual (live shadow) + historical backtest
+  h+='<div style="font-size:0.56rem;letter-spacing:0.08em;color:#c792ea;text-transform:uppercase;margin:5px 0 3px;">▸ Predicted vs actual · ΔV turn</div>';
+  const hr=ss.n?Math.round(ss.hit/ss.n*100):null; const mae=ss.n?(ss.absErrH/ss.n).toFixed(1):null;
+  h+='<div style="font-size:0.5rem;color:'+DD+';">live shadow: '+(ss.n?('resolved '+ss.n+' · on-time (±72h) <b style="color:'+(hr>=50?'#14f195':'#ffb627')+'">'+hr+'%</b> · mean error <b>'+mae+'h</b>'):'accumulating — logs each predicted ETA vs the actual detected turn')+'</div>';
+  h+='<div style="font-size:0.5rem;color:'+DD+';margin-top:2px;">backtest ('+zname+', 36y reconstructed): '+(bt.kills||0)+' kill-triggers · '+(bt.detected||0)+' climax-turns detected · lead-hit <b style="color:'+((bt.hitRate||0)>=0.5?'#14f195':'#ffb627')+'">'+(bt.hitRate!=null?Math.round(bt.hitRate*100)+'%':'—')+'</b>'+(bt.meanLeadD!=null?' · mean lead '+bt.meanLeadD+'d before the crisis':'')+'</div>';
+  el.innerHTML=h;
+}
 window.__zwSetZone=function(zk){ __zwZone=zk; try{ renderZoneWatch(); }catch(e){} };
 window.__zwSetPeriod=function(p){ __zwPeriod=p; try{ renderZoneWatch(); }catch(e){} };
 window.renderZoneWatch=renderZoneWatch;
+
+// ==================================================================================
+// OSIRIS · ZONE PULSE — autonomous energy-state machine PER ZONE and PER CATEGORY
+// (financial / conflict / disaster stress). Detects the turn at the HIGHEST point: the stored
+// energy (VFM) climaxes and starts discharging — the same idea as the crypto ΔV kill-switch states
+// (compression → expansion → climax → discharge → release / neutral). Runs autonomously on live +
+// reconstructed history, keeps a shadow-backtest of PREDICTED ETA (from the kill-projection) vs the
+// ACTUAL detected turn, and adapts a per-zone timing bias. All data-true; no official warnings.
+// ==================================================================================
+const ZONE_PULSE_CATS=[
+  {key:'financial',label:'financial',col:'#ff6ec7',cats:{finstress:1.1,market:1.0,econ:1.0,cb:0.8,housing:0.7}},
+  {key:'conflict', label:'conflict', col:'#ff4f6d',cats:{conflict:1.1,geo:0.9}},
+  {key:'disaster', label:'disaster', col:'#ffb627',cats:{disaster:1.1,weather:0.8}},
+];
+const OsirisZonePulse = {
+  hist:[], _last:0, preds:[], shadow:{n:0,hit:0,absErrH:0}, bias:{}, _lastState:{},
+  _comp(zk,cats){ try{ const cc=TrinityGSD.cells[zk]; if(!cc)return 0; let s=0,w=0; for(const k in cats){ const v=(cc[k]&&cc[k].v!=null)?cc[k].v:0; s+=v*cats[k]; w+=cats[k]; } return w?s/w:0; }catch(e){ return 0; } },
+  // classificeer een energie-reeks → toestand + piek/omslag-detectie (hoogste punt → start van de daling)
+  _classify(rows){ const n=rows.length; if(n<3) return {state:'NEUTRAL',energy:(rows[n-1]&&rows[n-1].e)||0,slope:0,peakTs:0,peakVal:0,sincePeakH:null,dropped:0};
+    const e=rows.map(r=>r.e||0); const cur=e[n-1],prev=e[n-2]; const slope=cur-prev;
+    let peakIdx=0,peakVal=-1; for(let i=0;i<n;i++){ if(e[i]>peakVal){peakVal=e[i];peakIdx=i;} }
+    const dropped=peakVal>0?(peakVal-cur)/peakVal:0; const peakTs=rows[peakIdx].t; const sincePeakH=(rows[n-1].t-peakTs)/3600e3;
+    let state='NEUTRAL';
+    if(rows[n-1].kill) state='RELEASE';
+    else if(peakIdx===n-1 && peakVal>=0.5) state='CLIMAX';
+    else if(dropped>=0.12 && peakVal>=0.4 && slope<0) state='DISCHARGE';
+    else if(slope>0.02) state='EXPANSION';
+    else if(slope>=-0.005 && cur>=0.4) state='COMPRESSION';
+    else state='NEUTRAL';
+    return {state,energy:+cur.toFixed(3),slope:+slope.toFixed(3),peakVal:+peakVal.toFixed(3),peakTs,sincePeakH:+sincePeakH.toFixed(1),dropped:+dropped.toFixed(2)}; },
+  _zEnergy(zk){ try{ const s=OsirisZoneWatch.series(zk,'quarter'); let rows=(s.rows||[]); if(rows.length<6){ rows=(OsirisZoneWatch.series(zk,'year').rows||[]); } return rows.map(r=>({t:r.t,e:r.vfm||0,s:r.s,kill:r.kill})); }catch(e){ return []; } },
+  stateOf(zk){ return this._classify(this._zEnergy(zk)); },
+  catStateOf(zk,ckey){ try{ const rows=this.hist.filter(sn=>sn.z&&sn.z[zk]).map(sn=>({t:sn.t,e:sn.z[zk][ckey]||0})); if(rows.length<3){ const cur=this._comp(zk,(ZONE_PULSE_CATS.find(c=>c.key===ckey)||{}).cats||{}); return {state:'NEUTRAL',energy:+cur.toFixed(2),slope:0}; } return this._classify(rows); }catch(e){ return {state:'NEUTRAL',energy:0,slope:0}; } },
+  tick(){ try{ const now=Date.now(); if(now-this._last<60000)return; this._last=now;
+    const zk=GSD_ZONES.filter(z=>!z.synthetic&&z.key!=='global').map(z=>z.key);
+    const snap={t:now,z:{}}; zk.forEach(z=>{ const rec={stress:(TrinityGSD.zoneStress&&TrinityGSD.zoneStress[z])||0}; ZONE_PULSE_CATS.forEach(c=>rec[c.key]=this._comp(z,c.cats)); snap.z[z]=rec; }); this.hist.push(snap); if(this.hist.length>1440)this.hist.shift();
+    // log de voorspelde ETA per zone (uit de kill-projectie) als open prediction
+    try{ (TrinityGSD.killProjection||[]).filter(p=>p.key==='week').forEach(kp=>{ const zn=(GSD_ZONES.find(x=>x.name===kp.zone)||{}).key; if(!zn)return; const open=this.preds.filter(p=>p.zone===zn&&!p.resolved); const last=open[open.length-1]; if(!last||now-last.made>6*3600e3){ this.preds.push({zone:zn,made:now,eta:kp.eta,resolved:false}); if(this.preds.length>500)this.preds.shift(); } }); }catch(e){}
+    // detecteer live omslag (→ DISCHARGE) per zone → resolve de dichtstbijzijnde open prediction (predicted vs actual)
+    zk.forEach(z=>{ const st=this.stateOf(z); const prev=this._lastState[z]; this._lastState[z]=st.state;
+      if((st.state==='DISCHARGE'||st.state==='RELEASE') && prev && prev!=='DISCHARGE' && prev!=='RELEASE'){
+        const open=this.preds.filter(p=>p.zone===z&&!p.resolved).sort((a,b)=>b.made-a.made)[0];
+        if(open){ const errH=(open.eta-now)/3600e3; open.resolved=true; open.actual=now; open.errH=+errH.toFixed(1);
+          this.shadow.n++; this.shadow.absErrH+=Math.abs(errH); if(Math.abs(errH)<=72)this.shadow.hit++;
+          const b=this.bias[z]||{e:0,n:0}; b.e=b.e*0.7+errH*0.3; b.n++; this.bias[z]=b; }
+      } });
+    try{ localStorage.setItem('osirisZonePulse',JSON.stringify({shadow:this.shadow,bias:this.bias,preds:this.preds.slice(-120)})); }catch(e){}
+  }catch(e){} },
+  // BACKTEST op de (gereconstrueerde) historie: detecteer omslagen en meet hoe goed een climax een kill vóórspelt
+  backtest(zk){ try{ const rows=(OsirisZoneWatch.series(zk,'all').rows||[]).map(r=>({t:r.t,e:r.vfm||0,kill:r.kill,s:r.s}));
+    if(rows.length<12) return {kills:0,detected:0,hitRate:null,meanLeadD:null};
+    // vind climax-punten (lokale energie-maxima boven drempel)
+    const climax=[]; for(let i=2;i<rows.length-2;i++){ const e=rows[i].e; if(e>=0.5 && e>rows[i-1].e && e>=rows[i+1].e && e>rows[i-2].e) climax.push(rows[i].t); }
+    const kills=rows.filter(r=>r.kill); let hit=0,leadSum=0,ln=0;
+    kills.forEach(k=>{ const c=climax.filter(t=>t<=k.t && k.t-t<=90*864e5).sort((a,b)=>b-a)[0]; if(c!=null){ hit++; leadSum+=(k.t-c)/864e5; ln++; } });
+    return { kills:kills.length, detected:climax.length, hitRate:kills.length?+(hit/kills.length).toFixed(2):null, meanLeadD:ln?Math.round(leadSum/ln):null }; }catch(e){ return {kills:0,detected:0,hitRate:null,meanLeadD:null}; } },
+  bundle(){ try{ const out={}; GSD_ZONES.filter(z=>!z.synthetic&&z.key!=='global').forEach(z=>{ const st=this.stateOf(z.key); out[z.key]={ state:st.state, energy:st.energy, cats:Object.fromEntries(ZONE_PULSE_CATS.map(c=>[c.key,this.catStateOf(z.key,c.key).state])), backtest:this.backtest(z.key), etaBiasH:this.bias[z.key]?+this.bias[z.key].e.toFixed(1):0 }; });
+    return { states:['COMPRESSION','EXPANSION','CLIMAX','DISCHARGE','RELEASE','NEUTRAL'], shadow:{n:this.shadow.n,hitRate:this.shadow.n?+(this.shadow.hit/this.shadow.n).toFixed(2):null,meanAbsErrH:this.shadow.n?+(this.shadow.absErrH/this.shadow.n).toFixed(1):null}, perZone:out,
+      note:'Autonomous per-zone/per-category energy-state machine (compression→climax→discharge). Turn = highest-energy point where discharge begins. Shadow-backtest: predicted ETA (kill-projection) vs actual detected turn, adaptive per-zone bias.' }; }catch(e){ return null; } }
+};
+try{ const s=JSON.parse(localStorage.getItem('osirisZonePulse')||'null'); if(s){ OsirisZonePulse.shadow=s.shadow||OsirisZonePulse.shadow; OsirisZonePulse.bias=s.bias||{}; OsirisZonePulse.preds=s.preds||[]; } }catch(e){}
+try{ window.OsirisZonePulse=OsirisZonePulse; }catch(e){}
 
 const GSD_FEEDS=[['gsd-usgs','USGS earthquakes','direct'],['gsd-eonet','NASA EONET','direct'],['gsd-gdacs','GDACS multi-hazard','direct'],['gsd-weather','Open-Meteo weather','direct'],['gsd-worldbank','World Bank macro','direct'],['gsd-space','NOAA SWPC space weather','direct'],['gsd-commod','Commodities · FRED (WTI/Brent/gas/wheat/gold)','proxy'],['gsd-btc','BTC cross-asset · Coinbase','direct'],['gsd-enso','NOAA ONI · El Niño/La Niña','proxy'],['gsd-conflicts','Conflicts (curated + live scoring)','embedded'],['gsd-migration','Migration corridors (curated)','embedded'],['gsd-flashpoints','Economic flashpoints (live-scored)','embedded'],['gsd-capflow','Capital flow · IMF BoP (real USD)','proxy'],['gsd-tic','US Treasury TIC · foreign UST (FRED)','proxy'],['gsd-z1','Fed Z.1 · debt-service (FRED)','proxy'],['gsd-bis','BIS credit-to-GDP gap','proxy'],['gsd-portwatch','IMF PortWatch chokepoints','proxy'],['gsd-gdelt','GDELT geopolitics/tone','proxy'],['gsd-fred','FRED financial conditions','proxy'],['gsd-ecb','ECB systemic stress (CISS)','proxy'],['gsd-acled','ACLED conflicts','proxy']];
 function renderGSD(){
@@ -27645,15 +27745,34 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
         const driver = rainSig>=coastal ? 'heavy rain' : 'coastal surge (ENSO)';
         // kans: risico getemperd door lead-tijd (verder weg = onzekerder)
         const leadD = etaMs? Math.max(0,(etaMs-Date.now())/864e5):999; const leadFac = etaMs? _clampF(0.4,1, 1-leadD/120):0.4;
-        const prob = Math.round(_clampF(0,1, floodRisk*leadFac)*100);
-        return {...w, rainSig:+rainSig.toFixed(2), coastal:+coastal.toFixed(2), ensoMM, floodRisk:+floodRisk.toFixed(2), etaMs, etaKind, driver, prob};
+        // MODEL-LIKELIHOOD (geen gekalibreerde zekerheid): zachte plafond via een verzadigingscurve, zodat de
+        // score nooit 100% claimt op basis van een forecast. 100% is gereserveerd voor een WAARGENOMEN/officieel
+        // gemelde overstroming — die Osiris niet inleest. Zo leest 245mm-regen als 'zeer hoog risico', niet 'zeker'.
+        const raw = floodRisk*leadFac; const prob = Math.round(90*(1-Math.exp(-2.3*raw)));   // 0 → 0%, hoog → ~85-89%, asymptotisch < 90%
+        const floodNow = (w.rain7>=80 || w.streak>=3 || this._activeFloodNear(w));
+        return {...w, rainSig:+rainSig.toFixed(2), coastal:+coastal.toFixed(2), ensoMM, floodRisk:+floodRisk.toFixed(2), etaMs, etaKind, driver, prob, floodNow};
       }); },
+    // ── PREDICTED-vs-ACTUAL shadow: log de voorspelde flood-ETA, resolve zodra een flood-conditie WERKELIJK
+    //    optreedt (rain≥80mm/7d of ≥3d streak, of een live flood-event uit de disaster-feed nabij) → timing-fout ──
+    preds:[], shadow:{n:0,hit:0,absErrH:0}, _shadowAt:0,
+    _activeFloodNear(w){ try{ if(typeof M==='undefined'||!M.events)return false; return M.events.some(e=>/flood/i.test((e.cat||'')+(e.title||''))&&Math.hypot(e.lat-w.lat,(e.lon-w.lon)*Math.cos(w.lat*Math.PI/180))*111<250); }catch(e){ return false; } },
+    _shadow(list){ try{ const now=Date.now();
+      list.forEach(w=>{
+        if(w.etaMs && w.floodRisk>=0.4){ const open=this.preds.filter(p=>p.area===w.name&&!p.resolved); const last=open[open.length-1]; if(!last||now-last.made>12*3600e3) this.preds.push({area:w.name,made:now,eta:w.etaMs,resolved:false}); }
+        if(w.floodNow){ const open=this.preds.filter(p=>p.area===w.name&&!p.resolved).sort((a,b)=>b.made-a.made)[0]; if(open && now-open.made>3600e3){ const errH=(open.eta-now)/3600e3; open.resolved=true; open.actual=now; open.errH=+errH.toFixed(1); this.shadow.n++; this.shadow.absErrH+=Math.abs(errH); if(Math.abs(errH)<=72)this.shadow.hit++; } }
+      });
+      if(this.preds.length>500)this.preds=this.preds.slice(-500);
+      if(now-this._shadowAt>3600e3){ this._shadowAt=now; try{ localStorage.setItem('osirisFloodShadow',JSON.stringify({shadow:this.shadow,preds:this.preds.slice(-120)})); }catch(e){} }
+    }catch(e){} },
+    shadowSummary(){ const s=this.shadow; const recent=this.preds.filter(p=>p.resolved).slice(-6).reverse().map(p=>({area:p.area,errH:p.errH,eta:p.eta,actual:p.actual})); return { n:s.n, hitRate:s.n?+(s.hit/s.n).toFixed(2):null, meanAbsErrH:s.n?+(s.absErrH/s.n).toFixed(1):null, recent }; },
     bundle(){ try{ const c=this.compute(); return { updatedAt:this._at, oni:(typeof osirisOceanLevel==='function'?osirisOceanLevel().oni:null),
       heavyRain:c.slice().sort((a,b)=>b.rain7-a.rain7).slice(0,8).map(x=>({area:x.name,rain7mm:x.rain7,streakDays:x.streak,rainEta:x.rainEtaMs||null})),
-      floodRisk:c.slice().sort((a,b)=>b.floodRisk-a.floodRisk).slice(0,10).map(x=>({area:x.name,risk:x.floodRisk,prob:x.prob,eta:x.etaMs||null,driver:x.driver,vuln:x.vuln})),
-      note:'Model-gebaseerde vroegsignalering (GEEN officiële waarschuwing). Regen = live Open-Meteo 10d-forecast; kust = ENSO-zeespiegel; kwetsbaarheid = curated drainage-factor.' }; }catch(e){ return null; } }
+      floodRisk:c.slice().sort((a,b)=>b.prob-a.prob).slice(0,14).map(x=>({area:x.name,risk:x.floodRisk,prob:x.prob,eta:x.etaMs||null,driver:x.driver,vuln:x.vuln,floodNow:x.floodNow})),
+      etaShadow:this.shadowSummary(),
+      note:'Model-based early signal (NOT an official warning). Rain = live Open-Meteo 10d forecast; coast = ENSO sea level; vulnerability = curated drainage factor. chance is a likelihood index (<90%), not a certainty.' }; }catch(e){ return null; } }
   };
   function _clampF(lo,hi,v){ return v<lo?lo:v>hi?hi:v; }
+  try{ const fs=JSON.parse(localStorage.getItem('osirisFloodShadow')||'null'); if(fs){ OsirisFloodWatch.shadow=fs.shadow||OsirisFloodWatch.shadow; OsirisFloodWatch.preds=fs.preds||[]; } }catch(e){}
   try{ window.OsirisFloodWatch=OsirisFloodWatch; }catch(e){}
   // ---- map-highlight: cyaan pulserende ring bij overstromings-risico (los van de oranje ground-zero) ----
   function _drawFloodWatch(iz){ try{ const ctx=M.ctx; const c=OsirisFloodWatch.compute(); const now=Date.now();
@@ -27668,7 +27787,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   }catch(e){} }
   function renderFloodWatch(){ const el=document.getElementById('gsd-flood'); if(!el)return;
     try{ OsirisFloodWatch._fetch(); }catch(e){}
-    const c=OsirisFloodWatch.compute(); const o=(typeof osirisOceanLevel==='function')?osirisOceanLevel():{oni:null,phase:''};
+    const c=OsirisFloodWatch.compute(); try{ OsirisFloodWatch._shadow(c); }catch(e){} const o=(typeof osirisOceanLevel==='function')?osirisOceanLevel():{oni:null,phase:''};
     const D='var(--dim)',DD='var(--dimmer)',BL='#4fc3f7';
     if(!c.length){ el.innerHTML='<div class="mono" style="font-size:0.56rem;color:'+DD+';">Flood-watch loading&hellip; (Open-Meteo 10-day precipitation forecast)</div>'; return; }
     const when=OsirisFloodWatch._at?new Date(OsirisFloodWatch._at).toLocaleTimeString('en-GB'):'—';
@@ -27682,7 +27801,15 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     h+='<div style="display:flex;gap:6px;font-size:0.46rem;color:'+DD+';text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px;"><span style="flex:1 1 auto;">city / coast</span><span style="flex:0 0 44px;text-align:right;">chance</span><span style="flex:0 0 40px;text-align:right;">sev.</span><span style="flex:0 0 62px;text-align:right;">ETA</span><span style="flex:0 0 96px;text-align:right;">driver</span></div>';
     h+= fld.map(x=>{ const rc=x.prob>=60?'#ff5f7e':x.prob>=40?'#ffb627':x.prob>=20?'#4fc3f7':'#6d8296';
       return '<div style="display:flex;gap:6px;font-size:0.54rem;padding:2px 0;align-items:center;"><span style="flex:1 1 auto;color:var(--tx);"><span style="color:'+rc+';">&#9679;</span> '+x.name+'</span><span style="flex:0 0 44px;color:'+rc+';text-align:right;font-weight:700;">'+x.prob+'%</span><span style="flex:0 0 40px;color:'+DD+';text-align:right;">'+(x.floodRisk*100|0)+'%</span><span style="flex:0 0 62px;color:'+DD+';text-align:right;">'+(x.etaMs?_fmtDate(x.etaMs):'—')+'</span><span style="flex:0 0 96px;color:'+DD+';text-align:right;">'+x.driver+'</span></div>'; }).join('');
-    h+='<div style="font-size:0.46rem;color:'+DD+';margin-top:6px;line-height:1.5;"><b>chance</b> = flood probability (severity tempered by lead time) &middot; <b>sev.</b> = severity potential. ETA = next heavy-rain day (near) or El Ni&ntilde;o flood-season peak (coastal, further). The cyan pulsing rings on the map mark these areas.</div>';
+    // PREDICTED vs ACTUAL (shadow-backtest)
+    try{ const ss=OsirisFloodWatch.shadowSummary(); h+='<div style="border-top:1px solid rgba(79,195,247,0.25);margin:7px 0 4px;"></div>';
+      h+='<div style="font-size:0.56rem;letter-spacing:0.08em;color:#c792ea;text-transform:uppercase;margin:4px 0 3px;">&#9656; Predicted vs actual &middot; ETA shadow-backtest</div>';
+      if(ss.n){ h+='<div style="font-size:0.5rem;color:'+DD+';margin-bottom:3px;">resolved '+ss.n+' &middot; on-time (&plusmn;72h) <b style="color:'+(ss.hitRate>=0.5?'#14f195':'#ffb627')+'">'+Math.round((ss.hitRate||0)*100)+'%</b> &middot; mean timing error <b>'+ss.meanAbsErrH+'h</b> (predicted &minus; actual)</div>';
+        h+= ss.recent.map(p=>{ const e=p.errH; const ec=Math.abs(e)<=48?'#14f195':Math.abs(e)<=120?'#ffb627':'#ff5f7e'; const sign=e>0?'early +':e<0?'late ':'on-time ';
+          return '<div style="display:flex;gap:6px;font-size:0.52rem;padding:1px 0;"><span style="flex:1 1 auto;color:var(--tx);">'+p.area+'</span><span style="flex:0 0 90px;color:'+DD+';text-align:right;">pred '+_fmtDate(p.eta)+'</span><span style="flex:0 0 70px;color:'+DD+';text-align:right;">act '+_fmtDate(p.actual)+'</span><span style="flex:0 0 78px;color:'+ec+';text-align:right;font-weight:700;">'+sign+Math.abs(Math.round(e))+'h</span></div>'; }).join('');
+      } else { h+='<div style="font-size:0.5rem;color:'+DD+';">no resolved flood ETAs yet — the model logs each predicted flood ETA and resolves it when a flood condition (rain ≥80mm/7d or a live flood event nearby) actually occurs, then reports the timing error.</div>'; }
+    }catch(e){}
+    h+='<div style="font-size:0.46rem;color:'+DD+';margin-top:6px;line-height:1.5;"><b>chance</b> = model flood-<b>likelihood index</b> (0&ndash;~89), <b>not</b> a calibrated certainty &mdash; it caps below 90% because Osiris forecasts conditions, it does not confirm floods. 100% is reserved for an <b>observed / officially-warned</b> flood, which is not ingested here. <b>sev.</b> = severity potential. ETA = next heavy-rain day (near) or El Ni&ntilde;o flood-season peak (coastal, further). The cyan pulsing rings on the map mark these areas.</div>';
     el.innerHTML=h;
   }
   try{ window.renderFloodWatch=renderFloodWatch; }catch(e){}
