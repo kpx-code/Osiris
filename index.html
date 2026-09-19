@@ -1852,6 +1852,14 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <div id="bot-adaptation"><span style="color:var(--text-dim); font-size:0.85em;">Neo evalueert de engine-instellingen bij start en past ze autonoom aan voor betere winstkansen...</span></div>
       </div>
 
+      <!-- ===================== VERBINDINGEN (IP) · LIVE ===================== -->
+      <div class="rlabel" style="color:#7fd8ff; margin-top:22px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <span>&#9679; Verbindingen (IP) &middot; live &mdash; waarmee dit apparaat in verbinding staat, gecategoriseerd</span>
+        <button type="button" onclick="try{OsirisConn.download()}catch(e){}" class="btn btn-ghost btn-mini" style="color:#7fd8ff; border-color:rgba(127,216,255,0.4); font-size:0.58rem;">&#8681; download IP-lijst</button>
+      </div>
+      <div class="note" style="margin-top:4px;">Registreert &amp; categoriseert alleen &mdash; geen tracering of ontmaskering. Dit apparaat (pc / iPhone 17 Pro = standaard) + de endpoints waar Osiris mee praat: <b style="color:#f7931a;">crypto-testnet</b>, <b style="color:#14f195;">Trinity</b>, <b style="color:#ff8a3c;">ShockWave</b>, <b style="color:#7fd8ff;">standaard/eigen</b>, <b style="color:var(--dim);">onbekend</b>. Een IP dat door de lookup als hosting/VPN/proxy wordt herkend krijgt het label <b style="color:#c792ea;">VPN/proxy</b> &mdash; puur als markering.</div>
+      <div id="conn-ip-feed" style="margin-top:10px;"><span style="color:var(--text-dim); font-size:0.62rem;">Verbindingen laden&hellip;</span></div>
+
       <!-- ============ F + G: LLM-CONTEXT, VERIFICATIE, JOURNAAL, NEXT-STEPS ============ -->
       <div class="rlabel" style="color:#7fd8ff; margin-top:26px;"><span>&#9679; LLM-context &amp; verificatie &mdash; rijkere waarneming, geverifieerd tegen Osiris' eigen tools</span></div>
       <div id="llm-settings" style="margin-top:8px; background:rgba(0,0,0,0.5); border:1px solid rgba(127,216,255,0.22); border-radius:8px; padding:10px 12px;"></div>
@@ -2282,6 +2290,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
 
       <!-- SECURITY / ACCESS LOG -->
+      <!-- IP-LIJST / VERBINDINGEN -->
+      <div class="panel" style="border-color:rgba(127,216,255,0.4); background:rgba(127,216,255,0.04); margin-top:14px;">
+        <div class="plabel" style="color:#7fd8ff; display:flex; justify-content:space-between; align-items:center;"><span>&#127760; IP-lijst / verbindingen &mdash; gecategoriseerd (geen tracering)</span><button class="btn btn-mini" type="button" data-dl="ip_verbindingen" data-dl-label="IP-lijst" onclick="try{OsirisConn.download()}catch(e){}" style="color:#7fd8ff; border-color:rgba(127,216,255,0.5);">&#8681; Download IP-lijst</button></div>
+        <div class="note">Het eigen publieke IP van dit apparaat (pc / iPhone 17 Pro = standaard) met een beschrijvend <b>VPN/proxy</b>-label uit de IP-lookup, plus alle endpoints waarmee het apparaat praat, gecategoriseerd: <b>standaard/eigen</b>, <b>crypto (NEO)</b>, <b>crypto-testnet</b>, <b>Trinity</b>, <b>ShockWave</b>, <b>onbekend</b> (niet-Osiris). Puur registratie + categorisatie &mdash; geen tracering of ontmaskering. Zit ook in "Everything in one file".</div>
+      </div>
+
       <div class="panel" style="border-color:rgba(255,95,126,0.45); background:rgba(255,95,126,0.05); margin-top:14px;">
         <div class="plabel" style="color:#ff8a94; display:flex; justify-content:space-between; align-items:center;"><span>&#128274; Security &amp; access log &mdash; who opens Osiris &amp; what they do</span><button class="btn btn-mini" type="button" data-dl="access_log" data-dl-label="Access log" onclick="downloadAccessLog()" style="color:#ff8a94; border-color:rgba(255,95,126,0.5);">&#8681; Download access log</button></div>
         <div class="note">Logs per device/user: device profile (OS/browser/type/screen/timezone), IP + coarse location (IP-API), precise location (with permission), active engagement time and the click log with <b>sensitive actions flagged</b> (keys, live-trading, wallet reset, exports, margin). Primary store is your <b>Supabase</b> table <code>osiris_access_log</code> (create it once &mdash; the SQL + RLS policy is in the comments of osiris-sync.js). Email is optional and free via a webhook or EmailJS you configure below, or a Supabase trigger you own. <b>Keys are never logged.</b> Visitors are informed on the About page.</div>
@@ -2983,7 +2997,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260913-build134-calib-v2-cortex-crypto-download"></script>
+<script src="app.js?v=20260913-build136-ip-full-list-lastupdated"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
