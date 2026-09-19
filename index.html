@@ -2884,6 +2884,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div id="gsd-ranking"><div class="mono" style="color:var(--dimmer);font-size:0.56rem;">ranking initialising…</div></div>
     </div>
 
+    <div class="secdiv"><h3>Ocean level</h3><span class="sub">— zeespiegel-anomalie per zone · ENSO-herverdeling (Pacific-west ↓ / Amerika ↑) + seculaire stijging</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div id="gsd-ocean"><div class="mono" style="color:var(--dimmer);font-size:0.56rem;">ocean-level model warming up… (wacht op de live ONI-feed van NOAA CPC)</div></div>
+    </div>
+
     <div class="secdiv"><h3>Predictor + shadow</h3><span class="sub">— ΔV breakout · micro/meso/macro · date window + event description</span></div>
     <div class="panel">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
@@ -3016,7 +3022,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260919-build140-groundzero-econ"></script>
+<script src="app.js?v=20260919-build141-ocean-groundzero"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
