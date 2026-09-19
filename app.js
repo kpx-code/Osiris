@@ -601,7 +601,7 @@ async function testTestnetConnection() {
 let walletState = {
     startingCapital: 1000,
     realizedPnL: 0,   // cumulatieve gerealiseerde winst/verlies, in walletState.currency
-    currency: 'EUR',  // de ECHTE rekeneenheid van de wallet - los van displayCurrency (die is puur voor de chart-prijzen)
+    currency: 'USDT',  // standaard USDT (alles in USDT, geen EUR-conversie) - los van displayCurrency (puur chart-labels). Bestaande opgeslagen wallets behouden hun eigen keuze bij het laden.
     wins: 0,
     losses: 0
 };
@@ -2077,7 +2077,7 @@ function startAutonomousBot(isAutoRestart = false) {
             walletState.startingCapital = parseFloat(capitalInput.value);
         }
         const currencyInput = document.getElementById('wallet-currency-select');
-        walletState.currency = ['USD', 'USDT'].includes(currencyInput?.value) ? currencyInput.value : 'EUR';
+        walletState.currency = ['USD', 'USDT', 'EUR'].includes(currencyInput?.value) ? currencyInput.value : 'USDT';
     }
 
     readTradingSettingsFromInputs();
@@ -2511,7 +2511,7 @@ function resetWallet() {
     const capitalInput = document.getElementById('start-capital');
     const newCapital = capitalInput ? parseFloat(capitalInput.value) : 1000;
     const currencyInput = document.getElementById('wallet-currency-select');
-    const newCurrency = ['USD', 'USDT'].includes(currencyInput?.value) ? currencyInput.value : 'EUR';
+    const newCurrency = ['USD', 'USDT', 'EUR'].includes(currencyInput?.value) ? currencyInput.value : 'USDT';
 
     walletState = {
         startingCapital: (!isNaN(newCapital) && newCapital > 0) ? newCapital : 1000,
@@ -2837,8 +2837,38 @@ function updateWalletUI() {
     // Open-posities tabel
     const posBody = document.getElementById('open-positions-body');
     if (posBody) {
-        if (openPositions.length === 0) {
-            posBody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:#888; padding:8px;">Geen open posities</td></tr>`;
+        // MARGIN-posities óók tonen in de hoofd-Open-Posities-tabel (voorheen alleen in de margin-sectie
+        // + Support&Target, waardoor een open margin-short hier ontbrak). Ze krijgen een MARGIN-badge.
+        let marginRows = '';
+        try {
+            if (typeof marginState !== 'undefined' && marginState.positions && marginState.positions.length) {
+                marginRows = marginState.positions.map((mp, mi) => {
+                    const mm = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[mp.sym] : null;
+                    const price = (mm && mm.lastPrice != null) ? mm.lastPrice : mp.entryPrice;
+                    const raw = mp.side === 'SHORT' ? (mp.entryPrice - price) / mp.entryPrice : (price - mp.entryPrice) / mp.entryPrice;
+                    const lev = raw * (mp.leverage || 1);
+                    const sc = mp.side === 'SHORT' ? '#ff8a94' : '#14f195'; const pc = lev >= 0 ? '#00ffcc' : '#ef5350';
+                    const mcol = { BTC: '#f7931a', ETH: '#627eea', SOL: '#14f195' }[mp.sym] || '#c792ea';
+                    const tijd = mp.openTime ? formatFullDateTime(mp.openTime) : '-';
+                    const allocPct = Math.min(100, (mp.marginUSD / (marginEquity() || 1)) * 100);
+                    return `<tr>
+                        <td style="padding:4px; font-size:0.72em; font-weight:bold; white-space:nowrap;"><span style="color:#c792ea;">OSIRIS &middot; MARGIN</span> <span style="color:#ffb627;">${mp.leverage}x</span> ${mp.entryFilled ? '<span title="Echte futures-testnet fill" style="color:#14f195; font-weight:400;">✓ testnet</span>' : '<span style="color:#ffb627; font-weight:400;">~ sim</span>'}</td>
+                        <td style="color:${mcol}; font-weight:bold; font-size:0.8em;">${mp.sym}</td>
+                        <td style="color:${sc}; font-weight:bold;">${mp.side}</td>
+                        <td>${formatChartPrice(mp.entryPrice)}${mp.fillAdjusted ? ' <span title="testnet-fill herprijsd naar echte markt" style="color:#ffb627;">⚑</span>' : ''}</td>
+                        <td style="color:#cfe6f5;">${formatChartPrice(price)}</td>
+                        <td style="font-size:0.9em; color:#aaa;">${tijd}</td>
+                        <td>${walletSymbol()}${(mp.notional || 0).toFixed(2)}</td>
+                        <td style="white-space:nowrap;">${allocPct.toFixed(1)}% <span style="color:var(--text-dimmer);">(${mp.leverage}x)</span></td>
+                        <td style="color:${pc};" title="ROE = geleveraged rendement op de marge (prijs-move ${(raw * 100).toFixed(2)}% × ${mp.leverage}x)">${(lev * 100).toFixed(2)}%</td>
+                        <td style="color:${pc};">${walletSymbol()}${((mp.marginUSD || 0) * lev).toFixed(2)}</td>
+                        <td style="padding:2px 4px;"><button type="button" class="btn btn-ghost btn-mini" style="color:#ff5f7e; border-color:rgba(255,95,126,0.5); padding:2px 7px; font-size:0.7em;" onclick="marginCloseManual(${mi})" title="Sluit deze margin-positie nu">Sluit</button></td>
+                    </tr>`;
+                }).join('');
+            }
+        } catch (e) {}
+        if (openPositions.length === 0 && !marginRows) {
+            posBody.innerHTML = `<tr><td colspan="11" style="text-align:center; color:#888; padding:8px;">Geen open posities</td></tr>`;
             setText('bot-position', 'Geen');
         } else {
             posBody.innerHTML = openPositions.map(p => {
@@ -2867,7 +2897,8 @@ function updateWalletUI() {
                     <td style="padding:4px; font-size:0.72em; font-weight:bold; white-space:nowrap;"><span style="color:${ft.origin.c};">${ft.origin.l}</span> <span style="color:var(--text-dimmer);">&middot;</span> <span style="color:${ft.strat.c};">${ft.strat.l}</span> ${p.isTestnet ? '<span title="Echte order-fill van het Binance spot-testnet" style="color:#14f195; font-weight:400;">✓ testnet</span>' : '<span title="Gesimuleerd op de live prijsfeed - geen echte order" style="color:#ffb627; font-weight:400;">~ sim</span>'}</td>
                     <td style="color:${mktColor}; font-weight:bold; font-size:0.8em;">${mkt}</td>
                     <td style="color:${p.side === 'LONG' ? '#26a69a' : '#ef5350'}; font-weight:bold;">${p.side}</td>
-                    <td>${formatChartPrice(p.entryPrice)}</td>
+                    <td>${formatChartPrice(p.entryPrice)}${p.fillAdjusted ? ' <span title="testnet-fill herprijsd naar echte markt" style="color:#ffb627;">⚑</span>' : ''}</td>
+                    <td style="color:#cfe6f5;">${px ? formatChartPrice(px) : '—'}</td>
                     <td style="font-size:0.9em; color:#aaa;">${entryTijd}</td>
                     <td>${formatMoney(p.notional)}</td>
                     <td style="white-space:nowrap;">${Math.min(100, allocPct).toFixed(1)}%${convTxt}</td>
@@ -2875,8 +2906,8 @@ function updateWalletUI() {
                     <td style="color:${color};">${formatMoney(p.notional * pnlPct)}</td>
                     <td style="padding:2px 4px;"><button type="button" class="btn btn-ghost btn-mini" style="color:#ff5f7e; border-color:rgba(255,95,126,0.5); padding:2px 7px; font-size:0.7em;" onclick="closePositionManually('${p.id}')" title="Sluit deze positie nu">Sluit</button></td>
                 </tr>`;
-            }).join('');
-            setText('bot-position', openPositions.map(p => p.side).join(' + '));
+            }).join('') + marginRows;
+            setText('bot-position', openPositions.map(p => p.side).join(' + ') || (marginRows ? 'MARGIN' : 'Geen'));
         }
     }
 
@@ -2984,6 +3015,7 @@ function updateHistoryUI(entry) {
         <td style="font-weight:bold; font-size:0.85em; white-space:nowrap;"><span style="color:${ft.origin.c};">${ft.origin.l}</span> <span style="color:#666;">&middot;</span> <span style="color:${ft.strat.c};">${ft.strat.l}</span></td>
         <td style="color:${mktColor}; font-weight:bold; font-size:0.85em;">${mkt}</td>
         <td style="color:${entry.side === 'LONG' ? '#26a69a' : '#ef5350'};">${entry.side || '-'}</td>
+        <td style="color:#9fb2c4;">${entry.entryPrice != null ? formatChartPrice(entry.entryPrice) : '—'}${entry.fillAdjusted ? ' <span title="testnet-fill herprijsd naar echte markt" style="color:#ffb627;">⚑</span>' : ''}</td>
         <td>${typeof entry.price === 'number' ? formatChartPrice(entry.price) : entry.price}</td>
         <td>${formatMoney(entry.notionalEUR || 0)}</td>
         <td style="color:#7d99ac;">${entry.sizePct != null ? (entry.sizePct * 100).toFixed(0) + '%' : '-'}</td>
@@ -4757,14 +4789,31 @@ async function commitPositionEntryOnTestnet(position, reasonText) {
         }
         const fill = summarizeTestnetFills(res, filters.baseAsset);
         if (!fill.executedQty || !fill.avgPrice) throw new Error('order gaf geen fills terug');
-        position.entryPrice = fill.avgPrice;
+        // ── STALE-FILL-GUARD (19-09): het Binance spot-TESTNET heeft een dunne/verouderde order book,
+        // waardoor een market-fill soms ver van de ECHTE prijs ligt (bv. ETH-fill 2359 terwijl de markt
+        // op 2645 stond → spookwinst van +12,5%). We vergelijken de fill met de echte referentieprijs
+        // (dezelfde live Binance-feed die de chart voedt) en boeken de instap op de ECHTE prijs als de
+        // afwijking > TESTNET_FILL_TOL. Alles blijft in USDT; geen EUR/USD-menging. ──
+        let _entryFillPx = fill.avgPrice, _fillAdj = false, _refPx = 0;
+        try {
+            _refPx = (typeof priceForPosition === 'function' ? priceForPosition(position) : livePrice) || livePrice || 0;
+            const TESTNET_FILL_TOL = 0.015; // 1,5%
+            if (_refPx > 0 && fill.avgPrice > 0 && Math.abs(fill.avgPrice - _refPx) / _refPx > TESTNET_FILL_TOL) {
+                _fillAdj = true;
+                _entryFillPx = _refPx; // instap op de ECHTE prijs boeken
+            }
+        } catch (e) {}
+        position.entryPrice = _entryFillPx;
+        position.testnetRawFillPrice = fill.avgPrice;   // ruwe testnet-fill bewaard voor audit/download
+        position.fillAdjusted = _fillAdj;
         position.amount = fill.executedQty;
         position.baseQty = fill.executedQty;
         position.entryCommissionQuote = fill.commissionQuote;
         position.isTestnet = true;
         position.symbol = symbol;
         openPositions.push(position);
-        (() => { const _em = (position.isOsiris && position.symbol && typeof MULTI_BINANCE !== 'undefined') ? (Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === position.symbol) || 'BTC') : 'BTC'; logBotAction("ENTRY", fill.avgPrice, position.side, 0, fill.executedQty, `${reasonText} [TESTNET ${symbol} fill]`, 0, position.notional, position.isScalp || false, _em, position.isOsiris === true, position.isManual === true, position.isIct === true, (position.sizePct != null ? position.sizePct : null)); })();
+        const _entReason = `${reasonText} [TESTNET ${symbol} fill]` + (_fillAdj ? ` [fill-corr: testnet ${fill.avgPrice} → echt ${_refPx.toFixed(2)} (${((fill.avgPrice - _refPx) / _refPx * 100).toFixed(1)}% afwijking, telt niet mee voor leren)]` : '');
+        (() => { const _em = (position.isOsiris && position.symbol && typeof MULTI_BINANCE !== 'undefined') ? (Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === position.symbol) || 'BTC') : 'BTC'; logBotAction("ENTRY", _entryFillPx, position.side, 0, fill.executedQty, _entReason, 0, position.notional, position.isScalp || false, _em, position.isOsiris === true, position.isManual === true, position.isIct === true, (position.sizePct != null ? position.sizePct : null)); })();
         savePersistentState();
         updateWalletUI();
         updatePositionLines();
@@ -4859,12 +4908,20 @@ async function closePositionOnTestnet(pos, reason) {
         const res = await testnetMarketOrder(orderSide, { quantity: qty, symbol });
         const fill = summarizeTestnetFills(res, filters.baseAsset);
         if (!fill.executedQty || !fill.avgPrice) throw new Error('order gaf geen fills terug');
+        // STALE-FILL-GUARD ook op de EXIT: boek de exit op de ECHTE prijs als de testnet-fill te ver afwijkt
+        let _exitPx = fill.avgPrice, _exitAdj = false;
+        try {
+            const _ref = (typeof priceForPosition === 'function' ? priceForPosition(pos) : livePrice) || livePrice || 0;
+            if (_ref > 0 && fill.avgPrice > 0 && Math.abs(fill.avgPrice - _ref) / _ref > 0.015) { _exitAdj = true; _exitPx = _ref; }
+        } catch (e) {}
+        pos.exitPrice = _exitPx; pos.testnetRawExitPrice = fill.avgPrice;
+        if (_exitAdj || pos.fillAdjusted) pos.fillAdjusted = true;
         const grossPnlPct = pos.side === 'LONG'
-            ? (fill.avgPrice - pos.entryPrice) / pos.entryPrice
-            : (pos.entryPrice - fill.avgPrice) / pos.entryPrice;
+            ? (_exitPx - pos.entryPrice) / pos.entryPrice
+            : (pos.entryPrice - _exitPx) / pos.entryPrice;
         const notionalUSD = pos.entryPrice * (pos.baseQty || pos.amount);
         const commPct = notionalUSD > 0 ? ((pos.entryCommissionQuote || 0) + fill.commissionQuote) / notionalUSD : 0;
-        finalizeClosePosition(pos, grossPnlPct - commPct, `${reason} [TESTNET ${symbol} fill]`);
+        finalizeClosePosition(pos, grossPnlPct - commPct, `${reason} [TESTNET ${symbol} fill]` + (_exitAdj ? ` [exit fill-corr: testnet ${fill.avgPrice} → echt ${_exitPx.toFixed(2)}]` : ''));
     } catch (e) {
         pos.pendingExchangeClose = false; // positie blijft open; volgende scan-cyclus probeert opnieuw
         setTestnetStatus(`Exit-order mislukt: ${e.message}`, true);
@@ -4907,7 +4964,12 @@ function finalizeClosePosition(pos, pnlPct, reason) {
     // NIVEAU 1: alleen trend-posities met een vastgelegde factor-uitsplitsing
     // doen mee (range-scalps gebruiken een ander, regel-gebaseerd systeem
     // zonder confluence-score, dus die vallen hier terecht buiten).
-    if (pos.factorsAtEntry && pos.factorsAtEntry.confluence !== null) {
+    if (pos.fillAdjusted) {
+        // SPOOK-FILTER (19-09): deze trade had een afwijkende testnet-fill die naar de ECHTE prijs is
+        // herprijsd. De wallet-P/L is nu correct (echte prijzen), maar de fill was onbetrouwbaar, dus we
+        // sluiten 'm UIT van het leren/kalibratie/winrate-learning zodat één glitch de edge-meting niet vervuilt.
+        try { if (typeof logAdaptation === 'function') logAdaptation('Fill-correctie', `${(pos.symbol || 'BTC')} · trade uitgesloten van leren — afwijkende testnet-fill herprijsd naar de echte markt`); } catch (e) {}
+    } else if (pos.factorsAtEntry && pos.factorsAtEntry.confluence !== null) {
         // Welke markt was dit? Osiris ETH/SOL-trades mogen NIET meetellen voor Neo BTC's
         // Level 1 kalibratie - die moet zuiver op BTC blijven. We leggen de markt vast
         // zodat recalibrateAdaptiveWeights alleen BTC-trades gebruikt.
@@ -4984,13 +5046,14 @@ function finalizeClosePosition(pos, pnlPct, reason) {
     }
 
     // munt-bewuste prijs + markt in de log (BTC via livePrice, ETH/SOL via multi-state)
-    const exitPrice = priceForPosition(pos);
+    // gebruik de (stale-fill-gecorrigeerde) exit-prijs als die er is, anders de live referentie
+    const exitPrice = (pos.exitPrice != null ? pos.exitPrice : priceForPosition(pos));
     let posMarket = 'BTC';
     if (pos.isOsiris && pos.symbol && typeof MULTI_BINANCE !== 'undefined') {
         posMarket = Object.keys(MULTI_BINANCE).find(k => MULTI_BINANCE[k] === pos.symbol) || 'BTC';
     }
     logBotAction("EXIT", exitPrice, pos.side, pnlPct, pos.amount, reason, pnlAmount, pos.notional, pos.isScalp || false, posMarket, pos.isOsiris === true, pos.isManual === true, pos.isIct === true, (pos.sizePct != null ? pos.sizePct : null));
-    try { if (botTradeLog.length) { const _e = botTradeLog[botTradeLog.length - 1]; _e.mfePct = (pos.mfe != null ? +(pos.mfe * 100).toFixed(3) : null); _e.maePct = (pos.mae != null ? +(pos.mae * 100).toFixed(3) : null); _e.walletFill = (typeof getEquity === 'function' ? +getEquity().toFixed(2) : null); _e.executionSource = (botSettings && botSettings.executionMode) || 'TESTNET'; _e.botVersion = OSIRIS_VERSION; _e.entryPrice = pos.entryPrice; _e.openTimeMs = pos.openTime || null; _e.openTimeStr = pos.openTime ? formatFullDateTime(pos.openTime) : null; _e.isTestnet = (pos.isTestnet === true); _e.holdMinutes = pos.openTime ? +(((Date.now() - pos.openTime) / 60000).toFixed(1)) : null; } } catch (e) {}
+    try { if (botTradeLog.length) { const _e = botTradeLog[botTradeLog.length - 1]; _e.mfePct = (pos.mfe != null ? +(pos.mfe * 100).toFixed(3) : null); _e.maePct = (pos.mae != null ? +(pos.mae * 100).toFixed(3) : null); _e.walletFill = (typeof getEquity === 'function' ? +getEquity().toFixed(2) : null); _e.executionSource = (botSettings && botSettings.executionMode) || 'TESTNET'; _e.botVersion = OSIRIS_VERSION; _e.entryPrice = pos.entryPrice; _e.openTimeMs = pos.openTime || null; _e.openTimeStr = pos.openTime ? formatFullDateTime(pos.openTime) : null; _e.isTestnet = (pos.isTestnet === true); _e.fillAdjusted = (pos.fillAdjusted === true); _e.testnetRawFillPrice = (pos.testnetRawFillPrice != null ? pos.testnetRawFillPrice : null); _e.holdMinutes = pos.openTime ? +(((Date.now() - pos.openTime) / 60000).toFixed(1)) : null; } } catch (e) {}
     try { rebuildHistoryUIFromLog(); } catch (e) {}   // ververs de historie-tabel zodat opening-tijd + fill-badge live kloppen
     savePersistentState();
     updateWalletUI();
@@ -12822,6 +12885,10 @@ async function marginTick() {
                 else if (r && r.avgPrice) { entryPrice = parseFloat(r.avgPrice) || price; }
             }
             catch (e) { _marginLog('reasoning', `${sym} ${m.bestSide} order mislukt: ${e.message}`); continue; }
+            // STALE-FILL-GUARD (margin, 19-09): boek de instap op de ECHTE prijs als de futures-testnet-fill
+            // te ver afwijkt (dunne order book) — zelfde bescherming als spot, alles in USDT.
+            let _mFillAdj = false, _mRawFill = entryPrice;
+            try { if (price > 0 && entryPrice > 0 && Math.abs(entryPrice - price) / price > 0.015) { _mFillAdj = true; _marginLog('reasoning', `${sym} fill-corr: testnet ${entryPrice} → echt ${price.toFixed(2)} (${((entryPrice - price) / price * 100).toFixed(1)}% afwijking, telt niet mee voor leren)`); entryPrice = price; } } catch (e) {}
             qty = filledQty;                                        // ECHTE gevulde hoeveelheid
             const notionalReal = entryPrice * qty;                  // notional op de echte fill
             const marginReal = notionalReal / entryLev;
@@ -12829,7 +12896,7 @@ async function marginTick() {
             // CHOP: verbreed de stop ~1.6× zodat ruis 'm niet triggert (lagere hefboom houdt het risico gelijk).
             // SPIKE: bij spike-risico juist een strakkere stop (×0.7) — samen met lagere hefboom/size kapt dat de grote drops af.
             const _stopMul = (_chopReg ? 1.6 : 1) * (_spikeTighten ? 0.7 : 1);
-            const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, entryFillPrice: entryPrice, entryFilled, qty, notional: notionalReal, marginUSD: marginReal, sizePct, leverage: entryLev, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100 * _stopMul, chop: _chopReg, targetPct: ((typeof OsirisAutoCal !== 'undefined') ? OsirisAutoCal.marginTargetFrac((preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT) : (preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT), entryProb: (m.bestProb * 100), regimeAtEntry: ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null),
+            const pos = { symbol: binSym, sym, side: m.bestSide, entryPrice, entryFillPrice: entryPrice, entryFilled, fillAdjusted: _mFillAdj, testnetRawFillPrice: _mRawFill, qty, notional: notionalReal, marginUSD: marginReal, sizePct, leverage: entryLev, openTime: now, uPnl: 0, mfe: 0, mae: 0, stopPct: (preset.stopLossPct || 0.5) / 100 * _stopMul, chop: _chopReg, targetPct: ((typeof OsirisAutoCal !== 'undefined') ? OsirisAutoCal.marginTargetFrac((preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT) : (preset.microTargetPct || 0.4) / 100 * MARGIN_TARGET_MULT), entryProb: (m.bestProb * 100), regimeAtEntry: ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null),
                 factorsAtEntry: (() => { try { const bf = m.bestFactors || {}; return { vfm: m.vfm || 0, rsi: (m.rsi != null ? (m.rsi - 50) / 10 : 0), ema: (m.ema != null && m.emaSlow) ? ((m.ema - m.emaSlow) / m.emaSlow * 100) : 0, nn: 0, fundamentals: (m.fund && m.fund.fundingRate != null ? -Math.tanh(m.fund.fundingRate * 2000) * 3 : 0), chaos: m.chaos || 0, mtfDirInfluence: bf.mtfDir || 0, mtfMomInfluence: bf.mtfMom || 0, nodeFadeInfluence: bf.nodeFade || 0 }; } catch (e) { return null; } })() };
             try { pos._uotam = { provKey: 'crypto', mktKey: sym }; if (typeof _uotamFrame === 'function' && pos.entryPrice > 0) { const _long = m.bestSide !== 'SHORT'; const _cs = _long ? pos.entryPrice * (1 - (pos.stopPct || 0.02)) : pos.entryPrice * (1 + (pos.stopPct || 0.02)); const _ct = _long ? pos.entryPrice * (1 + (pos.targetPct || 0.01)) : pos.entryPrice * (1 - (pos.targetPct || 0.01)); const _uf = _uotamFrame(sym, 'crypto', _long, pos.entryPrice, _ct, _cs); if (_uf) { pos.uotamTarget = _uf.target; pos.uotamWeight = _uf.weight; } } } catch (e) {}
             marginState.positions.push(pos);
@@ -12904,6 +12971,8 @@ async function marginClose(pos, price, lev, reason) {
         if (exitFill && exitFill.executed) {
             exitFilled = true;
             exitPrice = exitFill.avgPrice > 0 ? exitFill.avgPrice : price;               // fallback naar lokale prijs als avgPrice ontbreekt
+            // STALE-FILL-GUARD (margin exit): afwijkende testnet-fill → reken af op de echte prijs
+            try { if (price > 0 && exitPrice > 0 && Math.abs(exitPrice - price) / price > 0.015) { pos.fillAdjusted = true; _marginLog('reasoning', `${pos.sym} exit fill-corr: testnet ${exitPrice} → echt ${price.toFixed(2)}`); exitPrice = price; } } catch (e) {}
             const sign = pos.side === 'SHORT' ? -1 : 1;
             const entryPx = (pos.entryFillPrice != null ? pos.entryFillPrice : pos.entryPrice);
             const qtyClosed = exitFill.executedQty > 0 ? exitFill.executedQty : pos.qty;
@@ -12920,7 +12989,7 @@ async function marginClose(pos, price, lev, reason) {
         lev = realizedLevPct;   // vanaf hier: het ECHTE geleveraged rendement gebruiken voor log/leren
         const rawPnl = lev / (pos.leverage || 1);   // unleveraged rendement (vergelijkbaar met spot)
         try {
-            if (typeof learningLog !== 'undefined' && learningLog) {
+            if (typeof learningLog !== 'undefined' && learningLog && !pos.fillAdjusted) {   // spook-filter: afwijkende-fill-trades tellen niet mee voor leren
                 learningLog.push({
                     timestampMs: Date.now(), side: pos.side, market: pos.sym,
                     factors: (pos.factorsAtEntry || null),
