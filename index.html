@@ -1412,8 +1412,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="panel mb"><div class="plabel">Open posities</div>
         <div class="table-wrap" style="overflow-x:auto;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th>Markt</th><th>Side</th><th>Entry</th><th>Entry tijd</th><th>Size</th><th>Alloc</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
-            <tbody id="open-positions-body"><tr><td colspan="10" style="text-align:center; color:var(--dim); padding:8px;">Geen open posities</td></tr></tbody>
+            <thead><tr style="color:var(--dim);"><th style="text-align:left; padding:6px;">Type</th><th>Markt</th><th>Side</th><th>Open</th><th>Huidig</th><th>Entry tijd</th><th>Size</th><th>Alloc</th><th>P/L %</th><th>P/L</th><th></th></tr></thead>
+            <tbody id="open-positions-body"><tr><td colspan="11" style="text-align:center; color:var(--dim); padding:8px;">Geen open posities</td></tr></tbody>
           </table>
         </div>
         <div class="plabel" style="margin-top:16px;">Pending orders <span class="muted" style="text-transform:none; letter-spacing:0;">(Osiris wacht op instapprijs)</span></div>
@@ -1428,7 +1428,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="panel mb"><div class="plabel">Closed positions &middot; current session</div>
         <div class="table-wrap scrollable" style="max-height:240px; overflow-y:auto; margin-top:6px;">
           <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:0.62rem;">
-            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Opened</th><th style="text-align:left; padding:6px;">Closed</th><th>Type</th><th>Market</th><th>Side</th><th>Price</th><th>Size</th><th>Alloc</th><th>P/L</th><th>Fill</th><th style="text-align:left;">Reason</th></tr></thead>
+            <thead><tr style="position:sticky; top:0; background:#0a0f1a; color:var(--dim);"><th style="text-align:left; padding:6px;">Opened</th><th style="text-align:left; padding:6px;">Closed</th><th>Type</th><th>Market</th><th>Side</th><th>Open</th><th>Close</th><th>Size</th><th>Alloc</th><th>P/L</th><th>Fill</th><th style="text-align:left;">Reason</th></tr></thead>
             <tbody id="history-body"></tbody>
           </table>
         </div>
@@ -2966,7 +2966,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260913-build132-dv-grounded-timing-confidence"></script>
+<script src="app.js?v=20260913-build133-usdt-fillguard-openclose-margin"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
