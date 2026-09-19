@@ -11494,6 +11494,7 @@ function osirisMasterBundle() {
             kalibratie_logs: 'Governor trust weights + metrics + log, Predict metrics/inversion/raw hit-rates/resolved, Kinetic metrics, DeepNet walk-forward + reliability curves + dual-track inversion per market, and the LLM verification log.',
             market_charts_en_historie: 'BTC candles (last 720), per-market OHLC + indicators for BTC/ETH/SOL (price, EMA, RSI, VFM, chaos, bestSide/bestProb, candles), and the FSO stress series (current + history). Largest category.',
             nn_en_nodes: 'UOTAM node grid, node context (last/next node, time since/until, type), node influence, MIC/MES/MAC fib levels, the live NN input vector (all 16 inputs), per-market NN state (sub-brain label, rhythm, caps, node influence, best side/prob, brain weights) and the live DeepNet output.',
+            crypto_uotam_analyse: 'Volledige UOTAM v7.7 crypto systeem-analyse per markt (BTC/ETH/SOL): unified bias, VFM-piek, Fractal Energy Scale, breakout-prijs, Support & Target Matrix, voorspelde periode (forecast), π/TAM-nodes, shadow-trust (per markt + per level), energie-hitrate en het autonome live-gewicht — plus per-markt systeemdata + candles. Alle crypto-analysedata in dit ene bestand.',
             learnings: 'Adaptive weights (global + per brain), Level-2 & Level-3 nets, DeepNet models per market (weights + Platt calibration + walk-forward), the RL model (Q-table, episodes, avg reward, action-dist, last decision, history), self-review and the full learning log (every closed trade with factors + outcome).',
             reasonings: 'Every "why": engine adaptations (what/why per revision), margin reasoning/adaptation/last action (incl. DeepNet & Timing-Agent gating), session events and self-review.',
             exit_bijdrage_en_equity: 'Cumulative P/L per exit reason (spot + margin) computed from the persistent learning log (survives a wallet reset), plus the current equity allocation across markets and positions (spot + margin).',
@@ -11594,6 +11595,21 @@ function osirisMasterBundle() {
         multi_timeframe: g(() => (typeof mtfStatusSnapshot === 'function' ? mtfStatusSnapshot() : null)),      // 1m/15m/4h + node-fade + spike-guard + adaptieve gewichten per markt
         uitleg: 'Osiris NN (Neo-net + DeepNet) inputs/outputs én de UOTAM node-grid/timing (per markt geijkt). Multi-timeframe (1m/4h), node-fade en spike-guard staan onder multi_timeframe met hun out-of-sample geleerde gewichten (mtfDir/mtfMom/nodeFade). De L1-gewichten staan onder learnings.'
     };
+
+    // 4c) CRYPTO UOTAM SYSTEEM-ANALYSE — ALLE crypto-data die NEO gebruikt om trades te beredeneren
+    //     (energie/matrix/forecast/shadow/nodes/vfm-piek/breakout/gewicht per markt). Zelfde als de NEO-download,
+    //     nu óók in "Everything in one file · categorized" zodat élke crypto-dataset in dat ene bestand zit.
+    C.crypto_uotam_analyse = g(() => {
+        let snap = null;
+        try { snap = (typeof window !== 'undefined' && typeof window.__uotamSnapshot === 'function') ? window.__uotamSnapshot() : null; } catch (e) {}
+        return {
+            uitleg: 'Volledige UOTAM v7.7 crypto-analyse per markt (BTC/ETH/SOL): prijs+indicatoren (VFM/ER/DB/chaos/σ/NN/CNN), unified bias (consensus + score + net-advies), VFM-piek, Fractal Energy Scale (zone/richting/tactiek/compressie), breakout-prijs, Support & Target Matrix (stop/T1/T2/RR + micro/meso/macro levels), voorspelde periode (forecast: zone/richting/ETA/vertrouwen/proven/overdue/no-edge/dir-onbetrouwbaar/discharge-doel), π-node + TAM-node, shadow-trust (n/hitrate/Wilson + per level + energie-zone) en het autonome live-gewicht.',
+            crypto: snap ? snap.crypto : null,
+            shadowSummary: snap ? (snap.shadowSummary || []).filter(x => String(x.market).indexOf('crypto:') === 0) : null,
+            generatedAt: snap ? snap.generatedAt : null,
+            perMarktSysteemData: g(() => (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? Object.fromEntries(mkts.map(k => { const m = neoMultiState.markets[k]; return [k, m ? { lastPrice: m.lastPrice, vfm: m.vfm, rsi: m.rsi, chaos: m.chaos, ema: m.ema, emaSlow: m.emaSlow, bestSide: m.bestSide, bestProb: m.bestProb, candles: (m.candles || m.klines || null) } : null]; })) : null)
+        };
+    });
 
     // 5) LEARNINGS L1/L2/L3 + MODELLEN
     C.learnings = {
@@ -16322,6 +16338,61 @@ function renderAllCalibrationCurves(){
         else if(o&&o.map) _drawCalibInto('calib-plot-osiris','calib-head-osiris',o.map,o.n,o.n<60,C.OSIRIS,'Osiris Mainbrain',0,'wf-samples');
     }catch(e){}
 }
+// ============================================================
+// CALIBRATIE v2 (Cortex) — alle trades als puntjes, SPOT & MARGIN apart per brein.
+// Leest de learningLog live; reliability-curve per bin + scatter per trade + AUC + winrate.
+// ============================================================
+let __cxCalWalletMode = 'all';
+function __cxAuc(rows) { const pos = rows.filter(r => r.w), neg = rows.filter(r => !r.w); if (!pos.length || !neg.length) return null; let c = 0; for (const p of pos) for (const n of neg) { if (p.s > n.s) c++; else if (p.s === n.s) c += 0.5; } return c / (pos.length * neg.length); }
+function __cxBins(rows) { const b = {}; for (const r of rows) { const k = Math.floor(r.s / 5) * 5; (b[k] = b[k] || []).push(r); } return Object.keys(b).map(k => { const a = b[k]; return { x: +k + 2.5, y: a.reduce((s, r) => s + r.w, 0) / a.length * 100, n: a.length }; }).sort((p, q) => p.x - q.x); }
+function __cxCalChart(rows, title, color) {
+    const W = 430, H = 200, pl = 32, pr = 12, pt = 12, pb = 24, gw = W - pl - pr, gh = H - pt - pb;
+    const xmin = Math.min(50, ...rows.map(r => r.s)); const xlo = isFinite(xmin) ? xmin : 50, xhi = 100;
+    const X = s => pl + gw * ((s - xlo) / (xhi - xlo || 1)), Y = v => pt + gh * (1 - v / 100);
+    const wr = rows.length ? rows.reduce((s, r) => s + r.w, 0) / rows.length * 100 : 0; const a = __cxAuc(rows);
+    let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:180px;background:rgba(0,0,0,0.2);border-radius:6px;">';
+    s += '<line x1="' + pl + '" y1="' + pt + '" x2="' + pl + '" y2="' + (pt + gh) + '" stroke="rgba(255,255,255,.12)"/>';
+    s += '<line x1="' + pl + '" y1="' + (pt + gh) + '" x2="' + (pl + gw) + '" y2="' + (pt + gh) + '" stroke="rgba(255,255,255,.12)"/>';
+    s += '<line x1="' + pl + '" y1="' + (pt + gh) + '" x2="' + (pl + gw) + '" y2="' + pt + '" stroke="rgba(255,255,255,.18)" stroke-dasharray="4 4"/>';
+    s += '<text x="' + (pl + gw) + '" y="' + (pt + 8) + '" fill="#5c7488" font-size="8" text-anchor="end" font-style="italic">perfect</text>';
+    s += '<text x="' + (pl - 4) + '" y="' + (pt + 4) + '" fill="#5c7488" font-size="8" text-anchor="end">100</text><text x="' + (pl - 4) + '" y="' + (pt + gh) + '" fill="#5c7488" font-size="8" text-anchor="end">0</text>';
+    s += '<text x="' + pl + '" y="' + (H - 6) + '" fill="#5c7488" font-size="8" text-anchor="middle">' + Math.round(xlo) + '</text><text x="' + (pl + gw) + '" y="' + (H - 6) + '" fill="#5c7488" font-size="8" text-anchor="middle">100</text>';
+    s += '<text x="' + (pl + gw / 2) + '" y="' + (H - 6) + '" fill="#5c7488" font-size="7.5" text-anchor="middle">ruwe score →</text>';
+    s += '<line x1="' + pl + '" y1="' + Y(wr) + '" x2="' + (pl + gw) + '" y2="' + Y(wr) + '" stroke="' + color + '" stroke-dasharray="2 3" opacity=".5"/>';
+    s += '<text x="' + (pl + gw) + '" y="' + (Y(wr) - 3) + '" fill="' + color + '" font-size="8" text-anchor="end">gem ' + wr.toFixed(0) + '%</text>';
+    for (const r of rows) { const x = X(r.s); const jy = r.w ? (pt + gh * 0.06 + ((r.s * 9301 + 49297) % 233 / 233) * gh * 0.13) : (pt + gh * 0.81 + ((r.s * 4021 + 971) % 233 / 233) * gh * 0.13); s += '<circle cx="' + x.toFixed(1) + '" cy="' + jy.toFixed(1) + '" r="1.5" fill="' + (r.w ? '#14f195' : '#ff5f7e') + '" opacity=".42"/>'; }
+    const bs = __cxBins(rows); if (bs.length) { let d = ''; bs.forEach((p, i) => { d += (i ? 'L' : 'M') + X(p.x).toFixed(1) + ' ' + Y(p.y).toFixed(1) + ' '; }); s += '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.8"/>'; for (const p of bs) s += '<circle cx="' + X(p.x).toFixed(1) + '" cy="' + Y(p.y).toFixed(1) + '" r="' + (2 + Math.min(6, Math.sqrt(p.n))).toFixed(1) + '" fill="' + color + '" opacity=".85"/>'; }
+    s += '</svg>';
+    const acol = a == null ? '#6d8296' : (a >= 0.55 ? '#14f195' : a >= 0.5 ? '#ffb627' : '#ff5f7e');
+    const verdict = a == null ? 'te weinig' : (a < 0.5 ? 'omgekeerd' : a >= 0.55 ? 'onderscheidt' : 'vlak');
+    return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 9px;background:var(--panel);">' +
+        '<div style="font-size:0.72rem;color:' + color + ';font-weight:700;">' + title + '</div>' +
+        '<div style="font-size:0.54rem;color:var(--dim);margin-bottom:4px;">n=' + rows.length + ' · winrate ' + wr.toFixed(0) + '% · <span style="color:' + acol + ';">AUC ' + (a == null ? '—' : a.toFixed(2)) + ' (' + verdict + ')</span></div>' + s + '</div>';
+}
+function renderCortexCalibV2() {
+    try {
+        const host = document.getElementById('cortex-calib-v2'); if (!host) return;
+        const LL = (typeof learningLog !== 'undefined' && learningLog) ? learningLog : [];
+        const pts = LL.filter(l => l.entryProbabilityPct != null && !l.manual).map(l => ({ s: +l.entryProbabilityPct, w: l.outcome === 'win' ? 1 : 0, m: l.isMargin ? 1 : 0, k: l.market || 'BTC' }));
+        if (!pts.length) { host.innerHTML = '<span style="color:var(--dim); font-size:0.62rem;">Nog geen gesloten trades met een entry-score in de learning-log — de charts vullen zich zodra Osiris trades sluit.</span>'; return; }
+        const brains = [['BTC', 'Neo BTC', '#f7931a'], ['ETH', 'Neo ETH', '#627eea'], ['SOL', 'Neo SOL', '#14f195'], ['OSIRIS', 'Osiris Mainbrain', '#00d9ff']];
+        const mode = __cxCalWalletMode;
+        let html = '';
+        for (const [key, label, col] of brains) {
+            const sel = key === 'OSIRIS' ? pts : pts.filter(p => p.k === key);
+            const spot = sel.filter(p => !p.m), marg = sel.filter(p => p.m);
+            html += '<div style="font-size:0.66rem;letter-spacing:0.14em;text-transform:uppercase;color:' + col + ';border-left:3px solid ' + col + ';padding-left:9px;margin:12px 0 5px;">' + label + '</div>';
+            if (mode === 'all') html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' + __cxCalChart(spot, 'SPOT', '#7fd8ff') + __cxCalChart(marg, 'MARGIN', '#c792ea') + '</div>';
+            else if (mode === 'spot') html += __cxCalChart(spot, 'SPOT', '#7fd8ff');
+            else html += __cxCalChart(marg, 'MARGIN', '#c792ea');
+        }
+        host.innerHTML = html;
+    } catch (e) {}
+}
+window.__cxCalWallet = function (m) { __cxCalWalletMode = (m === 'spot' || m === 'margin') ? m : 'all'; try { ['all', 'spot', 'margin'].forEach(k => { const b = document.getElementById('cxcal-' + k); if (b) b.style.background = (k === __cxCalWalletMode) ? 'rgba(20,241,149,0.15)' : ''; }); } catch (e) {} renderCortexCalibV2(); };
+try { setInterval(() => { try { const h = document.getElementById('cortex-calib-v2'); if (h && h.offsetParent !== null) renderCortexCalibV2(); } catch (e) {} }, 5000); } catch (e) {}
+window.renderCortexCalibV2 = renderCortexCalibV2;
+
 function renderCalibrationCurve() {
     try{ renderAllCalibrationCurves(); }catch(e){}
     const sym = (typeof _activeCalibBrain !== 'undefined') ? _activeCalibBrain : 'BTC';
