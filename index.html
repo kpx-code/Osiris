@@ -1799,6 +1799,25 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div id="cortex-calib-v2" style="margin-top:10px;"><span style="color:var(--dim); font-size:0.62rem;">Calibratie laadt&hellip; (wacht op gesloten trades in de learning-log)</span></div>
     </div>
 
+    <!-- ===================== NIEUW: ADAPTIVE LEARNING L1 / L2 / L3 · nieuw ontwerp, live ===================== -->
+    <div class="panel" style="margin-top:22px; border-color:rgba(0,217,255,0.30); background:rgba(0,217,255,0.03);">
+      <div class="plabel" style="color:#00d9ff;">&#129504; Adaptive Learning &middot; Level 1 &middot; adaptieve factor-gewichten &middot; per brein</div>
+      <div class="note" style="margin-top:2px;">De basislaag: hoe zwaar elk <b>signaal</b> (confluence, momentum, node&hellip;) meetelt in de beslissing van dit brein. Osiris stelt deze gewichten <b>contrafeitelijk</b> bij op basis van gesloten trades.</div>
+      <div id="cortex-l1" style="margin-top:10px;"><span style="color:var(--dim); font-size:0.62rem;">Level&nbsp;1 laadt&hellip;</span></div>
+    </div>
+
+    <div class="panel" style="margin-top:18px; border-color:rgba(199,146,234,0.30); background:rgba(199,146,234,0.03);">
+      <div class="plabel" style="color:#c792ea;">&#129504; Adaptive Learning &middot; Level 2 &middot; logistisch model &middot; per brein</div>
+      <div class="note" style="margin-top:2px;">Een stap dieper: een <b>logistische regressie</b> die per feature een coëfficiënt leert en via de <b>sigmoid</b> een win-kans geeft. Per brein een eigen model (BTC/ETH/SOL) plus het gedeelde Osiris-model.</div>
+      <div id="cortex-l2" style="margin-top:10px;"><span style="color:var(--dim); font-size:0.62rem;">Level&nbsp;2 laadt&hellip;</span></div>
+    </div>
+
+    <div class="panel" style="margin-top:18px; border-color:rgba(20,241,149,0.30); background:rgba(20,241,149,0.03);">
+      <div class="plabel" style="color:#14f195;">&#129504; Adaptive Learning &middot; Level 3 &middot; neuraal net (backprop)</div>
+      <div class="note" style="margin-top:2px;">De diepste laag: een <b>neuraal net met een verborgen laag</b>, getraind met backpropagation over alle markten samen. De verbindingen tonen de geleerde gewichten; de meter rechts is de out-of-sample <b>validatie-accuraatheid</b>.</div>
+      <div id="cortex-l3" style="margin-top:10px;"><span style="color:var(--dim); font-size:0.62rem;">Level&nbsp;3 laadt&hellip;</span></div>
+    </div>
+
     </section>
 
     <!-- FEED -->
@@ -2997,7 +3016,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260913-build137-spot-margin-split"></script>
+<script src="app.js?v=20260919-build138-cortex-viz"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
