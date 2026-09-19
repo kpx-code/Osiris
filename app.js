@@ -23272,7 +23272,10 @@ const TrinityGSD = {
       // Latijns-Amerika) of een fysiek/perifeer signaal (weer in Asia-Pacific). Valt terug op de geld-kant-score
       // als de keten-module (nog) niet geladen is.
       const CC=(typeof OsirisCausalChain!=='undefined')?OsirisCausalChain:null;
-      const zoneFor=(days)=>{ const w=Math.min(1,days/3650)*0.6; let best=null,bv=-1; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return;
+      // w = hoeveel de STRUCTURELE laag meeweegt t.o.v. de ignitie. Sneller opgevoerd (over ~4 jaar i.p.v. 10)
+      // zodat de MID-horizonnen (jaar–5y) eerder naar de structurele/persistente zones kantelen → meer spreiding
+      // over de horizonnen i.p.v. één zone overal.
+      const zoneFor=(days)=>{ const w=Math.min(0.72,days/1460*0.72); let best=null,bv=-1; GSD_ZONES.forEach(z=>{ if(z.synthetic||z.key==='global')return;
         let sc; if(CC){ sc = CC.ignitionScore(z.key)*(1-w) + CC.structuralScore(z.key)*w; }
         else { sc = (econMean[z.key]*(1-w)+structMean[z.key]*w)*(0.65+0.35*_gsdZoneEconW(z.key)); }
         if(sc>bv){bv=sc;best=z;} }); return best?best.key:'global'; };
@@ -23875,6 +23878,11 @@ const OsirisCausalChain = {
   rootCauseFor(zk){ try{ const L=this.stageLoads(zk);
     let rootIdx=-1; for(let i=0;i<L.length;i++){ if(L[i]>=this.THR){ rootIdx=i; break; } }
     if(rootIdx<0){ let mx=-1; L.forEach((v,i)=>{ if(v>mx){mx=v;rootIdx=i;} }); }
+    // WORTEL-ATTRIBUTIE stroomopwaarts: als de schakel net vóór de root al bijna geladen is (≥0.8×drempel), dan
+    // is die de eigenlijke oorsprong. Zo wordt een olie/energie-gedreven conflict (bv. Hormuz: de energie-cel v/e
+    // olie-EXPORTEUR is laag, dus het olierisico zit in het conflict) correct als "grondstoffen → conflict" gelabeld
+    // i.p.v. kaal "conflict". De keten toont zo de echte grondstoffen-wortel.
+    while(rootIdx>0 && L[rootIdx-1] >= this.THR*0.8) rootIdx--;
     const chain=[]; for(let i=rootIdx;i<this.STAGES.length;i++){ if(i===rootIdx||L[i]>=this.THR*0.6) chain.push(this.STAGES[i]); }
     return { rootIdx, root:this.STAGES[rootIdx], rootLoad:+L[rootIdx].toFixed(2), loads:L.map(v=>+v.toFixed(2)), chainKeys:chain.map(s=>s.key), chainText:chain.map(s=>s.short).join(' → '), consistency:this._consistency() };
   }catch(e){ return null; } },
@@ -27344,7 +27352,16 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // name the dominant economic flashpoint for the kill-switch's top zone (so "Asia-Pacific" reads as Taiwan/semiconductors)
   function _killDriverHtml(P){ try{ const zn=P&&P[0]&&P[0].zone; if(!zn)return ''; const zk=(GSD_ZONES.find(z=>z.name===zn)||{}).key; if(!zk)return '';
     const d=FLASHPOINTS.filter(f=>(f.zones||[]).indexOf(zk)>=0).map(f=>({name:f.name,s:_flashScore(f)})).sort((a,b)=>b.s-a.s)[0];
-    if(!d)return ''; return `<div style="font-size:0.46rem;color:#9fb2c4;margin:3px 0 1px;line-height:1.4;">${zn} driver: <b style="color:#ffd76a">${d.name}</b> ${(d.s*100|0)}%</div>`; }catch(e){ return ''; } }
+    let chain='', root='', cons=null, ign=null;
+    try{ if(typeof OsirisCausalChain!=='undefined'){ const rc=OsirisCausalChain.rootCauseFor(zk); if(rc){ chain=rc.chainText; root=rc.root.short; cons=rc.consistency; } ign=OsirisCausalChain.ignitionScore(zk); } }catch(e){}
+    const wk=P[0]&&(P[0].chanceNow!=null?P[0].chanceNow:Math.round((P[0].prob||0)*100));
+    // TOELICHTING: waarom is DEZE zone de ground-zero? (root-cause keten + driver + selectielogica)
+    let h='<div style="border:1px solid rgba(255,138,60,0.4);border-radius:5px;background:rgba(255,138,60,0.07);padding:5px 7px;margin:5px 0 2px;line-height:1.5;">';
+    h+='<div style="font-size:0.5rem;color:#ffb056;font-weight:700;letter-spacing:0.04em;">◎ WAAROM GROUND-ZERO · '+zn+(wk!=null?' ('+wk+'%)':'')+'</div>';
+    if(chain) h+='<div style="font-size:0.46rem;color:#9fb2c4;">begint bij <b style="color:#ffd76a">'+root+'</b> &rarr; keten <b>'+chain+'</b>'+(ign!=null?' · ignitie '+ign.toFixed(2):'')+(cons!=null?' · keten-consistentie '+Math.round(cons*100)+'%':'')+'</div>';
+    if(d) h+='<div style="font-size:0.46rem;color:#9fb2c4;">driver: <b style="color:#ffd76a">'+d.name+'</b> '+(d.s*100|0)+'%</div>';
+    h+='<div style="font-size:0.44rem;color:#7f93a6;">Gekozen op de meest-<b>upstream</b> geladen schakel (economisch-gewogen: grondstoffen/energie &rarr; conflict), niet op het luidste downstream-symptoom. Daarom is een inflatie-only zone (bv. Latijns-Amerika) of een fysiek/weer-signaal (Asia-Pacific) g&eacute;&eacute;n ground-zero. Adaptief: de keten-gewichten leren uit lead-lag op echte data.</div>';
+    h+='</div>'; return h; }catch(e){ return ''; } }
   function _updateHud(){ const el=document.getElementById('sw-hud'); if(!el)return;
     if(!LAYERS.killzones){ el.style.display='none'; return; }   // panel toggles on/off with the ΔV kill-switch layer
     el.style.display='block';
@@ -27467,7 +27484,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       +`<div style="font:0.46rem JetBrains Mono,monospace;color:#5c7488;margin:0 0 3px;line-height:1.5;">Alle bronnen worden altijd op de achtergrond verwerkt voor de real-time voorspelling — de vinkjes filteren niets weg, ze leggen alleen accent (uitgevinkt telt op halve weging mee).</div><div style="display:flex;gap:5px 12px;flex-wrap:wrap;">`
       +LEAD_CATS.map(([k,lab,col])=>`<label class="fsocb" style="font-size:0.56rem;"><input type="checkbox" ${L[k]?'checked':''} onchange="window.gsdLeadToggle&&window.gsdLeadToggle('${k}')"><span style="color:${col}">${lab}</span></label>`).join('')+`</div>`; }
   function _renderLegend(){ const el=document.getElementById('sw-legend'); if(!el)return;
-    el.innerHTML=`<div class="mono" style="font-size:0.54rem;color:var(--dim);line-height:1.9;"><b style="color:#ff5f7e;">Heat zones = glow</b> (opacity overlap) over the regions — brighter = more pressure/heat/rain. <span style="color:#ff4f6d;">● earthquake</span> · <span style="color:#ff7a1a;">● wildfire</span> · <span style="color:#ff4f6d;">● volcano</span> · <span style="color:#4fc3f7;">● flood</span> · <span style="color:#7fd8ff;">— plate boundary</span> · <span style="color:#ff8a3c;">◌ clash/pressure zone</span> · <span style="color:#14f195;">— capital flow</span> · <span style="color:#ff8a3c;">★ ΔV kill-switch start-zone</span> · <span style="color:#ffd76a;">◌ ground-zero</span> · <span style="color:#ff2d55;">● live conflict</span> · <span style="color:#ec4899;">+ migration destination (est. inflow)</span> · <span style="color:#14f195;">▲ zone capital-flow +</span>/<span style="color:#ff4f6d;">▼ −</span> (solid box = real USD via IMF BoP proxy; dashed box = simulated FX-flow index fallback).</div>`; }
+    el.innerHTML=`<div class="mono" style="font-size:0.54rem;color:var(--dim);line-height:1.9;"><b style="color:#ff5f7e;">Heat zones = glow</b> (opacity overlap) over the regions — brighter = more pressure/heat/rain. <span style="color:#ff4f6d;">● earthquake</span> · <span style="color:#ff7a1a;">● wildfire</span> · <span style="color:#ff4f6d;">● volcano</span> · <span style="color:#4fc3f7;">● flood</span> · <span style="color:#7fd8ff;">— plate boundary</span> · <span style="color:#ff8a3c;">◌ clash/pressure zone</span> · <span style="color:#14f195;">— capital flow</span> · <span style="color:#ff8a3c;">★ ΔV kill-switch start-zone (de ENIGE ground-zero = de gelabelde pulserende ster)</span> · <span style="color:#ff8a3c;">⋯➔ oranje stippel-boog + lopende stippen = contagion-voortplanting (schok langs handelslijnen — GÉÉN ground-zero)</span> · <span style="color:#ffd76a;">◌ ground-zero-gloed (per zone)</span> · <span style="color:#ff2d55;">● live conflict</span> · <span style="color:#ec4899;">+ migration destination (est. inflow)</span> · <span style="color:#14f195;">▲ zone capital-flow +</span>/<span style="color:#ff4f6d;">▼ −</span> (solid box = real USD via IMF BoP proxy; dashed box = simulated FX-flow index fallback).</div>`; }
   function _renderCountryList(){ const el=document.getElementById('sw-countrylist'); if(!el)return; let zones; try{ zones=GSD_ZONES; }catch(e){ return; }
     el.innerHTML=zones.filter(z=>z.key!=='global').map(z=>{ const s=zStress(z.key), cs=(M.byZone[z.key]||[]).slice().sort(); const sc=s>=0.5?'#ff5f7e':s>=0.3?'#ffb627':'#14f195';
       return `<details style="margin-bottom:6px;border-left:3px solid ${z.col};padding-left:8px;break-inside:avoid;"><summary style="cursor:pointer;font-size:0.6rem;color:var(--tx);"><b style="color:${z.col}">${z.name}</b> <span style="color:${sc}">stress ${(s*100|0)}%</span> <span style="color:var(--dimmer)">· ${cs.length} countries</span></summary><div style="font-size:0.54rem;color:var(--dim);line-height:1.7;margin-top:3px;">${cs.join(' · ')||'—'}</div></details>`; }).join('');
