@@ -22671,6 +22671,7 @@ const GSD_ZONES = [
   { key:'na',     name:'North America',            col:'#4fc3f7', ccy:['USD','CAD','MXN'],                  wb:['USA','CAN','MEX'],                     cities:[[40.7,-74.0],[45.4,-75.7]], bbox:[-170,10,-50,75] },
   { key:'eu',     name:'Europe',                   col:'#00d9ff', ccy:['EUR','GBP','CHF','SEK','NOK'],      wb:['DEU','GBR','CHE','SWE','NOR','FRA','ITA'], cities:[[50.1,8.7],[51.5,-0.12]], bbox:[-25,35,45,72] },
   { key:'ap',     name:'Asia-Pacific',             col:'#14f195', ccy:['JPY','CNH','AUD','NZD','SGD','INR','THB'], wb:['JPN','CHN','AUS','NZL','SGP','IND','THA'], cities:[[35.7,139.7],[1.35,103.8]], bbox:[60,-50,180,55] },
+  { key:'ca',     name:'Central Asia',             col:'#8b7cf6', ccy:[],                                  wb:['KAZ','UZB','TKM','KGZ','TJK','AFG'],  cities:[[43.2,76.9],[41.3,69.2],[37.9,58.4]], bbox:[46,33,88,56] },
   { key:'me',     name:'Middle East',              col:'#ffb627', ccy:['TRY'],                             wb:['TUR','SAU','ARE','IRN','ISR','QAT','IRQ','KWT'], cities:[[25.2,55.3],[41.0,28.9]], bbox:[25,12,63,42] },
   { key:'af',     name:'Africa',                   col:'#ff8a3c', ccy:['ZAR'],                             wb:['ZAF','NGA','EGY','KEN','ETH','GHA','MAR','DZA'], cities:[[-26.2,28.0],[6.5,3.4]], bbox:[-20,-38,52,38] },
   { key:'latam',  name:'Latin America',            col:'#ff8fa3', ccy:['BRL','MXN'],                       wb:['BRA','MEX','ARG','CHL','COL'],         cities:[[-23.5,-46.6],[19.4,-99.1]], bbox:[-92,-56,-32,18] },
@@ -22751,6 +22752,13 @@ const GSD_ECON = [
   {iso:'NZL',name:'New Zealand (dairy)',zone:'ap',lat:-36.8,lon:174.8,w:0.14},
   {iso:'BGD',name:'Bangladesh (textiles)',zone:'ap',lat:23.8,lon:90.4,w:0.14},
   {iso:'PAK',name:'Pakistan',zone:'ap',lat:24.9,lon:67.0,w:0.12},
+  // Central Asia (energie-/grondstoffen-corridor: uranium, gas→China, wheat, koper)
+  {iso:'KAZ',name:'Kazakhstan (oil/uranium/wheat)',zone:'ca',lat:43.2,lon:76.9,w:0.24},
+  {iso:'UZB',name:'Uzbekistan (gas/gold/cotton)',zone:'ca',lat:41.3,lon:69.2,w:0.14},
+  {iso:'TKM',name:'Turkmenistan (gas→China)',zone:'ca',lat:37.9,lon:58.4,w:0.12},
+  {iso:'KGZ',name:'Kyrgyzstan',zone:'ca',lat:42.9,lon:74.6,w:0.06},
+  {iso:'TJK',name:'Tajikistan',zone:'ca',lat:38.6,lon:68.8,w:0.06},
+  {iso:'AFG',name:'Afghanistan',zone:'ca',lat:34.5,lon:69.2,w:0.05},
   // Middle East
   {iso:'SAU',name:'Saudi Arabia (oil)',zone:'me',lat:24.7,lon:46.7,w:0.30},
   {iso:'ARE',name:'UAE (Dubai/Jebel Ali hub)',zone:'me',lat:25.2,lon:55.3,w:0.26},
@@ -22781,7 +22789,7 @@ function _gsdEconMass(lon,lat){ try{ let mx=0; const SC=680; for(let i=0;i<GSD_E
 // keuze. Expliciete tabel op basis van echt BBP + handels-/manufacturing-aandeel (niet afgeleid uit het aantal
 // opgesomde hubs, want dat zou zones met meer entries kunstmatig bevoordelen). ME is verhoogd t.o.v. puur BBP
 // vanwege zijn olie-/chokepoint-kriticaliteit (Hormuz) voor de wereldhandel.
-const GSD_ZONE_ECONW = { ap:1.00, na:0.94, eu:0.82, me:0.46, latam:0.34, af:0.24, global:1.0 };
+const GSD_ZONE_ECONW = { ap:1.00, na:0.94, eu:0.82, me:0.46, latam:0.34, ca:0.30, af:0.24, global:1.0 };  // ca: bescheiden BBP maar energie-/uranium-/gas-corridor (KZ ~40% wereld-uranium, gas→China)
 function _gsdZoneEconW(z){ return GSD_ZONE_ECONW[z]!=null?GSD_ZONE_ECONW[z]:0.5; }
 try{ window.GSD_ECON=GSD_ECON; window._gsdEconMass=_gsdEconMass; window.GSD_ZONE_ECONW=GSD_ZONE_ECONW; }catch(e){}
 
@@ -22797,6 +22805,7 @@ try{ window.GSD_ECON=GSD_ECON; window._gsdEconMass=_gsdEconMass; window.GSD_ZONE
 const TRADE_ZONE = { // partner-ISO → zone (dekt ook partners buiten GSD_ECON)
   USA:'na',CAN:'na', DEU:'eu',GBR:'eu',FRA:'eu',ITA:'eu',NLD:'eu',ESP:'eu',CHE:'eu',BEL:'eu',SWE:'eu',POL:'eu',NOR:'eu',AUT:'eu',DNK:'eu',RUS:'eu',UKR:'eu',
   CHN:'ap',JPN:'ap',KOR:'ap',TWN:'ap',IND:'ap',SGP:'ap',IDN:'ap',AUS:'ap',THA:'ap',VNM:'ap',MYS:'ap',PHL:'ap',HKG:'ap',NZL:'ap',BGD:'ap',PAK:'ap',
+  KAZ:'ca',UZB:'ca',TKM:'ca',KGZ:'ca',TJK:'ca',AFG:'ca',
   SAU:'me',ARE:'me',TUR:'me',ISR:'me',IRN:'me',QAT:'me',KWT:'me',IRQ:'me',
   ZAF:'af',NGA:'af',EGY:'af',MAR:'af',DZA:'af',KEN:'af',
   BRA:'latam',ARG:'latam',CHL:'latam',COL:'latam',PER:'latam',MEX:'latam' };
@@ -22822,7 +22831,9 @@ const TRADE_NET = {
   SGP:{exp:[['CHN',.15],['USA',.11],['HKG',.13],['MYS',.09]], imp:[['CHN',.17],['MYS',.13],['USA',.11],['TWN',.08]], com:['electronics','refined-oil','chemicals','semis']},
   IDN:{exp:[['CHN',.23],['USA',.10],['JPN',.08],['IND',.08]], imp:[['CHN',.28],['SGP',.09],['JPN',.08]], com:['coal','palm','gas','nickel']},
   VNM:{exp:[['USA',.29],['CHN',.17],['KOR',.06]], imp:[['CHN',.38],['KOR',.17]], com:['electronics','textiles','footwear']},
-  THA:{exp:[['USA',.17],['CHN',.12],['JPN',.09]], imp:[['CHN',.25],['JPN',.11],['USA',.06]], com:['electronics','autos','machinery','rice']}
+  THA:{exp:[['USA',.17],['CHN',.12],['JPN',.09]], imp:[['CHN',.25],['JPN',.11],['USA',.06]], com:['electronics','autos','machinery','rice']},
+  KAZ:{exp:[['CHN',.20],['ITA',.15],['RUS',.10],['NLD',.07],['KOR',.05]], imp:[['RUS',.30],['CHN',.25],['DEU',.06]], com:['oil','uranium','gas','wheat','copper','zinc']},
+  UZB:{exp:[['CHN',.22],['RUS',.16],['KAZ',.10],['TUR',.07]], imp:[['CHN',.24],['RUS',.20],['KAZ',.10]], com:['gas','gold','cotton','copper','uranium']}
 };
 // commodity-vraag: welke zones importeren een commodity zwaar (→ geraakt bij een supply-/prijs-schok in die commodity)
 const TRADE_COM_IMPORTERS = {
@@ -22839,7 +22850,7 @@ function _gsdBuildTradeMats(){
   const zoneOf = iso => TRADE_ZONE[iso] || null;
   const wOf = iso => { const e=GSD_ECON.find(x=>x.iso===iso); return e?e.w:0.15; };   // economisch gewicht van de exporteur
   const T = {}, EXP = {};   // T[dst][src]=afhankelijkheid; EXP[zone]=Set van export-commodities (gewogen)
-  const ZK=['na','eu','ap','me','af','latam']; ZK.forEach(a=>{ T[a]={}; ZK.forEach(b=>T[a][b]=0); EXP[a]={}; });
+  const ZK=['na','eu','ap','me','af','latam','ca']; ZK.forEach(a=>{ T[a]={}; ZK.forEach(b=>T[a][b]=0); EXP[a]={}; });
   for(const iso in TRADE_NET){ const rec=TRADE_NET[iso]; const zc=zoneOf(iso); if(!zc)continue; const cw=wOf(iso);
     // imports: dst-land (iso, zone zc) hangt af van bron-partner-zones → T[zc][srcZone]
     (rec.imp||[]).forEach(([pi,sh])=>{ const pz=zoneOf(pi); if(pz&&pz!==zc){ T[zc][pz]+=sh*cw; } });
@@ -22857,7 +22868,7 @@ function _gsdBuildTradeMats(){
 }
 _gsdBuildTradeMats();   // eenmalig op laadtijd (curated backbone)
 // welke zones worden geraakt als bronzone S een schok krijgt, gewogen op handels-afhankelijkheid + commodity-export van S
-function _gsdTradeTargets(srcZone){ try{ const out=[]; const ZK=['na','eu','ap','me','af','latam'];
+function _gsdTradeTargets(srcZone){ try{ const out=[]; const ZK=['na','eu','ap','me','af','latam','ca'];
     ZK.forEach(dst=>{ if(dst===srcZone)return; const dep=(GSD_ZONE_TRADE[dst]&&GSD_ZONE_TRADE[dst][srcZone])||0; if(dep>=0.12) out.push({zone:dst,dep:+dep.toFixed(3),via:'trade-link'}); });
     // commodity-route: als S een grote exporteur van commodity X is, raak de zware importeurs van X
     const exp=GSD_ZONE_EXPCOM[srcZone]||{}; const coms=Object.keys(exp).sort((a,b)=>exp[b]-exp[a]).slice(0,3);
@@ -22882,7 +22893,7 @@ const GSD_ENERGY_NODES = [
   {name:'TurkStream (RUS→TR/EU gas)',    zone:'me', type:'pipeline', flow:'gas', crit:0.55, lat:41.6, lon:28.1},
   {name:'TransMed (DZA→IT gas)',         zone:'eu', type:'pipeline', flow:'gas', crit:0.45, lat:37.5, lon:11.6},
   {name:'Power of Siberia (RUS→CN gas)', zone:'ap', type:'pipeline', flow:'gas', crit:0.6,  lat:50.3, lon:127.5},
-  {name:'Central Asia–China (gas)',      zone:'ap', type:'pipeline', flow:'gas', crit:0.5,  lat:43.3, lon:76.9},
+  {name:'Central Asia–China (gas)',      zone:'ca', type:'pipeline', flow:'gas', crit:0.5,  lat:43.3, lon:76.9},
   // LNG-terminals (aanvoer/afvoer knooppunten)
   {name:'Ras Laffan LNG (QA export)',    zone:'me', type:'lng', flow:'gas', crit:0.75, lat:25.9, lon:51.6},
   {name:'Sabine Pass LNG (US export)',   zone:'na', type:'lng', flow:'gas', crit:0.6,  lat:29.7, lon:-93.9},
@@ -23108,9 +23119,13 @@ const TrinityGSD = {
   _rank(){
     const rows=[];
     GSD_ZONES.forEach(z=>{ if(z.synthetic)return;
-      GSD_CATS.forEach(c=>{ const cell=this.cells[z.key][c.key]; if(cell&&cell.v!=null&&cell.v>=0.02) rows.push({zone:z.key,zoneName:z.name,zoneCol:z.col,cat:c.key,catName:c.name,catCol:c.col,v:cell.v,at:cell.at,src:cell.src,why:cell.why||''}); });
+      GSD_CATS.forEach(c=>{ const cell=this.cells[z.key][c.key]; if(cell&&cell.v!=null&&cell.v>=0.02){ const imp=(typeof this.catImpact==='function')?this.catImpact(c.key):0.5; rows.push({zone:z.key,zoneName:z.name,zoneCol:z.col,cat:c.key,catName:c.name,catCol:c.col,v:cell.v,imp:+imp.toFixed(2),eff:cell.v*imp,at:cell.at,src:cell.src,why:cell.why||''}); } });
     });
-    rows.sort((a,b)=>b.v-a.v); this.ranking=rows.slice(0,40);
+    // ECONOMISCHE IMPACT LEIDT (fix 19-09): sorteer op v × economische-impact i.p.v. ruwe stress. Zo staat
+    // 'extreme weather' 100% niet langer bovenaan (impact 0.30) tenzij zijn economisch-gewogen waarde de andere
+    // categorieen daadwerkelijk overschrijdt. Dit trekt de ranglijst + de voorspellings-tekst gelijk met de
+    // KS-projectie (die al economisch weegt), zodat een zone niet meer 'ground-zero' lijkt door puur het weer.
+    rows.sort((a,b)=>b.eff-a.eff); this.ranking=rows.slice(0,40);
   },
 
   // ---- node-drempel + zone-drempels DATA-GEDREVEN kalibreren ----
@@ -24264,11 +24279,11 @@ function renderGSD(){
   const rk=document.getElementById('gsd-ranking');
   if(rk){ const rows=(TrinityGSD.ranking||[]).filter(r=>GSD_VIS.zones[r.zone]&&GSD_VIS.cats[r.cat]).slice(0,18);
     const nowUTC=_gsdWhen(Date.now());
-    const head=`<div class="gsdrow gsdhdr"><span class="gsdrk">#</span><span class="gsddot"></span><span class="gsdzone">Zone</span><span class="gsdcat">Category</span><div class="gsdbar" style="background:none;color:var(--dimmer);font-size:0.48rem;text-align:left;">as of ${nowUTC}</div><span class="gsdval">score</span><span class="gsdwin">period</span><span class="gsdupd">updated</span></div>`;
+    const head=`<div class="gsdrow gsdhdr"><span class="gsdrk">#</span><span class="gsddot"></span><span class="gsdzone">Zone</span><span class="gsdcat">Category</span><div class="gsdbar" style="background:none;color:var(--dimmer);font-size:0.48rem;text-align:left;">as of ${nowUTC} &middot; orde: economische impact</div><span class="gsdval">score ×imp</span><span class="gsdwin">period</span><span class="gsdupd">updated</span></div>`;
     if(!rows.length) rk.innerHTML='<div class="mono" style="color:var(--dimmer);font-size:0.56rem;">no zones under pressure measured yet…</div>';
     else rk.innerHTML=head+rows.map((r,i)=>{ const bad=r.v>=TrinityGSD.crisT?'#ff4f6d':r.v>=TrinityGSD.spanT?'#ffb627':'#14f195'; const win=GSD_CAT_WINDOW[r.cat]||'';
       const why=r.why?` <small style="color:var(--dimmer)" title="what's driving this">— ${r.why}</small>`:'';
-      return `<div class="gsdrow" title="${r.why?String(r.why).replace(/"/g,'')+' · ':''}${r.src||''}"><span class="gsdrk">#${i+1}</span><span class="gsddot" style="background:${r.zoneCol}"></span><span class="gsdzone">${r.zoneName}</span><span class="gsdcat" style="color:${r.catCol}">${r.catName}${why}</span><div class="gsdbar"><i style="width:${Math.round(r.v*100)}%;background:${bad}"></i></div><span class="gsdval" style="color:${bad}">${Math.round(r.v*100)}</span><span class="gsdwin">${win}</span><span class="gsdupd">${_gsdWhen(r.at)} <small style="color:var(--dimmer)">${r.src||''}</small></span></div>`;
+      return `<div class="gsdrow" title="${r.why?String(r.why).replace(/"/g,'')+' · ':''}${r.src||''}"><span class="gsdrk">#${i+1}</span><span class="gsddot" style="background:${r.zoneCol}"></span><span class="gsdzone">${r.zoneName}</span><span class="gsdcat" style="color:${r.catCol}">${r.catName}${why}</span><div class="gsdbar"><i style="width:${Math.round(r.v*100)}%;background:${bad}"></i></div><span class="gsdval" style="color:${bad}">${Math.round(r.v*100)}<small style="color:var(--dimmer);font-weight:400;" title="economische-impact-weging: score telt maal deze factor mee in de rangorde">&times;${(r.imp!=null?r.imp:1).toFixed(2)}</small></span><span class="gsdwin">${win}</span><span class="gsdupd">${_gsdWhen(r.at)} <small style="color:var(--dimmer)">${r.src||''}</small></span></div>`;
     }).join('');
   }
   // predictor + shadow (micro/meso/macro)
@@ -26839,6 +26854,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 
   // ---- zone-classificatie op centroid (na me/af-split) ----
   function zoneOfCentroid(lon,lat){
+    if(lon>=46&&lon<=88&&lat>=33&&lat<=56) return 'ca';
     if(lon>=34&&lon<=63&&lat>=12&&lat<=42) return 'me';
     if(lon>=-25&&lon<=45&&lat>=34&&lat<=72) return 'eu';
     if(lon>=-20&&lon<=52&&lat>=-38&&lat<=37) return 'af';
@@ -27078,7 +27094,13 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     proj.forEach(pz=>{ if(!pz.zone||seen[pz.zone])return; seen[pz.zone]=1; const z=GSD_ZONES.find(z=>z.name===pz.zone); if(!z)return; const c=zCentroid(z.key); if(!c)return; const sn=_snapLand(c[0],c[1]); const p=pB(sn[0],sn[1]); if(!p)return;
       _star(ctx,p[0],p[1],7*iz,'#ff8a3c');
       const cn=pz.chanceNow!=null?pz.chanceNow:Math.round((pz.prob||0)*100);
-      if(M.view.scale>1.2){ ctx.fillStyle='#ff8a3c'; ctx.font=(8.5*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText(cn+'% '+pz.key,p[0]+8*iz,p[1]+3*iz); }
+      // ORANJE ZONE-LABEL bij de ster (naam van de KS-zone, niet alleen de ster). Altijd zichtbaar, met
+      // een halftransparante pil zodat de naam leesbaar blijft boven land/zee.
+      const zlbl=String(pz.zone||''); if(zlbl){ ctx.save(); ctx.font='bold '+(8.5*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left';
+        const tw=ctx.measureText(zlbl).width, lx=p[0]+9*iz, ly=p[1]-8*iz;
+        ctx.fillStyle='rgba(12,16,26,0.72)'; ctx.fillRect(lx-3*iz, ly-8*iz, tw+6*iz, 12*iz);
+        ctx.fillStyle='#ff8a3c'; ctx.fillText(zlbl, lx, ly+1.5*iz); ctx.restore(); }
+      if(M.view.scale>1.2){ ctx.fillStyle='#ffd76a'; ctx.font=(8*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText(cn+'% '+pz.key,p[0]+9*iz,p[1]+6*iz); }
       if(pz.key==='week'||!M._primaryStar){ M._primaryStar=[M.view.tx+p[0]*M.view.scale, M.view.ty+p[1]*M.view.scale]; }
       M._markers.push({x:p[0],y:p[1],t:'ΔV kill-switch start-zone · '+pz.zone+' · '+cn+'% ('+pz.key+')'}); }); }
   // per-category, per-country stress ranking. ECONOMY is the primary target.
