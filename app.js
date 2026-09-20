@@ -24079,6 +24079,9 @@ const OsirisCausalChain = {
     st.cats.forEach(k=>{
       if(k==='conflict'){ const ec=(TrinityGSD._econConflict&&TrinityGSD._econConflict[zk]!=null)?TrinityGSD._econConflict[zk]:((cc[k]&&cc[k].v)||0); mx=Math.max(mx,ec); return; }   // economisch-gewogen conflict
       const v=(cc[k]&&cc[k].v!=null)?cc[k].v:0; mx=Math.max(mx, v*this._imp(k)); });
+    // (20-09) WATER injected into the resource stage (side-channel, like _econConflict). Water scarcity
+    // is a first-order resource driver → feeds "resources → conflict → inflation …". Shadow-gated: capped.
+    if(st.key==='resource'){ const w=(TrinityGSD._waterStress&&TrinityGSD._waterStress[zk]!=null)?TrinityGSD._waterStress[zk]:0; if(w>0) mx=Math.max(mx, w*0.9); }
     return mx; }catch(e){ return 0; } },
   stageLoads(zk){ return this.STAGES.map(s=>this._stageLoad(zk,s)); },
   ignitionScore(zk){ try{ const L=this.stageLoads(zk); let s=0; this.STAGES.forEach((st,i)=>{ s+=L[i]*st.origin; }); return s*(0.75+0.25*_gsdZoneEconW(zk)); }catch(e){ return 0; } },
@@ -27395,6 +27398,40 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
       let domF='other',domV=0; for(const f in c.mix){ if(c.mix[f]>domV){domV=c.mix[f];domF=f;} } const fc=POWER_FUEL2[domF]||['#94a3b8','?'];
       const r=Math.max(3,Math.sqrt(c.total)/40); blob(p[0],p[1],r*2.4,fc[0],0.12); _rdot(c.lon,c.lat,fc[0],r,iz,(M.view.scale>2.6?c.country:null),
         c.country+' · '+Math.round(c.total/1000)+' GW · mix: '+Object.entries(c.mix).sort((a,b)=>b[1]-a[1]).slice(0,6).map(e=>(POWER_FUEL2[e[0]]?POWER_FUEL2[e[0]][1]:e[0])+' '+Math.round(e[1]/c.total*100)+'%').join(' · ')); }); }
+
+  // ============================ GSD REASONING/CALIBRATION FEED (20-09) ============================
+  // Feeds the NEW datasets into the GSD compute so the FSO/GSD charts, kill-switch and causal chain
+  // actually reason & calibrate on them. Shadow-gated: capped influence + max-merge so it nudges the
+  // proven feeds, never overwrites them. Water → causal-chain resource stage (side-channel); finance
+  // (debt→housing, 10y→finstress, policy rate→cb) and energy-mix → energy, per zone.
+  function _zoneOf(lon,lat){ try{ for(const z of GSD_ZONES){ if(z.synthetic||!z.bbox)continue; const [w,s,e,n]=z.bbox; let inLon = (w<=e)?(lon>=w&&lon<=e):(lon>=w||lon<=e); if(inLon&&lat>=s&&lat<=n) return z.key; } }catch(e){} return null; }
+  function _fossilScore(mix){ try{ let tot=0,fos=0,h=0; for(const f in mix){ tot+=mix[f]; if(f==='coal'||f==='gas'||f==='oil')fos+=mix[f]; } if(tot<=0)return null; for(const f in mix){ const s=mix[f]/tot; h+=s*s; } return _clamp01((fos/tot)*0.8 + h*0.2); }catch(e){ return null; } }
+  let _gsdFeedLog=0;
+  function _feedGSDfromResources(){ try{
+    if(typeof TrinityGSD==='undefined'||!TrinityGSD.setCell)return;
+    const CAP=0.85;   // shadow-gate: new signals never push a cell above this on their own
+    // ---- WATER → per-zone (econ-weighted max of the zone's points) → causal-chain resource stage ----
+    const wz={}, wzc={}; WATER_STRESS.forEach(p=>{ const zk=_zoneOf(p[1],p[0]); if(!zk)return; const em=(typeof _gsdEconMass==='function')?_gsdEconMass(p[1],p[0]):0.5; const s=p[3]*(0.6+0.4*em); if(s>(wz[zk]||0)){ wz[zk]=s; } wzc[zk]=(wzc[zk]||0)+1; });
+    TrinityGSD._waterStress=TrinityGSD._waterStress||{}; for(const zk in wz){ TrinityGSD._waterStress[zk]=Math.min(CAP,wz[zk]); }
+    // ---- FINANCE (World Bank/FRED live, per country) → housing/finstress/cb per zone ----
+    let fin=null; try{ fin=(typeof window.osirisFinanceBundle==='function')?window.osirisFinanceBundle():null; }catch(e){}
+    if(fin&&fin.countries){ const byZ={}; fin.countries.forEach(c=>{ const z=c.zone; if(!z)return; const b=byZ[z]=byZ[z]||{debt:[],y:[],rate:[]}; if(c.debtToGdpPct!=null)b.debt.push(c.debtToGdpPct); if(c.bond10yPct!=null)b.y.push(c.bond10yPct); if(c.policyRatePct!=null)b.rate.push(c.policyRatePct); });
+      const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+      Object.keys(byZ).forEach(zk=>{ if(!TrinityGSD.cells[zk])return; const b=byZ[zk];
+        const debt=mean(b.debt), y=mean(b.y), rate=mean(b.rate);
+        if(debt!=null){ const s=Math.min(CAP,_clamp01((debt-40)/120)); const cur=TrinityGSD.cells[zk].housing&&TrinityGSD.cells[zk].housing.v; TrinityGSD.setCell(zk,'housing', cur!=null?Math.max(cur,s):s, 'World Bank debt', 'debt/GDP '+Math.round(debt)+'% (zone avg)'); }
+        if(y!=null){ const s=Math.min(CAP,_clamp01((y-2)/12)); const cur=TrinityGSD.cells[zk].finstress&&TrinityGSD.cells[zk].finstress.v; if(cur==null||s>cur) TrinityGSD.setCell(zk,'finstress', cur!=null?Math.max(cur,s*0.85):s*0.85, 'FRED 10y', '10y '+y.toFixed(1)+'% (zone avg)'); }
+        if(rate!=null){ const s=Math.min(CAP,_clamp01((rate-2)/14)); const cur=TrinityGSD.cells[zk].cb&&TrinityGSD.cells[zk].cb.v; if(cur==null||s>cur) TrinityGSD.setCell(zk,'cb', cur!=null?Math.max(cur,s*0.8):s*0.8, 'policy rate', 'policy '+rate.toFixed(1)+'% (zone avg)'); }
+      });
+    }
+    // ---- ENERGY mix (WRI live) → energy per zone (fossil dependence + concentration) ----
+    if(M._powerMix){ const byZ={}; M._powerMix.forEach(c=>{ const zk=_zoneOf(c.lon,c.lat); if(!zk)return; const fs=_fossilScore(c.mix); if(fs==null)return; const b=byZ[zk]=byZ[zk]||{s:0,w:0}; b.s+=fs*c.total; b.w+=c.total; });
+      Object.keys(byZ).forEach(zk=>{ if(!TrinityGSD.cells[zk]||!byZ[zk].w)return; const s=Math.min(CAP,byZ[zk].s/byZ[zk].w*0.7); const cur=TrinityGSD.cells[zk].energy&&TrinityGSD.cells[zk].energy.v; if(cur==null||s>cur) TrinityGSD.setCell(zk,'energy', cur!=null?Math.max(cur,s):s, 'WRI power-mix', 'fossil-dependence + concentration (zone)'); }); }
+    // load the power DB in the background so the energy signal exists even if the map layer is off
+    if(!M._powerState||M._powerState==='idle') _loadPowerDB();
+    const now=Date.now(); if(now-_gsdFeedLog>1800000){ _gsdFeedLog=now; try{ pushReason&&pushReason('GSD reasoning fed: water→resource-stage, finance→housing/finstress/cb, energy-mix→energy (shadow-gated, capped '+CAP+')'); }catch(e){} }
+  }catch(e){} }
+  try{ window.__osirisFeedGSDresources=_feedGSDfromResources; setTimeout(_feedGSDfromResources,9000); setInterval(_feedGSDfromResources,300000); }catch(e){}
 
   // scheepvaart-chokepoints: [lat,lon,naam]
   const CHOKEPOINTS = [[30.0,32.55,'Suez-kanaal'],[26.57,56.25,'Straat van Hormuz'],[12.6,43.4,'Bab-el-Mandeb'],
