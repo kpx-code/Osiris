@@ -28537,9 +28537,13 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
                 // hidden layers chain into the mixer
                 nodes.forEach((n, i) => { if (n.sub === 'hidden') add(i, idx['kpx:mix'], { w: 0.35 }); });
                 add(idx['kpx:mix'], hub, { w: 1 });
-                // light intra-cluster mesh (each node to 2 nearby same-cluster nodes) for the dense deepnet look
+                // light intra-cluster mesh (each node to a few same-cluster nodes) for the dense deepnet look
                 const byCluster = {}; nodes.forEach((n, i) => { (byCluster[n.cluster] = byCluster[n.cluster] || []).push(i); });
-                for (const c in byCluster) { const arr = byCluster[c]; for (let k = 0; k < arr.length; k++) { add(arr[k], arr[(k + 3) % arr.length], { w: 0.12, mesh: true }); } }
+                for (const c in byCluster) { const arr = byCluster[c]; for (let k = 0; k < arr.length; k++) { add(arr[k], arr[(k + 3) % arr.length], { w: 0.12, mesh: true }); add(arr[k], arr[(k + 7) % arr.length], { w: 0.08, mesh: true }); } }
+                // cross-cluster ties — KPX tools/predictors act on every engine → one cohesive brain
+                ['kpx:tool:EXEC-ROUTER', 'kpx:tool:CORR-SIZING', 'kpx:tool:MARGIN-EDGE', 'kpx:pred:HURST', 'kpx:pred:CHANGE-POINT', 'kpx:pred:THOMPSON'].forEach(id => { if (idx[id] != null) { add(idx[id], heads.neo, { w: 0.14, mesh: true }); add(idx[id], heads.trinity, { w: 0.12, mesh: true }); } });
+                add(idx['sw:head'], idx['kpx:mix'], { w: 0.5, up: true });
+                add(idx['neo:pipe:RL'], hub, { w: 0.25, mesh: true }); add(idx['tri:pipe:LEARN'], hub, { w: 0.25, mesh: true });
                 return { nodes, edges: E, view: { dir: S.dir, conf: S.conf, bias: S.bias, meta: S.meta, shadow: this.shadowRate(), shadowN: this.shadow.n } };
             } catch (e) { return { nodes: [], edges: [], view: {} }; }
         },
@@ -28586,39 +28590,41 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // ===========================================================================
     let _kpxLayout = null;
     function _kpxBuildLayout(model, W, H) {
-        // 4 cluster lobes around the central KPX hub; nodes packed in each lobe on a jittered
-        // spiral so the whole thing reads as one enormous mesh (like the NEO deepnet).
+        // ONE cohesive radial brain: KPX hub dead-centre, the three engine heads + mixer on an
+        // inner ring, and every subsystem fanned outward in its cluster's angular sector across
+        // radius bands — so the whole thing reads as a single connected organism, not 4 islands.
         const SR = (s) => { const x = Math.sin(s * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
-        const cx = W * 0.5, cy = H * 0.52;
-        const regions = {
-            neo: { cx: W * 0.20, cy: H * 0.30, rx: W * 0.17, ry: H * 0.22 },
-            trinity: { cx: W * 0.80, cy: H * 0.30, rx: W * 0.17, ry: H * 0.22 },
-            shockwave: { cx: W * 0.20, cy: H * 0.76, rx: W * 0.17, ry: H * 0.18 },
-            kpx: { cx: W * 0.80, cy: H * 0.76, rx: W * 0.17, ry: H * 0.18 }
-        };
+        const cx = W * 0.5, cy = H * 0.52, RX = W * 0.455, RY = H * 0.45;
+        const D = Math.PI / 180;
+        const sector = { neo: 180, trinity: 0, shockwave: 90, kpx: 270 };      // cardinal sides → even radial fill, one whole brain
+        const SPAN = 104 * D;                                                   // angular width per cluster (clusters nearly touch → cohesive)
+        const band = { head: 0.15, meta: 0.46, core: 0.33, pipe: 0.24, gsd: 0.42, zone: 0.50, fso: 0.62, input: 0.74, hidden: 0.30, tool: 0.52, pred: 0.56, learn: 0.26 };
         const pos = new Array(model.nodes.length);
-        const groups = {}; model.nodes.forEach((n, i) => { (groups[n.cluster] = groups[n.cluster] || []).push(i); });
+        const groups = {}; model.nodes.forEach((n, i) => { if (n.hub) return; (groups[n.cluster] = groups[n.cluster] || []).push(i); });
         for (const cl in groups) {
-            const arr = groups[cl], R = regions[cl]; const N = arr.length;
+            const arr = groups[cl]; const c0 = sector[cl] * D; const N = arr.length;
             arr.forEach((ni, k) => {
                 const n = model.nodes[ni];
-                if (n.hub) { pos[ni] = { x: cx, y: cy }; return; }
-                if (n.head) { const hx = R.cx + (R.cx < cx ? 1 : -1) * R.rx * 0.35, hy = R.cy + (R.cy < cy ? 1 : -1) * R.ry * 0.15; pos[ni] = { x: hx, y: hy }; return; }
-                // golden-angle spiral fill of the lobe
-                const gi = k, gr = Math.sqrt((gi + 0.5) / N); const ang = gi * 2.399963;
-                const jx = (SR(ni * 2 + 1) - 0.5) * 0.10, jy = (SR(ni * 3 + 2) - 0.5) * 0.10;
-                pos[ni] = { x: R.cx + Math.cos(ang) * (gr + jx) * R.rx, y: R.cy + Math.sin(ang) * (gr + jy) * R.ry };
+                const frac = N > 1 ? k / (N - 1) : 0.5;
+                let ang = c0 + (frac - 0.5) * SPAN + (SR(ni * 5 + 1) - 0.5) * 0.16;
+                let r = (n.head ? 0.15 : (n.id === 'kpx:mix' ? 0.13 : (band[n.sub] != null ? band[n.sub] : 0.42)));
+                r += (SR(ni * 7 + 3) - 0.5) * 0.06;                              // radial jitter → organic
+                pos[ni] = { x: cx + Math.cos(ang) * r * RX, y: cy + Math.sin(ang) * r * RY };
             });
         }
+        // hub centre
+        const hubI = model.nodes.findIndex(n => n.hub); if (hubI >= 0) pos[hubI] = { x: cx, y: cy };
         return { pos, key: W + 'x' + H + '#' + model.nodes.length };
     }
+    let _kpxModel = null;
     function drawKPXDeepnet() {
         try {
             const cv = document.getElementById('kpx-net'); if (!cv || cv.offsetParent === null) return;
-            const model = OsirisKPX.netModel();
+            const model = _kpxModel || (_kpxModel = OsirisKPX.netModel());
             const rect = cv.getBoundingClientRect(); if (rect.width < 20) return;
             const DPR = Math.min(2, window.devicePixelRatio || 1);
-            cv.width = rect.width * DPR; cv.height = rect.height * DPR;
+            const wantW = Math.round(rect.width * DPR), wantH = Math.round(rect.height * DPR);
+            if (cv.width !== wantW || cv.height !== wantH) { cv.width = wantW; cv.height = wantH; }   // resize only on change (smooth 60fps)
             const ctx = cv.getContext('2d'); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
             const W = rect.width, H = rect.height; ctx.clearRect(0, 0, W, H);
             const now = Date.now(); const V = model.view;
@@ -28643,7 +28649,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
             const labelEvery = model.nodes.length > 120 ? 1 : 1;
             for (let i = 0; i < model.nodes.length; i++) {
                 const n = model.nodes[i], p = pos[i]; if (!p) continue;
-                const glow = n.act || 0.3; const rgb = hex2(n.col);
+                const pulse = 0.5 + 0.5 * Math.sin(now / 780 + i * 0.6);           // per-node breathing
+                const glow = Math.max(0.12, Math.min(1, (n.act || 0.3) * (0.7 + 0.5 * pulse))); const rgb = hex2(n.col);
                 const r = (n.hub ? 9 : n.head ? 6.5 : n.big ? 4.6 : 2.6) + glow * (n.hub ? 5 : 2.4);
                 if (glow > 0.45 || n.big || n.head || n.hub) { ctx.beginPath(); ctx.arc(p.x, p.y, r + 3 + 6 * glow, 0, 6.283); ctx.fillStyle = 'rgba(' + rgb + ',' + (0.06 + 0.12 * glow).toFixed(3) + ')'; ctx.fill(); }
                 ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.fillStyle = 'rgba(' + rgb + ',' + (0.55 + 0.4 * glow).toFixed(3) + ')'; ctx.fill();
@@ -28758,11 +28765,16 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 
     function renderKPXStamp() { try { const el = document.getElementById('kpx-updated'); if (el) el.textContent = 'last updated ' + _kpxTime(OsirisKPX.updated.state || Date.now()) + ' · ' + _kpxAgo(OsirisKPX.updated.state); } catch (e) {} }
 
-    function kpxRenderAll() { try { if (!_osKpxVisible()) return; OsirisKPX.tick(); renderKPXStamp(); renderKPXFlow(); drawKPXDeepnet(); renderKPXLearn(); } catch (e) {} }
+    // data + panels refresh (every 2s); the canvas itself animates at 60fps via rAF below.
+    function kpxRenderAll() { try { if (!_osKpxVisible()) return; OsirisKPX.tick(); _kpxModel = OsirisKPX.netModel(); renderKPXStamp(); renderKPXFlow(); renderKPXLearn(); } catch (e) {} }
     function _osKpxVisible() { try { const t = document.getElementById('tab-kpx'); return !!(t && t.offsetParent !== null); } catch (e) { return false; } }
     window.kpxRenderAll = kpxRenderAll;
     try { setInterval(kpxRenderAll, 2000); } catch (e) {}
+    // ---- 60fps animation loop for the deepnet (moving, glowing lines like NEO/Trinity) ----
+    let _kpxRAF = null;
+    function _kpxFrame() { try { if (_osKpxVisible()) { if (!_kpxModel) _kpxModel = OsirisKPX.netModel(); drawKPXDeepnet(); } } catch (e) {} _kpxRAF = requestAnimationFrame(_kpxFrame); }
+    try { _kpxRAF = requestAnimationFrame(_kpxFrame); } catch (e) { try { setInterval(() => { if (_osKpxVisible()) drawKPXDeepnet(); }, 60); } catch (x) {} }
     // render meteen bij tab-open (wrap de globale showTab)
-    try { const _o = window.showTab; if (typeof _o === 'function') { window.showTab = function (id) { _o(id); if (id === 'kpx') setTimeout(kpxRenderAll, 60); }; } } catch (e) {}
+    try { const _o = window.showTab; if (typeof _o === 'function') { window.showTab = function (id) { _o(id); if (id === 'kpx') { setTimeout(kpxRenderAll, 60); setTimeout(() => { try { drawKPXDeepnet(); } catch (e) {} }, 90); } }; } } catch (e) {}
     try { window.downloadKPX = function () { try { const j = JSON.stringify(OsirisKPX.context(), (k, v) => /(^|_)(key|secret|token|password|apikey|api_key|bearer|auth)($|_)/i.test(k) ? undefined : v, 2); const b = new Blob([j], { type: 'application/json' }); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = 'osiris_kpx_context_' + Date.now() + '.json'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(u); a.remove(); }, 200); } catch (e) { try { alert('KPX export failed: ' + e.message); } catch (x) {} } }; } catch (e) {}
 })();
