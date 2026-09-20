@@ -27249,7 +27249,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 
   const LAYERS = { pressure:true, killzones:true, groundzero:true, contagion:true, conflicts:true, quakes:true, disasters:true, tsunami:true, floodwatch:true,
                    rain:false, temp:false, commodity:false, commodityflow:false, plates:false, capital:true, capitalLabels:true, migration:false,
-                   chokepoints:false, spaceweather:false, currents:false, density:false, cities:true, labels:true };
+                   chokepoints:false, spaceweather:false, currents:false, density:false, cities:true, labels:true,
+                   waterbodies:false, waterstress:false, aiwater:false, waterfuture:false, power:false };
   try{ const s=JSON.parse(localStorage.getItem('swMapLayers4')||'null'); if(s) Object.assign(LAYERS,s); }catch(e){}
   function saveLayers(){ try{ localStorage.setItem('swMapLayers4',JSON.stringify(LAYERS)); }catch(e){} }
 
@@ -27261,6 +27262,8 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     ['SUPPLY & SPACE', [['chokepoints','Shipping chokepoints','#ffd54a'],['spaceweather','Space weather · NOAA SWPC','#b388ff']]],
     ['WEATHER & DENSITY', [['temp','Temperature heat · Open-Meteo','#ff8a3c'],['rain','Rain / flood-ETA · Open-Meteo','#4fc3f7'],['density','Human density','#c792ea'],['currents','Ocean / heat currents','#38bdf8']]],
     ['COMMODITIES', [['commodity','Commodity heat zones','#ffd54a']]],
+    ['RESOURCES · WATER', [['waterbodies','Freshwater reserves (lakes/rivers/aquifers)','#38bdf8'],['waterstress','Water stress + extraction (gw/surface/desal)','#ff5f7e'],['waterfuture','Water-shortage projection (year slider · AI demand)','#ff8a3c'],['aiwater','AI datacenter water draw','#c792ea']]],
+    ['RESOURCES · ENERGY', [['power','Power plants worldwide (by fuel)','#ffd54a']]],
     ['BASE', [['cities','Cities','#bfe0f0'],['labels','City names (on zoom)','#8fb8ff']]]
   ];
   // financiële hub-steden per zone (capital-flow is stedengericht): [lat,lon,naam,zone]
@@ -27270,6 +27273,89 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     [25.2,55.27,'Dubai','me'],[41.0,28.98,'Istanbul','me'],
     [-26.2,28.0,'Johannesburg','af'],[6.45,3.4,'Lagos','af'],
     [-23.5,-46.6,'São Paulo','latam'],[-34.6,-58.4,'Buenos Aires','latam']];
+
+  // ============================ RESOURCE LAYERS (20-09) ============================
+  // Curated, approximate datasets (extendable; live feeds like WRI Aqueduct / WRI Global
+  // Power Plant DB / IMF-BIS can be wired via a CORS proxy). Toggleable on the world map.
+  // ---- Freshwater reserves: [lat, lon, name, type] (lake · river · aquifer · glacier) ----
+  const WATER_BODIES = [
+    [45.0,-84.0,'Great Lakes','lake'],[47.6,-122.3,'Columbia R.','river'],[61,-114,'Great Bear/Slave','lake'],
+    [53.5,108,'Lake Baikal','lake'],[46,60,'Caspian Sea','lake'],[45,-100,'Ogallala Aquifer','aquifer'],
+    [-3,-62,'Amazon Basin','river'],[-1,22,'Congo Basin','river'],[-24,-56,'Guaraní Aquifer','aquifer'],
+    [-16,-69,'Lake Titicaca','lake'],[0,33,'Lake Victoria','lake'],[-6,29.5,'Lake Tanganyika','lake'],
+    [12,34,'Nile Basin','river'],[22,25,'Nubian Sandstone Aquifer','aquifer'],[25,78,'Ganges-Brahmaputra','river'],
+    [31,90,'Tibetan Plateau (Asian water tower)','glacier'],[30,112,'Yangtze','river'],[15,105,'Mekong','river'],
+    [-25,140,'Great Artesian Basin','aquifer'],[62,90,'Siberian rivers (Ob/Yenisei/Lena)','river'],
+    [68,-150,'Arctic freshwater','glacier'],[-78,0,'Antarctic ice sheet','glacier'],[72,-40,'Greenland ice sheet','glacier'],
+    [48,7,'Rhine-Danube','river'],[60,25,'Fennoscandian lakes','lake'],[-13,34,'Lake Malawi','lake'],
+    [41,-102,'High Plains Aquifer','aquifer'],[36,-119,'California Central Valley','aquifer'],[19,73,'Western Ghats','river']];
+  // ---- Water stress + extraction: [lat, lon, country, stress 0-1, source] gw=groundwater sw=surface desal=desalination mix ----
+  const WATER_STRESS = [
+    [25,45,'Saudi Arabia',0.98,'desal'],[24,54,'UAE',0.97,'desal'],[25.3,51.2,'Qatar',0.98,'desal'],[29,48,'Kuwait',0.97,'desal'],[26,50.5,'Bahrain',0.96,'desal'],
+    [31.5,35,'Israel',0.92,'desal'],[31.9,35.9,'Jordan',0.93,'gw'],[33.9,35.5,'Lebanon',0.82,'sw'],[35,38,'Syria',0.85,'sw'],[33,44,'Iraq',0.86,'sw'],[32,53,'Iran',0.88,'gw'],
+    [30,31,'Egypt',0.90,'sw'],[27,3,'Algeria',0.82,'gw'],[32,13,'Libya',0.90,'gw'],[34,-6,'Morocco',0.80,'sw'],[34,9,'Tunisia',0.82,'gw'],
+    [28,77,'India (north)',0.82,'gw'],[30,70,'Pakistan',0.85,'sw'],[34,69,'Afghanistan',0.72,'gw'],[40,64,'Uzbekistan',0.80,'sw'],[38,58,'Turkmenistan',0.82,'sw'],
+    [39,35,'Türkiye',0.62,'sw'],[40,45,'Caucasus',0.55,'sw'],[36,138,'Japan',0.30,'sw'],[36,128,'South Korea',0.55,'sw'],
+    [39,116,'China (north plain)',0.72,'gw'],[23,113,'China (south)',0.40,'sw'],[28,85,'Nepal',0.30,'sw'],
+    [-25,134,'Australia (interior)',0.62,'gw'],[-33,18.4,'South Africa',0.62,'mix'],[-1,37,'Kenya/Horn',0.66,'sw'],[15,39,'Sahel',0.70,'gw'],[13,8,'Nigeria (north)',0.60,'gw'],
+    [40,-3.7,'Spain',0.62,'sw'],[38,15,'Italy (south)',0.55,'sw'],[38,23,'Greece',0.55,'sw'],[37,-8,'Portugal',0.52,'sw'],
+    [36,-119,'US Southwest',0.72,'gw'],[39,-105,'US High Plains',0.60,'gw'],[23,-102,'Mexico',0.66,'gw'],
+    [-33,-70,'Chile (central)',0.66,'sw'],[-12,-77,'Peru (coast)',0.62,'gw'],[-15,-56,'Brazil (NE/SE)',0.45,'sw'],
+    [52,5,'NW Europe',0.28,'sw'],[55,37,'Russia (west)',0.20,'sw'],[60,15,'Scandinavia',0.10,'sw'],[56,-106,'Canada',0.08,'sw'],[-41,172,'New Zealand',0.15,'sw'],[-2,23,'Congo',0.06,'sw']];
+  // ---- AI / datacenter water draw hubs: [lat, lon, name, mln liters/yr approx] ----
+  const AI_DC = [
+    [39.0,-77.5,'N. Virginia · Data Center Alley',9500],[41.6,-93.6,'Iowa (hyperscale)',4200],[45.6,-121.2,'The Dalles OR (Google)',1500],
+    [33.4,-112,'Phoenix AZ (TSMC+DC)',3800],[32.8,-96.8,'Dallas TX',2600],[47.6,-122.3,'Washington (Quincy)',1800],[36.2,-115.1,'Las Vegas NV',1400],
+    [53.3,-6.3,'Dublin (Ireland)',3200],[52.4,4.8,'Amsterdam',1600],[60.2,24.9,'Finland (Nordic)',900],[51.5,-0.1,'London',1500],[50.1,8.7,'Frankfurt',2100],
+    [1.29,103.85,'Singapore',2400],[35.7,139.7,'Tokyo',1300],[37.5,127,'Seoul',1200],[19,73,'Mumbai',1100],[39.9,116.4,'Beijing',2000],[24,120.7,'Taiwan (fab+DC)',3400],
+    [-33.9,151.2,'Sydney',900],[19.4,-99.1,'Querétaro MX',700]];
+  // ---- Power plants worldwide: [lat, lon, name, fuel, MW] fuel: coal gas nuclear hydro solar wind oil geo ----
+  const POWER_FUEL = { coal:['#6b7280','Coal'], gas:['#f59e0b','Gas'], nuclear:['#a855f7','Nuclear'], hydro:['#38bdf8','Hydro'], solar:['#fde047','Solar'], wind:['#34d399','Wind'], oil:['#ef4444','Oil'], geo:['#fb7185','Geothermal'] };
+  const POWER_PLANTS = [
+    // hydro
+    [30.8,111.0,'Three Gorges','hydro',22500],[-25.4,-54.6,'Itaipú','hydro',14000],[3.1,-60.2,'Belo Monte','hydro',11233],[59.6,101,'Sayano-Shushenskaya','hydro',6400],
+    [46.5,-72,'Robert-Bourassa','hydro',5616],[26,90,'Tehri','hydro',2400],[47.5,-119,'Grand Coulee','hydro',6809],[15.4,37.9,'GERD (Ethiopia)','hydro',5150],[22.2,113.6,'Longtan','hydro',6300],
+    // nuclear
+    [37.4,141,'Kashiwazaki-Kariwa','nuclear',7965],[44.3,-81.6,'Bruce','nuclear',6550],[35.7,-121.1,'Diablo Canyon','nuclear',2256],[33.4,-112.9,'Palo Verde','nuclear',3937],
+    [49,2.6,'Gravelines (FR)','nuclear',5460],[48.5,1.6,'Paluel (FR)','nuclear',5320],[51.4,-4,'Hinkley (UK)','nuclear',3260],[37.1,129.4,'Hanul (KR)','nuclear',6189],
+    [47.6,34.6,'Zaporizhzhia (UA)','nuclear',5700],[23.9,119.4,'Taishan (CN)','nuclear',3500],[19.7,72.7,'Tarapur (IN)','nuclear',1400],[25.6,-80.3,'Turkey Point (US)','nuclear',3300],
+    // coal
+    [51.3,19.3,'Bełchatów (PL)','coal',5102],[37.3,126.6,'Dangjin (KR)','coal',6100],[23,113,'Taichung (TW)','coal',5500],[36,139,'Hekinan (JP)','coal',4100],
+    [-26,29.2,'Kusile/Medupi (ZA)','coal',4800],[39.9,116,'Datang (CN)','coal',5000],[24,82,'Vindhyachal (IN)','coal',4760],[52.5,14.3,'Jänschwalde (DE)','coal',2790],[41,-79,'Homer City (US)','coal',1900],
+    // gas
+    [29.7,-95,'W.A. Parish (US)','gas',3653],[24.5,54.7,'Jebel Ali (AE)','gas',9547],[26.9,50.8,'Ras Az Zawr (SA)','gas',2400],[51.9,4.5,'Rotterdam (NL)','gas',1900],
+    [55.7,37.8,'CCGT Moscow (RU)','gas',2400],[19.1,72.9,'Trombay (IN)','gas',1580],[34,-118.2,'Los Angeles (US)','gas',2000],[35.7,51.4,'Tehran CCGT (IR)','gas',2000],
+    // solar
+    [26.9,71.9,'Bhadla Solar (IN)','solar',2245],[39.6,98.5,'Tengger Desert (CN)','solar',1547],[24.1,55.2,'Al Dhafra (AE)','solar',2000],[28.5,34.6,'Benban (EG)','solar',1650],
+    [35,-115.4,'Ivanpah/Mojave (US)','solar',1200],[-30,136,'Australia solar','solar',900],[37.2,-3,'Andalusia (ES)','solar',900],
+    // wind
+    [40.9,-96.7,'US Great Plains wind','wind',3000],[41.7,111,'Gansu (CN)','wind',8000],[23,72,'Gujarat (IN)','wind',1500],[54,8,'North Sea (DE/UK)','wind',3600],
+    [56,3,'Dogger Bank (UK)','wind',3600],[-38,142,'Australia wind','wind',1000],[43,-8,'Iberia wind (ES)','wind',1200],
+    // oil / geo / misc for broad coverage
+    [26.2,50.6,'Saudi oil power','oil',2000],[6.5,3.4,'Egbin (NG)','gas',1320],[-6.2,106.8,'Java (ID)','coal',4000],[13.7,100.5,'Bangkok CCGT (TH)','gas',3200],
+    [64.1,-21.9,'Hellisheiði (IS)','geo',303],[-1.3,36.8,'Olkaria (KE)','geo',800],[14.6,121,'Philippines geo','geo',1900],[-38,176,'Wairakei (NZ)','geo',1000],
+    [-33.4,-70.6,'Chile mix','solar',1000],[4.6,-74,'Colombia hydro','hydro',1200],[-12,-77,'Peru gas (Chilca)','gas',1300],[45.4,9.2,'Italy CCGT','gas',1500],
+    [60.2,24.9,'Finland nuclear (Olkiluoto)','nuclear',4400],[59.3,18,'Sweden hydro/nuclear','nuclear',3200],[52.2,21,'Poland mix','coal',2000],[47.5,19,'Hungary (Paks)','nuclear',2000]];
+  try{ window.__swWaterYear=function(y){ if(isFinite(y)){ M.waterYear=Math.max(2025,Math.min(2050,y|0)); } }; }catch(e){}
+
+  // small filled dot + optional label, in screen space (call after ctx.restore, like quakes)
+  function _rdot(lon,lat,col,rad,iz,label,tip){ const p=pB(lon,lat); if(!p)return; const ctx=M.ctx;
+    ctx.beginPath(); ctx.arc(p[0],p[1],rad*iz,0,6.283); ctx.fillStyle=col; ctx.globalAlpha=0.85; ctx.fill(); ctx.globalAlpha=1;
+    ctx.lineWidth=0.8*iz; ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.stroke();
+    if(label&&M.view.scale>2.2){ ctx.fillStyle='rgba(223,233,242,0.9)'; ctx.font=(7*iz)+"px 'JetBrains Mono',monospace"; ctx.textAlign='left'; ctx.fillText(label,p[0]+5*iz,p[1]+2*iz); }
+    if(tip) M._markers.push({x:p[0],y:p[1],t:tip}); }
+  function _drawWaterBodies(iz){ WATER_BODIES.forEach(w=>{ const p=pB(w[1],w[0]); if(!p)return; const col=w[3]==='glacier'?'#a3e4ff':w[3]==='aquifer'?'#4f8bde':'#38bdf8';
+    blob(p[0],p[1],w[3]==='aquifer'?46:34,col,w[3]==='glacier'?0.18:0.13); _rdot(w[1],w[0],col,2.4,iz,w[2],w[2]+' · freshwater '+w[3]); }); }
+  function _waterProjMul(){ const yr=M.waterYear||2025; const dy=yr-2025; const pop=1+0.011*dy; const ai=LAYERS.aiwater||LAYERS.waterfuture?(1+0.018*dy):1; return LAYERS.waterfuture?(pop*ai):1; }
+  function _drawWaterStress(iz){ const mul=_waterProjMul(); WATER_STRESS.forEach(w=>{ const p=pB(w[1],w[0]); if(!p)return; const s=Math.max(0,Math.min(1,w[3]*mul));
+    const col=s>=0.8?'#ff2d55':s>=0.6?'#ff8a3c':s>=0.4?'#ffd76a':'#7fd8ff'; blob(p[0],p[1],20+s*40,col,0.10+s*0.22);
+    const srcTxt={gw:'groundwater',sw:'surface',desal:'desalination',mix:'mixed'}[w[4]]||w[4];
+    _rdot(w[1],w[0],col,2.2,iz,null,w[2]+' · water stress '+Math.round(s*100)+'% · '+srcTxt+(LAYERS.waterfuture?(' · proj '+(M.waterYear)):'')); }); }
+  function _drawAIWater(iz){ AI_DC.forEach(d=>{ const p=pB(d[1],d[0]); if(!p)return; const yr=M.waterYear||2025; const proj=d[3]*(LAYERS.waterfuture?(1+0.09*(yr-2025)):1);
+    blob(p[0],p[1],14+Math.min(40,proj/300),'#c792ea',0.12); _rdot(d[1],d[0],'#c792ea',2.6,iz,d[2],d[2]+' · AI/datacenter water ~'+Math.round(proj)+' Ml/yr'+(LAYERS.waterfuture?(' (proj '+yr+')'):'')); }); }
+  function _drawPower(iz){ POWER_PLANTS.forEach(pl=>{ const p=pB(pl[1],pl[0]); if(!p)return; const fc=POWER_FUEL[pl[3]]||['#ffd54a','?']; const r=Math.max(2,Math.sqrt(pl[4])/22);
+    blob(p[0],p[1],r*3,fc[0],0.10); _rdot(pl[1],pl[0],fc[0],r,iz,null,pl[2]+' · '+fc[1]+' · '+pl[4]+' MW'); }); }
+
   // scheepvaart-chokepoints: [lat,lon,naam]
   const CHOKEPOINTS = [[30.0,32.55,'Suez-kanaal'],[26.57,56.25,'Straat van Hormuz'],[12.6,43.4,'Bab-el-Mandeb'],
     [1.43,102.9,'Straat van Malakka'],[9.0,-79.7,'Panamakanaal'],[41.0,29.0,'Bosporus'],[36.0,-5.6,'Gibraltar'],
@@ -27523,6 +27609,11 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // kill-zones
     if(LAYERS.killzones) _drawKill(iz);
     if(LAYERS.floodwatch) _drawFloodWatch(iz);
+    // resource layers (20-09)
+    if(LAYERS.waterbodies) _drawWaterBodies(iz);
+    if(LAYERS.waterstress||LAYERS.waterfuture) _drawWaterStress(iz);
+    if(LAYERS.aiwater) _drawAIWater(iz);
+    if(LAYERS.power) _drawPower(iz);
     // geselecteerd land markeren
     if(M.detail&&M.detail._f){ ctx.beginPath(); M.path(M.detail._f); ctx.strokeStyle='#ff8a3c'; ctx.lineWidth=1.6*iz; ctx.stroke(); }
     // cities
@@ -28077,6 +28168,9 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     data.conflicts=CONFLICTS; data.migration=MIGRATION;
     data.capitalFlowByZone={ realUSD:M.realFlow||{}, source:M.realFlowSrc||null, simulatedIndex:(function(){ const o={}; GSD_ZONES.forEach(z=>{ if(z.key!=='global'&&!z.synthetic)o[z.key]=_zoneNetFlow(z.key); }); return o; })() };
     data.live={ quakes:M.quakes, disasters:M.events, chokepoints:(typeof CHOKEPOINTS!=='undefined'?CHOKEPOINTS:[]), weather:M.wx, spaceWeatherKp:M.kp };
+    // (20-09) resource + finance intel
+    try{ data.finance=(typeof window.osirisFinanceBundle==='function')?window.osirisFinanceBundle():null; }catch(e){}
+    try{ data.resources={ waterBodies:WATER_BODIES.map(w=>({lat:w[0],lon:w[1],name:w[2],type:w[3]})), waterStress:WATER_STRESS.map(w=>({lat:w[0],lon:w[1],name:w[2],stress:w[3],source:w[4]})), aiDatacenterWater:AI_DC.map(d=>({lat:d[0],lon:d[1],name:d[2],mlPerYr:d[3]})), powerPlants:POWER_PLANTS.map(p=>({lat:p[0],lon:p[1],name:p[2],fuel:p[3],mw:p[4]})), waterProjectionYear:M.waterYear, uitleg:'Curated freshwater/water-stress/extraction, AI-datacenter water draw, and power plants by fuel. Toggleable world-map layers.' }; }catch(e){}
     // defensive: strip anything that looks like a secret
     const json=JSON.stringify(data,(k,v)=> /(^|_)(key|secret|token|password|passwd|apikey|api_key|bearer|auth)($|_)/i.test(k)?undefined:v ,2);
     const blob=new Blob([json],{type:'application/json'}); const url=URL.createObjectURL(blob);
@@ -28777,4 +28871,67 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // render meteen bij tab-open (wrap de globale showTab)
     try { const _o = window.showTab; if (typeof _o === 'function') { window.showTab = function (id) { _o(id); if (id === 'kpx') { setTimeout(kpxRenderAll, 60); setTimeout(() => { try { drawKPXDeepnet(); } catch (e) {} }, 90); } }; } } catch (e) {}
     try { window.downloadKPX = function () { try { const j = JSON.stringify(OsirisKPX.context(), (k, v) => /(^|_)(key|secret|token|password|apikey|api_key|bearer|auth)($|_)/i.test(k) ? undefined : v, 2); const b = new Blob([j], { type: 'application/json' }); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = 'osiris_kpx_context_' + Date.now() + '.json'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(u); a.remove(); }, 200); } catch (e) { try { alert('KPX export failed: ' + e.message); } catch (x) {} } }; } catch (e) {}
+})();
+
+/* ==================================================================================
+   OSIRIS SHOCKWAVE · FINANCE INTEL PANEL (20-09) — central/world/local banks, FX
+   reserves, sovereign debt-to-GDP, 10y bond yields. INFO PANEL (not a map layer).
+   Curated/approximate data (extendable; IMF/BIS/FRED feeds can be wired via a proxy).
+   ================================================================================== */
+(function(){
+  'use strict';
+  const esc=s=>(''+s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  // central banks: [name, ccy, policyRate%, fxReservesBn, stance]
+  const CBANKS=[
+    ['Federal Reserve','USD',4.50,240,'restrictive'],['ECB','EUR',2.40,320,'neutral'],['Bank of England','GBP',4.00,180,'restrictive'],
+    ['Bank of Japan','JPY',0.50,1240,'easy→tightening'],['PBoC','CNY',3.00,3200,'easy'],['SNB','CHF',0.50,780,'neutral'],
+    ['Bank of Canada','CAD',2.75,120,'neutral'],['RBA','AUD',3.85,60,'neutral'],['RBNZ','NZD',3.00,20,'easing'],
+    ['RBI','INR',5.50,690,'neutral'],['Banco Central do Brasil','BRL',15.00,355,'very restrictive'],['Banxico','MXN',8.00,230,'restrictive'],
+    ['Bank of Russia','RUB',18.00,600,'very restrictive'],['TCMB (Türkiye)','TRY',42.50,150,'very restrictive'],['SARB','ZAR',7.25,62,'restrictive'],
+    ['Bank of Korea','KRW',2.50,415,'neutral'],['Bank Indonesia','IDR',5.50,150,'neutral'],['Bank of Thailand','THB',1.75,240,'easy'],
+    ['State Bank of Pakistan','PKR',11.00,15,'restrictive'],['SAMA (Saudi)','SAR',5.00,430,'pegged/restrictive'],['CBUAE','AED',4.40,180,'pegged'],
+    ['NBP (Poland)','PLN',4.75,200,'neutral'],['Riksbank','SEK',2.00,60,'easing'],['Norges Bank','NOK',4.25,80,'neutral']];
+  // multilateral / "world" banks: [name, hq, note]
+  const WBANKS=[
+    ['IMF','Washington DC','lender of last resort · SDR'],['World Bank','Washington DC','development finance'],['BIS','Basel','central bank of central banks'],
+    ['Asian Development Bank','Manila','Asia-Pacific'],['AIIB','Beijing','infrastructure'],['European Investment Bank','Luxembourg','EU'],
+    ['New Development Bank','Shanghai','BRICS'],['Inter-American Dev. Bank','Washington DC','Latin America'],['African Development Bank','Abidjan','Africa'],['EBRD','London','emerging Europe']];
+  // sovereign debt & bonds: [country, debtToGDP%, bond10y%, fxReservesBn]
+  const SOV=[
+    ['Japan',255,1.5,1240],['United States',123,4.2,240],['Italy',137,3.8,60],['France',111,3.2,250],['United Kingdom',100,4.5,180],
+    ['Germany',63,2.6,300],['Spain',105,3.3,90],['Greece',155,3.5,12],['Canada',107,3.3,120],['China',88,1.8,3200],
+    ['India',82,6.5,690],['Brazil',87,12.5,355],['Mexico',55,9.5,230],['Russia',20,15.0,600],['South Africa',74,10.5,62],
+    ['Türkiye',27,28.0,150],['South Korea',55,2.9,415],['Australia',42,4.3,60],['Indonesia',39,6.7,150],['Saudi Arabia',30,5.0,430],
+    ['Argentina',85,30.0,28],['Egypt',90,24.0,45],['Nigeria',50,18.0,33]];
+  // largest commercial/local banks by assets: [name, country, assetsBn]
+  const LBANKS=[
+    ['ICBC','China',6300],['China Construction Bank','China',5400],['Agricultural Bank of China','China',5600],['Bank of China','China',4600],
+    ['JPMorgan Chase','USA',4100],['Bank of America','USA',3300],['HSBC','UK',3000],['Mitsubishi UFJ','Japan',2900],['BNP Paribas','France',2900],
+    ['Crédit Agricole','France',2700],['Citigroup','USA',2400],['Sumitomo Mitsui','Japan',2100],['Wells Fargo','USA',1900],['Santander','Spain',1900],['Barclays','UK',1900],['Deutsche Bank','Germany',1400]];
+  const stanceCol=s=>/very restrictive/.test(s)?'#ff2d55':/restrictive/.test(s)?'#ff8a3c':/eas/.test(s)?'#14f195':'#7fd8ff';
+  const debtCol=d=>d>=130?'#ff2d55':d>=90?'#ff8a3c':d>=60?'#ffd76a':'#14f195';
+  const yCol=y=>y>=12?'#ff2d55':y>=6?'#ff8a3c':y>=4?'#ffd76a':'#7fd8ff';
+  function fmtBn(v){ return v>=1000?('$'+(v/1000).toFixed(2)+'T'):('$'+v+'B'); }
+  function render(){ try{ const el=document.getElementById('gsd-finance'); if(!el||el.offsetParent===null)return;
+    const D='#6d8296', TX='#cfe6f5';
+    const card=(title,col,body)=>'<div style="flex:1 1 460px;min-width:320px;border:1px solid '+col+'33;background:rgba(8,14,22,0.5);border-radius:10px;padding:9px 11px;margin-bottom:10px;"><div style="font:700 0.62rem \'JetBrains Mono\',monospace;letter-spacing:0.06em;color:'+col+';text-transform:uppercase;margin-bottom:6px;">'+title+'</div>'+body+'</div>';
+    // central banks
+    let cb=CBANKS.slice().sort((a,b)=>b[3]-a[3]).map(b=>'<div style="display:flex;gap:8px;font-size:0.6rem;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);align-items:baseline;"><span style="flex:1 1 auto;color:'+TX+';">'+esc(b[0])+' <span style="color:'+D+';">'+b[1]+'</span></span><span style="flex:0 0 70px;text-align:right;color:#ffd76a;font-weight:700;">'+b[2].toFixed(2)+'%</span><span style="flex:0 0 90px;text-align:right;color:#7fd8ff;">'+fmtBn(b[3])+'</span><span style="flex:0 0 120px;text-align:right;color:'+stanceCol(b[4])+';">'+esc(b[4])+'</span></div>').join('');
+    cb='<div style="display:flex;gap:8px;font-size:0.5rem;color:'+D+';text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:2px;margin-bottom:2px;"><span style="flex:1 1 auto;">bank · ccy</span><span style="flex:0 0 70px;text-align:right;">policy rate</span><span style="flex:0 0 90px;text-align:right;">FX reserves</span><span style="flex:0 0 120px;text-align:right;">stance</span></div>'+cb;
+    // sovereign debt
+    let sv=SOV.slice().sort((a,b)=>b[1]-a[1]).map(s=>'<div style="display:flex;gap:8px;font-size:0.6rem;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);align-items:baseline;"><span style="flex:1 1 auto;color:'+TX+';">'+esc(s[0])+'</span><span style="flex:0 0 80px;text-align:right;color:'+debtCol(s[1])+';font-weight:700;">'+s[1]+'%</span><span style="flex:0 0 70px;text-align:right;color:'+yCol(s[2])+';">'+s[2].toFixed(1)+'%</span><span style="flex:0 0 90px;text-align:right;color:#7fd8ff;">'+fmtBn(s[3])+'</span></div>').join('');
+    sv='<div style="display:flex;gap:8px;font-size:0.5rem;color:'+D+';text-transform:uppercase;border-bottom:1px solid rgba(255,255,255,0.08);padding-bottom:2px;margin-bottom:2px;"><span style="flex:1 1 auto;">country</span><span style="flex:0 0 80px;text-align:right;">debt/GDP</span><span style="flex:0 0 70px;text-align:right;">10y bond</span><span style="flex:0 0 90px;text-align:right;">FX reserves</span></div>'+sv;
+    // world banks
+    const wb=WBANKS.map(b=>'<div style="font-size:0.58rem;padding:2px 0;color:'+TX+';"><b>'+esc(b[0])+'</b> <span style="color:'+D+';">· '+esc(b[1])+' · '+esc(b[2])+'</span></div>').join('');
+    // local banks
+    const lb=LBANKS.slice().sort((a,b)=>b[2]-a[2]).map(b=>'<div style="display:flex;gap:8px;font-size:0.58rem;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.04);"><span style="flex:1 1 auto;color:'+TX+';">'+esc(b[0])+' <span style="color:'+D+';">'+esc(b[1])+'</span></span><span style="flex:0 0 90px;text-align:right;color:#14f195;">'+fmtBn(b[2])+'</span></div>').join('');
+    const totRes=CBANKS.reduce((a,b)=>a+b[3],0);
+    const note='<div style="font-size:0.5rem;color:'+D+';margin-top:6px;line-height:1.5;">Curated/approximate intel — extendable; live IMF/BIS/FRED feeds can be wired via a proxy. Global tracked FX reserves ≈ '+fmtBn(totRes)+'. Policy rate = main refinancing/policy rate; stance = Osiris tag.</div>';
+    el.innerHTML='<div style="display:flex;gap:10px;flex-wrap:wrap;">'+card('Central banks · policy rate + FX reserves','#4fc3f7',cb)+card('Sovereign debt & bonds','#ff8a3c',sv)+'</div>'+
+      '<div style="display:flex;gap:10px;flex-wrap:wrap;">'+card('World / multilateral banks','#c792ea',wb)+card('Largest commercial / local banks (by assets)','#14f195',lb)+'</div>'+note;
+  }catch(e){} }
+  try{ window.renderShockFinance=render; }catch(e){}
+  try{ setInterval(function(){ try{ const el=document.getElementById('gsd-finance'); if(el&&el.offsetParent!==null)render(); }catch(e){} },5000); setTimeout(render,1500); }catch(e){}
+  // export bundle
+  try{ window.osirisFinanceBundle=function(){ return { centralBanks:CBANKS.map(b=>({name:b[0],ccy:b[1],policyRatePct:b[2],fxReservesBn:b[3],stance:b[4]})), worldBanks:WBANKS.map(b=>({name:b[0],hq:b[1],note:b[2]})), sovereign:SOV.map(s=>({country:s[0],debtToGdpPct:s[1],bond10yPct:s[2],fxReservesBn:s[3]})), commercialBanks:LBANKS.map(b=>({name:b[0],country:b[1],assetsBn:b[2]})), uitleg:'Curated finance intel: central/world/local banks, FX reserves, sovereign debt-to-GDP and 10y bond yields.' }; }; }catch(e){}
 })();
