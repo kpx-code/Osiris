@@ -1111,24 +1111,29 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       }
     </style>
 
-    <!-- ===================== OSIRIS KPX (overkoepelend) ===================== -->
+    <!-- ===================== OSIRIS KPX (overarching) ===================== -->
     <section class="tab" id="tab-kpx">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;">
         <div>
           <div style="font:800 1.15rem 'JetBrains Mono',monospace;letter-spacing:0.04em;background:linear-gradient(90deg,#00d9ff,#c792ea,#ff8a3c);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">OSIRIS KPX</div>
-          <div style="font-size:0.6rem;color:#7d8a99;margin-top:2px;">De overkoepelende laag &mdash; mengt <b style="color:#00d9ff;">NEO</b> (crypto), <b style="color:#7c5cff;">Trinity</b> (FX/commodity) en <b style="color:#ff8a3c;">ShockWave</b> (overwatch). Stuurt alle learning-levels aan, draait shadows over alle scenario's, en is het integratiepunt voor een toekomstige externe LLM (Claude/DeepSeek).</div>
+          <div style="font-size:0.6rem;color:#7d8a99;margin-top:2px;max-width:940px;">The overarching data processor &amp; ultimate autonomous adapter. KPX does <b style="color:#ffb627;">not trade</b> &mdash; it calibrates the learnings and sends directives <b>down</b> to <b style="color:#00d9ff;">NEO</b> (crypto) and <b style="color:#7c5cff;">Trinity</b> (FX/commodity), which execute all trades themselves and send their results back <b>up</b> to KPX for an overarching learning view &amp; autonomous correction. <b style="color:#ff8a3c;">ShockWave</b> (overwatch) feeds context. This is the integration point for a future external LLM (Claude/DeepSeek).</div>
+          <div id="kpx-updated" style="font-size:0.5rem;color:#4d5a68;margin-top:3px;">last updated &mdash;</div>
         </div>
-        <button type="button" onclick="window.downloadKPX&&window.downloadKPX()" style="margin-left:auto;background:#1a2230;color:#c792ea;border:1px solid rgba(199,146,234,0.5);border-radius:6px;padding:6px 12px;font:700 0.58rem 'JetBrains Mono',monospace;cursor:pointer;">&#8681; KPX context (LLM-integratiepunt)</button>
+        <button type="button" onclick="window.downloadKPX&&window.downloadKPX()" style="margin-left:auto;background:#1a2230;color:#c792ea;border:1px solid rgba(199,146,234,0.5);border-radius:6px;padding:6px 12px;font:700 0.58rem 'JetBrains Mono',monospace;cursor:pointer;">&#8681; KPX context (LLM integration point)</button>
       </div>
       <div id="kpx-head" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;"></div>
       <div style="border:1px solid rgba(199,146,234,0.28);background:rgba(10,14,22,0.55);border-radius:12px;padding:10px 12px;margin-bottom:14px;">
-        <div style="font:700 0.62rem 'JetBrains Mono',monospace;letter-spacing:0.08em;color:#c792ea;text-transform:uppercase;margin-bottom:6px;">Neural-net &middot; KPX overkoepelend brein <span style="color:#5d6b7a;font-weight:400;text-transform:none;">&mdash; input (3 engines) &rarr; hidden 1 &rarr; hidden 2 &rarr; KPX meta-output</span></div>
+        <div style="font:700 0.62rem 'JetBrains Mono',monospace;letter-spacing:0.08em;color:#c792ea;text-transform:uppercase;margin-bottom:6px;">Neural net &middot; KPX overarching brain <span style="color:#5d6b7a;font-weight:400;text-transform:none;">&mdash; input (3 engines) &rarr; hidden 1 &rarr; hidden 2 &rarr; KPX meta output</span></div>
         <canvas id="kpx-net" style="width:100%;height:340px;display:block;"></canvas>
       </div>
+      <div style="border:1px solid rgba(199,146,234,0.2);background:rgba(10,14,22,0.5);border-radius:12px;padding:10px 12px;margin-bottom:14px;">
+        <div style="font:700 0.62rem 'JetBrains Mono',monospace;letter-spacing:0.08em;color:#c792ea;text-transform:uppercase;margin-bottom:6px;">Data flow &middot; KPX &#8646; engines</div>
+        <div id="kpx-flow"><span style="color:#5d6b7a;font-size:0.55rem;">Establishing the KPX &#8646; NEO/Trinity link&hellip;</span></div>
+      </div>
       <div style="border:1px solid rgba(0,217,255,0.2);background:rgba(10,14,22,0.5);border-radius:12px;padding:10px 12px;">
-        <div style="font:700 0.62rem 'JetBrains Mono',monospace;letter-spacing:0.08em;color:#00d9ff;text-transform:uppercase;margin-bottom:2px;">KPX live-learning &middot; alle levels &amp; gewichten die KPX aanstuurt</div>
-        <div style="font-size:0.5rem;color:#5d6b7a;margin-bottom:4px;">Gecategoriseerd: tools &middot; shadow workers &middot; market predictors &middot; learnings &middot; hidden layers &middot; crypto &middot; commodity/grondstoffen &middot; overwatch. Autonoom, shadow-gated, per markt bewezen.</div>
-        <div id="kpx-learn"><span style="color:#5d6b7a;font-size:0.55rem;">KPX verzamelt de learning-levels&hellip;</span></div>
+        <div style="font:700 0.62rem 'JetBrains Mono',monospace;letter-spacing:0.08em;color:#00d9ff;text-transform:uppercase;margin-bottom:2px;">KPX live learning &middot; all levels &amp; weights KPX calibrates</div>
+        <div style="font-size:0.5rem;color:#5d6b7a;margin-bottom:4px;">Categorised: tools &middot; shadow workers &middot; market predictors &middot; learnings &middot; hidden layers &middot; crypto &middot; commodity/raw materials &middot; overwatch. Autonomous, shadow-gated, proven per market. Each item carries a last-updated stamp.</div>
+        <div id="kpx-learn"><span style="color:#5d6b7a;font-size:0.55rem;">KPX is gathering the learning levels&hellip;</span></div>
       </div>
     </section>
 
@@ -3063,7 +3068,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260920-build153-osiris-kpx"></script>
+<script src="app.js?v=20260920-build154-kpx-flow"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
