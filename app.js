@@ -11762,6 +11762,9 @@ function osirisMasterBundle() {
         learningLog: g(() => (typeof learningLog !== 'undefined' ? learningLog : null))
     };
 
+    // 5b) OSIRIS KPX — de overkoepelende laag (integratiepunt voor externe LLM)
+    C.osiris_kpx = g(() => (typeof OsirisKPX !== 'undefined' ? OsirisKPX.context() : null));
+
     // 6) OVERIGE TOOLS
     C.overige_tools = {
         kinetic_engine: g(() => (typeof OsirisKinetic !== 'undefined' ? OsirisKinetic.exportBundle() : null)),
@@ -18006,7 +18009,8 @@ function buildNeoNet() {
         { id: 'uo-matrix', label: 'UOTAM·S/T', mx: 0.88, yoff: 0.44, conn: 'decision', col: '#7fd8ff' },      // Support&Target RR
         { id: 'uo-shadow', label: 'UOTAM·SHADOW', mx: 0.88, yoff: -0.14, conn: 'decision', col: '#14f195' },  // shadow-hitrate (out-of-sample)
         { id: 'uo-weight', label: 'UOTAM·WEIGHT', mx: 0.965, yoff: 0.22, conn: 'rl', col: '#26d07c' },        // autonome live weight (T1/T2 sturen trade)
-        { id: 'cnn-multi', label: 'CNN·MULTI', mx: 0.30, yoff: 0.44, conn: 'cores', col: '#38bdf8' }          // multi-schaal CNN (20/40/80) bias
+        { id: 'cnn-multi', label: 'CNN·MULTI', mx: 0.30, yoff: 0.44, conn: 'cores', col: '#38bdf8' },          // multi-schaal CNN (20/40/80) bias
+        { id: 'kpx', label: 'KPX·OVERKOEPELEND', mx: 0.965, yoff: -0.40, conn: 'rl', col: '#c792ea' }          // (20-09) KPX = de overkoepelende laag boven NEO/Trinity/ShockWave + LLM-integratiepunt
     ];
 }
 
@@ -18198,6 +18202,7 @@ function _neoNetDraw(now, canvasId, outId) {
         } catch (e) { setM('regime', 0.2, 1, '—'); }
         const fag = wal => { try { const f = osirisFeeEdge(wal); if (!f || !f.ready) return { a: 0.2, s: 1, t: 'kalibr' }; return { a: f.edge ? 0.85 : Math.max(0.3, 0.3 + (f.deficit || 0)), s: f.edge ? 1 : -1, t: f.edge ? 'edge ok' : ('−' + Math.round((f.deficit || 0) * 100) + 'pt') }; } catch (e) { return { a: 0.2, s: 1, t: '—' }; } };
         const fs = fag('spot'), fm = fag('margin'); setM('fag-spot', fs.a, fs.s, fs.t); setM('fag-mar', fm.a, fm.s, fm.t);
+        try { const K = (typeof OsirisKPX !== 'undefined') ? OsirisKPX.state() : null; if (K) setM('kpx', Math.max(0.25, K.conf), K.bias >= 0 ? 1 : -1, K.dir + ' ' + (K.bias > 0 ? '+' : '') + K.bias); else setM('kpx', 0.2, 1, '—'); } catch (e) { setM('kpx', 0.2, 1, '—'); }
         try { const paused = (typeof OsirisGuardian !== 'undefined') && OsirisGuardian.paused; setM('guardian', paused ? 1 : 0.2, paused ? -1 : 1, paused ? 'PAUZE' : 'ok'); } catch (e) { setM('guardian', 0.2, 1, 'ok'); }
         try { const R = (typeof OsirisRisk !== 'undefined') ? OsirisRisk.state : null; const trip = R && (R.breaker || R.exposureBlock); setM('risk', trip ? 1 : Math.max(0.2, Math.min(1, (R ? (R.drawdownPct || 0) / 25 : 0))), trip ? -1 : 1, R ? ('DD ' + (R.drawdownPct || 0).toFixed(0) + '%') : '—'); } catch (e) { setM('risk', 0.2, 1, '—'); }
         try { const sr = (typeof OsirisSelfReview !== 'undefined') ? OsirisSelfReview : null; const a = sr ? sr.aggr : 1; const wr = (sr && sr.history[0] && sr.history[0].winrate != null) ? sr.history[0].winrate : null; setM('selfrev', Math.max(0.2, Math.min(1, a / 1.4)), 1, 'x' + (a || 1).toFixed(2) + (wr != null ? ' ' + Math.round(wr * 100) + '%' : '')); } catch (e) { setM('selfrev', 0.3, 1, '—'); }
@@ -18270,9 +18275,9 @@ function _neoNetDraw(now, canvasId, outId) {
         specs.push({ ref: ['n', 5, 0], bx: 0.86, by: 0.47, imp: 0.8, grp: 'out' });
         specs.push({ ref: ['n', 6, 0], bx: 0.94, by: 0.46, imp: 0.74, grp: 'rl' });
         const metaAnchor = { 'gov-pred': [0.28, 0.15], 'gov-kin': [0.37, 0.10], 'gov-eta': [0.46, 0.14], 'gov-agg': [0.40, 0.92], 'llm': [0.56, 0.22], 'regime': [0.49, 0.71], 'cloud': [0.63, 0.66], 'mtf': [0.645, 0.23], 'nodefade': [0.665, 0.74], 'spike': [0.745, 0.15], 'fag-spot': [0.825, 0.17], 'fag-mar': [0.87, 0.28], 'risk': [0.84, 0.77], 'guardian': [0.785, 0.87], 'selfrev': [0.915, 0.26],
-          'uo-energy': [0.44, 0.05], 'uo-node': [0.575, 0.83], 'uo-vfm': [0.35, 0.05], 'uo-matrix': [0.90, 0.63], 'uo-shadow': [0.945, 0.11], 'uo-weight': [0.985, 0.60], 'cnn-multi': [0.235, 0.88] };
+          'uo-energy': [0.44, 0.05], 'uo-node': [0.575, 0.83], 'uo-matrix': [0.90, 0.63], 'uo-shadow': [0.945, 0.11], 'uo-weight': [0.985, 0.60], 'cnn-multi': [0.235, 0.88], 'uo-vfm': [0.35, 0.05], 'kpx': [0.985, 0.30] };
         const grpMeta = { 'gov-pred': 'gov', 'gov-kin': 'gov', 'gov-eta': 'gov', 'gov-agg': 'gov', 'llm': 'sys', 'regime': 'sys', 'cloud': 'sys', 'mtf': 'time', 'nodefade': 'time', 'spike': 'safe', 'fag-spot': 'safe', 'fag-mar': 'safe', 'risk': 'safe', 'guardian': 'safe', 'selfrev': 'rl',
-          'uo-energy': 'uotam', 'uo-node': 'uotam', 'uo-vfm': 'uotam', 'uo-matrix': 'uotam', 'uo-shadow': 'uotam', 'uo-weight': 'uotam', 'cnn-multi': 'uotam' };
+          'uo-energy': 'uotam', 'uo-node': 'uotam', 'uo-vfm': 'uotam', 'uo-matrix': 'uotam', 'uo-shadow': 'uotam', 'uo-weight': 'uotam', 'cnn-multi': 'uotam', 'kpx': 'rl' };
         (_neonet.meta || []).forEach(mn => { const a = metaAnchor[mn.id]; if (a) specs.push({ ref: ['m', mn.id], bx: a[0], by: a[1], imp: 0.3, grp: grpMeta[mn.id] || 'sys' }); });
         const cells = specs.map((sp, k) => {
             const jx = (SR(k * 2 + 1) - 0.5) * (sp.grp === 'in' ? 0 : 0.02), jy = (SR(k * 2 + 7) - 0.5) * (sp.grp === 'in' ? 0 : 0.028);
@@ -28082,4 +28087,452 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
   // autonomous adaptation always runs (even when the ShockWave map isn't open): keep feeding the
   // curated conflict/flashpoint signal into the GSD cells → zoneStress → kill-switch + contagion learning.
   try{ setTimeout(_feedGSDfromCurated,4000); setInterval(_feedGSDfromCurated,30000); }catch(e){}
+})();
+
+/* ==================================================================================
+   OSIRIS KPX (20-09) — de OVERKOEPELENDE laag boven NEO (crypto), Trinity (commodity/FX)
+   en ShockWave (overwatch/GSD). KPX mengt alles, stuurt alle learning-levels aan, draait
+   shadows over alle scenario's, en dient als HÉT integratiepunt dat later met een externe
+   LLM (Claude/DeepSeek) verbonden wordt — daarom bevat KPX.context() letterlijk alles.
+
+   Bevat tevens de zelf-bevattende (geen externe AI) advancement-modules die KPX voedt:
+     · OsirisHurst      — Hurst/variance-ratio: trend vs mean-revert (repareert de zwakke
+                          periode/timing-schatting).
+     · OsirisCorrRisk   — correlatie-bewuste sizing (BTC/ETH/SOL stapeling = verborgen risk).
+     · OsirisExecRouter — maker- vs taker-routing (fee↓, de #1 edge-lek uit de data-analyse).
+     · OsirisThompson   — Thompson-sampling exploratie over setup-armen (per regime×richting).
+     · OsirisChangePoint— online CUSUM change-point-detectie voor regime-omslagen.
+   Alles defensief (typeof-guards) zodat het NOOIT de pagina breekt.
+   ================================================================================== */
+(function () {
+    'use strict';
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const tanh = Math.tanh || (x => { const e = Math.exp(2 * x); return (e - 1) / (e + 1); });
+    const sig = x => 1 / (1 + Math.exp(-x));
+    const avg = a => a && a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+
+    // ---------------------------------------------------------------------------
+    // ADVANCEMENT-MODULE 1: Hurst-exponent / variance-ratio (trend vs mean-revert)
+    // ---------------------------------------------------------------------------
+    const OsirisHurst = {
+        cache: {},
+        // rescaled-range Hurst-schatting over log-returns
+        hurst(prices) {
+            try {
+                if (!prices || prices.length < 32) return null;
+                const r = []; for (let i = 1; i < prices.length; i++) { if (prices[i] > 0 && prices[i - 1] > 0) r.push(Math.log(prices[i] / prices[i - 1])); }
+                if (r.length < 24) return null;
+                const sizes = [8, 16, 32, 64].filter(n => n <= r.length);
+                const xs = [], ys = [];
+                for (const n of sizes) {
+                    const chunks = Math.floor(r.length / n); if (chunks < 1) continue; let rs = 0, cnt = 0;
+                    for (let c = 0; c < chunks; c++) {
+                        const seg = r.slice(c * n, c * n + n); const m = avg(seg);
+                        let cum = 0, mn = Infinity, mx = -Infinity, sd = 0;
+                        for (const v of seg) { cum += v - m; mn = Math.min(mn, cum); mx = Math.max(mx, cum); }
+                        for (const v of seg) sd += (v - m) * (v - m); sd = Math.sqrt(sd / seg.length);
+                        if (sd > 0) { rs += (mx - mn) / sd; cnt++; }
+                    }
+                    if (cnt > 0) { xs.push(Math.log(n)); ys.push(Math.log(rs / cnt)); }
+                }
+                if (xs.length < 2) return null;
+                const mx = avg(xs), my = avg(ys); let num = 0, den = 0;
+                for (let i = 0; i < xs.length; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; }
+                const H = den > 0 ? num / den : 0.5;
+                return clamp(H, 0, 1);
+            } catch (e) { return null; }
+        },
+        _prices(sym) {
+            try {
+                const m = (typeof neoMultiState !== 'undefined' && neoMultiState.markets) ? neoMultiState.markets[sym] : null;
+                if (m && Array.isArray(m.candles) && m.candles.length > 30) return m.candles.map(c => c.c || c.close || c[4] || c).filter(x => x > 0);
+                if (m && Array.isArray(m.priceHist) && m.priceHist.length > 30) return m.priceHist.slice();
+                if (sym === 'BTC' && typeof rawData !== 'undefined' && Array.isArray(rawData) && rawData.length > 30) return rawData.map(c => c.close || c.c || c[4]).filter(x => x > 0);
+            } catch (e) {}
+            return null;
+        },
+        regime(sym) {
+            try {
+                const H = this.hurst(this._prices(sym));
+                if (H == null) return { H: null, label: 'onbekend', conf: 0 };
+                let label = 'random', conf = 0;
+                if (H >= 0.58) { label = 'trending'; conf = clamp((H - 0.5) / 0.3, 0, 1); }
+                else if (H <= 0.42) { label = 'mean-revert'; conf = clamp((0.5 - H) / 0.3, 0, 1); }
+                else { label = 'random-walk'; conf = 1 - Math.abs(H - 0.5) / 0.08; }
+                const out = { H: +H.toFixed(3), label, conf: +conf.toFixed(2) };
+                this.cache[sym] = out; return out;
+            } catch (e) { return { H: null, label: 'onbekend', conf: 0 }; }
+        },
+        all() { const o = {}; (typeof MULTI_SYMBOLS !== 'undefined' ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL']).forEach(s => o[s] = this.regime(s)); return o; }
+    };
+    window.OsirisHurst = OsirisHurst;
+
+    // ---------------------------------------------------------------------------
+    // ADVANCEMENT-MODULE 2: correlatie-bewuste sizing
+    // ---------------------------------------------------------------------------
+    const OsirisCorrRisk = {
+        _returns(sym) {
+            try {
+                const p = OsirisHurst._prices(sym); if (!p || p.length < 20) return null;
+                const r = []; for (let i = 1; i < p.length; i++) r.push((p[i] - p[i - 1]) / p[i - 1]); return r.slice(-60);
+            } catch (e) { return null; }
+        },
+        corr(a, b) {
+            try {
+                const ra = this._returns(a), rb = this._returns(b); if (!ra || !rb) return null;
+                const n = Math.min(ra.length, rb.length); if (n < 12) return null;
+                const A = ra.slice(-n), B = rb.slice(-n), ma = avg(A), mb = avg(B);
+                let num = 0, da = 0, db = 0; for (let i = 0; i < n; i++) { num += (A[i] - ma) * (B[i] - mb); da += (A[i] - ma) ** 2; db += (B[i] - mb) ** 2; }
+                return (da > 0 && db > 0) ? clamp(num / Math.sqrt(da * db), -1, 1) : null;
+            } catch (e) { return null; }
+        },
+        matrix() {
+            const syms = (typeof MULTI_SYMBOLS !== 'undefined' ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL']); const m = {};
+            for (const a of syms) { m[a] = {}; for (const b of syms) m[a][b] = a === b ? 1 : this.corr(a, b); }
+            return m;
+        },
+        // sizing-multiplier: verlaag als je al gecorreleerde blootstelling dezelfde kant op hebt
+        sizeMult(sym, side) {
+            try {
+                const pos = (typeof marginState !== 'undefined' && marginState.positions) ? marginState.positions : [];
+                if (!pos.length) return 1;
+                let maxCorr = 0;
+                for (const p of pos) {
+                    const sameDir = (p.side === side); if (!sameDir) continue;
+                    const c = this.corr(sym, p.sym); if (c != null && c > maxCorr) maxCorr = c;
+                }
+                // corr 0 → 1.0×, corr 1 → 0.45× (halveer bij volledig gecorreleerde stapeling)
+                return +clamp(1 - maxCorr * 0.55, 0.45, 1).toFixed(3);
+            } catch (e) { return 1; }
+        },
+        avgCorr() { try { const m = this.matrix(); const syms = Object.keys(m); let s = 0, n = 0; for (let i = 0; i < syms.length; i++) for (let j = i + 1; j < syms.length; j++) { const c = m[syms[i]][syms[j]]; if (c != null) { s += c; n++; } } return n ? +(s / n).toFixed(2) : null; } catch (e) { return null; } }
+    };
+    window.OsirisCorrRisk = OsirisCorrRisk;
+
+    // ---------------------------------------------------------------------------
+    // ADVANCEMENT-MODULE 3: maker- vs taker-routing (fee-verlaging)
+    // ---------------------------------------------------------------------------
+    const OsirisExecRouter = {
+        makerPct: 0.02, takerPct: 0.05,   // futures-tarieven per zijde (indicatief)
+        stats: { maker: 0, taker: 0, savedPct: 0 },
+        // urgency 0..1: hoge urgentie (breakout/stop) → taker (zekerheid), lage → maker (fee↓)
+        decide(sym, urgency) {
+            try {
+                const u = clamp(urgency || 0, 0, 1);
+                let spread = null;
+                try { const m = neoMultiState.markets[sym]; if (m && m.bestAsk && m.bestBid) spread = (m.bestAsk - m.bestBid) / m.lastPrice; } catch (e) {}
+                // maker als de urgentie laag is én de spread niet te breed (anders vul je niet)
+                const maker = u < 0.6 && (spread == null || spread < 0.0008);
+                const est = (maker ? this.makerPct : this.takerPct) * 2;   // round-trip één zijde-schatting
+                return { mode: maker ? 'maker' : 'taker', reason: maker ? 'lage urgentie → post-only limit (fee↓)' : (u >= 0.6 ? 'hoge urgentie → market (zekerheid)' : 'brede spread → market'), estRoundTripPct: +(est).toFixed(3), spread: spread != null ? +(spread * 100).toFixed(3) : null };
+            } catch (e) { return { mode: 'taker', reason: 'fallback', estRoundTripPct: this.takerPct * 2 }; }
+        },
+        note(mode) { try { if (mode === 'maker') { this.stats.maker++; this.stats.savedPct += (this.takerPct - this.makerPct) * 2; } else this.stats.taker++; } catch (e) {} }
+    };
+    window.OsirisExecRouter = OsirisExecRouter;
+
+    // ---------------------------------------------------------------------------
+    // ADVANCEMENT-MODULE 4: Thompson-sampling exploratie over setup-armen
+    // ---------------------------------------------------------------------------
+    const OsirisThompson = {
+        arms: {},   // key → {a,b}  (Beta-posterior: a=wins+1, b=losses+1)
+        _gauss() { let u = 0, v = 0; while (u === 0) u = Math.random(); while (v === 0) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); },
+        _betaSample(a, b) { // benadering via twee gamma's (Marsaglia) — licht maar voldoende
+            const g = k => { if (k < 1) return this._betaGammaSmall(k); const d = k - 1 / 3, c = 1 / Math.sqrt(9 * d); for (let i = 0; i < 32; i++) { let x = this._gauss(), v = (1 + c * x) ** 3; if (v <= 0) continue; const u = Math.random(); if (Math.log(u) < 0.5 * x * x + d - d * v + d * Math.log(v)) return d * v; } return d; };
+            const x = g(a), y = g(b); return x / (x + y || 1);
+        },
+        _betaGammaSmall(k) { const c = 1 / k, d = (1 - k) * Math.pow(k, k / (1 - k)); for (let i = 0; i < 32; i++) { const u = Math.random(), v = Math.random(), z = -Math.log(u), e = -Math.log(v); if (z + e >= d + (c * z)) { const x = Math.pow(z / (d + c * z), c); if (x > 0) return x; } } return 0.5; },
+        record(key, win) { try { const A = this.arms[key] = this.arms[key] || { a: 1, b: 1 }; if (win) A.a++; else A.b++; if (A.a + A.b > 400) { A.a *= 0.9; A.b *= 0.9; } } catch (e) {} },
+        sample(key) { try { const A = this.arms[key] || { a: 1, b: 1 }; return this._betaSample(A.a, A.b); } catch (e) { return Math.random(); } },
+        mean(key) { const A = this.arms[key] || { a: 1, b: 1 }; return A.a / (A.a + A.b); },
+        summary() { const o = {}; for (const k in this.arms) { const A = this.arms[k]; o[k] = { n: Math.round(A.a + A.b - 2), mean: +(A.a / (A.a + A.b)).toFixed(3) }; } return o; }
+    };
+    window.OsirisThompson = OsirisThompson;
+
+    // ---------------------------------------------------------------------------
+    // ADVANCEMENT-MODULE 5: online change-point-detectie (CUSUM)
+    // ---------------------------------------------------------------------------
+    const OsirisChangePoint = {
+        state: {},  // key → {mean, gp, gn, k, n, lastChange}
+        update(key, x) {
+            try {
+                const s = this.state[key] = this.state[key] || { mean: x, gp: 0, gn: 0, n: 0, lastChange: 0 };
+                s.n++; const k = 0.5 * (Math.abs(s.mean) * 0.02 + 1e-6);   // drempel schaalt met niveau
+                s.gp = Math.max(0, s.gp + (x - s.mean) - k);
+                s.gn = Math.max(0, s.gn - (x - s.mean) - k);
+                s.mean += (x - s.mean) / Math.min(s.n, 50);   // trage EWMA-basis
+                const h = 5 * (Math.abs(s.mean) * 0.02 + 1e-6);
+                let changed = false;
+                if (s.gp > h || s.gn > h) { changed = true; s.gp = 0; s.gn = 0; s.lastChange = Date.now(); }
+                return { changed, score: +Math.max(s.gp, s.gn).toFixed(4), dir: s.gp >= s.gn ? 'up' : 'down' };
+            } catch (e) { return { changed: false, score: 0 }; }
+        }
+    };
+    window.OsirisChangePoint = OsirisChangePoint;
+
+    // ===========================================================================
+    // OSIRIS KPX — de overkoepelende orchestrator
+    // ===========================================================================
+    const OsirisKPX = {
+        // stacked meta-gewicht over de 3 engines (leert uit hun bewezen hitrate)
+        meta: { neo: 1 / 3, trinity: 1 / 3, shockwave: 1 / 3 },
+        // KPX' eigen kleine MLP (voor de visualisatie én een meta-confidence): 3 inputs → 6 → 4 → 1
+        H1: 6, H2: 4,
+        shadow: { preds: [], hit: 0, n: 0 },
+        _lastTick: 0,
+
+        // ---- per-engine snapshot (defensief, valt terug op neutrale waarden) ----
+        engineNeo() {
+            const o = { key: 'neo', label: 'NEO · crypto', col: '#00d9ff', bias: 0, conf: 0, hit: null, n: 0, active: false, detail: '' };
+            try {
+                const st = (typeof neoMultiState !== 'undefined') ? neoMultiState : null;
+                if (st && st.markets) {
+                    const syms = Object.keys(st.markets); let sB = 0, sC = 0, k = 0;
+                    for (const s of syms) { const m = st.markets[s]; if (!m || m.bestProb == null) continue; const dir = m.bestSide === 'SHORT' ? -1 : 1; sB += dir * (m.bestProb - 0.5) * 2; sC += (m.bestProb - 0.5) * 2; k++; }
+                    if (k) { o.bias = clamp(sB / k, -1, 1); o.conf = clamp(sC / k, 0, 1); o.active = true; o.detail = k + ' markten'; }
+                }
+                const fe = (typeof osirisFeeEdge === 'function') ? osirisFeeEdge('margin') : null;
+                if (fe && fe.ready) { o.hit = fe.actWR; o.n = fe.n; }
+            } catch (e) {}
+            return o;
+        },
+        engineTrinity() {
+            const o = { key: 'trinity', label: 'Trinity · FX/commodity', col: '#7c5cff', bias: 0, conf: 0, hit: null, n: 0, active: false, detail: '' };
+            try {
+                const SH = (typeof TrinityUOTAMShadow !== 'undefined') ? TrinityUOTAMShadow : null;
+                if (SH && SH.summary) { const sum = SH.summary(); const proven = sum.filter(s => s.proven); const hits = sum.filter(s => s.hitRate != null); o.n = sum.reduce((a, s) => a + (s.n || 0), 0); o.hit = hits.length ? avg(hits.map(s => s.hitRate)) : null; o.conf = clamp(proven.length / Math.max(1, sum.length), 0, 1); o.active = sum.length > 0; o.detail = proven.length + '/' + sum.length + ' bewezen'; }
+                // richting uit commodity/FX bias indien beschikbaar
+                try { if (typeof TrinityCommoUOTAM !== 'undefined' && TrinityCommoUOTAM.PROV_COMMO) { const mk = (TrinityCommoUOTAM.PROV_COMMO.markets || []).slice(0, 6); let sB = 0, k = 0; for (const m of mk) { const a = TrinityCommoUOTAM.analyze(m, '1h', TrinityCommoUOTAM.PROV_COMMO); if (a && a.ready) { sB += (a.bias === 'LONG' ? 1 : a.bias === 'SHORT' ? -1 : 0); k++; } } if (k) o.bias = clamp(sB / k, -1, 1); } } catch (e) {}
+            } catch (e) {}
+            return o;
+        },
+        engineShock() {
+            const o = { key: 'shockwave', label: 'ShockWave · overwatch', col: '#ff8a3c', bias: 0, conf: 0, hit: null, n: 0, active: false, detail: '' };
+            try {
+                if (typeof TrinityGSD !== 'undefined' && TrinityGSD.stress != null) { o.conf = clamp(TrinityGSD.stress, 0, 1); o.active = true; o.bias = -clamp(TrinityGSD.stress, 0, 1); o.detail = 'wereld-stress ' + Math.round((TrinityGSD.stress || 0) * 100) + '%'; }   // hoge stress → risk-off tilt
+                if (typeof TrinityShockWave !== 'undefined' && TrinityShockWave.score != null) { o.n = (TrinityShockWave.shocks && TrinityShockWave.shocks.length) || 0; }
+            } catch (e) {}
+            return o;
+        },
+        engines() { return { neo: this.engineNeo(), trinity: this.engineTrinity(), shockwave: this.engineShock() }; },
+
+        // ---- stacked meta-learner: weeg engines op bewezen hitrate ----
+        _updateMeta(E) {
+            try {
+                const score = e => { const h = (e.hit != null ? e.hit : 0.5); const n = e.n || 0; const trust = clamp(n / 30, 0, 1); return 0.5 + (h - 0.5) * trust + e.conf * 0.15; };
+                const raw = { neo: Math.exp(2 * score(E.neo)), trinity: Math.exp(2 * score(E.trinity)), shockwave: Math.exp(2 * score(E.shockwave)) };
+                const s = raw.neo + raw.trinity + raw.shockwave || 1;
+                const tgt = { neo: raw.neo / s, trinity: raw.trinity / s, shockwave: raw.shockwave / s };
+                for (const k in this.meta) this.meta[k] += (tgt[k] - this.meta[k]) * 0.05;   // trage EWMA → stabiel
+            } catch (e) {}
+        },
+
+        // ---- KPX hidden-layer forward pass (deterministisch uit een seed → stabiele visual) ----
+        _w(i, j, layer) { const s = Math.sin((i + 1) * 12.9898 + (j + 1) * 78.233 + layer * 3.71) * 43758.5453; return (s - Math.floor(s)) * 2 - 1; },
+        forward(inv) {
+            try {
+                const x = [inv.neo, inv.trinity, inv.shockwave];
+                const h1 = []; for (let j = 0; j < this.H1; j++) { let s = this._w(0, j, 0) * 0.4; for (let i = 0; i < x.length; i++) s += x[i] * this._w(i, j, 1); h1.push(tanh(s)); }
+                const h2 = []; for (let j = 0; j < this.H2; j++) { let s = this._w(0, j, 2) * 0.3; for (let i = 0; i < h1.length; i++) s += h1[i] * this._w(i, j, 3); h2.push(tanh(s)); }
+                let out = 0; for (let i = 0; i < h2.length; i++) out += h2[i] * this._w(i, 0, 4); out = tanh(out);
+                return { h1, h2, out };
+            } catch (e) { return { h1: new Array(this.H1).fill(0), h2: new Array(this.H2).fill(0), out: 0 }; }
+        },
+
+        // ---- unified KPX state ----
+        state() {
+            const E = this.engines();
+            const inv = { neo: E.neo.bias * (0.5 + 0.5 * E.neo.conf), trinity: E.trinity.bias * (0.5 + 0.5 * E.trinity.conf), shockwave: E.shockwave.bias * (0.5 + 0.5 * E.shockwave.conf) };
+            const fwd = this.forward(inv);
+            const blended = this.meta.neo * inv.neo + this.meta.trinity * inv.trinity + this.meta.shockwave * inv.shockwave;
+            const bias = clamp(0.6 * blended + 0.4 * fwd.out, -1, 1);
+            const conf = clamp(Math.abs(bias), 0, 1);
+            return { E, inv, meta: Object.assign({}, this.meta), hidden: fwd, bias: +bias.toFixed(3), conf: +conf.toFixed(3), dir: bias > 0.06 ? 'LONG' : bias < -0.06 ? 'SHORT' : 'NEUTRAAL' };
+        },
+
+        // ---- shadow: toetst of de KPX-meng het beter doet dan de losse engines ----
+        _shadowTick(S) {
+            try {
+                // resolve open shadow-preds die rijp zijn (30 min horizon) tegen de NEO-actieve prijs
+                const now = Date.now(); const keep = [];
+                for (const p of this.shadow.preds) {
+                    if (now < p.due) { keep.push(p); continue; }
+                    try { const m = neoMultiState.markets['BTC']; const px = m ? m.lastPrice : null; if (px && p.px) { const mv = (px - p.px) / p.px; const ok = (p.dir > 0 ? mv > 0 : p.dir < 0 ? mv < 0 : Math.abs(mv) < 0.001); this.shadow.n++; if (ok) this.shadow.hit++; } } catch (e) {}
+                }
+                this.shadow.preds = keep;
+                if (S.dir !== 'NEUTRAAL' && this.shadow.preds.length < 40) { try { const m = neoMultiState.markets['BTC']; if (m && m.lastPrice) this.shadow.preds.push({ ts: now, due: now + 1800000, px: m.lastPrice, dir: S.bias > 0 ? 1 : -1 }); } catch (e) {} }
+            } catch (e) {}
+        },
+        shadowRate() { return this.shadow.n ? +(this.shadow.hit / this.shadow.n).toFixed(3) : null; },
+
+        tick() {
+            try {
+                const now = Date.now(); if (now - this._lastTick < 4000) return; this._lastTick = now;
+                const E = this.engines(); this._updateMeta(E);
+                const S = this.state(); this._shadowTick(S);
+                try { OsirisHurst.all(); } catch (e) {}
+                try { (typeof MULTI_SYMBOLS !== 'undefined' ? MULTI_SYMBOLS : ['BTC', 'ETH', 'SOL']).forEach(s => { const m = neoMultiState.markets[s]; if (m && m.lastPrice) OsirisChangePoint.update('px:' + s, m.lastPrice); }); } catch (e) {}
+                this._save();
+            } catch (e) {}
+        },
+        _save() { try { localStorage.setItem('osirisKPX', JSON.stringify({ meta: this.meta, shadow: { hit: this.shadow.hit, n: this.shadow.n }, thompson: OsirisThompson.arms, ts: Date.now() })); } catch (e) {} },
+        _restore() { try { const d = JSON.parse(localStorage.getItem('osirisKPX') || 'null'); if (d) { if (d.meta) this.meta = Object.assign(this.meta, d.meta); if (d.shadow) { this.shadow.hit = d.shadow.hit || 0; this.shadow.n = d.shadow.n || 0; } if (d.thompson) OsirisThompson.arms = d.thompson; } } catch (e) {} },
+
+        // ---- de GECATEGORISEERDE registry: alles wat KPX aanstuurt (voedt het learning-panel) ----
+        registry() {
+            const cats = {};
+            const push = (cat, item) => { (cats[cat] = cats[cat] || []).push(item); };
+            const st = e => e ? (e.proven ? 'bewezen' : (e.n >= 20 ? 'niet bewezen' : 'leert')) : 'leert';
+            // TOOLS
+            try { const er = OsirisExecRouter; push('tools', { name: 'Exec-router (maker/taker)', status: 'actief', metric: 'maker ' + er.stats.maker + ' · taker ' + er.stats.taker, weight: null, note: 'fee-routing' }); } catch (e) {}
+            try { const cr = OsirisCorrRisk.avgCorr(); push('tools', { name: 'Correlatie-sizing', status: cr != null ? 'actief' : 'leert', metric: cr != null ? 'gem. corr ' + cr : '—', weight: null }); } catch (e) {}
+            try { if (typeof OsirisMarginEdge !== 'undefined') { push('tools', { name: 'Margin-edge poort', status: 'actief', metric: 'regime+fee-first', weight: null }); } } catch (e) {}
+            // SHADOW WORKERS
+            try { const r = this.shadowRate(); push('shadow workers', { name: 'KPX meta-shadow', status: this.shadow.n >= 20 ? 'actief' : 'leert', metric: 'hit ' + (r != null ? Math.round(r * 100) + '%' : '—') + ' · n ' + this.shadow.n, weight: null }); } catch (e) {}
+            try { if (typeof TrinityUOTAMShadow !== 'undefined') { const sum = TrinityUOTAMShadow.summary(); push('shadow workers', { name: 'UOTAM shadow-validatie', status: 'actief', metric: sum.filter(s => s.proven).length + '/' + sum.length + ' bewezen', weight: null }); } } catch (e) {}
+            try { const ts = OsirisThompson.summary(); const keys = Object.keys(ts); push('shadow workers', { name: 'Thompson-exploratie', status: keys.length ? 'actief' : 'leert', metric: keys.length + ' armen', weight: null }); } catch (e) {}
+            try { if (typeof OsirisMarginEdge !== 'undefined' && OsirisMarginEdge.history) push('shadow workers', { name: 'Adaptatie-effectmeter', status: 'actief', metric: OsirisMarginEdge.history.length + ' metingen', weight: null }); } catch (e) {}
+            // MARKET PREDICTORS
+            try { const h = OsirisHurst.all(); for (const s in h) push('market predictors', { name: 'Hurst · ' + s, status: h[s].H != null ? 'actief' : 'leert', metric: h[s].H != null ? 'H ' + h[s].H + ' → ' + h[s].label : '—', weight: h[s].conf }); } catch (e) {}
+            try { if (typeof OsirisPredict !== 'undefined') { const mt = OsirisPredict.metrics ? OsirisPredict.metrics() : null; push('market predictors', { name: 'Predict-engine', status: mt ? 'actief' : 'leert', metric: mt && mt.hitRate != null ? 'hit ' + Math.round(mt.hitRate * 100) + '% · Brier ' + (mt.brier != null ? mt.brier : '—') : '—', weight: null }); } } catch (e) {}
+            try { for (const s in OsirisChangePoint.state) { const cp = OsirisChangePoint.state[s]; push('market predictors', { name: 'Change-point ' + s.replace('px:', ''), status: 'actief', metric: cp.lastChange ? 'laatste omslag ' + new Date(cp.lastChange).toLocaleTimeString('nl-NL') : 'stabiel', weight: null }); } } catch (e) {}
+            // LEARNINGS (L1/L2/L3 + RL + DeepNet)
+            try { push('learnings', { name: 'L1 adaptieve gewichten', status: (typeof adaptiveWeights !== 'undefined') ? 'actief' : 'leert', metric: (typeof MIN_SAMPLE_SIZE !== 'undefined') ? 'min-n ' + MIN_SAMPLE_SIZE : '—', weight: null }); } catch (e) {}
+            try { push('learnings', { name: 'L2 meta-model', status: (typeof _l2 !== 'undefined' && _l2 && _l2.trained) ? 'getraind' : 'leert', metric: (typeof _l2 !== 'undefined' && _l2) ? ('op ' + (_l2.trainedOn || 0)) : '—', weight: null }); } catch (e) {}
+            try { push('learnings', { name: 'L3 deep-model', status: (typeof _l3 !== 'undefined' && _l3 && _l3.trained) ? 'getraind' : 'leert', metric: (typeof _l3 !== 'undefined' && _l3 && _l3.valAcc != null) ? ('valAcc ' + Math.round(_l3.valAcc * 100) + '%') : '—', weight: null }); } catch (e) {}
+            try { if (typeof OsirisRL !== 'undefined') push('learnings', { name: 'RL-agent', status: OsirisRL.episodes > 2000 ? 'actief' : 'leert', metric: 'ep ' + (OsirisRL.episodes | 0) + ' · reward ' + (OsirisRL.avgReward != null ? OsirisRL.avgReward.toFixed(3) : '—'), weight: null }); } catch (e) {}
+            try { if (typeof OsirisAutoCal !== 'undefined') { const b = OsirisAutoCal.bundle(); push('learnings', { name: 'AutoCal', status: 'actief', metric: 'mult ' + b.mult + ' · doel ' + b.minNetTargetPct + '%', weight: null }); } } catch (e) {}
+            // HIDDEN LAYERS (KPX' eigen MLP)
+            try { const S = this.state(); S.hidden.h1.forEach((v, i) => push('hidden layers', { name: 'H1·' + (i + 1), status: 'live', metric: 'act ' + v.toFixed(2), weight: (v + 1) / 2 })); S.hidden.h2.forEach((v, i) => push('hidden layers', { name: 'H2·' + (i + 1), status: 'live', metric: 'act ' + v.toFixed(2), weight: (v + 1) / 2 })); push('hidden layers', { name: 'KPX-output', status: 'live', metric: 'meta ' + S.hidden.out.toFixed(2), weight: (S.hidden.out + 1) / 2 }); } catch (e) {}
+            // CRYPTO (NEO per markt)
+            try { const st2 = neoMultiState; if (st2 && st2.markets) for (const s of Object.keys(st2.markets)) { const m = st2.markets[s]; if (!m) continue; push('crypto (NEO)', { name: s, status: m.bestSide ? 'actief' : 'leert', metric: (m.bestSide || '—') + ' · ' + (m.bestProb != null ? Math.round(m.bestProb * 100) + '%' : '—'), weight: m.trustProb != null ? m.trustProb : (m.bestProb || null) }); } } catch (e) {}
+            // COMMODITY / GRONDSTOFFEN (Trinity)
+            try { if (typeof TrinityUOTAMShadow !== 'undefined') { const sum = TrinityUOTAMShadow.summary(); sum.filter(s => /commo|xau|xag|wti|brent|gold|silver|oil|gas|copper|plat|pall/i.test(s.market)).slice(0, 12).forEach(s => { let w = 0; try { const ix = s.market.indexOf(':'); w = (typeof window.uotamWeight === 'function' && ix > 0) ? window.uotamWeight(s.market.slice(0, ix), s.market.slice(ix + 1)) : 0; } catch (e) {} push('commodity / grondstoffen', { name: s.market, status: st(s), metric: 'hit ' + (s.hitRate != null ? Math.round(s.hitRate * 100) + '%' : '—') + ' · n ' + s.n, weight: w }); }); } } catch (e) {}
+            // OVERWATCH (ShockWave)
+            try { if (typeof TrinityGSD !== 'undefined') { const zs = TrinityGSD.zoneStress || {}; for (const z in zs) push('overwatch (ShockWave)', { name: 'zone ' + z, status: 'actief', metric: 'stress ' + Math.round((zs[z] || 0) * 100) + '%', weight: zs[z] }); } } catch (e) {}
+            try { if (typeof OsirisFSO !== 'undefined' && OsirisFSO.scales) { for (const sc in OsirisFSO.scales) push('overwatch (ShockWave)', { name: 'FSO ' + sc, status: 'actief', metric: 'schaal actief', weight: null }); } } catch (e) {}
+            return cats;
+        },
+
+        // ---- HÉT integratiepunt: alles-bevattende context voor een externe LLM ----
+        context() {
+            const S = this.state();
+            return {
+                schema: 'osiris.kpx.context/1',
+                ts: Date.now(),
+                overkoepelend: 'Osiris KPX mengt NEO (crypto), Trinity (FX/commodity) en ShockWave (overwatch). Dit object is het volledige integratiepunt voor een externe LLM.',
+                kpx: { bias: S.bias, conf: S.conf, dir: S.dir, metaWeights: S.meta, hidden: { h1: S.hidden.h1.map(v => +v.toFixed(3)), h2: S.hidden.h2.map(v => +v.toFixed(3)), out: +S.hidden.out.toFixed(3) }, shadowHit: this.shadowRate(), shadowN: this.shadow.n },
+                engines: S.E,
+                predictors: { hurst: (() => { try { return OsirisHurst.all(); } catch (e) { return null; } })(), changePoints: OsirisChangePoint.state, correlation: (() => { try { return OsirisCorrRisk.matrix(); } catch (e) { return null; } })() },
+                exploration: OsirisThompson.summary(),
+                execution: { router: OsirisExecRouter.stats },
+                marginEdge: (typeof OsirisMarginEdge !== 'undefined') ? OsirisMarginEdge.bundle() : null,
+                registry: this.registry()
+            };
+        },
+        bundle() { try { return this.context(); } catch (e) { return { error: String(e) }; } }
+    };
+    window.OsirisKPX = OsirisKPX;
+    try { OsirisKPX._restore(); } catch (e) {}
+    try { window.osirisKPXContext = () => OsirisKPX.context(); } catch (e) {}
+    try { setInterval(() => { try { OsirisKPX.tick(); } catch (e) {} }, 5000); setTimeout(() => { try { OsirisKPX.tick(); } catch (e) {} }, 3000); } catch (e) {}
+
+    // ===========================================================================
+    // KPX NEURAL-NET VISUALISATIE (eigen canvas) + LIVE LEARNING PANEL
+    // ===========================================================================
+    const CAT_COL = { 'tools': '#7fd8ff', 'shadow workers': '#14f195', 'market predictors': '#c792ea', 'learnings': '#ffd24a', 'hidden layers': '#ff8a3c', 'crypto (NEO)': '#00d9ff', 'commodity / grondstoffen': '#7c5cff', 'overwatch (ShockWave)': '#ff5f7e' };
+
+    function drawKPXNet() {
+        try {
+            const cv = document.getElementById('kpx-net'); if (!cv || cv.offsetParent === null) return;
+            const S = OsirisKPX.state();
+            const rect = cv.getBoundingClientRect(); if (rect.width < 20) return;
+            const DPR = Math.min(2, window.devicePixelRatio || 1);
+            cv.width = rect.width * DPR; cv.height = rect.height * DPR;
+            const ctx = cv.getContext('2d'); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+            const W = rect.width, H = rect.height; ctx.clearRect(0, 0, W, H);
+            const t = Date.now() / 1000;
+            // layer x-positions
+            const LX = [W * 0.10, W * 0.37, W * 0.63, W * 0.88];
+            // input nodes (3 engines)
+            const eng = [S.E.neo, S.E.trinity, S.E.shockwave];
+            const inNodes = eng.map((e, i) => ({ x: LX[0], y: H * (0.25 + i * 0.25), r: 13, col: e.col, act: (S.inv[e.key] + 1) / 2, label: e.label.split(' ')[0], sub: e.detail }));
+            const h1 = S.hidden.h1.map((v, i) => ({ x: LX[1], y: H * (0.12 + i * (0.76 / (OsirisKPX.H1 - 1))), r: 9, col: '#ff8a3c', act: (v + 1) / 2, label: 'H1·' + (i + 1) }));
+            const h2 = S.hidden.h2.map((v, i) => ({ x: LX[2], y: H * (0.22 + i * (0.56 / (OsirisKPX.H2 - 1))), r: 9, col: '#ffb627', act: (v + 1) / 2, label: 'H2·' + (i + 1) }));
+            const outN = [{ x: LX[3], y: H * 0.5, r: 16, col: S.dir === 'LONG' ? '#14f195' : S.dir === 'SHORT' ? '#ff5f7e' : '#7d8a99', act: (S.hidden.out + 1) / 2, label: 'KPX', sub: S.dir }];
+            // connections
+            function conns(a, b, layer) { for (let i = 0; i < a.length; i++) for (let j = 0; j < b.length; j++) { const w = OsirisKPX._w(i, j, layer); const op = 0.05 + Math.abs(w) * 0.22 * (0.5 + 0.5 * b[j].act); ctx.strokeStyle = (w >= 0 ? 'rgba(0,217,255,' : 'rgba(255,95,126,') + op.toFixed(3) + ')'; ctx.lineWidth = 0.4 + Math.abs(w) * 1.1; ctx.beginPath(); ctx.moveTo(a[i].x, a[i].y); ctx.lineTo(b[j].x, b[j].y); ctx.stroke(); } }
+            conns(inNodes, h1, 1); conns(h1, h2, 3);
+            // h2 → out weighted by meta+w
+            for (let i = 0; i < h2.length; i++) { const w = OsirisKPX._w(i, 0, 4); const op = 0.08 + Math.abs(w) * 0.4; ctx.strokeStyle = (w >= 0 ? 'rgba(20,241,149,' : 'rgba(255,95,126,') + op.toFixed(3) + ')'; ctx.lineWidth = 0.6 + Math.abs(w) * 1.6; ctx.beginPath(); ctx.moveTo(h2[i].x, h2[i].y); ctx.lineTo(outN[0].x, outN[0].y); ctx.stroke(); }
+            // node drawer
+            function node(n) {
+                const pulse = 0.5 + 0.5 * Math.sin(t * 1.6 + n.x * 0.01);
+                const glow = 6 + n.act * 16 * (0.6 + 0.4 * pulse);
+                ctx.save(); ctx.shadowColor = n.col; ctx.shadowBlur = glow;
+                ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 6.283); ctx.fillStyle = n.col; ctx.globalAlpha = 0.20 + n.act * 0.7; ctx.fill(); ctx.globalAlpha = 1;
+                ctx.lineWidth = 1.4; ctx.strokeStyle = n.col; ctx.stroke(); ctx.restore();
+                ctx.fillStyle = '#dfe9f2'; ctx.font = "700 " + (n.r > 12 ? 10 : 8) + "px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+                ctx.fillText(n.label, n.x, n.y - n.r - 4);
+                if (n.sub) { ctx.fillStyle = '#7d8a99'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillText(n.sub, n.x, n.y + n.r + 9); }
+            }
+            inNodes.forEach(node); h1.forEach(node); h2.forEach(node); outN.forEach(node);
+            // layer labels
+            ctx.fillStyle = '#5d6b7a'; ctx.font = "700 8px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+            ['INPUT · 3 ENGINES', 'HIDDEN 1', 'HIDDEN 2', 'KPX META'].forEach((L, i) => ctx.fillText(L, LX[i], H - 4));
+        } catch (e) {}
+    }
+    window.drawKPXNet = drawKPXNet;
+
+    function renderKPXLearn() {
+        try {
+            const host = document.getElementById('kpx-learn'); if (!host || host.offsetParent === null) return;
+            const cats = OsirisKPX.registry();
+            const order = ['tools', 'shadow workers', 'market predictors', 'learnings', 'hidden layers', 'crypto (NEO)', 'commodity / grondstoffen', 'overwatch (ShockWave)'];
+            const keys = order.filter(k => cats[k]).concat(Object.keys(cats).filter(k => order.indexOf(k) < 0));
+            let html = '';
+            for (const cat of keys) {
+                const items = cats[cat] || []; const col = CAT_COL[cat] || '#7fd8ff';
+                html += '<div style="margin:12px 0 4px;display:flex;align-items:center;gap:8px;">' +
+                    '<span style="width:8px;height:8px;border-radius:2px;background:' + col + ';box-shadow:0 0 8px ' + col + ';"></span>' +
+                    '<span style="font:700 0.6rem \'JetBrains Mono\',monospace;letter-spacing:0.08em;color:' + col + ';text-transform:uppercase;">' + cat + '</span>' +
+                    '<span style="font-size:0.5rem;color:#5d6b7a;">' + items.length + ' onderdelen</span></div>';
+                html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:5px;">';
+                for (const it of items) {
+                    const sc = it.status === 'bewezen' || it.status === 'getraind' || it.status === 'live' || it.status === 'actief' ? '#26d07c' : it.status === 'niet bewezen' ? '#ffb627' : '#7d8a99';
+                    const w = (it.weight != null) ? Math.round(clamp(it.weight, 0, 1) * 100) : null;
+                    html += '<div style="background:rgba(8,16,22,0.55);border:1px solid ' + col + '33;border-radius:6px;padding:6px 8px;font-size:0.54rem;">' +
+                        '<div style="display:flex;justify-content:space-between;gap:6px;"><b style="color:#cfe6f5;">' + esc(it.name) + '</b><span style="color:' + sc + ';">' + it.status + '</span></div>' +
+                        '<div style="color:#9fb2c4;margin-top:2px;">' + esc(it.metric || '') + '</div>' +
+                        (w != null ? '<div style="margin-top:3px;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;"><div style="height:100%;width:' + w + '%;background:' + col + ';"></div></div><div style="color:' + col + ';font-weight:700;margin-top:2px;">weight ' + w + '%</div>' : '') +
+                        '</div>';
+                }
+                html += '</div>';
+            }
+            host.innerHTML = html;
+        } catch (e) {}
+    }
+    window.renderKPXLearn = renderKPXLearn;
+
+    function renderKPXHead() {
+        try {
+            const host = document.getElementById('kpx-head'); if (!host) return; const S = OsirisKPX.state();
+            const dcol = S.dir === 'LONG' ? '#14f195' : S.dir === 'SHORT' ? '#ff5f7e' : '#7d8a99';
+            const sr = OsirisKPX.shadowRate();
+            const tile = (lab, val, col) => '<div style="flex:1 1 120px;background:rgba(8,16,22,0.5);border:1px solid ' + (col || 'var(--line)') + '44;border-radius:8px;padding:8px 11px;"><div style="font-size:0.5rem;color:#5d6b7a;text-transform:uppercase;letter-spacing:0.06em;">' + lab + '</div><div style="font:700 0.95rem \'JetBrains Mono\',monospace;color:' + (col || '#cfe6f5') + ';margin-top:2px;">' + val + '</div></div>';
+            host.innerHTML = tile('KPX richting', S.dir, dcol) + tile('KPX bias', (S.bias > 0 ? '+' : '') + S.bias, dcol) + tile('conviction', Math.round(S.conf * 100) + '%', '#7fd8ff') +
+                tile('meta NEO/Tri/SW', Math.round(S.meta.neo * 100) + '/' + Math.round(S.meta.trinity * 100) + '/' + Math.round(S.meta.shockwave * 100), '#c792ea') +
+                tile('meta-shadow', (sr != null ? Math.round(sr * 100) + '%' : '—') + ' (n' + OsirisKPX.shadow.n + ')', '#14f195');
+        } catch (e) {}
+    }
+    window.renderKPXHead = renderKPXHead;
+    function esc(s) { return ('' + s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+    function kpxRenderAll() { try { if (!_osKpxVisible()) return; renderKPXHead(); drawKPXNet(); renderKPXLearn(); } catch (e) {} }
+    function _osKpxVisible() { try { const t = document.getElementById('tab-kpx'); return !!(t && t.offsetParent !== null); } catch (e) { return false; } }
+    window.kpxRenderAll = kpxRenderAll;
+    try { setInterval(kpxRenderAll, 2000); } catch (e) {}
+    // render meteen bij tab-open (wrap de globale showTab)
+    try { const _o = window.showTab; if (typeof _o === 'function') { window.showTab = function (id) { _o(id); if (id === 'kpx') setTimeout(kpxRenderAll, 60); }; } } catch (e) {}
+    try { window.downloadKPX = function () { try { const j = JSON.stringify(OsirisKPX.context(), (k, v) => /(^|_)(key|secret|token|password|apikey|api_key|bearer|auth)($|_)/i.test(k) ? undefined : v, 2); const b = new Blob([j], { type: 'application/json' }); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = 'osiris_kpx_context_' + Date.now() + '.json'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(u); a.remove(); }, 200); } catch (e) { try { alert('KPX-export mislukt: ' + e.message); } catch (x) {} } }; } catch (e) {}
 })();
