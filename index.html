@@ -2843,6 +2843,13 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <div class="panel" style="border-top:2px solid rgba(255,138,60,0.28);">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div id="sw-controls" class="mono"></div>
+      <div class="mono" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0;font-size:0.56rem;color:var(--dim);">
+        <span style="color:#ff8a3c;font-weight:700;letter-spacing:0.06em;">WATER-SHORTAGE PROJECTION</span>
+        <span style="color:var(--dimmer);">year</span>
+        <input type="range" id="sw-water-year" min="2025" max="2050" step="1" value="2025" style="flex:1 1 200px;max-width:320px;accent-color:#ff8a3c;" oninput="try{window.__swWaterYear&&window.__swWaterYear(+this.value);document.getElementById('sw-water-year-val').textContent=this.value;}catch(e){}">
+        <span id="sw-water-year-val" style="color:#ff8a3c;font-weight:700;min-width:36px;">2025</span>
+        <span style="color:var(--dimmer);">— enable the "Water-shortage projection" map layer to see it; population + AI-datacenter demand scale the stress upward toward the chosen year.</span>
+      </div>
       <div id="sw-map" style="width:100%;min-height:360px;">
         <div class="mono" style="color:var(--dimmer);font-size:0.6rem;padding:24px;">ShockWave map initialises when you open this tab…</div>
       </div>
@@ -2921,6 +2928,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
     <div class="panel">
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div id="gsd-flood"><div class="mono" style="color:var(--dimmer);font-size:0.56rem;">Flood Overwatch loading… (Open-Meteo 10-day precipitation forecast + ENSO sea level)</div></div>
+    </div>
+
+    <div class="secdiv"><h3>Finance intel</h3><span class="sub">— central / world / local banks · FX reserves · sovereign debt-to-GDP · 10y bond yields (info panel, not a map layer)</span></div>
+    <div class="panel">
+      <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
+      <div id="gsd-finance"><div class="mono" style="color:var(--dimmer);font-size:0.56rem;">Finance intel loading…</div></div>
     </div>
 
     <div class="secdiv"><h3>Predictor + shadow</h3><span class="sub">— ΔV breakout · micro/meso/macro · date window + event description</span></div>
@@ -3067,7 +3080,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260920-build156-kpx-anim"></script>
+<script src="app.js?v=20260920-build157-shockwave-resources"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
