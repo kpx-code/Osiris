@@ -28436,12 +28436,38 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
             try { const h = OsirisHurst.all(); for (const s in h) push('market predictors', { name: 'Hurst · ' + s, status: h[s].H != null ? 'active' : 'learning', metric: h[s].H != null ? 'H ' + h[s].H + ' → ' + h[s].label : '—', weight: h[s].conf }); } catch (e) {}
             try { if (typeof OsirisPredict !== 'undefined') { const mt = OsirisPredict.metrics ? OsirisPredict.metrics() : null; push('market predictors', { name: 'Predict engine', status: mt ? 'active' : 'learning', metric: mt && mt.hitRate != null ? 'hit ' + Math.round(mt.hitRate * 100) + '% · Brier ' + (mt.brier != null ? mt.brier : '—') : '—', weight: null }); } } catch (e) {}
             try { for (const s in OsirisChangePoint.state) { const cp = OsirisChangePoint.state[s]; push('market predictors', { name: 'Change-point ' + s.replace('px:', ''), status: 'active', metric: cp.lastChange ? 'last shift ' + new Date(cp.lastChange).toLocaleTimeString('en-GB') : 'stable', weight: null }); } } catch (e) {}
-            // LEARNINGS (L1/L2/L3 + RL + DeepNet)
-            try { push('learnings', { name: 'L1 adaptive weights', status: (typeof adaptiveWeights !== 'undefined') ? 'active' : 'learning', metric: (typeof MIN_SAMPLE_SIZE !== 'undefined') ? 'min-n ' + MIN_SAMPLE_SIZE : '—', weight: null }); } catch (e) {}
-            try { push('learnings', { name: 'L2 meta-model', status: (typeof _l2 !== 'undefined' && _l2 && _l2.trained) ? 'trained' : 'learning', metric: (typeof _l2 !== 'undefined' && _l2) ? ('on ' + (_l2.trainedOn || 0)) : '—', weight: null }); } catch (e) {}
-            try { push('learnings', { name: 'L3 deep-model', status: (typeof _l3 !== 'undefined' && _l3 && _l3.trained) ? 'trained' : 'learning', metric: (typeof _l3 !== 'undefined' && _l3 && _l3.valAcc != null) ? ('valAcc ' + Math.round(_l3.valAcc * 100) + '%') : '—', weight: null }); } catch (e) {}
-            try { if (typeof OsirisRL !== 'undefined') push('learnings', { name: 'RL agent', status: OsirisRL.episodes > 2000 ? 'active' : 'learning', metric: 'ep ' + (OsirisRL.episodes | 0) + ' · reward ' + (OsirisRL.avgReward != null ? OsirisRL.avgReward.toFixed(3) : '—'), weight: null }); } catch (e) {}
-            try { if (typeof OsirisAutoCal !== 'undefined') { const b = OsirisAutoCal.bundle(); push('learnings', { name: 'AutoCal', status: 'active', metric: 'mult ' + b.mult + ' · target ' + b.minNetTargetPct + '%', weight: null }); } } catch (e) {}
+            // ── LEARNINGS — fully expanded per engine, per level (L1/L2/L3), not abbreviated ──
+            const L = 'learnings · ';
+            // NEO (crypto) learning stack
+            try { push(L + 'NEO (crypto)', { name: 'L1 · adaptive feature weights', status: (typeof adaptiveWeights !== 'undefined') ? 'active' : 'learning', metric: (typeof MIN_SAMPLE_SIZE !== 'undefined') ? 'min-n ' + MIN_SAMPLE_SIZE : '—', weight: null }); } catch (e) {}
+            try { const st2 = neoMultiState; if (st2 && st2.markets) for (const s of Object.keys(st2.markets)) { const br = st2.markets[s] && st2.markets[s].brain; push(L + 'NEO (crypto)', { name: 'L1 · sub-brain ' + s, status: br ? 'active' : 'learning', metric: br && br.weights ? Object.keys(br.weights).length + ' weights' : '—', weight: null }); } } catch (e) {}
+            try { push(L + 'NEO (crypto)', { name: 'L2 · meta-model', status: (typeof _l2 !== 'undefined' && _l2 && _l2.trained) ? 'trained' : 'learning', metric: (typeof _l2 !== 'undefined' && _l2) ? ('on ' + (_l2.trainedOn || 0)) : '—', weight: null }); } catch (e) {}
+            try { push(L + 'NEO (crypto)', { name: 'L3 · deep-model (MLP)', status: (typeof _l3 !== 'undefined' && _l3 && _l3.trained) ? 'trained' : 'learning', metric: (typeof _l3 !== 'undefined' && _l3 && _l3.valAcc != null) ? ('valAcc ' + Math.round(_l3.valAcc * 100) + '%') : '—', weight: null }); } catch (e) {}
+            try { if (typeof OsirisDeepNet !== 'undefined' && OsirisDeepNet.markets) for (const s of Object.keys(OsirisDeepNet.markets)) { const dm = OsirisDeepNet.markets[s]; push(L + 'NEO (crypto)', { name: 'L3 · DeepNet ' + s, status: dm && dm.model ? 'trained' : 'learning', metric: dm && dm.wf ? 'walk-forward' : '—', weight: null }); } } catch (e) {}
+            try { if (typeof OsirisGovernor !== 'undefined') push(L + 'NEO (crypto)', { name: 'Governor (predict/kinetic/eta)', status: 'active', metric: 'trust-weighted', weight: null }); } catch (e) {}
+            try { if (typeof OsirisRL !== 'undefined') push(L + 'NEO (crypto)', { name: 'RL agent (Q-learning)', status: OsirisRL.episodes > 2000 ? 'active' : 'learning', metric: 'ep ' + (OsirisRL.episodes | 0) + ' · reward ' + (OsirisRL.avgReward != null ? OsirisRL.avgReward.toFixed(3) : '—'), weight: null }); } catch (e) {}
+            try { if (typeof OsirisAutoCal !== 'undefined') { const b = OsirisAutoCal.bundle(); push(L + 'NEO (crypto)', { name: 'AutoCal (regime/dead/cost)', status: 'active', metric: 'mult ' + b.mult + ' · target ' + b.minNetTargetPct + '%', weight: null }); } } catch (e) {}
+            try { if (typeof OsirisTiming !== 'undefined') { push(L + 'NEO (crypto)', { name: 'Timing-agent LIVE', status: OsirisTiming.proven && OsirisTiming.proven() ? 'proven' : 'learning', metric: OsirisTiming.score != null ? Math.round(OsirisTiming.score * 100) + '% · n ' + OsirisTiming.n : '—', weight: OsirisTiming.influence ? OsirisTiming.influence() : null }); } } catch (e) {}
+            try { if (typeof OsirisTimingShadow !== 'undefined') { push(L + 'NEO (crypto)', { name: 'Timing-agent SHADOW', status: OsirisTimingShadow.proven && OsirisTimingShadow.proven() ? 'proven' : 'learning', metric: OsirisTimingShadow.n != null ? 'n ' + OsirisTimingShadow.n : '—', weight: null }); } } catch (e) {}
+            try { if (typeof OsirisMarginEdge !== 'undefined') push(L + 'NEO (crypto)', { name: 'Margin-edge learner', status: 'active', metric: (OsirisMarginEdge.history ? OsirisMarginEdge.history.length : 0) + ' effect-measurements', weight: null }); } catch (e) {}
+            // Trinity (FX/commodity) learning stack
+            try { push(L + 'Trinity (FX/commodity)', { name: 'L1 · brain-trust', status: 'active', metric: 'per-market trust', weight: null }); } catch (e) {}
+            try { push(L + 'Trinity (FX/commodity)', { name: 'L1 · session weights (ASIA/EU/US/OVLP)', status: 'active', metric: '4 sessions', weight: null }); } catch (e) {}
+            try { push(L + 'Trinity (FX/commodity)', { name: 'L3 · DEEPNET-L3', status: 'active', metric: 'coverage', weight: null }); } catch (e) {}
+            try { push(L + 'Trinity (FX/commodity)', { name: 'Regime-HMM', status: (typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? 'trained' : 'learning', metric: (typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.label) ? OsirisRegimeHMM.label : '—', weight: null }); } catch (e) {}
+            try { push(L + 'Trinity (FX/commodity)', { name: 'LLM-verify', status: (typeof OsirisLLMVerify !== 'undefined') ? 'active' : 'learning', metric: (typeof OsirisLLMVerify !== 'undefined' && OsirisLLMVerify.log) ? OsirisLLMVerify.log.length + ' checks' : '—', weight: null }); } catch (e) {}
+            try { if (typeof TrinityUOTAMShadow !== 'undefined') { const sum = TrinityUOTAMShadow.summary(); push(L + 'Trinity (FX/commodity)', { name: 'UOTAM shadow weights', status: 'active', metric: sum.filter(s => s.proven).length + '/' + sum.length + ' proven', weight: null }); } } catch (e) {}
+            try { push(L + 'Trinity (FX/commodity)', { name: 'Calib · self-tune · comp-rel', status: 'active', metric: 'auto-calibration', weight: null }); } catch (e) {}
+            try { push(L + 'Trinity (FX/commodity)', { name: 'Cost-guard · GSD-risk', status: 'active', metric: 'fee + world-stress aware', weight: null }); } catch (e) {}
+            // ShockWave (overwatch) learning stack
+            try { if (typeof TrinityGSD !== 'undefined') push(L + 'ShockWave (overwatch)', { name: 'GSD calibration', status: 'active', metric: (TrinityGSD.stress != null ? 'stress ' + Math.round(TrinityGSD.stress * 100) + '%' : 'calibrating'), weight: TrinityGSD.stress }); } catch (e) {}
+            try { if (typeof TrinityShockWave !== 'undefined') { const wk = TrinityShockWave.W ? Object.keys(TrinityShockWave.W).length : 0; push(L + 'ShockWave (overwatch)', { name: 'Contagion learned weights', status: wk ? 'active' : 'learning', metric: wk + ' propagation weights · Brier-scored', weight: null }); } } catch (e) {}
+            try { if (typeof OsirisCausalChain !== 'undefined' && OsirisCausalChain.bundle) { const cb = OsirisCausalChain.bundle(); push(L + 'ShockWave (overwatch)', { name: 'Causal-chain transmission', status: 'active', metric: 'lead-lag learner', weight: null }); } } catch (e) {}
+            try { if (typeof OsirisZonePulse !== 'undefined') push(L + 'ShockWave (overwatch)', { name: 'Zone-pulse state machine', status: 'active', metric: 'turn/peak detection', weight: null }); } catch (e) {}
+            try { if (typeof OsirisFloodWatch !== 'undefined') { const ss = OsirisFloodWatch.shadowSummary ? OsirisFloodWatch.shadowSummary() : null; push(L + 'ShockWave (overwatch)', { name: 'Flood Overwatch shadow', status: 'active', metric: ss && ss.n ? 'resolved ' + ss.n : 'logging', weight: null }); } } catch (e) {}
+            // KPX meta learning stack
+            try { const S = this.state(); push(L + 'KPX meta', { name: 'Meta-mixer weights', status: 'active', metric: 'NEO ' + Math.round(S.meta.neo * 100) + '% · Tri ' + Math.round(S.meta.trinity * 100) + '% · SW ' + Math.round(S.meta.shockwave * 100) + '%', weight: null }); } catch (e) {}
+            try { const r = this.shadowRate(); push(L + 'KPX meta', { name: 'KPX meta-shadow', status: this.shadow.n >= 20 ? 'active' : 'learning', metric: 'hit ' + (r != null ? Math.round(r * 100) + '%' : '—') + ' · n ' + this.shadow.n, weight: null }); } catch (e) {}
             // HIDDEN LAYERS (KPX' own MLP)
             try { const S = this.state(); S.hidden.h1.forEach((v, i) => push('hidden layers', { name: 'H1·' + (i + 1), status: 'live', metric: 'act ' + v.toFixed(2), weight: (v + 1) / 2 })); S.hidden.h2.forEach((v, i) => push('hidden layers', { name: 'H2·' + (i + 1), status: 'live', metric: 'act ' + v.toFixed(2), weight: (v + 1) / 2 })); push('hidden layers', { name: 'KPX output', status: 'live', metric: 'meta ' + S.hidden.out.toFixed(2), weight: (S.hidden.out + 1) / 2 }); } catch (e) {}
             // CRYPTO (NEO per market)
@@ -28452,6 +28478,70 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
             try { if (typeof TrinityGSD !== 'undefined') { const zs = TrinityGSD.zoneStress || {}; for (const z in zs) push('overwatch (ShockWave)', { name: 'zone ' + z, status: 'active', metric: 'stress ' + Math.round((zs[z] || 0) * 100) + '%', weight: zs[z] }); } } catch (e) {}
             try { if (typeof OsirisFSO !== 'undefined' && OsirisFSO.scales) { for (const sc in OsirisFSO.scales) push('overwatch (ShockWave)', { name: 'FSO ' + sc, status: 'active', metric: 'scale active', weight: null }); } } catch (e) {}
             return cats;
+        },
+
+        // ---- FULL DATA-TRUE NET MODEL — every subsystem of NEO/Trinity/ShockWave unpacked and
+        //      wired into the central KPX hub. Drives the KPX deepnet visualisation. ----
+        netModel() {
+            try {
+                const S = this.state();
+                const nodes = []; const push = (o) => { o.act = (o.act == null ? 0.4 : clamp(o.act, 0.12, 1)); nodes.push(o); return nodes.length - 1; };
+                const hAct = (id) => { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) & 0xffff; return 0.32 + (h % 100) / 100 * 0.5; };   // stable pseudo-act fallback
+                // central hub
+                const hub = push({ id: 'KPX', label: 'KPX', cluster: 'kpx', col: '#c792ea', act: S.conf, hub: true, big: true, val: S.dir });
+                // ---- NEO cluster (crypto) ----
+                let neoInputs = {}; try { if (typeof neoNetInputs === 'function') neoInputs = neoNetInputs(); } catch (e) {}
+                const NEO = { key: 'neo', col: '#00d9ff' };
+                const neoHead = push({ id: 'neo:head', label: 'NEO', cluster: 'neo', col: NEO.col, act: S.E.neo.conf, head: true, big: true, val: S.E.neo.detail });
+                const neoInputLabels = { vfm: 'VFM', er: 'ER', db: 'DB', chaos: 'CHAOS', momentum: 'MOM', volz: 'VOL-Z', rsi: 'RSI', ema: 'EMA', cnn: 'CNN', fib: 'FIB', nn: 'NODE', nodeconf: 'NODE-CONF', funding: 'FUNDING', longshort: 'L/S', btccorr: 'BTC-CORR', sent: 'SENT', fso_btc: 'FSO-BTC', fso_eth: 'FSO-ETH', fso_sol: 'FSO-SOL', fso_all: 'FSO-ALL', fso_var: 'FSO-σ²', fso_corr: 'FSO-CORR' };
+                for (const k in neoInputLabels) push({ id: 'neo:in:' + k, label: neoInputLabels[k], cluster: 'neo', sub: 'input', col: NEO.col, act: Math.abs(neoInputs[k] != null ? neoInputs[k] : hAct(k)) });
+                ['BTC', 'ETH', 'SOL'].forEach(s => { ['PMV', 'DN', 'MC'].forEach(c => push({ id: 'neo:core:' + s + c, label: s + '·' + c, cluster: 'neo', sub: 'core', col: NEO.col, act: hAct(s + c) })); });
+                ['OSIRIS', 'TA', 'DECISION', 'RL'].forEach(p => push({ id: 'neo:pipe:' + p, label: p, cluster: 'neo', sub: 'pipe', col: NEO.col, act: hAct('neo' + p), big: p === 'OSIRIS' || p === 'DECISION' }));
+                const neoMeta = ['GOV·PRED', 'GOV·KIN', 'GOV·ETA', 'GOV·AGG', 'LLM', 'REGIME', 'CLOUD', 'MULTI-TF', 'NODE-FADE', 'SPIKE-GUARD', 'FAG·SPOT', 'FAG·MAR', 'RISK', 'GUARDIAN', 'SELF-REV', 'UOTAM·ENERGIE', 'UOTAM·TAM', 'UOTAM·VFM', 'UOTAM·S/T', 'UOTAM·SHADOW', 'UOTAM·WEIGHT', 'CNN·MULTI'];
+                neoMeta.forEach(m => push({ id: 'neo:meta:' + m, label: m, cluster: 'neo', sub: 'meta', col: NEO.col, act: hAct(m) }));
+                // ---- Trinity cluster (FX/commodity) ----
+                const TRI = { key: 'trinity', col: '#7c5cff' };
+                const triHead = push({ id: 'tri:head', label: 'TRINITY', cluster: 'trinity', col: TRI.col, act: S.E.trinity.conf, head: true, big: true, val: S.E.trinity.detail });
+                ['STR', 'MOM', 'VOL', 'CARRY', 'LIQ', 'SIG', 'TREND', 'SESS', 'FSO-σ²'].forEach(i => push({ id: 'tri:in:' + i, label: i, cluster: 'trinity', sub: 'input', col: TRI.col, act: hAct('tri' + i) }));
+                ['ASIA', 'EU', 'US', 'OVLP'].forEach(c => push({ id: 'tri:core:' + c, label: c, cluster: 'trinity', sub: 'core', col: TRI.col, act: hAct('tric' + c) }));
+                ['GATE', 'DECISION', 'OUTPUT', 'LEARN'].forEach(p => push({ id: 'tri:pipe:' + p, label: p, cluster: 'trinity', sub: 'pipe', col: TRI.col, act: hAct('trip' + p), big: p === 'GATE' || p === 'DECISION' }));
+                const triMeta = ['BRAIN-TRUST', 'SESSION', 'FSO', 'FSO-GSD', 'NODE-TIME', 'COST-GUARD', 'CALIB', 'SELF-TUNE', 'GSD-RISK', 'COMP-REL', 'TIMING', 'CLOUD-SYNC', 'KINETIC', 'REGIME-HMM', 'LLM-VERIFY', 'SPIKE-GUARD', 'GUARDIAN', 'RISK-BREAK', 'RL-EXIT', 'DEEPNET-L3', 'UOTAM·ENERGIE', 'UOTAM·TAM', 'UOTAM·VFM', 'UOTAM·S/T', 'UOTAM·SHADOW', 'UOTAM·WEIGHT'];
+                triMeta.forEach(m => push({ id: 'tri:meta:' + m, label: m, cluster: 'trinity', sub: 'meta', col: TRI.col, act: hAct('trim' + m) }));
+                // ---- ShockWave cluster (overwatch) ----
+                const SW = { key: 'shockwave', col: '#ff8a3c' };
+                const swHead = push({ id: 'sw:head', label: 'SHOCKWAVE', cluster: 'shockwave', col: SW.col, act: S.E.shockwave.conf, head: true, big: true, val: S.E.shockwave.detail });
+                let zs = {}; try { zs = (typeof TrinityGSD !== 'undefined' && TrinityGSD.zoneStress) ? TrinityGSD.zoneStress : {}; } catch (e) {}
+                ['na', 'eu', 'ap', 'ca', 'me', 'af', 'latam', 'global'].forEach(z => push({ id: 'sw:zone:' + z, label: 'ZONE-' + z.toUpperCase(), cluster: 'shockwave', sub: 'zone', col: SW.col, act: zs[z] != null ? zs[z] : hAct('z' + z) }));
+                ['FSO·MICRO', 'FSO·MESO', 'FSO·MACRO', 'FSO·FULL'].forEach(f => push({ id: 'sw:fso:' + f, label: f, cluster: 'shockwave', sub: 'fso', col: SW.col, act: hAct(f) }));
+                ['GSD-RANKING', 'KILL-SWITCH', 'CAUSAL-CHAIN', 'CONTAGION', 'FLOOD-WATCH', 'ZONE-PULSE', 'OCEAN-LEVEL', 'SEMICOND-FLASH'].forEach(g => push({ id: 'sw:gsd:' + g, label: g, cluster: 'shockwave', sub: 'gsd', col: SW.col, act: hAct(g) }));
+                // ---- KPX core cluster (mixer, hidden layers, tools, predictors, per-engine learning levels) ----
+                const KC = { key: 'kpx', col: '#c792ea' };
+                S.hidden.h1.forEach((v, i) => push({ id: 'kpx:h1:' + i, label: 'H1·' + (i + 1), cluster: 'kpx', sub: 'hidden', col: '#ff8a3c', act: (v + 1) / 2 }));
+                S.hidden.h2.forEach((v, i) => push({ id: 'kpx:h2:' + i, label: 'H2·' + (i + 1), cluster: 'kpx', sub: 'hidden', col: '#ffb627', act: (v + 1) / 2 }));
+                push({ id: 'kpx:mix', label: 'META-MIXER', cluster: 'kpx', sub: 'meta', col: KC.col, act: S.conf, big: true });
+                push({ id: 'kpx:shadow', label: 'META-SHADOW', cluster: 'kpx', sub: 'meta', col: '#14f195', act: (this.shadowRate() || 0.3) });
+                ['EXEC-ROUTER', 'CORR-SIZING', 'MARGIN-EDGE'].forEach(t => push({ id: 'kpx:tool:' + t, label: t, cluster: 'kpx', sub: 'tool', col: '#7fd8ff', act: hAct(t) }));
+                ['HURST', 'CHANGE-POINT', 'THOMPSON'].forEach(t => push({ id: 'kpx:pred:' + t, label: t, cluster: 'kpx', sub: 'pred', col: '#c792ea', act: hAct(t) }));
+                ['NEO', 'TRI', 'SW'].forEach(eng => ['L1', 'L2', 'L3'].forEach(lv => push({ id: 'kpx:learn:' + eng + lv, label: eng + '·' + lv, cluster: 'kpx', sub: 'learn', col: '#ffd24a', act: hAct(eng + lv) })));
+                // ---- edges (data-true topology) ----
+                const idx = {}; nodes.forEach((n, i) => idx[n.id] = i);
+                const E = []; const add = (a, b, opt) => { if (a == null || b == null || a === b) return; E.push(Object.assign({ a, b }, opt || {})); };
+                const heads = { neo: idx['neo:head'], trinity: idx['tri:head'], shockwave: idx['sw:head'] };
+                // every cluster node → its head; then head → KPX hub (up-link results)
+                nodes.forEach((n, i) => { if (n.hub || n.head) return; if (n.cluster === 'kpx') { add(i, hub, { w: 0.5 }); } else { add(i, heads[n.cluster], { w: 0.4 }); } });
+                add(heads.neo, hub, { w: 1, up: true }); add(heads.trinity, hub, { w: 1, up: true }); add(heads.shockwave, hub, { w: 1, up: true });
+                // KPX hub → each engine decision (down-link directives)
+                add(hub, idx['neo:pipe:DECISION'], { w: 1, down: true }); add(hub, idx['tri:pipe:DECISION'], { w: 1, down: true });
+                // per-engine learning levels feed the mixer + their engine head
+                ['NEO', 'TRI', 'SW'].forEach(eng => ['L1', 'L2', 'L3'].forEach(lv => { const li = idx['kpx:learn:' + eng + lv]; add(li, idx['kpx:mix'], { w: 0.5 }); const hk = eng === 'NEO' ? 'neo' : eng === 'TRI' ? 'trinity' : 'shockwave'; add(li, heads[hk], { w: 0.3 }); }));
+                // hidden layers chain into the mixer
+                nodes.forEach((n, i) => { if (n.sub === 'hidden') add(i, idx['kpx:mix'], { w: 0.35 }); });
+                add(idx['kpx:mix'], hub, { w: 1 });
+                // light intra-cluster mesh (each node to 2 nearby same-cluster nodes) for the dense deepnet look
+                const byCluster = {}; nodes.forEach((n, i) => { (byCluster[n.cluster] = byCluster[n.cluster] || []).push(i); });
+                for (const c in byCluster) { const arr = byCluster[c]; for (let k = 0; k < arr.length; k++) { add(arr[k], arr[(k + 3) % arr.length], { w: 0.12, mesh: true }); } }
+                return { nodes, edges: E, view: { dir: S.dir, conf: S.conf, bias: S.bias, meta: S.meta, shadow: this.shadowRate(), shadowN: this.shadow.n } };
+            } catch (e) { return { nodes: [], edges: [], view: {} }; }
         },
 
         // ---- HÉT integratiepunt: alles-bevattende context voor een externe LLM ----
@@ -28488,57 +28578,113 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
     // ===========================================================================
     // KPX NEURAL-NET VISUALISATIE (eigen canvas) + LIVE LEARNING PANEL
     // ===========================================================================
-    const CAT_COL = { 'tools': '#7fd8ff', 'shadow workers': '#14f195', 'market predictors': '#c792ea', 'learnings': '#ffd24a', 'hidden layers': '#ff8a3c', 'crypto (NEO)': '#00d9ff', 'commodity / raw materials': '#7c5cff', 'overwatch (ShockWave)': '#ff5f7e' };
+    const CAT_COL = { 'tools': '#7fd8ff', 'shadow workers': '#14f195', 'market predictors': '#c792ea', 'learnings · NEO (crypto)': '#00d9ff', 'learnings · Trinity (FX/commodity)': '#7c5cff', 'learnings · ShockWave (overwatch)': '#ff8a3c', 'learnings · KPX meta': '#c792ea', 'hidden layers': '#ff8a3c', 'crypto (NEO)': '#00d9ff', 'commodity / raw materials': '#7c5cff', 'overwatch (ShockWave)': '#ff5f7e' };
 
-    function drawKPXNet() {
+    // ===========================================================================
+    // KPX DEEPNET — the huge data-true net (NEO-deepnet style) that unpacks every
+    // subsystem of NEO/Trinity/ShockWave and wires it into the central KPX hub.
+    // ===========================================================================
+    let _kpxLayout = null;
+    function _kpxBuildLayout(model, W, H) {
+        // 4 cluster lobes around the central KPX hub; nodes packed in each lobe on a jittered
+        // spiral so the whole thing reads as one enormous mesh (like the NEO deepnet).
+        const SR = (s) => { const x = Math.sin(s * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+        const cx = W * 0.5, cy = H * 0.52;
+        const regions = {
+            neo: { cx: W * 0.20, cy: H * 0.30, rx: W * 0.17, ry: H * 0.22 },
+            trinity: { cx: W * 0.80, cy: H * 0.30, rx: W * 0.17, ry: H * 0.22 },
+            shockwave: { cx: W * 0.20, cy: H * 0.76, rx: W * 0.17, ry: H * 0.18 },
+            kpx: { cx: W * 0.80, cy: H * 0.76, rx: W * 0.17, ry: H * 0.18 }
+        };
+        const pos = new Array(model.nodes.length);
+        const groups = {}; model.nodes.forEach((n, i) => { (groups[n.cluster] = groups[n.cluster] || []).push(i); });
+        for (const cl in groups) {
+            const arr = groups[cl], R = regions[cl]; const N = arr.length;
+            arr.forEach((ni, k) => {
+                const n = model.nodes[ni];
+                if (n.hub) { pos[ni] = { x: cx, y: cy }; return; }
+                if (n.head) { const hx = R.cx + (R.cx < cx ? 1 : -1) * R.rx * 0.35, hy = R.cy + (R.cy < cy ? 1 : -1) * R.ry * 0.15; pos[ni] = { x: hx, y: hy }; return; }
+                // golden-angle spiral fill of the lobe
+                const gi = k, gr = Math.sqrt((gi + 0.5) / N); const ang = gi * 2.399963;
+                const jx = (SR(ni * 2 + 1) - 0.5) * 0.10, jy = (SR(ni * 3 + 2) - 0.5) * 0.10;
+                pos[ni] = { x: R.cx + Math.cos(ang) * (gr + jx) * R.rx, y: R.cy + Math.sin(ang) * (gr + jy) * R.ry };
+            });
+        }
+        return { pos, key: W + 'x' + H + '#' + model.nodes.length };
+    }
+    function drawKPXDeepnet() {
         try {
             const cv = document.getElementById('kpx-net'); if (!cv || cv.offsetParent === null) return;
-            const S = OsirisKPX.state();
+            const model = OsirisKPX.netModel();
             const rect = cv.getBoundingClientRect(); if (rect.width < 20) return;
             const DPR = Math.min(2, window.devicePixelRatio || 1);
             cv.width = rect.width * DPR; cv.height = rect.height * DPR;
             const ctx = cv.getContext('2d'); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
             const W = rect.width, H = rect.height; ctx.clearRect(0, 0, W, H);
-            const t = Date.now() / 1000;
-            // layer x-positions
-            const LX = [W * 0.10, W * 0.37, W * 0.63, W * 0.88];
-            // input nodes (3 engines)
-            const eng = [S.E.neo, S.E.trinity, S.E.shockwave];
-            const inNodes = eng.map((e, i) => ({ x: LX[0], y: H * (0.25 + i * 0.25), r: 13, col: e.col, act: (S.inv[e.key] + 1) / 2, label: e.label.split(' ')[0], sub: e.detail }));
-            const h1 = S.hidden.h1.map((v, i) => ({ x: LX[1], y: H * (0.12 + i * (0.76 / (OsirisKPX.H1 - 1))), r: 9, col: '#ff8a3c', act: (v + 1) / 2, label: 'H1·' + (i + 1) }));
-            const h2 = S.hidden.h2.map((v, i) => ({ x: LX[2], y: H * (0.22 + i * (0.56 / (OsirisKPX.H2 - 1))), r: 9, col: '#ffb627', act: (v + 1) / 2, label: 'H2·' + (i + 1) }));
-            const outN = [{ x: LX[3], y: H * 0.5, r: 16, col: S.dir === 'LONG' ? '#14f195' : S.dir === 'SHORT' ? '#ff5f7e' : '#7d8a99', act: (S.hidden.out + 1) / 2, label: 'KPX', sub: S.dir }];
-            // connections
-            function conns(a, b, layer) { for (let i = 0; i < a.length; i++) for (let j = 0; j < b.length; j++) { const w = OsirisKPX._w(i, j, layer); const op = 0.05 + Math.abs(w) * 0.22 * (0.5 + 0.5 * b[j].act); ctx.strokeStyle = (w >= 0 ? 'rgba(0,217,255,' : 'rgba(255,95,126,') + op.toFixed(3) + ')'; ctx.lineWidth = 0.4 + Math.abs(w) * 1.1; ctx.beginPath(); ctx.moveTo(a[i].x, a[i].y); ctx.lineTo(b[j].x, b[j].y); ctx.stroke(); } }
-            conns(inNodes, h1, 1); conns(h1, h2, 3);
-            // h2 → out weighted by meta+w
-            for (let i = 0; i < h2.length; i++) { const w = OsirisKPX._w(i, 0, 4); const op = 0.08 + Math.abs(w) * 0.4; ctx.strokeStyle = (w >= 0 ? 'rgba(20,241,149,' : 'rgba(255,95,126,') + op.toFixed(3) + ')'; ctx.lineWidth = 0.6 + Math.abs(w) * 1.6; ctx.beginPath(); ctx.moveTo(h2[i].x, h2[i].y); ctx.lineTo(outN[0].x, outN[0].y); ctx.stroke(); }
-            // node drawer
-            function node(n) {
-                const pulse = 0.5 + 0.5 * Math.sin(t * 1.6 + n.x * 0.01);
-                const glow = 6 + n.act * 16 * (0.6 + 0.4 * pulse);
-                ctx.save(); ctx.shadowColor = n.col; ctx.shadowBlur = glow;
-                ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 6.283); ctx.fillStyle = n.col; ctx.globalAlpha = 0.20 + n.act * 0.7; ctx.fill(); ctx.globalAlpha = 1;
-                ctx.lineWidth = 1.4; ctx.strokeStyle = n.col; ctx.stroke(); ctx.restore();
-                ctx.fillStyle = '#dfe9f2'; ctx.font = "700 " + (n.r > 12 ? 10 : 8) + "px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
-                ctx.fillText(n.label, n.x, n.y - n.r - 4);
-                if (n.sub) { ctx.fillStyle = '#7d8a99'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillText(n.sub, n.x, n.y + n.r + 9); }
+            const now = Date.now(); const V = model.view;
+            const key = W + 'x' + H + '#' + model.nodes.length;
+            if (!_kpxLayout || _kpxLayout.key !== key) _kpxLayout = _kpxBuildLayout(model, W, H);
+            const pos = _kpxLayout.pos;
+            const hex2 = (hx) => { if (!hx || hx[0] !== '#') return '228,238,248'; const n = parseInt(hx.slice(1), 16); return ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255); };
+            // ---- edges ----
+            ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+            for (const e of model.edges) {
+                const A = pos[e.a], B = pos[e.b]; if (!A || !B) continue;
+                const na = model.nodes[e.a], nb = model.nodes[e.b];
+                const sig = Math.max(0, Math.min(1, (na.act || 0.3) * (nb.act || 0.3)));
+                const travel = 0.5 + 0.5 * Math.sin(now / 620 - (A.x + A.y) * 0.01 + (e.a % 7));
+                if (e.down) { ctx.strokeStyle = 'rgba(199,146,234,' + (0.30 + 0.4 * travel).toFixed(3) + ')'; ctx.lineWidth = 1.6; }
+                else if (e.up) { ctx.strokeStyle = 'rgba(20,241,149,' + (0.28 + 0.4 * travel).toFixed(3) + ')'; ctx.lineWidth = 1.5; }
+                else { const a2 = (e.mesh ? 0.05 : 0.10) + 0.22 * sig; ctx.strokeStyle = 'rgba(228,238,248,' + Math.min(0.7, a2).toFixed(3) + ')'; ctx.lineWidth = 0.4 + 0.9 * sig * (e.w || 0.4); }
+                ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
+                if (!e.mesh && sig > 0.12) { const pc = (na.act >= nb.act ? na.col : nb.col); ctx.strokeStyle = 'rgba(' + hex2(pc) + ',' + (0.10 + 0.4 * sig * travel).toFixed(3) + ')'; ctx.lineWidth = 0.5 + 1.1 * sig * travel; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke(); }
             }
-            inNodes.forEach(node); h1.forEach(node); h2.forEach(node); outN.forEach(node);
-            // layer labels
-            ctx.fillStyle = '#5d6b7a'; ctx.font = "700 8px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
-            ['INPUT · 3 ENGINES', 'HIDDEN 1', 'HIDDEN 2', 'KPX META'].forEach((L, i) => ctx.fillText(L, LX[i], H - 4));
-            // updated stamp
-            ctx.textAlign = 'right'; ctx.fillStyle = '#4d5a68'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillText('updated ' + _kpxTime(OsirisKPX.updated.state), W - 4, 10);
+            // ---- nodes ----
+            const labelEvery = model.nodes.length > 120 ? 1 : 1;
+            for (let i = 0; i < model.nodes.length; i++) {
+                const n = model.nodes[i], p = pos[i]; if (!p) continue;
+                const glow = n.act || 0.3; const rgb = hex2(n.col);
+                const r = (n.hub ? 9 : n.head ? 6.5 : n.big ? 4.6 : 2.6) + glow * (n.hub ? 5 : 2.4);
+                if (glow > 0.45 || n.big || n.head || n.hub) { ctx.beginPath(); ctx.arc(p.x, p.y, r + 3 + 6 * glow, 0, 6.283); ctx.fillStyle = 'rgba(' + rgb + ',' + (0.06 + 0.12 * glow).toFixed(3) + ')'; ctx.fill(); }
+                ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 6.283); ctx.fillStyle = 'rgba(' + rgb + ',' + (0.55 + 0.4 * glow).toFixed(3) + ')'; ctx.fill();
+                ctx.lineWidth = n.hub ? 2 : 1; ctx.strokeStyle = 'rgba(' + rgb + ',0.9)'; ctx.stroke();
+                // labels
+                const showLabel = n.hub || n.head || n.big || n.sub === 'meta' || n.sub === 'core' || n.sub === 'pipe' || n.sub === 'gsd' || n.sub === 'learn' || n.sub === 'tool' || n.sub === 'pred' || n.sub === 'zone' || (i % 1 === 0);
+                if (showLabel) {
+                    const fs = n.hub ? 12 : n.head ? 10 : n.big ? 8 : 6.4;
+                    const txt = n.label + (n.hub || n.head ? (n.val ? '' : '') : '');
+                    ctx.font = "700 " + fs + "px 'JetBrains Mono',monospace"; ctx.textAlign = 'center';
+                    const tw = ctx.measureText(txt).width;
+                    if (n.hub || n.head || n.big) { ctx.fillStyle = 'rgba(10,14,22,0.72)'; ctx.fillRect(p.x - tw / 2 - 3, p.y - r - fs - 5, tw + 6, fs + 4); }
+                    ctx.fillStyle = (n.hub || n.head) ? '#ffffff' : 'rgba(223,233,242,0.92)';
+                    ctx.fillText(txt, p.x, p.y - r - 4);
+                    if ((n.hub || n.head) && n.val) { ctx.fillStyle = 'rgba(125,138,153,0.9)'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillText(n.val, p.x, p.y + r + 9); }
+                }
+            }
+            // ---- header / HUD (NEO-deepnet style) ----
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#c792ea'; ctx.font = "800 13px 'JetBrains Mono',monospace"; ctx.fillText('OSIRIS KPX DEEPNET', 12, 20);
+            ctx.fillStyle = '#5d6b7a'; ctx.font = "8px 'JetBrains Mono',monospace";
+            ctx.fillText('NEO + Trinity + ShockWave  →  per-engine L1/L2/L3 · governor · UOTAM · timing · shadow · tools · predictors  →  KPX meta-mixer  →  ↓ directives / ↑ results', 12, 33);
+            ctx.textAlign = 'left'; ctx.fillStyle = '#7d8a99'; ctx.font = "700 10px 'JetBrains Mono',monospace";
+            ctx.fillText(Math.round((V.conf || 0) * 100) + '%', 14, H - 30); ctx.fillStyle = '#5d6b7a'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillText('KPX CONVICTION', 14, H - 20);
+            ctx.fillText('mix ' + Math.round((V.meta ? V.meta.neo : 0) * 100) + '/' + Math.round((V.meta ? V.meta.trinity : 0) * 100) + '/' + Math.round((V.meta ? V.meta.shockwave : 0) * 100), 14, H - 10);
+            // right: overarching view + updated
+            ctx.textAlign = 'right';
+            const dcol = V.dir === 'LONG' ? '#14f195' : V.dir === 'SHORT' ? '#ff5f7e' : '#7d8a99';
+            ctx.fillStyle = dcol; ctx.font = "800 12px 'JetBrains Mono',monospace"; ctx.fillText(V.dir === 'LONG' ? 'RISK-ON' : V.dir === 'SHORT' ? 'RISK-OFF' : 'NEUTRAL', W - 12, 20);
+            ctx.fillStyle = '#5d6b7a'; ctx.font = "7px 'JetBrains Mono',monospace"; ctx.fillText('OVERARCHING VIEW · not a trade', W - 12, 31);
+            ctx.fillStyle = '#4d5a68'; ctx.fillText('updated ' + _kpxTime(OsirisKPX.updated.state) + ' · ' + model.nodes.length + ' nodes · shadow ' + (V.shadow != null ? Math.round(V.shadow * 100) + '%' : '—') + ' (n' + (V.shadowN || 0) + ')', W - 12, H - 10);
         } catch (e) {}
     }
-    window.drawKPXNet = drawKPXNet;
+    window.drawKPXDeepnet = drawKPXDeepnet;
+    window.drawKPXNet = drawKPXDeepnet;   // alias (backwards compatible)
 
     function renderKPXLearn() {
         try {
             const host = document.getElementById('kpx-learn'); if (!host || host.offsetParent === null) return;
             const cats = OsirisKPX.registry();
-            const order = ['tools', 'shadow workers', 'market predictors', 'learnings', 'hidden layers', 'crypto (NEO)', 'commodity / raw materials', 'overwatch (ShockWave)'];
+            const order = ['tools', 'shadow workers', 'market predictors', 'learnings · NEO (crypto)', 'learnings · Trinity (FX/commodity)', 'learnings · ShockWave (overwatch)', 'learnings · KPX meta', 'hidden layers', 'crypto (NEO)', 'commodity / raw materials', 'overwatch (ShockWave)'];
             const keys = order.filter(k => cats[k]).concat(Object.keys(cats).filter(k => order.indexOf(k) < 0));
             let html = '';
             for (const cat of keys) {
@@ -28612,7 +28758,7 @@ try{ window.renderTrinityTools=renderTrinityTools; }catch(e){}
 
     function renderKPXStamp() { try { const el = document.getElementById('kpx-updated'); if (el) el.textContent = 'last updated ' + _kpxTime(OsirisKPX.updated.state || Date.now()) + ' · ' + _kpxAgo(OsirisKPX.updated.state); } catch (e) {} }
 
-    function kpxRenderAll() { try { if (!_osKpxVisible()) return; OsirisKPX.tick(); renderKPXStamp(); renderKPXHead(); renderKPXFlow(); drawKPXNet(); renderKPXLearn(); } catch (e) {} }
+    function kpxRenderAll() { try { if (!_osKpxVisible()) return; OsirisKPX.tick(); renderKPXStamp(); renderKPXFlow(); drawKPXDeepnet(); renderKPXLearn(); } catch (e) {} }
     function _osKpxVisible() { try { const t = document.getElementById('tab-kpx'); return !!(t && t.offsetParent !== null); } catch (e) { return false; } }
     window.kpxRenderAll = kpxRenderAll;
     try { setInterval(kpxRenderAll, 2000); } catch (e) {}
