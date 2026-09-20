@@ -6162,7 +6162,8 @@ function downloadAllData() {
             wsState: marginState.wsState || null, wsReconnects: marginState.wsReconnects || 0, wsLastError: marginState.wsLastError || null,
             realizedPnL: marginState.realizedPnL, wins: marginState.wins, losses: marginState.losses,
             openPositions: marginState.positions, closed: marginState.closed, tradeLog: marginState.tradeLog.slice(0, 200),
-            reasoning: marginState.reasoning, adaptation: marginState.adaptation, startEquity: marginState.startEquity, startTime: marginState.startTime
+            reasoning: marginState.reasoning, adaptation: marginState.adaptation, startEquity: marginState.startEquity, startTime: marginState.startTime,
+            marginEdge: (typeof OsirisMarginEdge !== 'undefined' ? OsirisMarginEdge.bundle() : null)   // (20-09) regime-poort + fee-first + effect-gemeten adaptaties
         } : null,
         networkErrors: (typeof osirisNetworkErrors !== 'undefined') ? osirisNetworkErrors.slice(0, 150) : [],
         fso: (typeof OsirisFSO !== 'undefined') ? {
@@ -10346,6 +10347,126 @@ const OsirisAutoCal = {
 window.OsirisAutoCal = OsirisAutoCal;
 try { OsirisAutoCal._restore(); OsirisAutoCal._seedEdges(); } catch (e) {}
 
+// ============================================================
+// OsirisMarginEdge (20-09) — het "autonoom adaptiever"-brein voor de MARGIN-wallet.
+// Reactie op de data-analyse: de bruto-edge is ~+0,04%/trade, de round-trip fee ~0,24%/trade
+// (6,5× groter) en de winst zit vrijwel volledig in ÉÉN regime (trending·LONG, +382 net),
+// terwijl kalm/compressie structureel bloeden. Dit brein levert drie dingen:
+//   ① regimeGate  — harde/zachte poort: handel alleen waar de netto-na-fees regime-edge (die
+//                    OsirisAutoCal al bijhoudt) niet bewezen-negatief is. Adaptief: sluit een
+//                    regime zodra zijn rollende net onder nul zakt en heropent zodra het draait.
+//   ② feeFirst    — verwacht positieve netto-verwachting NÁ fees vóór entry (EV-poort), i.p.v.
+//                    achteraf globaal dichtzetten. Levert vanzelf minder, grotere, betere trades.
+//   ④ adaptatie-effectmeter — elke aanpassing krijgt een baseline (equity + #resolves); na K
+//                    nieuwe trades meet Osiris of de aanpassing hielp en draait 'm terug zo niet.
+//                    Plus hysterese: log/verander pas bij een échte verandering, niet elke tick.
+// ============================================================
+const OsirisMarginEdge = {
+    // ---- ① regime-quality gate (leunt op OsirisAutoCal.regime, netto-na-fees) ----
+    REG_MINN: 15,           // minimaal aantal trades vóór een regime-oordeel telt
+    REG_HARD: -0.10,        // avgNet ≤ dit (%/trade) ⇒ hard blokkeren
+    REG_SOFT: -0.03,        // avgNet ≤ dit ⇒ alleen top-conviction toelaten
+    regimeGate(regime, side, pEff) {
+        try {
+            if (!regime || !side || typeof OsirisAutoCal === 'undefined') return { allow: true };
+            const e = OsirisAutoCal.regimeEdge(regime, side);
+            if (!e || e.n < this.REG_MINN) return { allow: true, reason: 'regime-warmup' };   // te weinig data → autonomie behouden, niet bevriezen
+            // bewezen-negatieve tegendraadse kant terwijl de andere kant werkt → altijd blokkeren
+            if (OsirisAutoCal.blockSide(regime, side)) return { allow: false, reason: `regime-gate: ${side} bewezen-negatief in ${regime} (net ${e.avgNet}%, n=${e.n}); andere kant werkt` };
+            if (e.avgNet <= this.REG_HARD) return { allow: false, reason: `regime-gate: ${regime}·${side} netto ${e.avgNet}%/trade na fees (n=${e.n}) — regime dicht` };
+            if (e.avgNet <= this.REG_SOFT) {
+                const p = (pEff != null ? pEff : 0);
+                if (p < 0.72) return { allow: false, reason: `regime-gate: ${regime}·${side} zwak (net ${e.avgNet}%, n=${e.n}) — alleen top-setups ≥72% (nu ${(p * 100 | 0)}%)` };
+                return { allow: true, reason: 'regime-zwak-maar-topconviction' };
+            }
+            return { allow: true, reason: `regime-ok (net ${e.avgNet}%)` };
+        } catch (e) { return { allow: true }; }
+    },
+
+    // ---- ② fee-first EV-gate ----
+    // Verwachte netto-waarde per trade (geleveraged, op margin) = p·gemWin − (1−p)·gemVerlies − fee.
+    // ≤ 0 ⇒ de fees eten de verwachting op: alleen top-conviction toestaan, anders overslaan.
+    feeFirst(pEff, feeEdge) {
+        try {
+            if (!feeEdge || !feeEdge.ready || feeEdge.avgWin == null) return { allow: true, ev: null };
+            const p = Math.max(0, Math.min(1, pEff || 0));
+            const ev = p * (feeEdge.avgWin || 0) - (1 - p) * (feeEdge.avgLoss || 0) - (feeEdge.costPct || 0);
+            if (ev > 0) return { allow: true, ev: +ev.toFixed(4) };
+            // negatieve verwachting: laat alleen de sterkste setups door (verkennende probe blijft mogelijk)
+            if (p >= 0.74) return { allow: true, ev: +ev.toFixed(4), reason: 'EV≤0 maar top-conviction' };
+            return { allow: false, ev: +ev.toFixed(4), reason: `fee-first: verwachte netto ${(ev * 100).toFixed(2)}%/trade ≤ 0 na fees (kans ${(p * 100 | 0)}%, gemWin ${((feeEdge.avgWin || 0) * 100).toFixed(2)}% vs gemVerlies ${((feeEdge.avgLoss || 0) * 100).toFixed(2)}%)` };
+        } catch (e) { return { allow: true, ev: null }; }
+    },
+
+    // ---- ④ adaptatie-effectmeter + hysterese ----
+    // Elke aanpassing meldt zich hier met een unieke id. We bewaren een baseline (equity +
+    // #gesloten-trades) en evalueren ná EVAL_TRADES nieuwe trades of de rollende winst verbeterde.
+    EVAL_TRADES: 8,
+    active: {},      // id → { since, baseEq, baseClosed, meta }
+    history: [],     // afgeronde metingen (voor export)
+    _closedCount() { try { return (typeof marginState !== 'undefined' && marginState.closed) ? marginState.closed.length : 0; } catch (e) { return 0; } },
+    _eq() { try { return (typeof marginEquity === 'function') ? marginEquity() : (typeof marginState !== 'undefined' ? marginState.equity : 0); } catch (e) { return 0; } },
+    _avgRecent(k) { try { const c = marginState.closed.slice(0, k); return c.length ? c.reduce((a, t) => a + (t.pnl || 0), 0) / c.length : null; } catch (e) { return null; } },
+    // Roep dit aan wanneer een aanpassing AAN gaat. Retourneert true als er écht iets nieuws is
+    // (transitie of betekenisvolle verandering) — de aanroeper logt alleen dán, tegen spam.
+    note(id, meta) {
+        try {
+            const prev = this.active[id];
+            const sig = JSON.stringify(meta || {});
+            if (prev && prev.sig === sig) return false;                 // geen verandering → niet opnieuw loggen (hysterese)
+            const baseAvg = this._avgRecent(this.EVAL_TRADES);
+            this.active[id] = { since: Date.now(), baseEq: this._eq(), baseClosed: this._closedCount(), baseAvg, meta: meta || {}, sig };
+            return true;
+        } catch (e) { return true; }
+    },
+    // Roep dit aan wanneer een aanpassing UIT gaat (of niet meer van toepassing is).
+    clear(id, note) {
+        try { const a = this.active[id]; if (a) { this._finish(id, a, note || 'uit'); delete this.active[id]; } } catch (e) {}
+    },
+    _finish(id, a, why) {
+        try {
+            const dTrades = this._closedCount() - a.baseClosed;
+            const nowAvg = this._avgRecent(this.EVAL_TRADES);
+            const rec = { id, why, ts: Date.now(), sinceMin: +(((Date.now() - a.since) / 60000).toFixed(1)), trades: dTrades, eqDelta: +((this._eq() - a.baseEq).toFixed(2)), avgBefore: a.baseAvg != null ? +(a.baseAvg * 100).toFixed(3) : null, avgAfter: nowAvg != null ? +(nowAvg * 100).toFixed(3) : null, meta: a.meta };
+            rec.helped = (rec.avgBefore != null && rec.avgAfter != null) ? (rec.avgAfter > rec.avgBefore) : null;
+            this.history.unshift(rec); if (this.history.length > 60) this.history.pop();
+            return rec;
+        } catch (e) { return null; }
+    },
+    // Periodieke evaluatie (aangeroepen vanuit de margin/self-review tick). Meet rijpe aanpassingen
+    // en levert een korte conclusie-regel terug (of null). onRevert(id,meta) wordt aangeroepen als
+    // de aanpassing NIET hielp, zodat de aanroeper 'm autonoom kan terugdraaien.
+    evaluate(onRevert) {
+        try {
+            let msg = null;
+            for (const id in this.active) {
+                const a = this.active[id];
+                if (this._closedCount() - a.baseClosed < this.EVAL_TRADES) continue;   // nog niet genoeg nieuwe trades
+                const rec = this._finish(id, a, 'rijp');
+                delete this.active[id];
+                if (rec) {
+                    if (rec.helped === false && typeof onRevert === 'function') { try { onRevert(id, a.meta); } catch (e) {} rec.reverted = true; }
+                    msg = `effect-meting «${id}»: ${rec.trades} trades, gem ${rec.avgBefore}%→${rec.avgAfter}% (${rec.helped ? 'beter ✓ behouden' : rec.helped === false ? 'slechter ✗ teruggedraaid' : 'onbeslist'}), equity ${rec.eqDelta >= 0 ? '+' : ''}${rec.eqDelta}`;
+                }
+            }
+            return msg;
+        } catch (e) { return null; }
+    },
+    bundle() {
+        try {
+            const reg = {};
+            if (typeof OsirisAutoCal !== 'undefined' && OsirisAutoCal.regime) {
+                for (const rg in OsirisAutoCal.regime) {
+                    reg[rg] = {};
+                    for (const sd of ['LONG', 'SHORT']) { const e = OsirisAutoCal.regimeEdge(rg, sd); if (e) reg[rg][sd] = e; }
+                }
+            }
+            return { uitleg: 'Margin-edge brein: regime-poort (netto-na-fees per regime×richting), fee-first EV-poort, en de effect-gemeten adaptaties (elke aanpassing wordt achteraf op winst getoetst en teruggedraaid als ze niet hielp).', config: { REG_MINN: this.REG_MINN, REG_HARD: this.REG_HARD, REG_SOFT: this.REG_SOFT, EVAL_TRADES: this.EVAL_TRADES }, regimeEdges: reg, activeAdaptations: this.active, adaptationEffects: this.history };
+        } catch (e) { return { error: String(e) }; }
+    }
+};
+window.OsirisMarginEdge = OsirisMarginEdge;
+
 const OsirisGuardian = {
     FREEZE_MS: 180000, STALE_MS: 150000, DIVERGE_PCT: 1.5,
     alerts: [], paused: false, _mainRef: null, log: [],
@@ -11155,7 +11276,22 @@ function makeTimingAgent(name, cfg) {
             let tot = 0, hh = 0;
             for (const key in this.cfg.base) {
                 const h = this.hit[key];
-                if (h && h.n >= 8) { const hr = h.hh / h.n; this.w[key] = _taClamp(this.cfg.base[key] * (0.4 + 1.6 * hr), 0.05, 2.5); tot += h.n; hh += h.hh; }
+                if (h && h.n >= 8) {
+                    const hr = h.hh / h.n;
+                    const contribAvg = (h.contrib != null && h.n) ? h.contrib / h.n : 0;   // gem. %-bijdrage per resolve
+                    let mul = 0.4 + 1.6 * hr;
+                    // (20-09) ⑤ CONTRIBUTIE-BEWUSTE DEMOTIE. De analyse toonde componenten met sub-50%
+                    // hitrate én negatieve out-of-sample bijdrage (nn, confluence, volume, fund) die tóch
+                    // zwaar gewogen bleven omdat de kalibratie alleen op hitrate keek. Nu drukt een
+                    // bewezen-negatieve component hard richting de floor (bijna-veto), terwijl bewezen-
+                    // goede componenten (fib, node) ongemoeid blijven.
+                    if (h.n >= 25 && hr < 0.5 && contribAvg < 0) {
+                        mul *= _taClamp(1 - (0.5 - hr) * 4, 0.12, 1);   // lagere hitrate → sterker omlaag
+                        if (contribAvg < -0.02) mul *= 0.5;             // duidelijk netto-schadelijk → halveer nog eens
+                    }
+                    this.w[key] = _taClamp(this.cfg.base[key] * mul, 0.05, 2.5);
+                    tot += h.n; hh += h.hh;
+                }
                 else if (this.prior[key] != null) { this.w[key] = _taClamp(this.cfg.base[key] * (0.4 + 1.6 * this.prior[key]), 0.05, 2.5); }   // backtest-prior tot er live-resolves zijn
                 else this.w[key] = this.cfg.base[key];
             }
@@ -11559,7 +11695,8 @@ function osirisMasterBundle() {
             equity: (typeof marginEquity === 'function' ? marginEquity() : marginState.equity), equitySource: marginState.equitySource, walletBalance: marginState.walletBalance,
             realizedPnL: marginState.realizedPnL, wins: marginState.wins, losses: marginState.losses,
             openPositions: marginState.positions, closed: marginState.closed, tradeLog: marginState.tradeLog ? marginState.tradeLog.slice(0, 200) : [],
-            reasoning: marginState.reasoning, adaptation: marginState.adaptation
+            reasoning: marginState.reasoning, adaptation: marginState.adaptation,
+            marginEdge: (typeof OsirisMarginEdge !== 'undefined' ? OsirisMarginEdge.bundle() : null)   // (20-09) regime-poort + fee-first + effect-gemeten adaptaties
         } : null))
     };
 
@@ -12831,6 +12968,7 @@ function marginAllocatedPct() { let a = 0; for (const p of marginState.positions
 // futures-positie met leverage. Long en short beide mogelijk.
 let _marginLastEntry = {};
 let _feeGuardActive = false, _feeGuardLastLog = 0;   // throttle voor de fee-aware guard-log (geen spam elke tick)
+let _feeGuardSuppressUntil = 0;   // (20-09) ④ effect-meting: als harder-klemmen niet hielp, tijdelijk juist versoepelen zodat de steekproef vers wordt en de latch losbreekt
 // FIX (19-08, alloc-race): marginTick doet echte netwerk-calls (await marginOrder, ...)
 // vóórdat de positie in marginState.positions.push()'t. Zonder deze vlag kan de volgende
 // setInterval-tick (elke 10s, zie multiRoundRobinTick) een NIEUWE marginTick() starten
@@ -12872,18 +13010,28 @@ async function marginTick() {
             let _feeMinP = 0;
             if (_feeNoEdge) {
                 _feeMinP = Math.min(0.14, _feeGuard.deficit * 0.6 + 0.03);
+                // ④ effect-meting-terugkoppeling: hielp harder-klemmen NIET (guard bleef gelatcht), dan
+                // cappen we de extra strengheid tijdelijk zodat er weer geprobeerd wordt (anti-deadlock).
+                if (Date.now() < _feeGuardSuppressUntil) _feeMinP = Math.min(_feeMinP, 0.04);
                 MINP = Math.min(0.85, MINP + _feeMinP);
                 marginState.lastAction = `fee-guard: winrate ${(_feeGuard.actWR * 100 | 0)}% < break-even-ná-fees ${(_feeGuard.beWR * 100 | 0)}% — strenger (drempel ${(MINP * 100 | 0)}%, hefboom↓)`;
-                // THROTTLE: log alleen bij een TRANSITIE (edge→geen-edge) of hoogstens elke 10 min,
-                // i.p.v. elke tick (~10s) — dat spamde de adaptation-log honderden keren met dezelfde regel.
-                const _nowG = Date.now();
-                if (!_feeGuardActive || (_nowG - (_feeGuardLastLog || 0)) > 600000) {
-                    _feeGuardLastLog = _nowG;
-                    try { _marginLog('adaptation', `Fee-aware guard AAN: fees eten de edge (winrate ${(_feeGuard.actWR * 100 | 0)}% vs ${(_feeGuard.beWR * 100 | 0)}% nodig ná futures-fees @ ${_feeGuard.leverage.toFixed(1)}x). Entry-drempel → ${(MINP * 100 | 0)}%, hefboom autonoom omlaag, alleen nog top-setups.`); } catch (e) {}
+                // (20-09) ④ HYSTERESE + EFFECT-METING. De oude 10-min-throttle spamde de adaptation-log
+                // ruim 24 uur met dezelfde regel (drempel 65↔73 pingpong) omdat de winrate op 38% bevroor:
+                // drempel te hoog → geen trades → winrate update nooit → guard blijft vuren. Nu loggen we
+                // alleen bij een ÉCHTE verandering (gebucket op winrate+drempel) en registreren we een
+                // baseline; OsirisMarginEdge.evaluate() meet later of de aanpassing hielp en draait 'm
+                // terug zo niet. De idle-probe verderop houdt de steekproef vers zodat de latch losbreekt.
+                let _changed = false;
+                try {
+                    _changed = OsirisMarginEdge.note('fee-guard', { actWR: Math.round(_feeGuard.actWR * 33) / 33, thr: Math.round(MINP * 33) / 33, lev: +_feeGuard.leverage.toFixed(1) });
+                } catch (e) { _changed = !_feeGuardActive; }
+                if (_changed) {
+                    try { _marginLog('adaptation', `Fee-aware guard AAN: fees eten de edge (winrate ${(_feeGuard.actWR * 100 | 0)}% vs ${(_feeGuard.beWR * 100 | 0)}% nodig ná futures-fees @ ${_feeGuard.leverage.toFixed(1)}x). Entry-drempel → ${(MINP * 100 | 0)}%, hefboom autonoom omlaag, alleen nog top-setups. [baseline gezet — effect wordt na ${OsirisMarginEdge.EVAL_TRADES} trades gemeten]`); } catch (e) {}
                 }
                 _feeGuardActive = true;
             } else if (_feeGuardActive) {
-                _feeGuardActive = false;   // edge is terug → één keer melden dat de rem eraf gaat
+                _feeGuardActive = false;   // edge is terug → één keer melden dat de rem eraf gaat + effect afsluiten
+                try { OsirisMarginEdge.clear('fee-guard', 'edge-terug'); } catch (e) {}
                 try { _marginLog('adaptation', `Fee-aware guard UIT: edge is terug ná fees — normale entry-drempel/hefboom hersteld.`); } catch (e) {}
             }
             // ACTIVITEITS-GOVERNOR: staat margin te lang stil, versoepel de entry-drempel (vloer 0,42) zodat
@@ -12923,6 +13071,24 @@ async function marginTick() {
             try { if (typeof osirisPredictGate === 'function') { const _g = osirisPredictGate(sym, m.bestSide); if (!_g.allow) { marginState.lastAction = `${sym} overgeslagen: ${_g.reason}`; continue; } } } catch (e) {}
             // trend-alignment veto: geen counter-trend margin-entry bij een sterke trend
             try { if (typeof osirisTrendVeto === 'function') { const _tv = osirisTrendVeto(sym, m.bestSide); if (_tv.veto) { marginState.lastAction = `${sym} overgeslagen: ${_tv.reason}`; continue; } } } catch (e) {}
+            // (20-09) ① REGIME-QUALITY GATE — handel alleen waar de netto-na-fees regime-edge niet
+            // bewezen-negatief is. De +382 net zit in trending·LONG; kalm/compressie bloeden. Deze
+            // poort sluit zulke regimes autonoom en heropent ze zodra hun rollende net weer draait.
+            try {
+                if (typeof OsirisMarginEdge !== 'undefined') {
+                    const _rgNow = (typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null;
+                    const _rg = OsirisMarginEdge.regimeGate(_rgNow, m.bestSide, pEff);
+                    if (!_rg.allow) { marginState.lastAction = `${sym} ${m.bestSide} overgeslagen: ${_rg.reason}`; try { _marginLog('reasoning', `${sym} ${m.bestSide} — ${_rg.reason}`); } catch (e) {} continue; }
+                }
+            } catch (e) {}
+            // (20-09) ② FEE-FIRST EV-POORT — verwachte netto-waarde ná fees moet positief zijn (of
+            // top-conviction). Dwingt minder, grotere, betere trades af i.p.v. edge-loze churn.
+            try {
+                if (typeof OsirisMarginEdge !== 'undefined') {
+                    const _ff = OsirisMarginEdge.feeFirst(pEff, _feeGuard);
+                    if (!_ff.allow) { marginState.lastAction = `${sym} ${m.bestSide} overgeslagen: ${_ff.reason}`; try { _marginLog('reasoning', `${sym} ${m.bestSide} — ${_ff.reason}`); } catch (e) {} continue; }
+                }
+            } catch (e) {}
             // (22-08) DEEPNET-POORT OOK VOOR MARGIN — identiek aan spot: blokkeer alleen als de DeepNet
             // MET open meta-poort STERK de andere kant op wijst (conf ≥ 55%). "meta dicht" = geen sterk
             // oordeel → NIET blokkeren (anders ligt bijna alles stil). Zo krijgt margin dezelfde
@@ -13068,16 +13234,41 @@ async function marginTick() {
                 }
             } catch (e) {}
             let reason = null;
-            if (raw <= -pos.stopPct) reason = 'STOP_LOSS';                         // harde stop blijft altijd
-            else if (raw >= pos.targetPct && !rlHold) reason = 'TARGET';           // RL mag de winnaar laten lopen
+            // (20-09) ③ EXIT-ASYMMETRIE OMGEDRAAID. De data toonde payoff-ratio 0,67 (verliezers
+            // 1,5× groter dan winnaars): winnaars werden op een vaste micro-target afgekapt terwijl
+            // verliezers de volle stop mochten lopen — en een +1,44%-piek liep volledig terug naar de
+            // −2% stop. Twee ingrepen: (A) een breakeven+ trailing-vloer die meestijgt zodra de piek de
+            // fees ruim dekt, zodat een winnaar nooit meer volledig terugvalt; (B) een RUNNER die het
+            // doel niet hard afkapt maar met een trailing-gap laat doorlopen, zodat de gemiddelde
+            // winnaar boven de gemiddelde verliezer uitkomt. Harde stop en time-stop blijven staan.
+            const _feeLev = ((typeof marginRoundTripFeePct === 'function' ? marginRoundTripFeePct() : 0.1) / 100) * (pos.leverage || 1);  // leveraged round-trip fee (fractie)
+            const _TGT = pos.targetPct || 0.01;
+            if (raw <= -pos.stopPct) reason = 'STOP_LOSS';                         // harde stop blijft altijd de vloer
             else if (rlClose && lev > 0.0005) reason = 'RL_EXIT';                  // RL zegt sluiten (in winst)
-            // PROFIT-PROTECT (07-09): bank een winnaar die z'n piek teruggeeft i.p.v. hem te laten terugzakken
-            // naar vlak en dan als TIME_STOP te sluiten (fees voor niets). Actief zodra de piek ≥60% van het
-            // doel (of ≥0,8% leveraged) was en de huidige winst tot ≤55% van die piek is teruggevallen.
-            else if (!rlHold && (pos.mfe || 0) >= Math.max((pos.targetPct || 0.01) * 0.6, 0.008) && lev > 0.001 && lev <= (pos.mfe || 0) * 0.55) {
-                reason = 'PROFIT_PROTECT'; try { _marginLog('reasoning', `${pos.sym}: winst-bescherming — piek +${((pos.mfe || 0) * 100).toFixed(2)}% teruggevallen naar +${(lev * 100).toFixed(2)}%, geboekt i.p.v. laten verdampen`); } catch (e) {}
+            else if (raw >= _TGT) {
+                // ③B doel bereikt → NIET hard sluiten: arm de runner en laat lopen met een trailing-gap.
+                pos._runner = true;
+                if (!rlHold) {
+                    const _give = Math.max(_feeLev, (pos.mfe || 0) * 0.30);        // geef hoogstens 30% van de piek terug
+                    const _lock = Math.max(_feeLev, (pos.mfe || 0) - _give);       // trailing-vloer, nooit onder de fee-dekking
+                    const _sigFlip = (m.bestSide && m.bestSide !== pos.side && (m.bestProb || 0) >= 0.62);
+                    if (lev <= _lock || _sigFlip) { reason = 'TARGET_TRAIL'; try { _marginLog('reasoning', `${pos.sym}: runner geoogst — piek +${((pos.mfe || 0) * 100).toFixed(2)}%, trailing-vloer +${(_lock * 100).toFixed(2)}%${_sigFlip ? ', signaal draaide' : ''} (doel +${(_TGT * 100).toFixed(2)}% liet doorlopen)`); } catch (e) {} }
+                }
             }
-            else if (ageMin > (botSettings.maxPositionAgeMinutes || 90) * ((typeof OsirisAdaptive !== 'undefined') ? OsirisAdaptive.tsWindowMult() : 1) && Math.abs(lev) < 0.02 && !rlHold) {
+            else if (pos._runner && !rlHold) {
+                // runner al gearmd, nu onder het doel teruggevallen: bescherm met dezelfde trailing-vloer
+                const _give = Math.max(_feeLev, (pos.mfe || 0) * 0.30);
+                const _lock = Math.max(_feeLev, (pos.mfe || 0) - _give);
+                if (lev <= _lock) { reason = 'TARGET_TRAIL'; try { _marginLog('reasoning', `${pos.sym}: runner-winst geborgd op +${(lev * 100).toFixed(2)}% (piek +${((pos.mfe || 0) * 100).toFixed(2)}%)`); } catch (e) {} }
+            }
+            // ③A BREAKEVEN+ TRAIL: zodra de piek de fees ruim dekt (≥2× of ≥0,4% leveraged), ratel een
+            // winst-vloer omhoog. Zo kan een winnaar die terugvalt nooit meer de volle stop raken.
+            else if (!rlHold && (pos.mfe || 0) >= Math.max(_feeLev * 2, 0.004) && lev > 0) {
+                const _give = Math.max(_feeLev, (pos.mfe || 0) * 0.45);            // ruimere gap dan de runner (nog vóór het doel)
+                const _lock = Math.max(_feeLev, (pos.mfe || 0) - _give);
+                if (lev <= _lock) { reason = 'PROFIT_PROTECT'; try { _marginLog('reasoning', `${pos.sym}: breakeven+ trail — piek +${((pos.mfe || 0) * 100).toFixed(2)}% teruggevallen naar +${(lev * 100).toFixed(2)}%, geborgd boven fee-dekking i.p.v. door te lopen naar de stop`); } catch (e) {} }
+            }
+            if (!reason && ageMin > (botSettings.maxPositionAgeMinutes || 90) * ((typeof OsirisAdaptive !== 'undefined') ? OsirisAdaptive.tsWindowMult() : 1) && Math.abs(lev) < 0.02 && !rlHold) {
                 // FLEXIBELE TIME-STOP (fix churn): is dezelfde markt+richting nog de actieve keuze,
                 // dan zou de engine 'm meteen heropenen — dus ROLLEN we door met een vers venster
                 // i.p.v. sluiten+heropenen (fees voor niets). Alleen sluiten als het signaal weg is.
@@ -13154,6 +13345,17 @@ async function marginClose(pos, price, lev, reason) {
                 if (pos._deadArm) OsirisAutoCal.recordDead(pos._deadArm, rawPnl, pos._deadRegime || pos.regimeAtEntry || null);
                 const rg = pos.regimeAtEntry || ((typeof OsirisRegimeHMM !== 'undefined' && OsirisRegimeHMM.trained) ? OsirisRegimeHMM.label : null);
                 if (rg && pos.side) OsirisAutoCal.recordRegime(rg, pos.side, rawPnl * 100 - OsirisAutoCal.roundtripPct());
+            }
+        } catch (e) {}
+        // (20-09) ④ ADAPTATIE-EFFECTMETING: nu er een nieuwe trade is afgesloten, toets rijpe
+        // aanpassingen op winst en draai ze autonoom terug als ze niet hielpen. De revert-hook van de
+        // fee-guard versoepelt tijdelijk (i.p.v. nóg harder te klemmen) om de deadlock te doorbreken.
+        try {
+            if (typeof OsirisMarginEdge !== 'undefined') {
+                const _fx = OsirisMarginEdge.evaluate((id) => {
+                    if (id === 'fee-guard') { _feeGuardSuppressUntil = Date.now() + 45 * 60000; }
+                });
+                if (_fx) _marginLog('adaptation', _fx);
             }
         } catch (e) {}
         marginState.tradeLog.unshift({ action: 'EXIT', ts: Date.now(), sym: pos.sym, side: pos.side, price: exitPrice, pnl: lev, pnlUSD, reason, filled: exitFilled });
