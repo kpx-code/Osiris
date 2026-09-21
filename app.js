@@ -20691,6 +20691,7 @@ function tick(){
 function manageTrinity(){
   mockClock+=MOCK_H_PER_TICK; scanTick++;
   try{ if(typeof TrinityCommodityTrader!=='undefined') TrinityCommodityTrader.tick(); }catch(e){}   // commodity-executie (opt-in): live prijzen + entries via Capital
+  try{ if(typeof TrinityDeltaVKS!=='undefined') TrinityDeltaVKS.tick(); }catch(e){}                 // ΔV-KS: energie/timing-overdracht huidige→opkomende fase (alle markten) + shadow
   const S=getSession(), pr=activePreset();
   const liveMode=feed.mode==='live'&&feed.ok&&feed.provider==='capital';
   // manage every open position. On LIVE, Trinity now actively guards exits (breakeven/horizon/stop/target)
@@ -20704,7 +20705,8 @@ function manageTrinity(){
     if(liveMode && p.brokerDealId && brokerMeta[p.brokerDealId]) brokerMeta[p.brokerDealId].lastPnlPct=p.pnlPct;
     // breakeven lock: once well on the way to target, protect the trade
     if(!p.beMoved){ const prog=long?(price-p.entry)/(p.target-p.entry):(p.entry-price)/(p.entry-p.target);
-      if(prog>=0.55){ p.stop=p.entry; p.beMoved=true; pushReason(`${p.pair} — past 55% to target, Trinity moves stop to breakeven`);
+      const beTrig=p.isCommodity?0.72:0.55;   // (21-09) commodities: breakeven pas later → langere exit-stop, meer ruimte
+      if(prog>=beTrig){ p.stop=p.entry; p.beMoved=true; pushReason(`${p.pair} — past ${(beTrig*100|0)}% to target, Trinity moves stop to breakeven`);
         if(liveMode&&p.brokerDealId) updateBrokerStop(p.brokerDealId,p.entry); } }   // move the broker safety-net stop up too
     let exit=null;
     // ---- EXIT-AGENT (margin-economie): data-bewust knippen/pakken/laten-lopen VÓÓR de vaste stop/target ----
@@ -20716,12 +20718,13 @@ function manageTrinity(){
       if(d.action==='cut' && p.pnlPct<cutFloor){ exit='AGENT-CUT'; pushReason(`${p.pair} — exit-agent knipt verlies (${p.pnlPct.toFixed(2)}%): ${d.reason}`); }
       else if(d.action==='bank' && p.pnlPct>bankFloor){ exit='AGENT-TP'; pushReason(`${p.pair} — exit-agent pakt winst (${p.pnlPct.toFixed(2)}%): ${d.reason}`); }
       else if(d.action==='extend' && p.pnlPct>0){
-        // winner laten lopen: trailing stop lockt de helft van de huidige (bruto) winst + duw target verder
-        const lock=Math.max(0, p.pnlPctGross*0.5);
+        // (21-09) winner laten lopen: bij winst een LANGERE trailing (commodities houden meer ruimte, lock ~40%
+        // van de bruto-winst i.p.v. 50%) + het target verder doorschuiven zodat de trend echt kan lopen.
+        const lockFrac=p.isCommodity?0.40:0.5; const lock=Math.max(0, p.pnlPctGross*lockFrac);
         const trail = long ? p.entry*(1+lock/100) : p.entry*(1-lock/100);
         if((long && trail>p.stop) || (!long && trail<p.stop)){ p.stop=trail; p.beMoved=true;
           if(liveMode&&p.brokerDealId) updateBrokerStop(p.brokerDealId,trail); }
-        if(!p._extN)p._extN=0; if(p._extN<3){ p.target = long ? p.target*1.004 : p.target*0.996; p._extN++; }   // ruimte om door te lopen
+        if(!p._extN)p._extN=0; const maxExtN=p.isCommodity?6:3, extStep=p.isCommodity?1.006:1.004; if(p._extN<maxExtN){ p.target = long ? p.target*extStep : p.target*(2-extStep); p._extN++; }   // meer ruimte om door te lopen
       }
     }catch(e){}
     if(!exit){
@@ -20831,6 +20834,9 @@ function openTrade(c,S,pr){
   const rawConf=Math.min(99,Math.max(5,st.pred*trinity.mult));
   const conf=Math.round(TrinityTrust.effConf(S.key, rawConf));   // trust-gewogen confidence (data-true per sessie)
   const live=feed.mode==='live'&&feed.ok;
+  // (21-09) MARKT-PRIORITEIT: commodities (Aardgas/Goud/Crude) eerst. Trinity handelt FX alleen als
+  // ALTERNATIEF wanneer de commodities zijwaarts bewegen (niet actief/trending) of de commodity-ruimte vol is.
+  try{ if(typeof TrinityMarketSelect!=='undefined' && typeof TrinityCommodityTrader!=='undefined' && TrinityCommodityTrader.enabled && TrinityMarketSelect.commoActive() && TrinityCommodityTrader.exposurePct()<0.55){ pushReason(`FX ${c.p} overgeslagen — commodities actief (${(TrinityMarketSelect.top()||{}).name||'commodity'}); FX alleen als alternatief bij zijwaarts`); return; } }catch(e){}
   // STOP/TARGET: on live data, scale to the pair's actual realized volatility so trades can actually
   // reach them within a sensible time; on mock, use the preset percentages. Respect Capital's min stop %.
   let stopPctUsed, tgtPctUsed;
@@ -20878,17 +20884,23 @@ function openTrade(c,S,pr){
   // LLM-VERIFY: gratis nieuws/social sentiment vs. trade-richting (adaptief gewogen).
   let llm={factor:1,v:{align:0}}; try{ llm=TrinityLLM.factor(c.p,long?'LONG':'SHORT'); }catch(e){}
   const l3Fac = l3.overlooked ? 0.7 : 1;   // hoge conf + lage dekking = kleiner (overzien risico)
-  let alloc = wallet.balance*(perPosPct/100) * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key) * gsdW * gsdMod * pairW * timeFac * guard.size * llm.factor * l3Fac;
+  // ΔV-KS: energie/timing-overdracht huidige→opkomende fase — energie-in (mee) vergroot, uitputting/KS verkleint of blokkeert.
+  let dvks={size:1,tilt:0,block:false,phaseName:'—',emergingName:'—',transfer:0}; try{ if(typeof TrinityDeltaVKS!=='undefined') dvks=TrinityDeltaVKS.decide('fx',c.p,long?'LONG':'SHORT'); }catch(e){}
+  if(dvks.block){ pushReason(`ΔV-KS blokkeert ${c.p} — energie-uitputting ${dvks.phaseName}→${dvks.emergingName} (transfer ${dvks.transfer})`); return; }
+  let alloc = wallet.balance*(perPosPct/100) * TrinityFSO.sizeMult() * TrinityTrust.weightFactor(S.key) * gsdW * gsdMod * pairW * timeFac * guard.size * llm.factor * l3Fac * dvks.size;
+  // (21-09) ≥30% per positie: leg de FX-inleg op minstens 30% van het kapitaal (conviction/weging erbovenop),
+  // begrensd door het totale blootstellingsbudget. Past er geen volwaardige (≥30%) positie meer bij → overslaan.
+  const fxFloor=wallet.balance*0.30; alloc=Math.max(alloc, fxFloor);
   const openAllocNow = positions.filter(p=>p.status==='open').reduce((a,p)=>a+(p.alloc||0),0);
   const totalBudget = wallet.balance*(pr.maxAllocPct/100);
   alloc = Math.max(0, Math.min(alloc, totalBudget-openAllocNow));
-  if(alloc < wallet.balance*0.01){ pushReason(`skip ${c.p} — total-exposure budget full (${(openAllocNow/wallet.balance*100|0)}% of ${pr.maxAllocPct}% used)`); return; }
+  if(alloc < fxFloor*0.9){ pushReason(`skip ${c.p} — geen ruimte voor een ≥30%-positie (${(openAllocNow/wallet.balance*100|0)}% van ${pr.maxAllocPct}% budget gebruikt)`); return; }
   const localId='t'+(Date.now())+Math.floor(Math.random()*1000);
   let gsdAtOpen=null; try{ gsdAtOpen={regime:TrinityGSD.regime,tip:TrinityGSD.tippingRisk,tier:TrinityGSD.tippingTier,stress:TrinityGSD.stress,w:gsdW,mod:+gsdMod.toFixed(3)}; }catch(e){}
-  positions.push({localId,pair:c.p,side:long?'LONG':'SHORT',entry,current:entry,stop,target,horizonH,ageH:0,openClock:mockClock,openedAt:new Date(),gsdAtOpen,_uotam:_ufApplied,
+  positions.push({localId,pair:c.p,side:long?'LONG':'SHORT',entry,current:entry,stop,target,horizonH,ageH:0,openClock:mockClock,openedAt:new Date(),gsdAtOpen,_uotam:_ufApplied,_dvks:{tilt:dvks.tilt,phase:dvks.phaseName,emerging:dvks.emergingName,transfer:dvks.transfer},
     status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,extended:false,session:S.key,sessionName:S.name,sessionWindow:S.window,sessionDesc:S.desc,conf,stopPctUsed,alloc,
     factors:{liquidity:Math.min(100,60+st.vol*40),strength:Math.min(100,Math.abs(st._gap)*90),carry:Math.min(100,Math.abs(st._carry)*120),news:Math.min(100,Math.max(0,(st._news)*Math.sign(st.mom||1))*90+40),fib:Math.round(st.fib*100)}});
-  pushReason(`OPEN ${long?'LONG':'SHORT'} ${c.p} · conf ${conf}% · stop ${stopPctUsed.toFixed(3)}% · target ${tgtPctUsed.toFixed(3)}% · timing ${timePhase} ×${timeFac.toFixed(2)} · session ${S.name} · size $${alloc.toFixed(2)}`);
+  pushReason(`OPEN ${long?'LONG':'SHORT'} ${c.p} · conf ${conf}% · stop ${stopPctUsed.toFixed(3)}% · target ${tgtPctUsed.toFixed(3)}% · timing ${timePhase} ×${timeFac.toFixed(2)} · ΔV-KS ${dvks.phaseName}→${dvks.emergingName} ×${dvks.size.toFixed(2)} · session ${S.name} · size $${alloc.toFixed(2)}`);
   // relay to a real DEMO order when a live provider is connected
   if(live&&feed.provider==='capital'){
     // Capital wants size as a clean multiple of sizeStep, at or above minSize. Compute target notional
@@ -20934,6 +20946,7 @@ function closeTrade(p,reason){
   try{ if(p.gsdAtOpen) TrinityGSDShadow.record(p.gsdAtOpen, win, R); }catch(e){}
   try{ TrinityLLM.record(p.pair, p.side, win); }catch(e){}          // sentiment-alignment → adaptieve weging
   try{ TrinityRLExit.learn(p, 'close', R); }catch(e){}              // exit-policy leert de state-waarde
+  try{ if(typeof TrinityDeltaVKS!=='undefined') TrinityDeltaVKS.onClose(p, win); }catch(e){}   // ΔV-KS: tel + schaal het gewicht op/af na elke 5 gesloten trades
   if(trinity.trades.length-lastTuneAt>=TRN_STEP){ lastTuneAt=trinity.trades.length; autoTune(); }   // her-ijk elke 5
   persistState&&persistState();
   renderTrinity(); renderWallet(); renderCalib(); renderPositions(); renderClosed(); renderSettings();
@@ -20942,8 +20955,37 @@ function closeTrade(p,reason){
    order-/beheer-pipeline (positions[] + placeOrderCapital + manageTrinity), maar met eigen entry-
    logica uit de commodity-signalen (TrinityCommodities + per-grondstof NN/TAM). OPT-IN (default uit),
    eigen positie-cap, en volledig geïsoleerd van de FX-kalibratie. ---- */
+// (21-09) MARKET-SELECTION brain: rank the markets by expected profitability + volatility, boosted
+// by the new ShockWave/GSD data (energy stress → oil/gas, financial stress → gold). Trinity trades the
+// most tradeable commodity first (Natural Gas / Gold / Crude …) and only falls back to FX when the
+// commodities are ranging (sideways / low conviction).
+const TrinityMarketSelect = {
+  _last:{},
+  shockBoost(row){ try{ let b=0; const nm=((row&&row.name||'')+(row&&row.key||'')+(row&&row.epic||'')).toLowerCase();
+    const cat=(typeof TrinityGSD!=='undefined'&&TrinityGSD.catStress)||{}; const gStress=(typeof TrinityGSD!=='undefined'?(TrinityGSD.stress||0):0);
+    if(/gas|oil|crude|brent|wti|energy|heating/.test(nm)) b+=(cat.energy||0)*0.7 + (cat.trade||0)*0.2;          // energy-security stress → oil/gas
+    if(/gold|silver|xau|xag|metal/.test(nm))              b+=(cat.finstress||0)*0.6 + gStress*0.35;              // risk-off / financial stress → metals bid
+    if(/copper|platin|pall|alumin|nickel/.test(nm))       b+=((cat.supply||0)+(cat.trade||0))*0.4;               // supply/trade stress → industrial metals
+    if(/wheat|corn|soy|sugar|coffee|grain/.test(nm))      b+=((cat.weather||0)+(cat.disaster||0))*0.4;            // weather/disaster → softs
+    return Math.min(1,b);
+  }catch(e){ return 0; } },
+  score(row){ try{ const st=(typeof pair!=='undefined'&&pair[row.epic])||{}; const conv=Math.abs(row.score||0);
+    const vol=Math.min(1,(st._vol||0)/0.004);                       // normalized recent volatility (~0.4%/tick = high)
+    const expP=conv*0.6+vol*0.4;                                    // expected-profit proxy (conviction × movement)
+    const boost=this.shockBoost(row);
+    const s=conv*0.38 + vol*0.34 + expP*0.13 + boost*0.15;
+    this._last[row.epic||row.name]={name:row.name,conv:+conv.toFixed(2),vol:+vol.toFixed(2),shock:+boost.toFixed(2),score:+s.toFixed(3),side:row.side};
+    return s;
+  }catch(e){ return Math.abs(row&&row.score||0); } },
+  ranked(rows){ try{ return (rows||[]).slice().sort((a,b)=>this.score(b)-this.score(a)); }catch(e){ return rows||[]; } },
+  commoActive(){ try{ const rows=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.all():[]; if(!rows.length)return false; const top=this.ranked(rows)[0]; return top?this.score(top)>=0.42:false; }catch(e){ return false; } },
+  top(){ try{ const rows=(typeof TrinityCommodities!=='undefined')?TrinityCommodities.all():[]; const t=this.ranked(rows)[0]; return t?{name:t.name,side:t.side,score:+this.score(t).toFixed(2)}:null; }catch(e){ return null; } },
+  bundle(){ return { commoActive:this.commoActive(), top:this.top(), perMarket:this._last, uitleg:'Rangschikt markten op verwachte winstgevendheid + volatiliteit, versterkt door ShockWave/GSD (energy→olie/gas, finstress→goud). Commodities eerst, FX als de commodities zijwaarts bewegen.' }; }
+};
+try{ window.TrinityMarketSelect=TrinityMarketSelect; }catch(e){}
+
 const TrinityCommodityTrader = {
-  enabled:false, perPosPct:8, maxExpo:0.90, minConv:0.32, holdH:36, _rules:{}, _rulesAt:0, _pxAt:0, _lastScan:0, ledger:{n:0,wins:0,pnl:0},
+  enabled:false, perPosPct:8, minPosPct:30, maxExpo:0.95, minConv:0.32, holdH:36, _rules:{}, _rulesAt:0, _pxAt:0, _lastScan:0, ledger:{n:0,wins:0,pnl:0},
   _live(){ return feed.mode==='live'&&feed.ok&&feed.provider==='capital'&&!!capProxy; },
   rows(){ try{ return (typeof TrinityCommodities!=='undefined') ? TrinityCommodities.all() : []; }catch(e){ return []; } },
   fetchRules(){ if(!this._live())return; if(Date.now()-this._rulesAt<3600000)return; this._rulesAt=Date.now();
@@ -20960,7 +21002,8 @@ const TrinityCommodityTrader = {
   scan(){ if(!this.enabled||!this._live()||!trinityOn)return; if(Date.now()-this._lastScan<8000)return; this._lastScan=Date.now();
     // GEEN harde positie-limiet — Trinity bepaalt zelf hoeveel commodity-posities, begrensd door de WALLET-
     // EQUITY (totale blootstelling). Beste kansen eerst (op conviction), open door tot de equity op is.
-    const rows=this.rows().slice().sort((a,b)=>Math.abs(b.score||0)-Math.abs(a.score||0));
+    const rows=TrinityMarketSelect.ranked(this.rows());   // (21-09) rank by profitability + volatility + ShockWave boost
+    try{ const t=TrinityMarketSelect.top(); if(t) pushReason(`market-select: ${t.name} meest tradeable (score ${t.score}) — commodities eerst, FX als alternatief bij zijwaarts`); }catch(e){}
     for(const r of rows){ if(!r.epic)continue;
       const st=pair[r.epic]; if(!st||!(st.rate>0))continue;                                   // live Capital-prijs vereist
       if(positions.some(p=>p.status==='open'&&p.pair===r.epic))continue;
@@ -20969,14 +21012,21 @@ const TrinityCommodityTrader = {
       if(r.brain&&r.brain.cal&&r.brain.cal.proven&&r.brain.probUp!=null){ const bside=r.brain.probUp>=0.5?'LONG':'SHORT'; if(bside!==r.side && Math.abs(r.brain.probUp-0.5)>0.15)continue; }   // bewezen NN mag niet sterk tegenspreken
       const long=r.side==='LONG', entry=st.rate; const volPct=Math.max(0.05,(st._vol||0.002)*100);
       // Commodities mogen veel langer aangehouden worden → ruimere stop + duidelijk grotere target (laat de trend lopen)
-      const stopPctUsed=Math.max(st._minStopPct||0.1, volPct*5), tgtPctUsed=stopPctUsed*2.4;
+      const stopPctUsed=Math.max(st._minStopPct||0.1, volPct*7), tgtPctUsed=stopPctUsed*3.0;   // (21-09) langere exit-stop + verder target (laat trend lopen)
       let stop=long?entry*(1-stopPctUsed/100):entry*(1+stopPctUsed/100), target=long?entry*(1+tgtPctUsed/100):entry*(1-tgtPctUsed/100);
       // UOTAM T1/T2 (autonoom weight-blend): bewezen matrix-target/stop sturen de commodity-trade
       let _ufC=null; try{ const uf=(typeof _uotamFrame==='function')&&_uotamFrame(r.key||r.epic,'commo',long,entry,target,stop); if(uf){ target=uf.target; stop=uf.stop; _ufC={provKey:'commo',mktKey:r.key||r.epic,weight:uf.weight}; } }catch(e){}
-      let alloc=wallet.balance*(this.perPosPct/100)*Math.min(1.3,0.6+conv); const openA=positions.filter(p=>p.status==='open').reduce((a,p)=>a+(p.alloc||0),0); alloc=Math.max(0,Math.min(alloc,wallet.balance*this.maxExpo-openA)); if(alloc<wallet.balance*0.01)break;   // equity op → stop (best-first, rest is minder)
+      // ΔV-KS: energie/timing-overdracht huidige→opkomende fase (per grondstof) — meteen actief, adaptief gewogen.
+      let dvksC={size:1,tilt:0,block:false,phaseName:'—',emergingName:'—',transfer:0}; try{ if(typeof TrinityDeltaVKS!=='undefined') dvksC=TrinityDeltaVKS.decide('commo',r.key||r.epic,r.side); }catch(e){}
+      if(dvksC.block){ pushReason(`ΔV-KS blokkeert ${r.name} — energie-uitputting ${dvksC.phaseName}→${dvksC.emergingName} (transfer ${dvksC.transfer})`); continue; }
+      // (21-09) ELKE positie gebruikt minstens minPosPct (30%) van het kapitaal; conviction schaalt erbovenop.
+      const floor=wallet.balance*(this.minPosPct/100); let alloc=Math.max(floor, wallet.balance*(this.perPosPct/100)*Math.min(1.8,0.9+conv)*dvksC.size);
+      const openA=positions.filter(p=>p.status==='open').reduce((a,p)=>a+(p.alloc||0),0); const avail=wallet.balance*this.maxExpo-openA;
+      if(avail<floor*0.9)break;   // geen ruimte meer voor een volwaardige (≥30%) positie → stop (best-first)
+      alloc=Math.min(alloc,avail);
       const localId='c'+Date.now()+Math.floor(Math.random()*1000);
-      positions.push({localId,pair:r.epic,isCommodity:true,side:r.side,entry,current:entry,stop,target,ageH:0,openClock:mockClock,openedAt:new Date(),status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,session:'commo',conf:Math.round(50+conv*49),stopPctUsed,alloc,factors:{},horizonH:this.holdH,_uotam:_ufC});
-      pushReason(`OPEN ${r.side} ${r.name} (commodity) · conv ${(conv*100|0)}% · stop ${stopPctUsed.toFixed(2)}% · size $${alloc.toFixed(2)}`);
+      positions.push({localId,pair:r.epic,isCommodity:true,side:r.side,entry,current:entry,stop,target,ageH:0,openClock:mockClock,openedAt:new Date(),status:'open',pnlPct:0,pnlPctGross:0,beMoved:false,session:'commo',conf:Math.round(50+conv*49),stopPctUsed,alloc,factors:{},horizonH:this.holdH,_uotam:_ufC,_dvks:{tilt:dvksC.tilt,phase:dvksC.phaseName,emerging:dvksC.emergingName,transfer:dvksC.transfer}});
+      pushReason(`OPEN ${r.side} ${r.name} (commodity) · conv ${(conv*100|0)}% · stop ${stopPctUsed.toFixed(2)}% · ΔV-KS ${dvksC.phaseName}→${dvksC.emergingName} ×${dvksC.size.toFixed(2)} · size $${alloc.toFixed(2)}`);
       const minSz=st._minSize||1, step=st._sizeStep||1; let steps=Math.max(1,Math.round((alloc/entry)/step)); let sz=steps*step; if(sz<minSz)sz=Math.ceil(minSz/step)*step; sz=Math.round(sz*1e6)/1e6;
       placeOrderCapital({instrument:r.epic,side:long?'BUY':'SELL',size:sz,entry,stopDistancePct:stopPctUsed,tgtDistancePct:tgtPctUsed,localId});
     }
@@ -20990,6 +21040,143 @@ const TrinityCommodityTrader = {
 };
 try{ window.TrinityCommodityTrader=TrinityCommodityTrader; TrinityCommodityTrader._restore(); }catch(e){}
 try{ window.__commoTradeToggle=function(){ TrinityCommodityTrader.setEnabled(!TrinityCommodityTrader.enabled); try{ renderTrinityCommodities&&renderTrinityCommodities(); }catch(e){} }; }catch(e){}
+
+/* ==================================================================================
+   TRINITY · ΔV-KS PHASE TRANSFER — energie- & timing-overdracht tussen de HUIDIGE en
+   de OPKOMENDE fase van de Delta-V kill-switch, voor ALLE markten (FX + commodity + crypto).
+   ----------------------------------------------------------------------------------
+   Model: elke markt loopt door een kill-switch-energiecyclus
+     0 COMPRESSION  (lage energie, ΔV≈0)      — energie opgeslagen, stilte vóór de beweging
+     1 IGNITION     (energie stijgt, ΔV>0)    — uitbraak begint: energie stroomt IN
+     2 EXPANSION    (hoge energie, ΔV≥0)      — trend in volle kracht
+     3 EXHAUSTION   (hoge energie, ΔV<0)      — energie stroomt UIT: omkeer/relief-risico (KS-gevaar)
+   ΔV (escape velocity) = verandering van de gerealiseerde-volatiliteit-energie. De TRANSFER
+   is hoeveel energie van de huidige naar de opkomende fase overgaat + de TIMING (ETA) daarvan.
+   Trinity gebruikt dit meteen (standaard gewicht ×1.0), met een shadow-backtester die de
+   voorspelling scoort; na ELKE 5 gesloten trades schaalt het gewicht autonoom op/af.
+   ================================================================================== */
+const TrinityDeltaVKS = (function(){
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  const PH=['COMPRESSION','IGNITION','EXPANSION','EXHAUSTION'];
+  const CYCLE=[1,2,3,0];                                  // volgende fase in de kill-switch-cyclus
+  const M={
+    _w:1.0, _buf:{}, _snap:{}, _shadow:[], _shadowAt:{}, _contrib:[], _sinceRescale:0, _log:[], _last:{},
+    _restore(){ try{ const d=JSON.parse(localStorage.getItem('trinityDeltaVKS')||'null'); if(d){ if(typeof d.w==='number')this._w=d.w; if(Array.isArray(d.shadow))this._shadow=d.shadow.slice(-400); if(Array.isArray(d.contrib))this._contrib=d.contrib.slice(-40); if(Array.isArray(d.log))this._log=d.log.slice(0,30); if(typeof d.since==='number')this._sinceRescale=d.since; } }catch(e){} },
+    _save(){ try{ localStorage.setItem('trinityDeltaVKS',JSON.stringify({w:this._w,shadow:this._shadow.slice(-400),contrib:this._contrib.slice(-40),log:this._log.slice(0,30),since:this._sinceRescale})); }catch(e){} },
+    _series(pk,key){
+      let cs=null;
+      try{ if(pk==='fx' && window.FxCandles) cs=window.FxCandles.candles(key,'1h');
+        else if(pk==='commo' && window.TrinityCommodities) cs=window.TrinityCommodities.candles(key,'1h');
+        else if(pk==='crypto' && window.CryptoSysCandles) cs=window.CryptoSysCandles.candles(key,'1h'); }catch(e){}
+      let cl=[];
+      if(cs&&cs.length>24){ cl=cs.map(c=>Array.isArray(c)?parseFloat(c[4]):(c&&c.c)).filter(x=>x>0); }
+      if(cl.length<24){ const b=this._buf[pk+':'+key]; if(b&&b.length>=24) cl=b.slice(); }
+      return cl;
+    },
+    _read(pk,key){ try{
+      const cl=this._series(pk,key); if(!cl||cl.length<24)return null;
+      const rets=[]; for(let i=1;i<cl.length;i++){ if(cl[i-1]>0)rets.push(cl[i]/cl[i-1]-1); }
+      if(rets.length<20)return null;
+      const win=Math.min(12,Math.floor(rets.length/3));
+      const std=a=>{ if(a.length<3)return 0; const m=a.reduce((x,y)=>x+y,0)/a.length; return Math.sqrt(a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length); };
+      const eNow=std(rets.slice(-win)), ePrev=std(rets.slice(-2*win,-win)), ePrev2=std(rets.slice(-3*win,-2*win));
+      const eHist=[]; for(let i=win;i<=rets.length;i++)eHist.push(std(rets.slice(i-win,i)));
+      let pct=0.5; if(eHist.length>4){ const s=eHist.slice().sort((a,b)=>a-b); let r=0; for(const v of s)if(v<=eNow)r++; pct=r/s.length; }
+      const dV=eNow-ePrev, dVn=ePrev>0?dV/ePrev:0, accel=(eNow-ePrev)-(ePrev-ePrev2);
+      const mom=cl[cl.length-1]/cl[Math.max(0,cl.length-1-win)]-1;
+      return { eNow, ePrev, pct:+pct.toFixed(3), dV, dVn:+dVn.toFixed(4), accel, mom:+mom.toFixed(5), n:cl.length };
+    }catch(e){ return null; } },
+    _phase(r){ const hi=r.pct>=0.6, lo=r.pct<=0.4, rising=r.dVn>0.04, falling=r.dVn<-0.04;
+      if(lo && !rising) return 0; if(rising && r.pct<0.75) return 1; if(hi && !falling) return 2; if(hi && falling) return 3;
+      return rising?1:(falling?(hi?3:0):(hi?2:0)); },
+    _transfer(r){ return clamp(Math.abs(r.dVn)*6 + Math.abs(r.accel)/(r.ePrev||1e-6)*1.5, 0, 1); },
+    _emerging(phase,transfer){ return transfer>0.35 ? CYCLE[phase] : phase; },
+    _proven(){ const a=this._shadow.filter(s=>s.done&&s.hit!=null); return a.length>=20; },
+    _shadowN(){ return this._shadow.filter(s=>s.done&&s.hit!=null).length; },
+    _hit(){ const a=this._shadow.filter(s=>s.done&&s.hit!=null); if(!a.length)return null; return a.reduce((x,s)=>x+s.hit,0)/a.length; },
+    // ---- kern: het advies voor een markt/richting (meteen actief; effect geschaald door het adaptieve gewicht) ----
+    read(pk,key){ try{
+      const r=this._read(pk,key); if(!r)return null;
+      const phase=this._phase(r), transfer=+this._transfer(r).toFixed(3), emerging=this._emerging(phase,transfer);
+      const momSide=r.mom>=0?'LONG':'SHORT';
+      const eta = transfer>0.6?'imminent':transfer>0.35?'building':'stable';
+      const o={ pk, key, phase, phaseName:PH[phase], emerging, emergingName:PH[emerging], transfer, eta, momSide, mom:r.mom, dVn:r.dVn, pct:r.pct, eNow:r.eNow, w:this._w };
+      this._last[pk+':'+key]=o; return o;
+    }catch(e){ return null; } },
+    decide(pk,key,side){
+      const std={size:1,tilt:0,block:false,phaseName:'—',emergingName:'—',transfer:0,eta:'—',note:'standard',w:this._w};
+      try{
+        const o=this.read(pk,key); if(!o)return std;
+        // energie stroomt IN als de huidige/opkomende fase ontsteking→expansie is; energie stroomt UIT bij (opkomende) uitputting.
+        const energyOut = (o.phase===3) || (o.emerging===3);
+        const energyIn  = !energyOut && ((o.phase===1||o.phase===2) || (o.emerging===1||o.emerging===2));
+        let raw=0;
+        if(energyOut){ raw = -o.transfer*0.8; }                                     // uitputting/KS-overdracht → cut (omkeer-risico), ongeacht richting
+        else if(energyIn){ raw = (side===o.momSide? +o.transfer : -o.transfer*0.5); } // energie in de opkomende expansie → mee = boost, tegen = milde cut
+        else if(o.phase===0){ raw = -0.15*o.transfer; }                             // compressie → geduld (kleine cut tot ontsteking)
+        const eff = raw * this._w;                                                  // standaard ×1.0 vanaf de start; shadow schaalt op/af
+        const size = clamp(1 + eff*0.5, 0.55, 1.6);
+        const block = energyOut && o.transfer>0.6 && this._proven() && (this._hit()||0)>0.55;
+        return { size:+size.toFixed(3), tilt:+eff.toFixed(3), block, phaseName:o.phaseName, emergingName:o.emergingName, transfer:o.transfer, eta:o.eta, note:`${o.phaseName}→${o.emergingName} (${energyIn?'energie in':energyOut?'energie uit':'stabiel'})`, w:this._w };
+      }catch(e){ return std; }
+    },
+    // ---- markt-buffers bijwerken + shadow record/resolve (elke engine-tick) ----
+    tick(){ try{
+      const push=(pk,key,px)=>{ if(!(px>0))return; const k=pk+':'+key; const b=this._buf[k]||(this._buf[k]=[]); const last=b[b.length-1]; if(last==null||Math.abs(px/last-1)>1e-9){ b.push(px); if(b.length>240)b.shift(); } };
+      try{ if(typeof pair!=='undefined' && typeof PAIRS!=='undefined'){ PAIRS.forEach(p=>{ const st=pair[p]; if(st&&st.rate>0)push('fx',p,st.rate); }); } }catch(e){}
+      try{ if(typeof pair!=='undefined'){ [['WTI','OIL_CRUDE'],['BRENT','OIL_BRENT'],['NGAS','NATURALGAS'],['GOLD','GOLD'],['SILVER','SILVER'],['COPPER','COPPER']].forEach(([k,ep])=>{ const st=pair[ep]; if(st&&st.rate>0)push('commo',k,st.rate); }); } }catch(e){}
+      try{ if(typeof neoMultiState!=='undefined'&&neoMultiState.markets){ ['BTC','ETH','SOL'].forEach(k=>{ const m=neoMultiState.markets[k]; if(m&&m.lastPrice>0)push('crypto',k,m.lastPrice); }); } }catch(e){}
+      this._shadowRecord(); this._shadowResolve(); this._save();
+    }catch(e){} },
+    _markets(){ const out=[];
+      try{ if(typeof PAIRS!=='undefined')PAIRS.slice(0,12).forEach(p=>out.push(['fx',p])); }catch(e){}
+      ['WTI','BRENT','NGAS','GOLD','SILVER','COPPER'].forEach(k=>out.push(['commo',k]));
+      ['BTC','ETH','SOL'].forEach(k=>out.push(['crypto',k]));
+      return out; },
+    _shadowRecord(){ try{ const now=Date.now();
+      this._markets().forEach(([pk,key])=>{ const mk=pk+':'+key; if(now-(this._shadowAt[mk]||0)<30*60000)return;
+        const o=this.read(pk,key); if(!o)return; const cl=this._series(pk,key); const px=cl[cl.length-1]; if(!(px>0))return; this._shadowAt[mk]=now;
+        const energyIn=(o.emerging===1||o.emerging===2), energyOut=(o.emerging===3);
+        // voorspelling: energie-in → continuatie in momentum; energie-uit → stall/omkeer; anders neutraal (geen scoring)
+        let predDir = energyIn?(o.momSide==='LONG'?1:-1):(energyOut?0:null); if(predDir===null)return;
+        const em=Math.max(1e-6,o.eNow*2);   // verwachte |beweging| over de horizon (~4 bars)
+        this._shadow.push({mk,made:now,due:now+4*3600000,px,predDir,em,transfer:o.transfer,done:false,hit:null});
+        if(this._shadow.length>500)this._shadow.shift();
+      }); }catch(e){} },
+    _shadowResolve(){ try{ const now=Date.now(); let ch=false;
+      for(const s of this._shadow){ if(s.done||now<s.due)continue; const cl=this._series(s.mk.slice(0,s.mk.indexOf(':')), s.mk.slice(s.mk.indexOf(':')+1)); const cur=cl&&cl[cl.length-1];
+        if(!(cur>0)||!(s.px>0)){ s.done=true; s.hit=null; ch=true; continue; }
+        const ret=cur/s.px-1, mag=Math.abs(ret);
+        if(s.predDir===0){ s.hit=(mag < 0.6*s.em)?1:0; }                                   // stall-voorspelling: klein gebleven?
+        else { s.hit=(Math.sign(ret)===Math.sign(s.predDir) && mag>=0.3*s.em)?1:0; }        // continuatie: juiste richting + genoeg beweging
+        s.done=true; ch=true;
+      } if(ch)this._save();
+    }catch(e){} },
+    // ---- elke 5 gesloten trades: schaal het gewicht op/af (shadow-bewijs + live bijdrage) ----
+    onClose(p,win){ try{
+      if(p&&p._dvks){ const t=p._dvks.tilt||0; if(Math.abs(t)>1e-3){ const good=((t>=0)===!!win); this._contrib.push(good?1:0); if(this._contrib.length>40)this._contrib.shift(); } }
+      this._sinceRescale=(this._sinceRescale||0)+1;
+      if(this._sinceRescale>=5){ this._sinceRescale=0; this._rescale(); } else this._save();
+    }catch(e){} },
+    _rescale(){ try{
+      const sh=this._hit(), n=this._shadowN();
+      const contrib=this._contrib.length>=6?this._contrib.reduce((a,b)=>a+b,0)/this._contrib.length:null;
+      let target=1.0;
+      if(n>=20){ if(sh>=0.58)target=1.4; else if(sh>=0.52)target=1.15; else if(sh<=0.45)target=0.6; else target=0.9; }
+      if(contrib!=null){ if(contrib>=0.6)target=Math.max(target,1.25); else if(contrib<=0.4)target=Math.min(target,0.7); }
+      this._w=+clamp(this._w*0.5+target*0.5,0.3,1.6).toFixed(3);
+      this._log.unshift({at:Date.now(),w:this._w,shadowHit:sh!=null?+sh.toFixed(2):null,n,contrib:contrib!=null?+contrib.toFixed(2):null}); if(this._log.length>30)this._log.pop();
+      this._save();
+      try{ pushReason(`ΔV-KS gewicht → ×${this._w} (shadow ${sh!=null?(sh*100|0)+'%':'n/a'} n=${n}${contrib!=null?', live '+((contrib*100|0))+'%':''}) — energie/timing-overdracht ${this._w>1.02?'opgeschaald':this._w<0.98?'afgeschaald':'standaard'}`); }catch(e){}
+    }catch(e){} },
+    bundle(){ try{ const per={}; Object.keys(this._last).forEach(k=>{ const o=this._last[k]; per[k]={phase:o.phaseName,emerging:o.emergingName,transfer:o.transfer,eta:o.eta,momSide:o.momSide}; });
+      return { weight:this._w, sinceRescale:this._sinceRescale, shadow:{ n:this._shadowN(), hitRate:(this._hit()!=null?+this._hit().toFixed(3):null), proven:this._proven(), open:this._shadow.filter(s=>!s.done).length }, liveContrib:(this._contrib.length>=6?+(this._contrib.reduce((a,b)=>a+b,0)/this._contrib.length).toFixed(3):null), perMarket:per, log:this._log.slice(0,12),
+        uitleg:'ΔV-KS modelleert de energie- & timing-overdracht tussen de huidige en opkomende fase van de kill-switch-cyclus (compressie→ontsteking→expansie→uitputting) per markt. Standaard gewicht ×1.0 (meteen actief); shadow-backtester scoort de voorspelling; elke 5 trades schaalt het gewicht autonoom op/af.' }; }catch(e){ return null; } }
+  };
+  try{ M._restore(); }catch(e){}
+  try{ window.TrinityDeltaVKS=M; }catch(e){}
+  return M;
+})();
 
 function setStartEquity(){
   const g=document.getElementById('start-equity'); let v=g?parseFloat(g.value):1000; if(!(v>0))v=1000;
@@ -21635,6 +21822,8 @@ function renderTrinityLearnings(){
     +chip('adaptive conf',mult.toFixed(2)+'×',mult>=1?G:A)
     +chip('GSD risk',gsdMod.toFixed(2)+'×',gsdMod<0.94?R:(gsdMod>1.06?G:'var(--tx)'))
     +(function(){ let ph='—',f=1; try{ const t=TrinityTiming.state(); ph=t.phase; f=t.factor; }catch(e){} const c=ph==='LOW'?G:(ph==='HIGH'?A:'var(--tx)'); return chip('timing',ph+' ×'+f.toFixed(2),c); })()
+    +(function(){ let w=null; try{ w=TrinityDeltaVKS.bundle().weight; }catch(e){} return chip('ΔV-KS',w==null?'—':'×'+w.toFixed(2),w==null?DD:(w>1.02?G:(w<0.98?R:'var(--tx)'))); })()
+    +(function(){ let ro=null; try{ ro=OsirisMacro.riskOff(); }catch(e){} return chip('risk-off',ro==null?'—':Math.round(ro*100)+'%',ro==null?DD:(ro>=0.55?R:(ro<=0.4?G:A))); })()
     +chip('autonome aanp.',nAdj,nAdj?G:DD)
     +`</div>`;
   // ---- mini-charts (SVG, geen library): cirkeldiagrammen + staafdiagram ----
@@ -21733,6 +21922,39 @@ function renderTrinityLearnings(){
   const stateBody = stStates.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;">`+stStates.map(([l,v,c])=>`<span style="font-size:0.54rem;background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:3px 7px;"><span style="color:${DD};">${l}</span> <b style="color:${c};">${v}</b></span>`).join('')+`</div>`
     :`<div style="font-size:0.54rem;color:${DD};">baseline — nog geen autonome afwijkingen (Trinity tuned na ~20 gesloten trades).</div>`;
   html+=sec('Actieve autonome staat','wat Trinity nú anders doet dan de baseline-preset',stateBody);
+  // ---- 5b) ΔV-KS energie/timing-overdracht ----
+  try{ const b=TrinityDeltaVKS.bundle(); if(b){ const sh=b.shadow||{}; const wcol=b.weight>1.02?G:(b.weight<0.98?R:A);
+    const PHC={COMPRESSION:'#7fb4ff',IGNITION:'#ffd76a',EXPANSION:G,EXHAUSTION:R,'—':DD};
+    const per=b.perMarket||{}; const mk=Object.keys(per).slice(0,8);
+    const inCnt=mk.filter(k=>per[k].emerging==='IGNITION'||per[k].emerging==='EXPANSION').length;
+    const outCnt=mk.filter(k=>per[k].phase==='EXHAUSTION'||per[k].emerging==='EXHAUSTION').length;
+    const rows=mk.map(k=>{ const o=per[k]; const nm=k.replace(/^(fx|commo|crypto):/,''); return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:0.55rem;"><span style="color:var(--tx)">${nm}</span><span><span style="color:${PHC[o.phase]||D}">${o.phase}</span>→<span style="color:${PHC[o.emerging]||D}">${o.emerging}</span> <span style="color:${DD}">${Math.round((o.transfer||0)*100)}% · ${o.eta}</span></span></div>`; }).join('');
+    const body=`<div style="font-size:0.56rem;color:${D};line-height:1.7;margin-bottom:4px;">gewicht <b style="color:${wcol}">×${b.weight.toFixed(2)}</b> <span style="color:${DD}">(${b.weight>1.02?'opgeschaald':b.weight<0.98?'afgeschaald':'standaard'}, herweegt over ${5-(b.sinceRescale||0)} trade)</span> · shadow <b style="color:${sh.proven?G:A}">${sh.hitRate!=null?Math.round(sh.hitRate*100)+'%':'n/a'}</b> n=${sh.n||0}${b.liveContrib!=null?` · live <b style="color:${b.liveContrib>=0.55?G:(b.liveContrib<=0.45?R:A)}">${Math.round(b.liveContrib*100)}%</b>`:''} · <span style="color:${G}">${inCnt} energie-in</span> / <span style="color:${R}">${outCnt} energie-uit</span></div><div style="display:flex;flex-direction:column;gap:2px;">${rows||'<span style="color:'+DD+'">fase-data laadt…</span>'}</div>`;
+    html+=sec('ΔV-KS · energie/timing-overdracht','huidige→opkomende kill-switch-fase per markt · stuurt sizing, schaalt elke 5 trades',body);
+  } }catch(e){}
+  // ---- 5c) markt-selectie (ShockWave-boosted) ----
+  try{ const b=TrinityMarketSelect.bundle(); const pm=b.perMarket||{};
+    const list=Object.values(pm).sort((x,y)=>y.score-x.score).slice(0,5);
+    const top=b.top; const rows=list.map(m=>{ const sc=m.side==='LONG'?G:R; return `<div style="display:flex;align-items:center;gap:8px;font-size:0.55rem;"><span style="flex:0 0 90px;color:var(--tx)">${m.name}</span>${bar(Math.min(1,m.score/0.7),m.score>=0.42?G:A)}<span style="flex:0 0 44px;color:${m.score>=0.42?G:A};font-weight:600;">${m.score.toFixed(2)}</span><span style="flex:1 1 auto;color:${DD}">conv ${m.conv} · vol ${m.vol} · shock ${m.shock} · <span style="color:${sc}">${m.side}</span></span></div>`; }).join('');
+    const body=`<div style="font-size:0.56rem;color:${D};line-height:1.7;margin-bottom:4px;">${b.commoActive?`commodities <b style="color:${G}">actief</b>${top?` — meest tradeable <b style="color:var(--tx)">${top.name}</b> (${top.score})`:''} · FX als alternatief bij zijwaarts`:`commodities <b style="color:${A}">zijwaarts</b> — FX-alternatief actief`}</div><div style="display:flex;flex-direction:column;gap:2px;">${rows||'<span style="color:'+DD+'">markt-scan laadt…</span>'}</div>`;
+    html+=sec('Markt-selectie · winstgevendheid + volatiliteit','ShockWave-boost: energy→olie/gas · finstress→goud · supply→metalen',body);
+  }catch(e){}
+  // ---- 5d) macro · ShockWave & finance ----
+  try{ let ro=null; try{ ro=OsirisMacro.riskOff(); }catch(e){} const cat=(TrinityGSD&&TrinityGSD.catStress)||{}; const zs=(TrinityGSD&&TrinityGSD.zoneStress)||{};
+    const zn={na:'N-Amerika',eu:'Europa',ap:'Azië-Pacific',ca:'Centr.-Azië',me:'Mid-Oosten',af:'Afrika',latam:'Latam',global:'Globaal'};
+    const topZ=Object.entries(zs).filter(([k])=>k!=='global').sort((a,b)=>b[1]-a[1]).slice(0,3);
+    let fin=null; try{ fin=window.osirisFinanceBundle(); }catch(e){}
+    let finLine='';
+    if(fin&&fin.countries){ const C=fin.countries; const liveRes=C.filter(c=>c.fxReservesLive).length, liveY=C.filter(c=>c.bond10yLive).length;
+      const dArr=C.map(c=>c.debtToGdpPct).filter(v=>v!=null), yArr=C.map(c=>c.bond10yPct).filter(v=>v!=null);
+      const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null; const dM=mean(dArr), yM=mean(yArr);
+      finLine=`<div style="font-size:0.55rem;color:${D};line-height:1.7;margin-top:3px;border-top:1px solid var(--line);padding-top:3px;"><span style="color:#4fc3f7">●</span> finance live: ${liveRes} reserves · ${liveY} 10y-yields <span style="color:${DD}">van ${C.length} landen</span> · gem. schuld/BBP <b>${dM!=null?Math.round(dM)+'%':'—'}</b> · gem. 10y <b>${yM!=null?yM.toFixed(1)+'%':'—'}</b> <span style="color:${DD}">${fin.asof?'· '+fin.asof:''}</span></div>`;
+    }
+    const catChip=(lab,v,col)=>`<span style="font-size:0.53rem;background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:2px 6px;"><span style="color:${DD}">${lab}</span> <b style="color:${col}">${Math.round((v||0)*100)}%</b></span>`;
+    const body=`<div style="font-size:0.56rem;color:${D};line-height:1.7;">risk-off <b style="color:${ro==null?DD:(ro>=0.55?R:(ro<=0.4?G:A))}">${ro==null?'—':Math.round(ro*100)+'%'}</b>${topZ.length?` · zwaarst belast: ${topZ.map(([k,v])=>`<b style="color:var(--tx)">${zn[k]||k}</b> ${Math.round(v*100)}%`).join(' · ')}`:''}</div>`
+      +`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:5px;">${catChip('energy',cat.energy,'#ff8a3c')}${catChip('finstress',cat.finstress,R)}${catChip('supply',cat.supply,A)}${catChip('geo',cat.geo,'#c792ea')}${catChip('conflict',cat.conflict,R)}${catChip('trade',cat.trade,'#7fd8ff')}</div>`+finLine;
+    html+=sec('Macro · ShockWave &amp; finance','wereldstress-drijvers die Trinity\'s markt-keuze &amp; sizing sturen',body);
+  }catch(e){}
   // ---- 6) plain-language conclusie ----
   const concl=[];
   if(nT<5) concl.push(`Trinity heeft <b>${nT}</b> trades — nog vroeg — snelle adaptatie start al bij 5 (per 5 opnieuw geijkt), volledige kalibratie later.`);
@@ -21848,13 +22070,14 @@ function renderPositions(){
   const head=`<table style="width:100%;border-collapse:collapse;font-size:0.58rem;">`
     +`<thead><tr style="color:var(--dim);text-align:right;"><th style="text-align:left;padding:5px 7px;">Type</th><th style="text-align:left;">Markt</th><th>Side</th><th>Entry</th><th style="text-align:left;">Entry tijd</th><th>Size</th><th>Alloc</th><th>P/L %</th><th>P/L</th><th></th></tr></thead><tbody>`;
   if(!rows.length){ el.innerHTML=head+`<tr><td colspan="10" style="text-align:center;color:var(--dimmer);padding:8px;">${live?('no open positions at Capital.com'+(trinityOn?' \u2014 scanning':'')):(trinityOn?'no open trades \u2014 scanning all pairs':'Trinity stopped')}</td></tr></tbody></table>`; return; }
-  el.innerHTML=head+rows.map(r=>{ const sc=r.side==='LONG'?'var(--bull2)':'var(--bear)'; const plc=r.pnlPct>=0?'var(--bull2)':'var(--bear)'; const allocPct=bal?((r.size||0)/bal*100):0;
+  el.innerHTML=head+rows.map(r=>{ const sc=r.side==='LONG'?'var(--bull2)':'var(--bear)'; const plc=r.pnlPct>=0?'var(--bull2)':'var(--bear)';
+    const allocTxt=(r.size&&bal)?((r.size/bal*100).toFixed(1)+'%'):'\u2014';   // geen misleidende 0.0% als size nog niet gesynct is
     const closeCall=r.live?`closeLivePosition('${r.closeId}')`:`trManualClose('${r.closeId}')`;
     return `<tr style="text-align:right;border-top:1px solid rgba(255,255,255,0.04);">`
       +_trTd(`<span style="color:#7fd8ff">FX</span>${r.sessionName?` <small style="color:var(--dimmer)">${r.sessionName}</small>`:''}`,'text-align:left;')
       +_trTd(`<b>${r.pair}</b>`,'text-align:left;')+_trTd(`<span style="color:${sc}">${r.side}</span>`)
       +_trTd(fmtRate(r.entry))+_trTd(r.openedAt?fmtTime(r.openedAt):'\u2014','text-align:left;color:var(--dim);')
-      +_trTd('$'+(r.size||0).toFixed(2))+_trTd(allocPct.toFixed(1)+'%')
+      +_trTd(r.size?('$'+r.size.toFixed(2)):'\u2014')+_trTd(allocTxt)
       +_trTd(`<span style="color:${plc}">${r.pnlPct>=0?'+':''}${(r.pnlPct||0).toFixed(2)}%</span>`)
       +_trTd(`<span style="color:${plc}">${r.plCur>=0?'+':''}$${(r.plCur||0).toFixed(2)}</span>`)
       +_trTd(`<button class="btn" style="padding:2px 6px;font-size:0.5rem;" onclick="${closeCall}">\u00d7</button>`)
@@ -21894,6 +22117,41 @@ function exportPairs(){ const h=['pair','rate','chg_pct','m15','h1','day','mom',
   downloadFile('oif-pairs.csv',[h.join(','),...rows.map(r=>r.join(','))].join('\n'),'text/csv'); }
 function exportEngine(){ downloadFile('oif-engine.json',JSON.stringify({preset,customPreset,activePreset:activePreset(),presets:PRESETS,sessionTune:SESSION_TUNE,options:opts,oanda:{env:oanda.env,mode:oanda.mode,connected:oanda.connected},trinity:{adaptiveMult:trinity.mult,winRate:trinity.wr,avgR:trinity.avgR,bySession:trinity.byS},autoAdj,autoAdjustments:trinityAdj.slice(0,30),calibration:calibB,costModel:{COST_PCT,STOP_SLIP_PCT},fso:{live:{stress:TrinityFSO.stress,sysVar:TrinityFSO.sysVar,vfm:TrinityFSO.vfm,escapeVel:TrinityFSO.escapeVel,regime:TrinityFSO.regime,killSwitch:TrinityFSO.killSwitch,compressionAge:TrinityFSO.compressionAge,oscillators:TrinityFSO.osc.length,names:TrinityFSO.names},calibration:TrinityFSOCal.bundle()},exportedAt:fmtTime(new Date())},null,2),'application/json'); }
 window.exportTrades=exportTrades; window.exportWallet=exportWallet; window.exportPairs=exportPairs; window.exportEngine=exportEngine;
+// ---- CANDLE / OHLC EXPORT — ruwe marktcandles per markt × timeframe (commodity + FX + crypto/NEO) ----
+function _gatherCandles(){
+  const g=(fn,d)=>{ try{ return fn(); }catch(e){ return d; } };
+  const TFS=['5m','15m','1h','4h','all'];
+  const out={ meta:{ app:'Osiris Trinity — market candles', exportedISO:new Date().toISOString(),
+    note:'Ruwe OHLC(V)-candlehistorie per markt × timeframe. Commodity + FX via de Capital.com /history-proxy, crypto via Binance klines. Bevat GEEN API-keys. Leeg voor een markt = nog niet geladen (open de betreffende chart/tab of verbind Capital, dan stroomt de historie binnen).' },
+    timeframes:TFS, commodity:{}, fx:{}, crypto:{}, neo:{} };
+  g(()=>{ const C=window.TrinityCommodities; if(!C)return; ['WTI','BRENT','NGAS','GOLD','SILVER','PLAT','PALL','COPPER'].forEach(k=>{ const o={}; TFS.forEach(tf=>{ const cs=C.candles(k,tf); if(cs&&cs.length)o[tf]=cs; }); if(Object.keys(o).length)out.commodity[k]=o; }); });
+  g(()=>{ const F=window.FxCandles; if(!F)return; const pairs=(typeof PAIRS!=='undefined')?PAIRS:[]; pairs.forEach(p=>{ const o={}; TFS.forEach(tf=>{ const cs=F.candles(p,tf); if(cs&&cs.length)o[tf]=cs; }); if(Object.keys(o).length)out.fx[p]=o; }); });
+  g(()=>{ const X=window.CryptoSysCandles; if(!X)return; ['BTC','ETH','SOL'].forEach(k=>{ const o={}; TFS.forEach(tf=>{ const cs=X.candles(k,tf); if(cs&&cs.length)o[tf]=cs; }); if(Object.keys(o).length)out.crypto[k]=o; }); });
+  g(()=>{ if(typeof neoMultiState==='undefined'||!neoMultiState.markets)return; Object.keys(neoMultiState.markets).forEach(k=>{ const m=neoMultiState.markets[k]; const cs=m&&(m.candles||m.klines); if(cs&&cs.length)out.neo[k]=cs; }); });
+  out.meta.counts=g(()=>{ const c={}; ['commodity','fx','crypto','neo'].forEach(grp=>{ const G=out[grp]; if(!G)return; let n=0; Object.values(G).forEach(mk=>{ if(Array.isArray(mk))n+=mk.length; else Object.values(mk).forEach(a=>{ if(Array.isArray(a))n+=a.length; }); }); c[grp]={markets:Object.keys(G).length,candles:n}; }); return c; }, {});
+  return out;
+}
+function _kickCandleLoads(){ // best-effort: trigger de /history + klines-loaders zodat de stores vollopen
+  try{ if(window.TrinityCommodities&&window.TrinityCommodities.refreshHistory){ for(let i=0;i<8;i++)window.TrinityCommodities.refreshHistory(); } }catch(e){}
+  try{ if(window.FxCandles){ ['1h','15m','4h'].forEach(tf=>window.FxCandles.refresh(tf)); } }catch(e){}
+  try{ if(window.CryptoSysCandles){ ['BTC','ETH','SOL'].forEach(k=>['1h','15m','4h'].forEach(tf=>window.CryptoSysCandles.load(k,tf))); } }catch(e){}
+}
+function exportCandles(fmt){
+  _kickCandleLoads();
+  const data=_gatherCandles();
+  const total=(data.meta.counts&&Object.values(data.meta.counts).reduce((a,c)=>a+(c.candles||0),0))||0;
+  if(fmt==='csv'){
+    const rows=[['group','market','timeframe','time','open','high','low','close','volume'].join(',')];
+    const emit=(grp,mk,tf,arr)=>{ (arr||[]).forEach(cd=>{ if(Array.isArray(cd)) rows.push([grp,mk,tf,cd[0],cd[1],cd[2],cd[3],cd[4],cd[5]!=null?cd[5]:''].join(','));
+      else rows.push([grp,mk,tf,cd.t!=null?cd.t:'',cd.o!=null?cd.o:'',cd.h!=null?cd.h:'',cd.l!=null?cd.l:'',cd.c!=null?cd.c:'',cd.v!=null?cd.v:''].join(',')); }); };
+    ['commodity','fx','crypto','neo'].forEach(grp=>{ const G=data[grp]; if(!G)return; Object.keys(G).forEach(mk=>{ const tfs=G[mk]; if(Array.isArray(tfs))emit(grp,mk,'raw',tfs); else Object.keys(tfs).forEach(tf=>emit(grp,mk,tf,tfs[tf])); }); });
+    downloadFile('osiris_trinity_candles_'+Date.now()+'.csv',rows.join('\n'),'text/csv');
+  } else {
+    downloadFile('osiris_trinity_candles_'+Date.now()+'.json',JSON.stringify(data,null,2),'application/json');
+  }
+  try{ pushReason(`candle-data gedownload (${fmt==='csv'?'CSV':'JSON'}) — ${total} candles over commodity+FX+crypto/NEO × timeframes${total===0?' (stores nog leeg — open de charts/tabs of verbind Capital en probeer opnieuw)':''}`); }catch(e){}
+}
+window.exportCandles=exportCandles; window._gatherCandles=_gatherCandles;
 // ---- FULL EXPORT — ALLES: leerdata + marktdata + FSO + GSD + settings (géén keys/wachtwoorden) ----
 function exportAll(){
   const g=(fn,d)=>{ try{ return fn(); }catch(e){ return d; } };
@@ -21913,6 +22171,7 @@ function exportAll(){
       brainTrust: trustBySession,
       autoAdj: g(()=>autoAdj,{}), autoAdjustments: g(()=>trinityAdj,[]),
       pairTrust: g(()=>TrinityPairTrust.bundle(),null), gsdShadow: g(()=>TrinityGSDShadow.bundle(),null), compRelease: g(()=>TrinityCompRelease.bundle(),null),
+      deltaVKS: g(()=> (typeof TrinityDeltaVKS!=='undefined'? TrinityDeltaVKS.bundle() : null), null),   // ΔV-KS energie/timing-overdracht + shadow + adaptief gewicht
     },
     // ---- FSO (FX) volledig incl. shadow + kalibratie ----
     fso:{ live:{ stress:g(()=>TrinityFSO.stress,0), sysVar:g(()=>TrinityFSO.sysVar,0), variance:g(()=>TrinityFSO.variance,0), vfm:g(()=>TrinityFSO.vfm,0),
@@ -21935,10 +22194,12 @@ function exportAll(){
     settings:{ preset:g(()=>preset,''), customPreset:g(()=>customPreset,null), active:g(()=>activePreset(),null), presets:g(()=>PRESETS,{}), sessionTune:g(()=>SESSION_TUNE,{}), options:g(()=>opts,{}) },
     // ---- FEEDS (status, geen keys) ----
     feeds: g(()=>{ const o={}; (TrinityFeeds.defs||[]).forEach(d=>{ const s=TrinityFeeds.status(d.name); o[d.name]={label:d.label,status:s.status,lastOk:s.lastOk?fmtTime(new Date(s.lastOk)):null,lastMsg:s.lastMsg}; }); return o; }, {}),
-    reasoningFeed: g(()=>reasonLog.slice(0,120).map(r=>({t:fmtTime(r.t),msg:r.msg})),[])
+    reasoningFeed: g(()=>reasonLog.slice(0,120).map(r=>({t:fmtTime(r.t),msg:r.msg})),[]),
+    // ---- MARKTCANDLES (OHLC per markt × timeframe) — commodity + FX + crypto/NEO ----
+    candles: g(()=>_gatherCandles(),null)
   };
   downloadFile('osiris_trinity_full_export_'+Date.now()+'.json', JSON.stringify(bundle,null,2), 'application/json');
-  try{ pushReason('volledige export gedownload — alle leerdata, marktdata, FSO, GSD en instellingen (geen keys)'); }catch(e){}
+  try{ pushReason('volledige export gedownload — alle leerdata, marktdata, candles, FSO, GSD, ΔV-KS en instellingen (geen keys)'); }catch(e){}
 }
 window.exportAll=exportAll;
 function renderCalib(){
@@ -22002,22 +22263,103 @@ function renderTrinity(){
     const trust=`<small style="color:#8aa0ff">×${wf.toFixed(2)}${tr&&tr.auc!=null?' AUC '+tr.auc.toFixed(2):''}${tr&&tr.n>=6&&tr.disc<=0.2?' · vlak':''}${tr&&tr.inverted?' ⚠inv':''}</small>`;
     return `<div class="tsrow"><span>${names[k]}</span><div class="tsbar"><i style="width:${wr}%"></i></div><span style="text-align:right;color:var(--tx)">${b.n?wr+'%':'—'} <small style="color:var(--dimmer)">(${b.n})</small> ${trust}</span></div>`;}).join('');
   const lu=document.getElementById('tr-updated'); if(lu)lu.textContent='updated '+fmtTime(lastUpdated.trinity||new Date());
+  try{ renderDeltaVKS(); }catch(e){}
+  try{ renderTrinityAdapters(); }catch(e){}
+  try{ renderMapShockWave(); }catch(e){}
 }
+// Autonome adapters — één overzicht van alle zelf-aanpassende modules + hun live status/gewicht
+function renderTrinityAdapters(){
+  const el=document.getElementById('tr-adapters'); if(!el)return;
+  const G='#14f195', R='#ff5f7e', A='#ffb627', DD='var(--dimmer)';
+  const g=(fn,d)=>{ try{ return fn(); }catch(e){ return d; } };
+  const pill=(name,val,col,sub)=>`<span style="display:inline-flex;flex-direction:column;gap:1px;background:rgba(255,255,255,0.025);border:1px solid var(--line);border-radius:6px;padding:5px 9px;margin:0 5px 5px 0;min-width:88px;"><span style="font-size:0.5rem;color:${DD};text-transform:uppercase;letter-spacing:0.05em;">${name}</span><b style="font-size:0.68rem;color:${col||'var(--tx)'};">${val}</b>${sub?`<span style="font-size:0.48rem;color:${DD};">${sub}</span>`:''}</span>`;
+  const items=[];
+  // ΔV-KS energie/timing
+  const dv=g(()=>TrinityDeltaVKS.bundle(),null);
+  if(dv) items.push(pill('ΔV-KS','×'+dv.weight.toFixed(2),dv.weight>1.02?G:(dv.weight<0.98?R:'var(--tx)'),(dv.shadow&&dv.shadow.hitRate!=null?Math.round(dv.shadow.hitRate*100)+'% shadow':'standaard')+' · '+(5-(dv.sinceRescale||0))+'→herweeg'));
+  // adaptive confidence (trinity.mult)
+  items.push(pill('adaptive conf','×'+((trinity&&trinity.mult)||1).toFixed(2),((trinity&&trinity.mult)||1)>=1?G:A,(trinity&&trinity.wr!=null?Math.round(trinity.wr*100)+'% wr':'—')));
+  // GSD risk modifier
+  const gm=g(()=>TrinityGSDShadow.riskModWhy(),null);
+  if(gm) items.push(pill('GSD-risk','×'+gm.mod.toFixed(2),gm.mod<0.94?R:(gm.mod>1.06?G:'var(--tx)'),'wereldstress'));
+  // node-timing
+  const tm=g(()=>TrinityTiming.state(),null);
+  if(tm) items.push(pill('node-timing',tm.phase+' ×'+tm.factor.toFixed(2),tm.phase==='LOW'?G:(tm.phase==='HIGH'?A:'var(--tx)'),'compressie-fase'));
+  // market-select
+  const ms=g(()=>TrinityMarketSelect.bundle(),null);
+  if(ms) items.push(pill('markt-select',ms.top?ms.top.name:(ms.commoActive?'commodity':'FX'),ms.commoActive?G:A,(ms.top?ms.top.score+' score':'')+(ms.commoActive?' · commo actief':' · FX-alt')));
+  // UOTAM live weights (autonomous per-market)
+  const uo=g(()=>{ if(typeof window.__uotamWeights==='function')return window.__uotamWeights(); if(typeof OSIRIS_UOTAM_TRADE!=='undefined')return {on:OSIRIS_UOTAM_TRADE.on}; return null; },null);
+  if(uo) items.push(pill('UOTAM T1/T2',uo.on===false?'uit':'aan',uo.on===false?DD:G,'matrix-target'));
+  // commodity trader
+  const ct=g(()=>TrinityCommodityTrader.bundle(),null);
+  if(ct) items.push(pill('commodity',ct.enabled?(ct.open+' open'):'uit',ct.enabled?G:DD,ct.enabled?('expo '+Math.round((ct.exposure||0)*100)+'%'):'opt-in'));
+  // FSO size multiplier + kill-switch
+  const fso=g(()=>({m:TrinityFSO.sizeMult(),ks:TrinityFSO.killSwitch,reg:TrinityFSO.regime}),null);
+  if(fso) items.push(pill('FSO-size','×'+fso.m.toFixed(2),fso.ks?R:(fso.m>=1?G:A),fso.ks?'⚡kill-switch':fso.reg));
+  // pair-trust size skew (best/worst)
+  const nAdj=g(()=>trinityAdj.length,0);
+  items.push(pill('self-tune',nAdj+' aanp.',nAdj?G:DD,'per 5 trades'));
+  el.innerHTML='<div style="display:flex;flex-wrap:wrap;">'+items.join('')+'</div>'
+    +`<div style="font-size:0.52rem;color:${DD};margin-top:4px;line-height:1.6;">Elke module past zichzelf autonoom aan op eigen resultaten (shadow-getoetst). ΔV-KS, adaptive-conf, self-tune &amp; UOTAM herwegen elke ~5 gesloten trades; GSD-risk &amp; markt-select volgen de live wereldstress.</div>`;
+}
+try{ window.renderTrinityAdapters=renderTrinityAdapters; }catch(e){}
+// ΔV-KS energie/timing-overdracht — status + per-markt fase-tabel
+function renderDeltaVKS(){
+  const el=document.getElementById('tr-dvks'); if(!el)return;
+  if(typeof TrinityDeltaVKS==='undefined'){ el.innerHTML='<span style="color:var(--dimmer)">ΔV-KS niet geladen</span>'; return; }
+  const b=TrinityDeltaVKS.bundle(); if(!b){ el.innerHTML='<span style="color:var(--dimmer)">ΔV-KS verzamelt fase-data per markt…</span>'; return; }
+  const PHC={COMPRESSION:'#7fb4ff',IGNITION:'#ffd76a',EXPANSION:'#14f195',EXHAUSTION:'#ff5f7e','—':'var(--dimmer)'};
+  const wcol=b.weight>1.02?'#14f195':b.weight<0.98?'#ff5f7e':'#ffb627';
+  const sh=b.shadow||{};
+  const head=`<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">`
+    +`<span>weight <b style="color:${wcol}">×${(b.weight||1).toFixed(2)}</b> <small style="color:var(--dimmer)">(${b.weight>1.02?'opgeschaald':b.weight<0.98?'afgeschaald':'standaard'})</small></span>`
+    +`<span style="color:var(--dimmer)">shadow <b style="color:${sh.proven?'#14f195':'#ffb627'}">${sh.hitRate!=null?(sh.hitRate*100|0)+'%':'n/a'}</b> n=${sh.n||0} ${sh.proven?'proven':'kandidaat'}${sh.open?' · '+sh.open+' open':''}</span>`
+    +(b.liveContrib!=null?`<span style="color:var(--dimmer)">live-bijdrage <b style="color:${b.liveContrib>=0.55?'#14f195':b.liveContrib<=0.45?'#ff5f7e':'#ffb627'}">${(b.liveContrib*100|0)}%</b></span>`:'')
+    +`<span style="color:var(--dimmer)">volgende herweging over ${5-(b.sinceRescale||0)} trade(s)</span>`
+    +`</div>`;
+  const per=b.perMarket||{}; const keys=Object.keys(per).slice(0,14);
+  const rows=keys.map(k=>{ const o=per[k]; const nm=k.replace('fx:','').replace('commo:','').replace('crypto:',''); const grp=k.split(':')[0];
+    const tw=Math.round((o.transfer||0)*100);
+    return `<div style="display:flex;justify-content:space-between;gap:8px;"><span><small style="color:var(--dimmer)">${grp}</small> <b>${nm}</b></span>`
+      +`<span><span style="color:${PHC[o.phase]||'var(--dim)'}">${o.phase}</span> → <span style="color:${PHC[o.emerging]||'var(--dim)'}">${o.emerging}</span> <small style="color:var(--dimmer)">transfer ${tw}% · ${o.eta} · ${o.momSide}</small></span></div>`;
+  }).join('');
+  el.innerHTML=head+`<div style="line-height:1.75;">${rows||'<span style="color:var(--dimmer)">fase-data laadt (candles/ticks nodig)…</span>'}</div>`;
+}
+try{ window.renderDeltaVKS=renderDeltaVKS; }catch(e){}
 // ---------- wallet + settings ----------
+// LIVE-modus: bereken Realized P/L, gross, kosten en (gerealiseerde) max-drawdown uit de GESLOTEN trades
+// (broker-/geïmporteerde historie in tradeLog). Data-true: alleen trades met een echte P/L tellen mee.
+function _liveWalletStats(){
+  try{
+    const closed=(tradeLog||[]).filter(t=>t&&t.plCur!=null).slice()
+      .sort((a,b)=>((a.closedAt?+new Date(a.closedAt):0)-(b.closedAt?+new Date(b.closedAt):0)));
+    let realized=0,cost=0,peak=0,eq=0,maxDD=0,wins=0,losses=0;
+    closed.forEach(t=>{ const pl=+t.plCur||0; realized+=pl; eq+=pl; if(eq>peak)peak=eq; const dd=peak-eq; if(dd>maxDD)maxDD=dd;
+      if(pl>=0)wins++; else losses++;
+      if(t.plPctGross!=null && t.plPct!=null && t.size!=null){ cost+=Math.abs((+t.size)*(((+t.plPctGross)-(+t.plPct))/100)); } });
+    return { n:closed.length, realized, gross:realized+cost, cost, maxDD, wins, losses };
+  }catch(e){ return { n:0, realized:0, gross:0, cost:0, maxDD:0, wins:0, losses:0 }; }
+}
 function renderWallet(){
   const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
   const fmt=v=>'$'+Math.round(v).toLocaleString('en-US'), fmt2=v=>(v>=0?'+':'-')+'$'+Math.abs(v).toLocaleString('en-US',{maximumFractionDigits:1});
   if(walletMode==='live' && liveAccount){
     // MIRROR Capital.com: balance, available, open P/L come straight from the broker
     const cur=liveAccount.currency||'USD', cfmt=v=>v==null?'—':v.toLocaleString('en-US',{style:'currency',currency:cur,maximumFractionDigits:0});
+    const cf2=v=>(v>=0?'+':'-')+Math.abs(v).toLocaleString('en-US',{style:'currency',currency:cur,maximumFractionDigits:2});
     set('w-balance',cfmt(liveAccount.balance)); set('w-equity',cfmt((liveAccount.balance||0)+(liveAccount.profitLoss||0)));
     const openPl=liveAccount.profitLoss||0, oe=document.getElementById('w-open'); if(oe){oe.textContent=(openPl>=0?'+':'')+openPl.toFixed(2);oe.style.color=openPl>=0?'var(--bull2)':'var(--bear)';}
-    const re=document.getElementById('w-realized'); if(re){re.textContent='live';re.style.color='var(--dim)';}
-    const rg=document.getElementById('w-realized-gross'); if(rg)rg.textContent='—';
-    const cp=document.getElementById('w-cost'); if(cp)cp.textContent='—';
+    // gerealiseerde stats uit de gesloten-trades-historie (broker/geïmporteerd) — niet langer placeholders
+    const ls=_liveWalletStats();
+    const re=document.getElementById('w-realized'); if(re){re.textContent=ls.n?cf2(ls.realized):'—';re.style.color=ls.n?(ls.realized>=0?'var(--bull2)':'var(--bear)'):'var(--dim)';}
+    const rg=document.getElementById('w-realized-gross'); if(rg){rg.textContent=ls.n?cf2(ls.gross):'—';rg.style.color='var(--dim)';}
+    const cp=document.getElementById('w-cost'); if(cp)cp.textContent=ls.n&&ls.cost?('-'+Math.abs(ls.cost).toLocaleString('en-US',{style:'currency',currency:cur,maximumFractionDigits:2})):(ls.n?'≈—':'—');
     set('w-alloc',livePositions.length+' pos'); set('w-avail',cfmt(liveAccount.available));
-    const wins=trinity.trades.filter(t=>t.win).length, losses=trinity.trades.length-wins;
-    set('w-wl',wins+' / '+losses); set('w-dd','live');
+    const wins=ls.n?ls.wins:trinity.trades.filter(t=>t.win).length, losses=ls.n?ls.losses:(trinity.trades.length-trinity.trades.filter(t=>t.win).length);
+    set('w-wl',wins+' / '+losses);
+    const ddBase=Math.max(1,(liveAccount.balance||0)-ls.realized);
+    set('w-dd',ls.n?('-'+(ls.maxDD/ddBase*100).toFixed(1)+'%'):'—');
     const lu=document.getElementById('w-updated'); if(lu)lu.textContent='live sync '+fmtTime(new Date());
     renderLivePositions(); return;
   }
@@ -22175,8 +22517,39 @@ function setFlow(m){flowMode=m;document.getElementById('t-cap').className=m==='c
   document.getElementById('map-legend').innerHTML=m==='capital'
     ?`<span><i class="dotc" style="background:#00ff9f"></i> Capital inflow (top mover)</span><span><i class="dotc" style="background:#ff4f6d"></i> Capital outflow (top mover)</span><span><i class="swatch" style="background:#7fe9ff"></i> Flow direction</span><span style="color:var(--dimmer)">only top movers light up</span>`
     :COMMODITIES.map(cm=>`<span><i class="dotc" style="background:${cm.color}"></i> ${cm.name}</span>`).join('')+`<span style="color:var(--dimmer)">producer → consumer</span>`;
-  rebuildCapArcs();}
+  rebuildCapArcs(); try{ renderMapShockWave(); }catch(e){}}
 window.setFlow=setFlow;
+// Global-flow ShockWave-overlay: koppelt de kapitaal-/commodity-stromen aan de live wereldstress
+// (risk-off, valuta-bias, rentes/reserves, energie-/supply-stress) zodat de "Capital"-flow veel rijker is.
+function renderMapShockWave(){
+  const el=document.getElementById('map-shockwave'); if(!el)return;
+  const G='#14f195',R='#ff5f7e',A='#ffb627',C='#7fd8ff',D='var(--dim)',DD='var(--dimmer)';
+  const g=(fn,d)=>{ try{ return fn(); }catch(e){ return d; } };
+  const cat=g(()=>TrinityGSD.catStress,{})||{}; const ro=g(()=>OsirisMacro.riskOff(),null);
+  const roCol=ro==null?DD:(ro>=0.55?R:(ro<=0.4?G:A));
+  if(flowMode==='commodity'){
+    const chip=(l,v,c)=>`<span style="display:inline-block;background:rgba(255,255,255,0.03);border:1px solid var(--line);border-radius:5px;padding:2px 7px;margin:0 4px 4px 0;"><span style="color:${DD}">${l}</span> <b style="color:${c}">${Math.round((v||0)*100)}%</b></span>`;
+    el.innerHTML=`<div style="color:${C};font-weight:600;margin-bottom:4px;">◉ ShockWave · commodity-stress <span style="color:${DD};font-weight:400;">— stress op de fysieke handelsroutes stuurt de flow-dikte</span></div>`
+      +`<div>${chip('energy',cat.energy,'#ff8a3c')}${chip('supply',cat.supply,A)}${chip('trade',cat.trade,C)}${chip('weather',cat.weather,'#8fe38f')}${chip('geo',cat.geo,'#c792ea')}${chip('conflict',cat.conflict,R)}</div>`
+      +`<div style="color:${DD};margin-top:2px;">Hoge energy/supply-stress → Trinity weegt olie/gas/metalen zwaarder (zie markt-selectie). Risk-off <b style="color:${roCol}">${ro==null?'—':Math.round(ro*100)+'%'}</b> stuwt goud.</div>`;
+    return;
+  }
+  // capital mode — currency-flow + macro
+  const list=CCY.map(c=>({c,v:(typeof flow!=='undefined'?flow[c]:0)||0}));
+  const ins=list.slice().sort((a,b)=>b.v-a.v).slice(0,3), outs=list.slice().sort((a,b)=>a.v-b.v).slice(0,3);
+  let fin=g(()=>window.osirisFinanceBundle(),null); let finTop='';
+  if(fin&&fin.countries){ const withY=fin.countries.filter(c=>c.bond10yPct!=null).sort((a,b)=>b.bond10yPct-a.bond10yPct).slice(0,3);
+    const liveRes=fin.countries.filter(c=>c.fxReservesLive).length;
+    finTop=`<div style="color:${DD};margin-top:3px;border-top:1px solid var(--line);padding-top:3px;"><span style="color:#4fc3f7">●</span> hoogste 10y-yields: ${withY.map(c=>`<b style="color:var(--tx)">${c.iso3}</b> ${c.bond10yPct.toFixed(1)}%`).join(' · ')} <span style="color:${DD}">· ${liveRes} landen live reserves${fin.asof?' · '+fin.asof:''}</span></div>`;
+  }
+  const arrow=(a)=>a.map(o=>`<b style="color:var(--tx)">${o.c}</b> ${o.v>=0?'+':''}${(o.v*100).toFixed(0)}`).join(' · ');
+  el.innerHTML=`<div style="color:${C};font-weight:600;margin-bottom:4px;">◉ ShockWave · capital-flow macro <span style="color:${DD};font-weight:400;">— net valuta-flow gekoppeld aan wereldstress</span></div>`
+    +`<div><span style="color:${G}">▲ inflow:</span> ${arrow(ins)}</div>`
+    +`<div><span style="color:${R}">▼ outflow:</span> ${arrow(outs)}</div>`
+    +`<div style="margin-top:2px;">risk-appetite <b style="color:${roCol}">${ro==null?'—':(ro>=0.55?'risk-OFF ':ro<=0.4?'risk-ON ':'neutraal ')+Math.round(ro*100)+'%'}</b> · finstress <b style="color:${(cat.finstress||0)>0.4?R:'var(--tx)'}">${Math.round((cat.finstress||0)*100)}%</b> · cb-druk <b style="color:${(cat.cb||0)>0.4?A:'var(--tx)'}">${Math.round((cat.cb||0)*100)}%</b></div>`
+    +finTop;
+}
+try{ window.renderMapShockWave=renderMapShockWave; }catch(e){}
 function initOcularMapLegend(){ const el=document.getElementById('ocular-map-legend'); if(!el)return;
   el.innerHTML=`<span><i class="dotc" style="background:#00ff9f"></i> inflow</span><span><i class="dotc" style="background:#ff4f6d"></i> outflow</span><span style="color:var(--dimmer)">all ${CCY.length} currencies incl. THB</span>`; }
 
