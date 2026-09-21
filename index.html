@@ -2548,6 +2548,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
       <canvas id="map-canvas"></canvas>
       <div class="legend" id="map-legend"></div>
+      <div class="mono" id="map-shockwave" style="font-size:0.55rem;margin-top:10px;color:var(--dim);line-height:1.75;border-top:1px solid var(--line);padding-top:8px;">ShockWave-overlay laadt…</div>
     </div>
 
     <div class="secdiv"><h3>Trinity · neural net</h3><span class="sub">— zelfde ontwerp als Osiris Neo · Trinity's eigen inputs &amp; tools · gestippelde knopen = nog niet in Trinity</span></div>
@@ -2555,7 +2556,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <span class="hud-corner c-tl"></span><span class="hud-corner c-tr"></span><span class="hud-corner c-bl"></span><span class="hud-corner c-br"></span>
       <div style="position:absolute;top:12px;left:16px;right:16px;z-index:2;pointer-events:none;">
         <div style="font:800 0.72rem 'Orbitron','JetBrains Mono',monospace;letter-spacing:1.5px;color:#cfe6f5;">TRINITY DEEPNET</div>
-        <div style="font:0.5rem/1.5 'JetBrains Mono',monospace;color:var(--dim);letter-spacing:0.3px;margin-top:3px;max-width:74%;">inputs (15) &rarr; CORES (4 sessies: ASIA&middot;EU&middot;US&middot;OVLP) &rarr; trinity &rarr; gate &rarr; decision &rarr; output &rarr; learn &nbsp;&middot;&nbsp; tools (data-true, lit): brain-trust &middot; session &middot; FSO &middot; <span style="color:#ff8a3c;">FSO-GSD</span> &middot; <span style="color:#c792ea;">node-time</span> &middot; <span style="color:#7fffd4;">timing</span> &middot; cost-guard &middot; calib &middot; self-tune &middot; <span style="color:#ff8a3c;">GSD-risk</span> &middot; comp-rel &middot; <span style="color:#7fd8ff;">cloud-sync</span> &middot; <span style="color:#c792ea;">kinetic</span> &middot; <span style="color:#8fb8ff;">regime-HMM</span> &middot; <span style="color:#ff8fa3;">LLM-verify</span> &middot; spike-guard &middot; <span style="color:#14f195;">guardian</span> &middot; <span style="color:#ff5f7e;">risk-break</span> &middot; RL-exit &middot; <span style="color:#7fd8ff;">deepnet-L3</span> &nbsp;&middot;&nbsp; <span style="color:#5c7488;">gestippeld = planned: <span style="color:#ff8a3c;">shockwave</span> &middot; predict-inv &middot; multi-TF &middot; node-fade &middot; margin</span></div>
+        <div style="font:0.5rem/1.5 'JetBrains Mono',monospace;color:var(--dim);letter-spacing:0.3px;margin-top:3px;max-width:74%;">inputs (15) &rarr; CORES (4 sessies: ASIA&middot;EU&middot;US&middot;OVLP) &rarr; trinity &rarr; gate &rarr; decision &rarr; output &rarr; learn &nbsp;&middot;&nbsp; tools (data-true, lit): brain-trust &middot; session &middot; FSO &middot; <span style="color:#ff8a3c;">FSO-GSD</span> &middot; <span style="color:#c792ea;">node-time</span> &middot; <span style="color:#7fffd4;">timing</span> &middot; cost-guard &middot; calib &middot; self-tune &middot; <span style="color:#ff8a3c;">GSD-risk</span> &middot; comp-rel &middot; <span style="color:#7fd8ff;">cloud-sync</span> &middot; <span style="color:#c792ea;">kinetic</span> &middot; <span style="color:#8fb8ff;">regime-HMM</span> &middot; <span style="color:#ff8fa3;">LLM-verify</span> &middot; spike-guard &middot; <span style="color:#14f195;">guardian</span> &middot; <span style="color:#ff5f7e;">risk-break</span> &middot; RL-exit &middot; <span style="color:#7fd8ff;">deepnet-L3</span> &middot; <span style="color:#ff8a3c;">shockwave</span> &middot; <span style="color:#ffd76a;">ΔV-KS</span> &middot; <span style="color:#14f195;">markt-select</span> &middot; <span style="color:#4fc3f7;">finance</span> &nbsp;&middot;&nbsp; <span style="color:#5c7488;">gestippeld = planned: predict-inv &middot; multi-TF &middot; node-fade &middot; margin</span></div>
       </div>
       <canvas id="tr-deepnet-canvas" style="width:100%;height:580px;display:block;"></canvas>
       <div class="mono" style="font-size:0.6rem;color:var(--dim);margin-top:6px;">Uitkomst: <b id="tr-deepnet-out" style="color:var(--dim);">&mdash;</b></div>
@@ -2588,6 +2589,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       </div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:14px;">Win rate per session (live learning) <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— brain-trust: ×gewicht · AUC · vlak/inv</span></div>
       <div class="tsessions" id="tr-sessions"></div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Autonome adapters <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— alle zelf-aanpassende modules die de sizing/entries nú sturen · live status</span></div>
+      <div class="mono" id="tr-adapters" style="font-size:0.55rem;margin-top:5px;color:var(--dim);line-height:1.8;">adapters initialiseren…</div>
     </div>
 
     <div class="secdiv"><h3>FSO · FX system-stress</h3><span class="sub">— markt-als-systeem over alle 18 valuta's &amp; 28 pairs · micro/meso/macro/volledig · togglebaar</span></div>
@@ -2609,6 +2612,8 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
       <div class="mono" id="tr-fso-shadow" style="font-size:0.54rem;margin-top:12px;color:var(--dim);line-height:1.7;">shadow-backtest verzamelt data…</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">FSO-GSD shadow-backtest <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— does world stress predict Trinity's outcomes? (observational)</span></div>
       <div class="mono" id="tr-gsd-shadow" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.7;">GSD shadow-backtest: collecting closed trades with their world-stress state…</div>
+      <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">ΔV-KS · energie/timing-overdracht <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— huidige→opkomende fase van de kill-switch-cyclus, alle markten · standaard gewicht ×1.0, schaalt elke 5 trades op/af (shadow-getoetst)</span></div>
+      <div class="mono" id="tr-dvks" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.7;">ΔV-KS verzamelt fase-data per markt…</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Per-pair / category learning <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— which markets win, which bleed (drives sizing &amp; skips)</span></div>
       <div class="mono" id="tr-pairtrust" style="font-size:0.55rem;margin-top:4px;color:var(--dim);line-height:1.7;">no per-pair learning yet — import your Capital history or let Trinity trade.</div>
       <div class="mono" style="font-size:0.56rem;color:var(--dim);letter-spacing:0.1em;text-transform:uppercase;margin-top:16px;">Engine intelligence <span style="color:var(--dimmer);text-transform:none;letter-spacing:0;">— kinetic · regime-HMM · risk-break · LLM-verify · RL-exit · guardian · sentiment-scan (gratis)</span></div>
@@ -2815,8 +2820,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
         <button onclick="exportWallet()">⭳ Wallet (JSON)</button>
         <button onclick="exportEngine()">⭳ Engine (JSON)</button>
         <button onclick="exportReasoning()">⭳ Reasoning feed</button>
+        <button style="color:#ffb627;border-color:rgba(255,182,39,0.5);" onclick="try{exportCandles('json')}catch(e){}">⭳ Candles (JSON)</button>
+        <button style="color:#ffb627;border-color:rgba(255,182,39,0.4);" onclick="try{exportCandles('csv')}catch(e){}">⭳ Candles (CSV)</button>
       </div>
-      <div class="mono" style="font-size:0.52rem;color:var(--dimmer);margin-top:10px;line-height:1.6;">Exports bevatten geen API-keys of wachtwoorden. Trades/Pairs als CSV; Wallet/Engine als JSON incl. brain-trust per sessie, kalibratie (predicted vs measured) en auto-aanpassingen.</div>
+      <div class="mono" style="font-size:0.52rem;color:var(--dimmer);margin-top:10px;line-height:1.6;">Exports bevatten geen API-keys of wachtwoorden. Trades/Pairs als CSV; Wallet/Engine als JSON incl. brain-trust per sessie, kalibratie (predicted vs measured) en auto-aanpassingen. <b style="color:#ffb627;">Candles</b> = ruwe OHLC(V)-historie per markt × timeframe (commodity + FX + crypto/NEO); klik laadt eerst de /history-stores, dus na verbinden met Capital nog eens klikken vult de FX/commodity-candles volledig.</div>
     </div>
 
     <div class="secdiv"><h3>UOTAM systeem-analyse &middot; commodity + FX</h3><span class="sub">— alle data die Trinity gebruikt om trades te beredeneren (Fractal Energy Scale · Support &amp; Target Matrix · forecast · shadow-trust · autonoom gewicht)</span></div>
@@ -3080,7 +3087,7 @@ autoCanvas('svp',svpSetup);
 autoCanvas('eye',eyeSetup);
 showTab('about');
 </script>
-<script src="app.js?v=20260920-build159-gsd-resource-feed"></script>
+<script src="app.js?v=20260921-build162-trinity-ui"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="osiris-sync.js?v=20260904-b61"></script>
 <script>window.addEventListener("DOMContentLoaded",function(){if(window.osirisSyncInit)osirisSyncInit();});</script>
